@@ -4,6 +4,7 @@ description: Uses Chrome DevTools MCP to audit pages for accessibility, performa
 tools: Read, Glob, Grep, Bash
 model: haiku
 color: orange
+tier: specialist
 ---
 
 # UI Auditor Agent

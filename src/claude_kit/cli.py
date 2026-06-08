@@ -1,284 +1,289 @@
-"""Command-line interface for claude-kit.
+"""Command-line interface for claude-kit (``claude-kit`` · aliases ``ckit`` / ``claude-sdlc``).
 
-Provides ``claude-kit`` (alias ``ckit``) with subcommands to generate and manage the kit:
-``new`` (generate a project), ``init``, ``upgrade``, ``status``, ``list``, and ``version``.
-Stdlib-only — no third-party deps.
+A Cookiecutter-style scaffolder for a Claude Code **configuration** (no application code, no Docker):
+``init`` asks ordered questions and lays down ``CLAUDE.md`` + ``.claude/`` (rules, the profile's
+agents/skills, hooks, artifact templates, config) + an optional ``.mcp.json`` and a README. Lifecycle
+commands — ``validate``, ``doctor``, ``diff``, ``upgrade``, ``list-options``, ``status`` — manage it.
 """
 
 from __future__ import annotations
 
-import argparse
-import sys
 from contextlib import ExitStack
 from pathlib import Path
+from typing import Optional
 
-from claude_kit import __version__, generate, scaffold
+import typer
+
+from claude_kit import __version__, catalog, prompts, scaffold, upgrader, validator
 
 BANNER = r"""
   ___ _      _   _ ___  ___   _  _____ _____
  / __| |    /_\ | | |   \| __| | |/ /_ _|_   _|
 | (__| |__ / _ \| |_| | |) | _|  | ' < | |  | |
- \___|____/_/ \_\\___/|___/|___| |_|\_\___| |_|   autonomous SDLC for Claude Code
+ \___|____/_/ \_\\___/|___/|___| |_|\_\___| |_|   autonomous SDLC config for Claude Code
 """
 
-
-def _prompt(label: str, default: str) -> str:
-    """Prompt for a value with a default, tolerant of non-interactive input."""
-    try:
-        resp = input(f"{label} [{default}]: ").strip()
-    except EOFError:
-        return default
-    return resp or default
-
-
-def _choose_stack(
-    stacks: list[dict], kind: str, flag_value: str | None, no_input: bool
-) -> str:
-    """Resolve a stack id from a flag, a single registered option, or an interactive menu.
-
-    Args:
-        stacks: Registered stacks of this kind (each a ``stack.json`` mapping).
-        kind: ``"backend"`` or ``"frontend"`` (for messages).
-        flag_value: An explicit ``--backend``/``--frontend`` value, or ``None``.
-        no_input: Skip prompting and take the first option when not flag-specified.
-
-    Returns:
-        The chosen stack id.
-
-    Raises:
-        SystemExit: If ``flag_value`` names a stack that is not registered.
-    """
-    ids = [s["id"] for s in stacks]
-    if flag_value:
-        if flag_value not in ids:
-            raise SystemExit(
-                f"unknown {kind} stack {flag_value!r} (choices: {', '.join(ids)})"
-            )
-        return flag_value
-    if len(stacks) == 1 or no_input:
-        return ids[0]
-    print(f"\nAvailable {kind} stacks:")
-    for i, s in enumerate(stacks, 1):
-        print(f"  {i}) {s.get('label', s['id'])}")
-    while True:
-        resp = input(f"Choose {kind} [1]: ").strip() or "1"
-        if resp.isdigit() and 1 <= int(resp) <= len(stacks):
-            return ids[int(resp) - 1]
-        print(f"  enter a number 1-{len(stacks)}")
+app = typer.Typer(
+    add_completion=False,
+    no_args_is_help=False,
+    help="Scaffold and manage a Claude Code autonomous-SDLC configuration.",
+)
+research_app = typer.Typer(
+    no_args_is_help=True, help="Research helpers (license-respecting)."
+)
+app.add_typer(research_app, name="research")
 
 
-def _cmd_new(args: argparse.Namespace) -> int:
-    """Handle ``claude-kit new`` — generate a project from the stack registry."""
+def _version_callback(value: bool) -> None:
+    if value:
+        typer.echo(f"claude-kit {__version__}")
+        raise typer.Exit()
+
+
+@app.callback(invoke_without_command=True)
+def _root(
+    ctx: typer.Context,
+    version: bool = typer.Option(
+        False,
+        "-V",
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="print the version",
+    ),
+) -> None:
+    """Show the banner + help when invoked with no subcommand."""
+    if ctx.invoked_subcommand is None:
+        typer.echo(BANNER)
+        typer.echo(ctx.get_help())
+
+
+def _print_report(ok: bool, messages: list[str]) -> None:
+    """Print a check report and exit non-zero on failure."""
+    for line in messages:
+        typer.echo(line)
+    if not ok:
+        raise typer.Exit(1)
+
+
+@app.command()
+def init(
+    path: Optional[str] = typer.Argument(
+        None, help="target project dir (prompted if omitted; default: current dir)"
+    ),
+    defaults: bool = typer.Option(
+        False, "--defaults", help="non-interactive; use catalog defaults"
+    ),
+    config: Optional[str] = typer.Option(
+        None, "--config", help="non-interactive; read the selection from a YAML file"
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="overwrite existing CLAUDE.md / settings.json / .mcp.json",
+    ),
+) -> None:
+    """Scaffold a Claude Code SDLC configuration into a project."""
+    non_interactive = defaults or config is not None
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
-        backends = generate.list_stacks(src, "backend")
-        frontends = generate.list_stacks(src, "frontend")
-        if not backends or not frontends:
-            print("error: no stacks found in the claude-kit payload.", file=sys.stderr)
-            return 1
 
-        # Resolve the target directory and the human project name.
-        if args.here:
-            target = Path(args.path or ".").expanduser().resolve()
-            name_default = target.name
-        elif args.path:
-            target = Path(args.path).expanduser().resolve()
-            name_default = target.name
+        # 1) Target path.
+        if path is None:
+            raw = "." if non_interactive else input("Target path [.]: ").strip() or "."
         else:
-            name = "my-app" if args.no_input else _prompt("Project name", "my-app")
-            target = Path.cwd() / generate.slugify(name)
-            name_default = name
+            raw = path
+        target = Path(raw).expanduser().resolve()
+        if not target.exists():
+            if not non_interactive and not typer.confirm(
+                f"Create {target}?", default=True
+            ):
+                typer.echo("aborted.")
+                raise typer.Exit(0)
+            target.mkdir(parents=True, exist_ok=True)
 
-        project_name = args.name or (
-            name_default if args.no_input else _prompt("Project name", name_default)
-        )
-        backend_id = _choose_stack(backends, "backend", args.backend, args.no_input)
-        frontend_id = _choose_stack(frontends, "frontend", args.frontend, args.no_input)
+        # 2) Existing .claude handling: merge / overwrite / backup / abort.
+        overwrite = force
+        if (target / ".claude").exists():
+            if force:
+                mode = "overwrite"
+            elif non_interactive:
+                mode = "merge"
+            else:
+                mode = (
+                    typer.prompt(
+                        ".claude already exists — [merge/overwrite/backup/abort]",
+                        default="merge",
+                    )
+                    .strip()
+                    .lower()
+                )
+            if mode == "abort":
+                typer.echo("aborted — nothing changed.")
+                raise typer.Exit(0)
+            if mode == "overwrite":
+                overwrite = True
+            if mode == "backup":
+                n = 1
+                while (target / f".claude.bak-{n}").exists():
+                    n += 1
+                (target / ".claude").rename(target / f".claude.bak-{n}")
+                typer.echo(f"  • backed up existing .claude/ -> .claude.bak-{n}")
 
-        for line in generate.generate(
-            src,
-            target,
-            project_name=project_name,
-            backend_id=backend_id,
-            frontend_id=frontend_id,
-            db=args.db,
-            force=args.force,
-            here=args.here,
-        ):
-            print(line)
+        # 3) Resolve the selection.
+        try:
+            if config is not None:
+                selection = prompts.from_config(config, src)
+            elif defaults:
+                selection = catalog.defaults(src)
+            else:
+                selection = prompts.interactive(src)
+            plan = catalog.resolve(src, selection)
+        except (ValueError, FileNotFoundError) as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(2) from exc
 
-    print("\nNext:")
-    if not args.here:
-        print(f"  cd {target.name}")
-    print(
-        "  docker compose up --build        # zero local installs — or `make dev` for native"
+        # 4) Install.
+        typer.echo(f"\nclaude-kit: installing into {target}")
+        for line in scaffold.install_sdlc(src, target, plan, force=overwrite):
+            typer.echo(line)
+
+    typer.echo(
+        "\nDone. Open the project in Claude Code and run `/sdlc <your task>` to start the pipeline."
     )
-    print("  open the project in Claude Code, then: /claude-kit:sdlc <your first task>")
-    return 0
 
 
-def _cmd_init(args: argparse.Namespace) -> int:
-    """Handle ``claude-kit init``."""
-    for line in scaffold.init(
-        args.path, force=args.force, minimal=args.minimal, no_hooks=args.no_hooks
-    ):
-        print(line)
-    print(
-        "\nNext: open the project in Claude Code, then try `/claude-kit:sdlc <your task>`."
-    )
-    return 0
+@app.command()
+def validate(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Structurally validate a scaffolded .claude/ configuration."""
+    _print_report(*validator.validate(path))
 
 
-def _cmd_upgrade(args: argparse.Namespace) -> int:
-    """Handle ``claude-kit upgrade``."""
-    for line in scaffold.upgrade(args.path):
-        print(line)
-    return 0
+@app.command()
+def doctor(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Run validation plus environment/health checks with fix hints."""
+    _print_report(*validator.doctor(path))
 
 
-def _cmd_list(_: argparse.Namespace) -> int:
-    """Handle ``claude-kit list``."""
-    inv = scaffold.inventory()
-    for key in ("agents", "rules", "skills"):
-        items = inv[key]
-        print(f"\n{key} ({len(items)}):")
-        for name in items:
-            print(f"  - {name}")
-    return 0
+@app.command()
+def diff(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Preview what an upgrade would change (no writes)."""
+    _print_report(*upgrader.diff(path))
 
 
-def _cmd_status(args: argparse.Namespace) -> int:
-    """Handle ``claude-kit status``."""
-    target = Path(args.path).expanduser().resolve()
+@app.command()
+def upgrade(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+    force: bool = typer.Option(
+        False, "--force", help="overwrite user-modified kit files"
+    ),
+) -> None:
+    """Refresh kit-owned files, backing up user-modified ones."""
+    _print_report(*upgrader.upgrade(path, force=force))
+
+
+@app.command("list-options")
+def list_options() -> None:
+    """List the available frontend/backend/database/profile/MCP options from the catalog."""
+    with ExitStack() as stack:
+        src = scaffold.payload_dir(stack)
+        opts = catalog.list_options(src)
+
+    def _badge(entry: dict) -> str:
+        return "" if entry.get("status", "live") == "live" else "  (coming soon)"
+
+    typer.echo("\nFrontend frameworks:")
+    for fe in opts["frontend"]:
+        langs = ", ".join(fe.get("languages", [])) or "—"
+        typer.echo(f"  • {fe['id']}: {fe['label']}{_badge(fe)}  [languages: {langs}]")
+    typer.echo("\nBackend languages & frameworks:")
+    for be in opts["backend"]:
+        typer.echo(f"  • {be['id']}: {be['label']}{_badge(be)}")
+        for fw in be["frameworks"]:
+            typer.echo(f"      - {fw['id']}: {fw['label']}{_badge(fw)}")
+    typer.echo("\nDatabases:")
+    for db in opts["database"]:
+        typer.echo(f"  • {db['id']}: {db['label']}")
+    typer.echo("\nSDLC profiles:")
+    for pr in opts["profiles"]:
+        typer.echo(f"  • {pr['id']}: {pr['label']}")
+    typer.echo("\nMCP integrations (optional):")
+    for mc in opts["mcp"]:
+        typer.echo(f"  • {mc['id']}: {mc['label']}")
+
+
+@app.command()
+def status(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Show what's installed and the current working memory."""
+    target = Path(path).expanduser().resolve()
     dest = target / ".claude"
-    print(f"claude-kit status for {target}")
+    typer.echo(f"claude-kit status for {target}")
     if not dest.is_dir():
-        print("  not installed — run `claude-kit init` here.")
-        return 0
+        typer.echo("  not installed — run `claude-kit init` here.")
+        return
     for name in ("rules", "agents", "skills", "hooks"):
         d = dest / name
         if d.is_dir():
             n = sum(1 for p in d.iterdir() if p.name != ".gitkeep")
-            print(f"  • {name}/: {n}")
+            typer.echo(f"  • {name}/: {n}")
         else:
-            print(f"  • {name}/: (missing)")
+            typer.echo(f"  • {name}/: (missing)")
+    options = dest / "config" / "init-options.json"
+    if options.is_file():
+        import json
+
+        data = json.loads(options.read_text(encoding="utf-8"))
+        sel = data.get("selection", {})
+        typer.echo(
+            f"  • selection: {sel.get('frontend_framework')} + "
+            f"{sel.get('backend_language')}/{sel.get('backend_framework')} + "
+            f"{sel.get('database')} · profile={sel.get('profile')} · mcp={sel.get('mcp') or 'none'}"
+        )
     continuity = dest / "CONTINUITY.md"
     if continuity.is_file():
-        print("\n  working memory (.claude/CONTINUITY.md):")
-        text = continuity.read_text(encoding="utf-8", errors="replace")
-        for line in text.splitlines()[:40]:
-            print(f"    {line}")
+        typer.echo("\n  working memory (.claude/CONTINUITY.md):")
+        for line in continuity.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()[:30]:
+            typer.echo(f"    {line}")
     else:
-        print("\n  no CONTINUITY.md yet (no pipeline run recorded).")
-    return 0
+        typer.echo("\n  no CONTINUITY.md yet (no pipeline run recorded).")
 
 
-def _cmd_version(_: argparse.Namespace) -> int:
-    """Handle ``claude-kit version``."""
-    print(f"claude-kit {__version__}")
-    return 0
+@app.command()
+def version() -> None:
+    """Print the version."""
+    typer.echo(f"claude-kit {__version__}")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Construct the argument parser with all subcommands.
-
-    Returns:
-        The configured ``ArgumentParser``.
-    """
-    parser = argparse.ArgumentParser(
-        prog="claude-kit",
-        description="Scaffold and manage the claude-kit autonomous SDLC for Claude Code.",
+@research_app.command("import-sources")
+def research_import_sources(
+    sources: str = typer.Argument(
+        ..., help="YAML file of explicit, license-cleared sources"
+    ),
+) -> None:
+    """(Planned) Summarise explicit, license-cleared sources into original skill/agent proposals."""
+    typer.echo(
+        "research import-sources is planned but not yet implemented.\n"
+        "When available it will: read explicit source URLs/files from the given YAML, record each "
+        "source's name/URL/license/author/date, summarise ideas into ORIGINAL skill/agent proposals "
+        "(never copying proprietary text), and require human approval before adding anything.\n"
+        f"(given: {sources})"
     )
-    parser.add_argument(
-        "-V", "--version", action="version", version=f"claude-kit {__version__}"
-    )
-    sub = parser.add_subparsers(dest="command", metavar="<command>")
-
-    p_new = sub.add_parser(
-        "new",
-        help="generate a new project (React + FastAPI) with the SDLC config baked in",
-    )
-    p_new.add_argument(
-        "path",
-        nargs="?",
-        default=None,
-        help="target directory / project name (prompted if omitted)",
-    )
-    p_new.add_argument("--name", help="human project name (default: target dir name)")
-    p_new.add_argument("--backend", help="backend stack id (e.g. python-fastapi)")
-    p_new.add_argument("--frontend", help="frontend stack id (e.g. react)")
-    p_new.add_argument("--db", default="postgres", help="database (default: postgres)")
-    p_new.add_argument(
-        "--no-input", action="store_true", help="accept defaults; never prompt"
-    )
-    p_new.add_argument(
-        "--here", action="store_true", help="generate into the current directory"
-    )
-    p_new.add_argument(
-        "--force", action="store_true", help="generate into a non-empty directory"
-    )
-    p_new.set_defaults(func=_cmd_new)
-
-    p_init = sub.add_parser("init", help="scaffold claude-kit into a project")
-    p_init.add_argument(
-        "path", nargs="?", default=".", help="target project dir (default: .)"
-    )
-    p_init.add_argument(
-        "--force",
-        action="store_true",
-        help="overwrite existing CLAUDE.md / settings.json",
-    )
-    p_init.add_argument(
-        "--minimal", action="store_true", help="only CLAUDE.md + rules/"
-    )
-    p_init.add_argument(
-        "--no-hooks", action="store_true", help="skip hook scripts and settings.json"
-    )
-    p_init.set_defaults(func=_cmd_init)
-
-    p_up = sub.add_parser(
-        "upgrade",
-        help="refresh rules/agents/skills/hooks (keeps your CLAUDE.md & settings)",
-    )
-    p_up.add_argument(
-        "path", nargs="?", default=".", help="target project dir (default: .)"
-    )
-    p_up.set_defaults(func=_cmd_upgrade)
-
-    p_status = sub.add_parser(
-        "status", help="show what's installed and the working memory"
-    )
-    p_status.add_argument(
-        "path", nargs="?", default=".", help="target project dir (default: .)"
-    )
-    p_status.set_defaults(func=_cmd_status)
-
-    p_list = sub.add_parser("list", help="list bundled agents, rules, and skills")
-    p_list.set_defaults(func=_cmd_list)
-
-    p_ver = sub.add_parser("version", help="print the version")
-    p_ver.set_defaults(func=_cmd_version)
-
-    return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    """CLI entry point.
-
-    Args:
-        argv: Optional argument list (defaults to ``sys.argv[1:]``).
-
-    Returns:
-        Process exit code.
-    """
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if not getattr(args, "command", None):
-        print(BANNER)
-        parser.print_help()
-        return 0
-    return args.func(args)
+def main() -> None:
+    """Console-script entry point."""
+    app()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

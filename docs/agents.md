@@ -3,32 +3,34 @@
 claude-kit installs a team of focused agents plus an **orchestrator** that runs them through a
 software-delivery pipeline with a quality gate between phases. This guide shows how to drive them.
 
-> Prerequisite: the agents load when claude-kit is active in a project — either installed as a
-> plugin (`/plugin install claude-kit`) or scaffolded with `claude-kit init` / generated with
-> `claude-kit new`. After installing into a project, **restart Claude Code** so the agents,
-> skills, and hooks load.
+> Prerequisite: the agents load when claude-kit is active in a project — installed as a plugin
+> (`/plugin install claude-kit`) or scaffolded with `claude-kit init`. Which agents are present
+> depends on the **profile** you chose at init (`lean ⊊ standard ⊊ enterprise`). After installing
+> into a project, **restart Claude Code** so the agents, skills, and hooks load.
 
 ## Two ways to invoke
 
 ### 1. Run the whole pipeline (recommended)
 
 ```text
-/claude-kit:sdlc <describe the feature or bug>
+/sdlc <describe the feature or bug>
 ```
 
-The **orchestrator** takes over: it classifies the work, writes a spec, and moves it through
-review → implementation → testing → security → delivery, enforcing a gate at each step and pausing
-to ask you at genuine decision points. Use this for anything non-trivial.
+The `sdlc` skill is the entrypoint; it reads your profile's active gate set and hands off to the
+**orchestrator**, which classifies the work, writes a spec, and moves it through review →
+implementation → testing → security → delivery, enforcing a gate at each step and pausing to ask you
+at genuine decision points. (From the plugin, `/claude-kit:sdlc` does the same.) Use this for
+anything non-trivial.
 
 Examples:
 
 ```text
-/claude-kit:sdlc Add a "completed" flag to items: API field + a checkbox in the UI
-/claude-kit:sdlc Fix the 500 when creating an item with an empty title
-/claude-kit:sdlc Add pagination to the items list endpoint and the table
+/sdlc Add a "completed" flag to items: API field + a checkbox in the UI
+/sdlc Fix the 500 when creating an item with an empty title
+/sdlc Add pagination to the items list endpoint and the table
 ```
 
-Check progress any time with `/claude-kit:status` (reads working memory).
+Check progress any time with `/claude-kit:status` or `claude-kit status` (reads working memory).
 
 ### 2. Invoke a single agent
 
@@ -48,10 +50,13 @@ Request ─▶ classify ─▶ Spec & Dev Docs ─▶ [Gate: EM approved]
         ─▶ Implement (Developer + Code Reviewer, per lane)
         ─▶ Test (unit · e2e · integration → Senior Tester) ─▶ [Gate: coverage + Devil's Advocate]
         ─▶ Security (4 sub-scanners) ─▶ [Gate: Security Clear]
-        ─▶ DevOps + Observability (if deployable) ─▶ PR
+        ─▶ DevOps + Observability + Acceptance (enterprise) ─▶ PR
 ```
 
-A **fast-track** path (bug fixes / < 5 files) skips planning: Developer → Code Reviewer → Tester → PR.
+Which gates actually run depends on the profile: **lean** = code-review · build-green; **standard**
+adds spec/EM/coverage/security; **enterprise** adds pipeline-green · observability-ready ·
+acceptance. A **fast-track** path (bug fixes / < 5 files) skips planning: Developer → Code Reviewer →
+Tester → PR.
 
 Every gate uses the same severity model — a gate passes only with **zero Critical/High/Medium**
 findings open — and a *unanimous* PASS triggers the `devils-advocate` agent before the gate counts
@@ -59,20 +64,25 @@ findings open — and a *unanimous* PASS triggers the `devils-advocate` agent be
 
 ## The agents by phase
 
+Each agent carries a `tier:` (orchestrator · stage-lead · specialist · review) — informational
+metadata; Claude still auto-selects by description.
+
 | Phase | Agents |
 |-------|--------|
 | **Coordinate** | `orchestrator` (delegates and gates; never writes code) |
-| **Plan** | `spec-doc-writer`, `ui-designer` |
+| **Plan** | `spec-doc-writer`, `story-planner`, `ui-designer` |
 | **Review** | `senior-backend-dev`, `senior-frontend-dev`, `technical-architect`, `em-reviewer`, `merge-reviewer` |
-| **Build** | `developer`, `sdlc-code-reviewer` |
+| **Build** | `developer`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`) |
 | **Test** | `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `auditor` |
-| **Rigor** | `devils-advocate` |
+| **Rigor** | `devils-advocate`, `acceptance-reviewer` |
 | **Secure** | `security-reviewer` + `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` |
 | **Ship** | `devops-engineer`, `observability-engineer`, `pr-raiser` |
 
-In a generated project the two review/build lanes are concrete: **backend** (`senior-backend-dev`,
-following `.claude/rules/fastapi-patterns.md`) and **frontend** (`senior-frontend-dev`, following
-`.claude/rules/react-patterns.md`). They run in parallel and reconcile at the API contract.
+In a scaffolded project with both a frontend and a backend stack, the two review/build lanes are
+concrete: **backend** (`senior-backend-dev`, following the backend overlay rule such as
+`.claude/rules/fastapi-patterns.md`) and **frontend** (`senior-frontend-dev`, following the frontend
+overlay rule such as `.claude/rules/react-patterns.md`). They run in parallel and reconcile at the
+API contract; the DB specialist + migration specialist support the backend lane.
 
 ## What keeps long runs reliable
 

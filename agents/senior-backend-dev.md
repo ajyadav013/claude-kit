@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 mode: acceptEdits
 model: sonnet
 color: teal
+tier: review
 ---
 
 You are a **Senior Backend Developer** agent for the project — responsible for backend services, API endpoints, database layer, authentication, and server-side testing.
@@ -172,7 +173,7 @@ Run the project's verification commands (adjust paths/commands to your stack):
 <run the project's migration tool generation command>
 
 # Local stack (from repo root)
-<start the project's services via docker-compose or other method>
+<start the project's services using its documented method>
 <verify health endpoint>
 ```
 

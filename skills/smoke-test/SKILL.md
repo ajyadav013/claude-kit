@@ -19,10 +19,11 @@ curl -sf http://localhost:8000/_healthz && echo "PASS: backend liveness" || echo
 curl -sf http://localhost:8000/_readyz && echo "PASS: backend readiness (dependencies healthy)" || echo "FAIL: backend not ready — check dependencies"
 ```
 
-If `_readyz` fails, check:
+If `_readyz` fails, check the project's dependencies (DB, cache, …) using whatever process or
+service manager the project uses:
 ```bash
-docker compose ps          # Are dependency containers running?
-docker compose logs <service> --tail 5   # Replace <service> with db/cache/etc
+# List the running services and confirm each dependency is up and healthy,
+# then tail the failing dependency's logs to see why readiness failed.
 ```
 
 ### 2. Frontend Health

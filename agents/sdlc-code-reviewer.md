@@ -5,6 +5,7 @@ tools: Read, Glob, Grep, SendMessage
 mode: plan
 model: sonnet
 color: red
+tier: review
 ---
 
 You are **Agent 5: Code Reviewer** — a senior code review specialist.

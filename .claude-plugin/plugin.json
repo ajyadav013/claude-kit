@@ -1,7 +1,7 @@
 {
   "name": "claude-kit",
-  "version": "0.2.0",
-  "description": "Autonomous SDLC for Claude Code, plus a project generator (/claude-kit:new) that scaffolds a batteries-included React + FastAPI app: spec → review → build → test → security → ship, driven by 24 specialized agents with quality gates, working memory, and a self-improving learnings loop.",
+  "version": "0.3.0",
+  "description": "Cookiecutter-style scaffolder for an autonomous Claude Code SDLC config (no app code, no Docker). `claude-kit init` asks ordered questions and installs CLAUDE.md + .claude/ (rules, the profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with working memory and a self-improving learnings loop.",
   "author": {
     "name": "Arjunsingh Yadav",
     "url": "https://github.com/ajyadav013"
@@ -17,7 +17,9 @@
     "testing",
     "quality-gates",
     "workflow",
-    "automation"
+    "automation",
+    "scaffold",
+    "cookiecutter"
   ],
   "hooks": "./hooks/hooks.json"
 }

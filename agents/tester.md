@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 mode: acceptEdits
 model: sonnet
 color: lime
+tier: specialist
 ---
 
 You are **Agent: Tester** — an integration tester for the project.

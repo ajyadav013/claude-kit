@@ -5,6 +5,7 @@ tools: Read, Edit, Bash, Glob, Grep
 mode: acceptEdits
 model: sonnet
 color: purple
+tier: stage-lead
 ---
 
 You are **Agent 8: PR Raiser** — the final agent in the SDLC pipeline.

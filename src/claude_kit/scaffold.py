@@ -1,35 +1,53 @@
-"""Scaffolding logic for claude-kit.
+"""Installer — writes a resolved claude-kit configuration into a target project.
 
-Copies the bundled payload (``claude_kit/_payload``) — rules, agents, skills, hooks, and
-templates — into a target project's ``.claude/`` directory, and writes a generic ``CLAUDE.md``
-to the project root. This mirrors ``scripts/init.sh`` (used by the ``/claude-kit:init`` plugin
-command) so both install channels behave identically.
+Given a :class:`~claude_kit.models.ResolvedPlan` (from :func:`claude_kit.catalog.resolve`), this
+module copies the profile's agent/skill/hook **subset**, the core rules, the selected stack
+**overlay** rules + agents, assembles ``.claude/settings.json`` from the chosen hooks, optionally
+writes ``.mcp.json``, installs artifact templates and a tuned ``CLAUDE.md`` + ``README.claude-sdlc.md``,
+creates gitignored runtime dirs, and records per-file checksums in ``.claude/config/init-options.json``
+for safe upgrades. It writes **no application code and no Docker** — configuration only.
+
+``install_sdlc`` is the single spine shared by the pip CLI and (via a thin fallback) the plugin.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
 
+import yaml
+
+from claude_kit import __version__, hooks as hooks_mod
+from claude_kit.models import FileRecord, InitOptions, ResolvedPlan
+from claude_kit.render import render_text
+
+#: Marker in the generic CLAUDE.md whose section is replaced with the stack-specific block.
+_STACK_MARKER = "## Project-specific rules"
+
+#: Selective .gitignore entries for a scaffolded project (commit the rest of .claude/).
+GITIGNORE_ENTRIES = (
+    ".claude/settings.local.json",
+    "CLAUDE.local.md",
+    ".claude/state/",
+    ".claude/tmp/",
+)
+
 
 def payload_dir(stack: ExitStack) -> Path:
     """Return a real filesystem path to the bundled payload directory.
 
+    Resolution order: (1) the bundled ``claude_kit/_payload`` (installed/built package); (2) the
+    repository root (two levels above this file) when running from a source checkout.
+
     Args:
-        stack: An ``ExitStack`` that keeps any temporary extraction alive for the caller's
-            scope (needed when the package is imported from a zip).
-
-    Resolution order:
-
-    1. The bundled ``claude_kit/_payload`` (present in an installed/built package).
-    2. A source-checkout fallback: the repository root (two levels above this file), which holds
-       ``rules/``, ``agents/``, ``templates/`` directly. This lets ``claude-kit`` run from a clone
-       (``PYTHONPATH=src``) without a build step.
+        stack: An ``ExitStack`` keeping any temporary extraction alive for the caller's scope.
 
     Returns:
-        Path to the payload root containing rules/agents/skills/hooks/templates.
+        Path to the payload root containing ``rules/ agents/ skills/ hooks/ templates/ catalog/``.
 
     Raises:
         FileNotFoundError: If no payload can be located by either route.
@@ -43,12 +61,15 @@ def payload_dir(stack: ExitStack) -> Path:
         pass
 
     repo_root = Path(__file__).resolve().parents[2]
-    if (repo_root / "rules").is_dir() and (repo_root / "templates").is_dir():
+    if (repo_root / "rules").is_dir() and (repo_root / "catalog").is_dir():
         return repo_root
 
     raise FileNotFoundError(
         "claude-kit payload not found — the package was built without its data files."
     )
+
+
+# --- small fs helpers ------------------------------------------------------------------------------
 
 
 def _copy_tree(src: Path, dest: Path) -> None:
@@ -58,10 +79,11 @@ def _copy_tree(src: Path, dest: Path) -> None:
     shutil.copytree(src, dest)
 
 
-def _copy_root_file(
+def _copy_user_file(
     src: Path, dest: Path, *, force: bool, log: list[str], label: str
 ) -> None:
-    """Copy a single file to the project root, never clobbering unless ``force``."""
+    """Copy a user-editable file, writing a ``.claude-kit`` sidecar instead of clobbering edits."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not force:
         sidecar = dest.with_name(dest.name + ".claude-kit")
         shutil.copy2(src, sidecar)
@@ -73,169 +95,338 @@ def _copy_root_file(
         log.append(f"  • {label} installed")
 
 
+def _write_user_text(
+    dest: Path, text: str, *, force: bool, log: list[str], label: str
+) -> None:
+    """Write rendered text to a user-editable file, sidecar'ing instead of clobbering edits."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists() and not force:
+        sidecar = dest.with_name(dest.name + ".claude-kit")
+        sidecar.write_text(text, encoding="utf-8")
+        log.append(
+            f"  • {label} exists — wrote {sidecar.name} (use --force to overwrite)"
+        )
+    else:
+        dest.write_text(text, encoding="utf-8")
+        log.append(f"  • {label} installed")
+
+
+def _sha256(path: Path) -> str:
+    """Return the hex SHA-256 of a file's bytes."""
+    h = hashlib.sha256()
+    h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def _find_overlay(
+    src: Path, stack_dirs: dict[str, str], kind_dir: str, name: str
+) -> Path | None:
+    """Locate an overlay file (``rules`` or ``agents``) by name across the selected stack dirs."""
+    stacks = src / "templates" / "stacks"
+    for stack_dir in stack_dirs.values():
+        if not stack_dir:
+            continue
+        candidate = stacks / stack_dir / kind_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+# --- install steps ---------------------------------------------------------------------------------
+
+
+def _install_rules(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:
+    """Install all core rules plus the selected overlay rules into ``.claude/rules/``."""
+    rules_dest = dest / "rules"
+    _copy_tree(src / "rules", rules_dest)
+    log.append(f"  • rules/ ({sum(1 for _ in rules_dest.glob('*.md'))} core)")
+    for name in plan.overlay_rules:
+        found = _find_overlay(src, plan.stack_dirs, "rules", name)
+        if found:
+            shutil.copy2(found, rules_dest / name)
+            log.append(f"  • overlay rule: rules/{name}")
+        else:
+            log.append(f"  ! overlay rule missing (skipped): {name}")
+
+
+def _install_agents(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:
+    """Install the profile's core-agent subset plus selected overlay agents into ``.claude/agents/``."""
+    agents_dest = dest / "agents"
+    agents_dest.mkdir(parents=True, exist_ok=True)
+    installed = 0
+    for name in plan.agents:
+        srcf = src / "agents" / f"{name}.md"
+        if srcf.is_file():
+            shutil.copy2(srcf, agents_dest / f"{name}.md")
+            installed += 1
+        else:
+            log.append(f"  ! agent missing (skipped): {name}")
+    log.append(f"  • agents/ ({installed} of {len(plan.agents)} selected)")
+    for name in plan.overlay_agents:
+        found = _find_overlay(src, plan.stack_dirs, "agents", f"{name}.md")
+        if found:
+            shutil.copy2(found, agents_dest / f"{name}.md")
+            log.append(f"  • overlay agent: agents/{name}.md")
+        else:
+            log.append(f"  ! overlay agent missing (skipped): {name}")
+
+
+def _install_skills(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:
+    """Install the profile's skill subset into ``.claude/skills/``."""
+    skills_dest = dest / "skills"
+    skills_dest.mkdir(parents=True, exist_ok=True)
+    installed = 0
+    for name in plan.skills:
+        srcd = src / "skills" / name
+        if (srcd / "SKILL.md").is_file():
+            _copy_tree(srcd, skills_dest / name)
+            installed += 1
+        else:
+            log.append(f"  ! skill missing (skipped): {name}")
+    log.append(f"  • skills/ ({installed} of {len(plan.skills)} selected)")
+
+
+def _install_hooks_and_settings(
+    src: Path, dest: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
+) -> None:
+    """Copy the scripts needed by selected hooks and assemble ``.claude/settings.json``."""
+    hooks_dest = dest / "hooks"
+    hooks_dest.mkdir(parents=True, exist_ok=True)
+    for script in hooks_mod.scripts_for(plan.hooks):
+        srcf = src / "hooks" / "scripts" / script
+        if srcf.is_file():
+            shutil.copy2(srcf, hooks_dest / script)
+            (hooks_dest / script).chmod(0o755)
+    log.append(f"  • hooks/ ({sum(1 for _ in hooks_dest.glob('*.sh'))} scripts)")
+    settings = hooks_mod.build_settings(plan.hooks)
+    _write_user_text(
+        dest / "settings.json",
+        json.dumps(settings, indent=2) + "\n",
+        force=force,
+        log=log,
+        label="settings.json",
+    )
+
+
+def _install_artifact_templates(src: Path, dest: Path, log: list[str]) -> None:
+    """Install the artifact markdown templates into ``.claude/templates/``."""
+    srcd = src / "templates" / "artifacts"
+    if not srcd.is_dir():
+        return
+    tdest = dest / "templates"
+    _copy_tree(srcd, tdest)
+    log.append(
+        f"  • templates/ ({sum(1 for _ in tdest.glob('*.md'))} artifact templates)"
+    )
+
+
+def _write_claude_md(
+    src: Path, target: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
+) -> None:
+    """Write CLAUDE.md and fill its 'Project-specific rules' block from the resolved stack."""
+    claude_md = target / "CLAUDE.md"
+    base = (src / "templates" / "CLAUDE.md").read_text(encoding="utf-8")
+    block_tmpl = src / "templates" / "CLAUDE.stack.md.tmpl"
+    if block_tmpl.is_file():
+        block = (
+            render_text(block_tmpl.read_text(encoding="utf-8"), plan.context).rstrip()
+            + "\n"
+        )
+        idx = base.find(_STACK_MARKER)
+        base = (
+            (base[:idx].rstrip() + "\n\n" + block)
+            if idx != -1
+            else (base.rstrip() + "\n\n" + block)
+        )
+    _write_user_text(claude_md, base, force=force, log=log, label="CLAUDE.md")
+
+
+def _write_mcp(
+    target: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
+) -> None:
+    """Write a project-root ``.mcp.json`` only if MCP servers were selected."""
+    if not plan.mcp_servers:
+        return
+    doc = {"mcpServers": plan.mcp_servers}
+    _write_user_text(
+        target / ".mcp.json",
+        json.dumps(doc, indent=2) + "\n",
+        force=force,
+        log=log,
+        label=".mcp.json",
+    )
+
+
+def _write_readme(
+    src: Path, target: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
+) -> None:
+    """Render ``README.claude-sdlc.md`` from the template."""
+    tmpl = src / "templates" / "README.claude-sdlc.md.tmpl"
+    if not tmpl.is_file():
+        return
+    text = render_text(tmpl.read_text(encoding="utf-8"), plan.context)
+    _write_user_text(
+        target / "README.claude-sdlc.md",
+        text,
+        force=True,
+        log=log,
+        label="README.claude-sdlc.md",
+    )
+
+
+def _update_gitignore(target: Path, log: list[str]) -> None:
+    """Append the selective claude-kit gitignore entries (idempotently)."""
+    gi = target / ".gitignore"
+    existing = gi.read_text(encoding="utf-8").splitlines() if gi.is_file() else []
+    have = set(existing)
+    missing = [e for e in GITIGNORE_ENTRIES if e not in have]
+    if not missing:
+        return
+    lines = list(existing)
+    if lines and lines[-1].strip():
+        lines.append("")
+    lines.append("# claude-kit runtime + local overrides")
+    lines.extend(missing)
+    gi.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    log.append(f"  • .gitignore (+{len(missing)} entries)")
+
+
+def _seed_runtime_dirs(dest: Path, log: list[str]) -> None:
+    """Create gitignored runtime dirs (state/, tmp/) with a .gitkeep so they exist but stay empty."""
+    for name in ("state", "tmp"):
+        d = dest / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / ".gitkeep").write_text("", encoding="utf-8")
+
+
+def _seed_agent_memory(src: Path, dest: Path, log: list[str]) -> None:
+    """Install the agent-memory seed (only if the project doesn't already have one)."""
+    if (dest / "agent-memory").exists():
+        return
+    seed = src / "templates" / "agent-memory"
+    if seed.is_dir():
+        _copy_tree(seed, dest / "agent-memory")
+        log.append("  • agent-memory/ seed")
+
+
+def _classify_owner(rel: str, plan: ResolvedPlan) -> str:
+    """Classify a relative path as kit / overlay / user-editable for upgrade policy."""
+    user_editable = {
+        "CLAUDE.md",
+        ".mcp.json",
+        ".claude/settings.json",
+        ".claude/CONTINUITY.md",
+    }
+    if rel in user_editable or rel.startswith(".claude/agent-memory/"):
+        return "user-editable"
+    overlay_paths = {f".claude/rules/{r}" for r in plan.overlay_rules}
+    overlay_paths |= {f".claude/agents/{a}.md" for a in plan.overlay_agents}
+    if rel in overlay_paths:
+        return "overlay"
+    return "kit"
+
+
+def _record_files(target: Path, plan: ResolvedPlan) -> list[FileRecord]:
+    """Compute checksum + ownership records for every installed file (excluding runtime/self)."""
+    records: list[FileRecord] = []
+    candidates: list[Path] = []
+    for top in ("CLAUDE.md", "README.claude-sdlc.md", ".mcp.json"):
+        p = target / top
+        if p.is_file():
+            candidates.append(p)
+    dest = target / ".claude"
+    skip_dirs = {dest / "state", dest / "tmp"}
+    init_options = dest / "config" / "init-options.json"
+    for p in sorted(dest.rglob("*")):
+        if not p.is_file() or p == init_options:
+            continue
+        if p.name.endswith(".claude-kit"):
+            continue  # transient sidecar of a protected file — not a tracked install artifact
+        if any(sd in p.parents for sd in skip_dirs):
+            continue
+        candidates.append(p)
+    for p in candidates:
+        rel = p.relative_to(target).as_posix()
+        records.append(
+            FileRecord(path=rel, sha256=_sha256(p), owner=_classify_owner(rel, plan))
+        )
+    return sorted(records, key=lambda r: r.path)
+
+
+def _write_config(src: Path, target: Path, plan: ResolvedPlan, log: list[str]) -> None:
+    """Write the resolved catalog snapshot and init-options.json (with file checksums)."""
+    config_dest = target / ".claude" / "config"
+    config_dest.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "selection": plan.selection.to_dict(),
+        "agents": plan.agents,
+        "skills": plan.skills,
+        "overlay_rules": plan.overlay_rules,
+        "overlay_agents": plan.overlay_agents,
+        "hooks": plan.hooks,
+        "gates": plan.gates,
+        "mcp": list(plan.mcp_servers),
+    }
+    (config_dest / "stack-catalog.snapshot.yaml").write_text(
+        yaml.safe_dump(snapshot, sort_keys=False), encoding="utf-8"
+    )
+    options = InitOptions(
+        claude_kit_version=__version__,
+        selection=plan.selection,
+        files=_record_files(target, plan),
+    )
+    (config_dest / "init-options.json").write_text(
+        json.dumps(options.to_dict(), indent=2) + "\n", encoding="utf-8"
+    )
+    log.append("  • config/ (init-options.json + stack snapshot)")
+
+
 def install_sdlc(
     src: Path,
     target: Path,
+    plan: ResolvedPlan,
     *,
     force: bool = False,
-    minimal: bool = False,
-    no_hooks: bool = False,
     log: list[str] | None = None,
 ) -> list[str]:
-    """Install the claude-kit SDLC config from ``src`` into ``target``.
-
-    Copies rules, the generic ``CLAUDE.md``, the continuity template, and (unless ``minimal``)
-    agents, skills, the agent-memory seed, hooks, and ``settings.json`` into ``target/.claude``
-    (with ``CLAUDE.md`` at ``target`` root). Shared by :func:`init` (pip CLI) and the project
-    generator so both behave identically.
+    """Install a resolved claude-kit configuration into ``target``.
 
     Args:
-        src: A real filesystem path to the payload (the dir containing ``rules/``, ``agents/``,
-            ``skills/``, ``hooks/``, and ``templates/``).
+        src: Payload root (contains ``rules/ agents/ skills/ hooks/ templates/ catalog/``).
         target: Project root to install into.
-        force: Overwrite an existing ``CLAUDE.md`` / ``settings.json`` instead of writing a sidecar.
-        minimal: Install only ``CLAUDE.md`` and ``rules/`` (skip agents, skills, hooks, memory).
-        no_hooks: Skip hook scripts and ``settings.json``.
-        log: Optional list to append human-readable log lines to (a new one is created if omitted).
+        plan: The resolved install plan from :func:`claude_kit.catalog.resolve`.
+        force: Overwrite user-editable files (CLAUDE.md, settings.json, .mcp.json) instead of
+            writing ``.claude-kit`` sidecars.
+        log: Optional list to append human-readable log lines to.
 
     Returns:
-        The log list, with one line appended per installed component.
+        The log list, one line per installed component.
     """
     if log is None:
         log = []
+    target = Path(target)
     dest = target / ".claude"
     dest.mkdir(parents=True, exist_ok=True)
 
-    # Always installed: rules, the generic CLAUDE.md, and the continuity template.
-    _copy_tree(src / "rules", dest / "rules")
-    log.append(f"  • rules/ ({_count(dest / 'rules', '*.md')} files)")
-    _copy_root_file(
-        src / "templates" / "CLAUDE.md",
-        target / "CLAUDE.md",
-        force=force,
-        log=log,
-        label="CLAUDE.md",
-    )
+    # Augment the render context with project identity + summary counts.
+    plan.context.setdefault("project_name", target.resolve().name)
+    plan.context["agent_count"] = str(len(plan.agents) + len(plan.overlay_agents))
+    plan.context["skill_count"] = str(len(plan.skills))
+    plan.context["overlay_rules_list"] = ", ".join(plan.overlay_rules) or "none"
+
+    _install_rules(src, dest, plan, log)
+    _write_claude_md(src, target, plan, force=force, log=log)
     shutil.copy2(
-        src / "templates" / "CONTINUITY.template.md",
-        dest / "CONTINUITY.template.md",
+        src / "templates" / "CONTINUITY.template.md", dest / "CONTINUITY.template.md"
     )
-
-    if not minimal:
-        _copy_tree(src / "agents", dest / "agents")
-        log.append(f"  • agents/ ({_count(dest / 'agents', '*.md')} files)")
-        _copy_tree(src / "skills", dest / "skills")
-        log.append(f"  • skills/ ({_count_dirs(dest / 'skills')} skills)")
-        if not (dest / "agent-memory").exists():
-            _copy_tree(src / "templates" / "agent-memory", dest / "agent-memory")
-            log.append("  • agent-memory/ seed")
-
-    if not minimal and not no_hooks:
-        hooks_dest = dest / "hooks"
-        hooks_dest.mkdir(parents=True, exist_ok=True)
-        for script in (src / "hooks" / "scripts").glob("*.sh"):
-            shutil.copy2(script, hooks_dest / script.name)
-            (hooks_dest / script.name).chmod(0o755)
-        log.append(f"  • hooks/ ({_count(hooks_dest, '*.sh')} scripts)")
-        _copy_root_file(
-            src / "templates" / "settings.json",
-            dest / "settings.json",
-            force=force,
-            log=log,
-            label="settings.json",
-        )
+    _install_agents(src, dest, plan, log)
+    _install_skills(src, dest, plan, log)
+    _seed_agent_memory(src, dest, log)
+    _install_hooks_and_settings(src, dest, plan, force=force, log=log)
+    _install_artifact_templates(src, dest, log)
+    _write_mcp(target, plan, force=force, log=log)
+    _write_readme(src, target, plan, force=force, log=log)
+    _seed_runtime_dirs(dest, log)
+    _update_gitignore(target, log)
+    _write_config(src, target, plan, log)
     return log
-
-
-def init(
-    target: str | Path,
-    *,
-    force: bool = False,
-    minimal: bool = False,
-    no_hooks: bool = False,
-) -> list[str]:
-    """Scaffold claude-kit into ``target``.
-
-    Args:
-        target: Project directory to scaffold into.
-        force: Overwrite an existing ``CLAUDE.md`` / ``settings.json`` instead of writing a sidecar.
-        minimal: Install only ``CLAUDE.md`` and ``rules/`` (skip agents, skills, hooks, memory).
-        no_hooks: Skip hook scripts and ``settings.json``.
-
-    Returns:
-        A list of human-readable log lines describing what was installed.
-    """
-    target = Path(target).expanduser().resolve()
-    log: list[str] = [f"claude-kit: scaffolding into {target}"]
-
-    with ExitStack() as stack:
-        src = payload_dir(stack)
-        install_sdlc(
-            src, target, force=force, minimal=minimal, no_hooks=no_hooks, log=log
-        )
-
-    log.append(
-        "claude-kit: done. Open the project in Claude Code; CLAUDE.md and .claude/ are now active."
-    )
-    return log
-
-
-def upgrade(target: str | Path) -> list[str]:
-    """Refresh the kit-owned payload (rules, agents, skills, hooks) without touching user files.
-
-    Leaves ``CLAUDE.md``, ``settings.json``, ``CONTINUITY.md``, and ``agent-memory/`` untouched.
-
-    Args:
-        target: Project directory containing a ``.claude/`` to upgrade.
-
-    Returns:
-        Log lines describing what was refreshed.
-    """
-    target = Path(target).expanduser().resolve()
-    dest = target / ".claude"
-    if not dest.is_dir():
-        return [
-            f"claude-kit: no .claude/ found in {target} — run `claude-kit init` first."
-        ]
-    log = [f"claude-kit: upgrading payload in {target}"]
-    with ExitStack() as stack:
-        src = payload_dir(stack)
-        _copy_tree(src / "rules", dest / "rules")
-        _copy_tree(src / "agents", dest / "agents")
-        _copy_tree(src / "skills", dest / "skills")
-        hooks_dest = dest / "hooks"
-        hooks_dest.mkdir(parents=True, exist_ok=True)
-        for script in (src / "hooks" / "scripts").glob("*.sh"):
-            shutil.copy2(script, hooks_dest / script.name)
-            (hooks_dest / script.name).chmod(0o755)
-    log.append(
-        "  • refreshed rules/, agents/, skills/, hooks/ (user CLAUDE.md & settings.json left intact)"
-    )
-    return log
-
-
-def inventory() -> dict[str, list[str]]:
-    """Return the names of the agents, rules, and skills bundled in the kit.
-
-    Returns:
-        A mapping with keys ``agents``, ``rules``, and ``skills`` to sorted name lists.
-    """
-    with ExitStack() as stack:
-        src = payload_dir(stack)
-        return {
-            "agents": sorted(p.stem for p in (src / "agents").glob("*.md")),
-            "rules": sorted(p.stem for p in (src / "rules").glob("*.md")),
-            "skills": sorted(p.name for p in (src / "skills").iterdir() if p.is_dir()),
-        }
-
-
-def _count(directory: Path, pattern: str) -> int:
-    """Count files in ``directory`` matching ``pattern``."""
-    return sum(1 for _ in directory.glob(pattern)) if directory.is_dir() else 0
-
-
-def _count_dirs(directory: Path) -> int:
-    """Count immediate subdirectories of ``directory``."""
-    return (
-        sum(1 for p in directory.iterdir() if p.is_dir()) if directory.is_dir() else 0
-    )

@@ -9,10 +9,10 @@
     {
       "name": "claude-kit",
       "source": "./",
-      "description": "Autonomous SDLC for Claude Code + a project generator: scaffold a batteries-included React + FastAPI app, or run 24 specialized agents through spec → review → build → test → security → ship with quality gates, working memory, and a self-improving learnings loop.",
-      "version": "0.2.0",
+      "description": "Cookiecutter-style scaffolder for an autonomous Claude Code SDLC config (no app code, no Docker): install CLAUDE.md + .claude/ (rules, the profile's agents/skills, hooks, artifact templates) + optional .mcp.json, then run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates, working memory, and a self-improving learnings loop.",
+      "version": "0.3.0",
       "license": "MIT",
-      "keywords": ["sdlc", "agents", "orchestration", "quality-gates", "workflow"]
+      "keywords": ["sdlc", "agents", "orchestration", "quality-gates", "workflow", "scaffold", "cookiecutter"]
     }
   ]
 }

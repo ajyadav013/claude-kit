@@ -1,0 +1,53 @@
+## Project-specific rules
+
+Configured by **claude-kit** for a **{{ frontend_label }}** ({{ frontend_language }}) frontend and a
+**{{ backend_label }}** ({{ backend_language_label }}) backend on **{{ db_label }}**, SDLC profile
+**{{ profile_label }}**. The agnostic pipeline rules above apply unchanged; the conventions below make
+them concrete for this stack.
+
+### Stack & conventions
+
+- **Frontend** — {{ frontend_label }} ({{ frontend_language }}). Conventions:
+  `.claude/rules/{{ frontend_overlay_rule }}`.
+- **Backend** — {{ backend_label }} ({{ backend_language_label }}). Conventions:
+  `.claude/rules/{{ backend_overlay_rule }}`.
+- **Database** — {{ db_label }}. Conventions: `.claude/rules/{{ db_overlay_rule }}`.
+
+Match your repository's actual layout — claude-kit configures the workflow, not your directory
+structure. Point each agent at the overlay rule for the lane it works in.
+
+### Commands (the source of truth for every agent)
+
+Backend:
+{% if backend_install_cmd %}- Install: `{{ backend_install_cmd }}`
+{% endif %}{% if backend_dev_cmd %}- Run: `{{ backend_dev_cmd }}`
+{% endif %}{% if backend_test_cmd %}- Test: `{{ backend_test_cmd }}`
+{% endif %}{% if backend_lint_cmd %}- Lint + types: `{{ backend_lint_cmd }}`
+{% endif %}{% if backend_format_cmd %}- Format: `{{ backend_format_cmd }}`
+{% endif %}{% if backend_migrate_cmd %}- Apply migrations: `{{ backend_migrate_cmd }}`
+{% endif %}{% if backend_make_migration_cmd %}- New migration: `{{ backend_make_migration_cmd }}`
+{% endif %}
+Frontend:
+{% if frontend_install_cmd %}- Install: `{{ frontend_install_cmd }}`
+{% endif %}{% if frontend_dev_cmd %}- Run: `{{ frontend_dev_cmd }}`
+{% endif %}{% if frontend_test_cmd %}- Test: `{{ frontend_test_cmd }}`
+{% endif %}{% if frontend_lint_cmd %}- Lint: `{{ frontend_lint_cmd }}`{% if frontend_typecheck_cmd %} · Types: `{{ frontend_typecheck_cmd }}`{% endif %}
+{% endif %}{% if frontend_build_cmd %}- Build: `{{ frontend_build_cmd }}`
+{% endif %}
+> Replace any command above that doesn't match your project's actual scripts — these are the
+> defaults for the selected stack and are what the agents will run.
+
+### Two independent lanes
+
+Backend and frontend are the canonical parallel lanes from
+`.claude/rules/mandatory-workflow.md`. When a feature spans both, the **API is the shared
+contract**: backend response/request schemas and frontend types must agree. The Merge Reviewer
+verifies this at the join point.
+
+### Adding a feature
+
+Follow the resource recipes in the overlays — `.claude/rules/{{ backend_overlay_rule }}`
+(model → schema → repository → service → router → migration → tests) and
+`.claude/rules/{{ frontend_overlay_rule }}` (types → api → hook → component → tests). Keep the API
+contract in sync across both lanes, and follow `.claude/rules/{{ db_overlay_rule }}` for schema and
+migration changes.

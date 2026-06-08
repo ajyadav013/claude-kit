@@ -1,0 +1,65 @@
+# {{ project_name }} — Claude Code SDLC config
+
+This repository has a **claude-kit** autonomous-SDLC configuration installed. Claude Code reads it
+automatically when you open the project; nothing here is application code.
+
+- **Stack:** {{ frontend_label }} ({{ frontend_language }}) · {{ backend_label }}
+  ({{ backend_language_label }}) · {{ db_label }}
+- **SDLC profile:** {{ profile_label }}
+- **MCP integrations:** {{ mcp_list }}
+- **Installed:** ~{{ agent_count }} agents · {{ skill_count }} skills · stack overlay rules
+  ({{ overlay_rules_list }})
+
+## What got installed
+
+```
+CLAUDE.md                  entry point — rules + your stack's commands ("Project-specific rules")
+README.claude-sdlc.md      this file
+.claude/
+  settings.json            hooks (working memory, learnings, guardrails, quality checks)
+  rules/                   the engineering rule set + your stack's overlay rules
+  agents/                  the SDLC agents for the chosen profile (+ stack specialists)
+  skills/                  on-demand skills, including sdlc/ — the pipeline entry point
+  hooks/                   the hook scripts referenced by settings.json
+  templates/               artifact templates (feature-spec, adr, test-plan, …)
+  config/                  init-options.json (selection + checksums) + the catalog snapshot
+  state/  tmp/             runtime scratch (gitignored)
+{% if mcp_list != "none" %}.mcp.json                  the MCP servers you selected (fill in the ${ENV} placeholders)
+{% endif %}```
+
+How Claude Code discovers it: `CLAUDE.md` is loaded as project context; `.claude/agents/*.md`,
+`.claude/skills/*/SKILL.md`, and the hooks in `.claude/settings.json` are auto-discovered;
+`.mcp.json` (if present) registers MCP servers.
+
+## Start the workflow
+
+Open the project in Claude Code and run the pipeline entry point:
+
+```
+/sdlc Build JWT authentication for the backend
+```
+
+The orchestrator asks a few ordered questions, classifies the work, then delegates to specialist
+agents through the pipeline phases — enforcing a quality gate between each. With this profile the
+active gates are: **{{ profile_label }}**.
+
+You can also invoke any single skill directly (e.g. `/spec-driven-development`, `/code-review-and-quality`)
+or ask Claude to use a specific agent.
+
+## Core rules (non-negotiable)
+
+- Never read or print secrets. Never run destructive commands without confirmation.
+- Plan before large edits; write a spec before implementing a feature.
+- Run the project's validation (lint, type-check, tests) before declaring work complete.
+
+See `CLAUDE.md` and `.claude/rules/` for the full set.
+
+## Extending the config
+
+- **Add a stack** (frontend framework, backend language/framework, or database): add an entry to the
+  claude-kit catalog and a `templates/stacks/<stack_dir>/` folder with overlay rules — then re-run
+  `claude-kit init`. It's a data change, not code.
+- **Add a skill / agent:** drop a `.claude/skills/<name>/SKILL.md` or `.claude/agents/<name>.md`.
+- **Enable MCP later:** add servers to `.mcp.json` (see `claude-kit list-options` for the catalog).
+- **Upgrade safely:** `claude-kit diff` to preview, then `claude-kit upgrade` (your edits are backed
+  up, never silently overwritten). `claude-kit doctor` checks config health.

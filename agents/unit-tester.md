@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 mode: acceptEdits
 model: sonnet
 color: green
+tier: specialist
 ---
 
 You are **Unit Tester** — a testing specialist focused on unit tests for the project.

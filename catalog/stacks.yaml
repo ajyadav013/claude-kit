@@ -1,0 +1,96 @@
+# claude-kit stack catalog — the single source of truth for selectable stacks.
+#
+# Adding a frontend framework, backend language/framework, or database is a DATA change here
+# (plus a templates/stacks/<stack_dir>/ folder for its overlay rules/agents) — never a code change.
+# Entries marked `status: planned` are offered by `list-options` as "coming soon" but cannot be
+# selected yet (no overlay content shipped). React + Python/FastAPI + Postgres/Mongo are live.
+#
+# Each live entry may declare:
+#   label          human name shown in prompts
+#   overlay_rules  rule files copied into .claude/rules/ when selected (live under stack_dir/rules/)
+#   overlay_agents agent files copied into .claude/agents/ when selected (live under stack_dir/agents/)
+#   skills         skills unioned into the install regardless of profile
+#   stack_dir      path under templates/stacks/ holding this stack's overlay rules/agents
+#   commands       canonical commands surfaced in CLAUDE.md (the source of truth for every agent)
+#   mcp_suggested  an mcp.yaml server id suggested (not auto-enabled) for this choice
+
+version: 1
+
+frontend:
+  default: react
+  frameworks:
+    react:
+      label: "React"
+      languages:
+        default: typescript
+        options: [typescript, javascript]
+      overlay_rules: [react-patterns.md]
+      overlay_agents: []
+      skills: [frontend-ui-engineering, component-design, ui-ux-design, unit-test]
+      stack_dir: frontend/react
+      commands:
+        install: "npm install"
+        dev: "npm run dev"
+        test: "npm run test"
+        lint: "npm run lint"
+        typecheck: "npm run typecheck"
+        build: "npm run build"
+    vue:
+      label: "Vue"
+      status: planned
+      languages: { default: typescript, options: [typescript, javascript] }
+      stack_dir: frontend/vue
+    svelte:
+      label: "Svelte"
+      status: planned
+      languages: { default: typescript, options: [typescript] }
+      stack_dir: frontend/svelte
+
+backend:
+  default: python
+  languages:
+    python:
+      label: "Python"
+      default_framework: fastapi
+      frameworks:
+        fastapi:
+          label: "FastAPI"
+          overlay_rules: [fastapi-patterns.md]
+          overlay_agents: []
+          skills: [api-and-interface-design, api-integration]
+          stack_dir: backend/python/fastapi
+          commands:
+            install: "pip install -e '.[dev]'"
+            dev: "uvicorn app.main:app --reload"
+            test: "pytest"
+            lint: "ruff check . && mypy app"
+            format: "ruff format ."
+        django:
+          label: "Django"
+          status: planned
+          stack_dir: backend/python/django
+    node:
+      label: "Node.js"
+      status: planned
+      default_framework: express
+      frameworks:
+        express:
+          label: "Express"
+          status: planned
+          stack_dir: backend/node/express
+
+database:
+  default: postgres
+  options:
+    postgres:
+      label: "PostgreSQL"
+      overlay_rules: [postgres-patterns.md]
+      overlay_agents: [postgres-specialist, migration-specialist]
+      stack_dir: db/postgres
+      mcp_suggested: postgres
+    mongodb:
+      label: "MongoDB"
+      overlay_rules: [mongodb-patterns.md]
+      overlay_agents: [mongodb-specialist, migration-specialist]
+      stack_dir: db/mongodb
+      mcp_suggested: mongodb

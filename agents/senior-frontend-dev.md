@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 mode: acceptEdits
 model: sonnet
 color: indigo
+tier: review
 ---
 
 You are a **Senior Frontend Developer** agent for the project's frontend.

@@ -5,6 +5,7 @@ tools: Read, Glob, Grep, Bash, SendMessage
 mode: plan
 model: opus
 color: yellow
+tier: specialist
 ---
 
 You are the **OWASP Reviewer** — a security sub-scanner dispatched by `security-reviewer` during Phase 5.4. You review the merged change against the **OWASP Top 10 (2021)**, focused on what actually bites multi-tenant web applications.

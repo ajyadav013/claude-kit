@@ -4,6 +4,53 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.3.0] — 2026-06-08
+
+Reshapes claude-kit into a **Cookiecutter-style scaffolder for the Claude Code _configuration_
+only** — catalog-driven, profile-aware, and with no application code or Docker anywhere. The
+`claude-kit new` app generator from 0.2.0 is **removed**; the FastAPI/React knowledge it carried is
+preserved as catalog **overlay rules**.
+
+### Added
+- **Catalog-driven extensibility** (`catalog/{stacks,profiles,mcp}.yaml`) — adding a frontend
+  framework, backend language/framework, database, profile, or MCP server is a **data change** plus a
+  `templates/stacks/<dir>/` folder, never a code change. Live: React · Python/FastAPI ·
+  PostgreSQL/MongoDB; Vue/Svelte/Django/Express are listed as `planned`.
+- **Ordered `init` prompts** — target path, frontend framework + language, backend language +
+  framework, database, SDLC profile, and optional MCP integrations; with existing-`.claude/` handling
+  (**merge / overwrite / backup / abort**).
+- **SDLC profiles** — `lean ⊊ standard ⊊ enterprise` select which agents, skills, hooks, and quality
+  gates are activated (composed via `inherit:` + an `all` token).
+- **`/sdlc` skill** — the single, profile-aware pipeline entrypoint; it reads the resolved gate set
+  from `.claude/config/stack-catalog.snapshot.yaml` and delegates to the `orchestrator`.
+- **Lifecycle commands** — `validate`, `doctor`, `diff`, `upgrade [--force]`, `list-options`, plus a
+  `claude-sdlc` alias entry point. Upgrades are checksum-tracked via
+  `.claude/config/init-options.json` (per-file `owner`: kit / overlay / user-editable), so kit files
+  refresh while user edits are protected with `.claude-kit` sidecars and changed/removed files are
+  backed up.
+- **Optional MCP** — selecting integrations writes a project-root `.mcp.json` (env-placeholder
+  config only, never credentials); nothing is written if none are selected.
+- **New core agents** — `story-planner` (spec → ordered, parallelizable stories) and
+  `acceptance-reviewer` (delivery vs. acceptance criteria before the human gate). A lightweight
+  `tier:` field (orchestrator / stage-lead / specialist / review) is recorded on every agent.
+- **Database overlay agents** — `postgres-specialist`, `mongodb-specialist`, and a per-database
+  `migration-specialist`, installed only for the selected database.
+- **Artifact templates** in `.claude/templates/` (feature-spec, ADR, test-plan, security-review,
+  release-plan, runbook) and a generated `README.claude-sdlc.md`.
+
+### Changed
+- **No Docker, no app code** — the kit installs configuration only. `devops-engineer` is rewritten to
+  be **container-optional** (CI/build/release/migrations/health for any runtime) and Docker is
+  scrubbed from the agnostic core.
+- Tooling adopted: **Typer** (CLI), **Jinja2** (`StrictUndefined`, `.tmpl`-gated rendering, `dot__`
+  dotfile convention), and **PyYAML** (catalog).
+- `/claude-kit:init` now prefers the pip CLI when on PATH and falls back to a thin `scripts/init.sh`;
+  `/claude-kit:sdlc` delegates to the `sdlc` skill.
+
+### Removed
+- **`claude-kit new`** app generator, the `/claude-kit:new` command, `scripts/new.py`, and all
+  generated application source + Docker assets under `templates/stacks/*/files/`.
+
 ## [0.2.0] — 2026-06-08
 
 Adds a cookiecutter-style **project generator** alongside the existing config scaffolder.

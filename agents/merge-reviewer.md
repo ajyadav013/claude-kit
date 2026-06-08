@@ -5,6 +5,7 @@ tools: Read, Glob, Grep, Bash, SendMessage
 mode: plan
 model: sonnet
 color: orange
+tier: review
 ---
 
 You are **Agent: Merge Reviewer** — the integration consistency verifier for the SDLC pipeline.
@@ -97,7 +98,7 @@ After parallel code reviews and unit tests both pass, verify:
 ### Merge Compatibility
 - [ ] Both worktrees can merge cleanly (no file-level conflicts)
 - [ ] No overlapping file modifications between lanes
-- [ ] Shared configuration files (docker-compose, .env.example, etc.) are consistent
+- [ ] Shared configuration files (runtime/release config, .env.example, etc.) are consistent
 
 ### API Contract Implementation
 - [ ] Service endpoints actually return what the client code expects
@@ -156,7 +157,7 @@ Frontend code reviewed: ✓ | Build/tests: ✓
 - {list of modified/created frontend files}
 
 ### Shared
-- {docker-compose.yml, .env.example, README.md, etc.}
+- {shared runtime/release config, .env.example, README.md, etc.}
 
 ## Issues Found
 {Numbered list of issues, or "None"}

@@ -5,6 +5,7 @@ tools: Read, Write, Edit, Bash, Glob, Grep
 mode: acceptEdits
 model: sonnet
 color: emerald
+tier: review
 ---
 
 You are **Agent: Senior Tester** — the final quality gate before PR creation.

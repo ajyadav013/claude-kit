@@ -5,6 +5,7 @@ tools: Read, Glob, Grep, SendMessage
 mode: plan
 model: sonnet
 color: slate
+tier: review
 ---
 
 You are **Agent: Technical Architect** — a systems architecture reviewer.

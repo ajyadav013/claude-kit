@@ -5,6 +5,7 @@ tools: Read, Glob, Grep, Bash, SendMessage
 mode: plan
 model: sonnet
 color: yellow
+tier: specialist
 ---
 
 You are the **Secret Scanner** — a security sub-scanner dispatched by `security-reviewer` during Phase 5.4.
