@@ -1,16 +1,18 @@
 """Command-line interface for claude-kit.
 
-Provides ``claude-kit`` (alias ``ckit``) with subcommands to scaffold and inspect the kit:
-``init``, ``upgrade``, ``status``, ``list``, and ``version``. Stdlib-only — no third-party deps.
+Provides ``claude-kit`` (alias ``ckit``) with subcommands to generate and manage the kit:
+``new`` (generate a project), ``init``, ``upgrade``, ``status``, ``list``, and ``version``.
+Stdlib-only — no third-party deps.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
-from claude_kit import __version__, scaffold
+from claude_kit import __version__, generate, scaffold
 
 BANNER = r"""
   ___ _      _   _ ___  ___   _  _____ _____
@@ -18,6 +20,101 @@ BANNER = r"""
 | (__| |__ / _ \| |_| | |) | _|  | ' < | |  | |
  \___|____/_/ \_\\___/|___/|___| |_|\_\___| |_|   autonomous SDLC for Claude Code
 """
+
+
+def _prompt(label: str, default: str) -> str:
+    """Prompt for a value with a default, tolerant of non-interactive input."""
+    try:
+        resp = input(f"{label} [{default}]: ").strip()
+    except EOFError:
+        return default
+    return resp or default
+
+
+def _choose_stack(
+    stacks: list[dict], kind: str, flag_value: str | None, no_input: bool
+) -> str:
+    """Resolve a stack id from a flag, a single registered option, or an interactive menu.
+
+    Args:
+        stacks: Registered stacks of this kind (each a ``stack.json`` mapping).
+        kind: ``"backend"`` or ``"frontend"`` (for messages).
+        flag_value: An explicit ``--backend``/``--frontend`` value, or ``None``.
+        no_input: Skip prompting and take the first option when not flag-specified.
+
+    Returns:
+        The chosen stack id.
+
+    Raises:
+        SystemExit: If ``flag_value`` names a stack that is not registered.
+    """
+    ids = [s["id"] for s in stacks]
+    if flag_value:
+        if flag_value not in ids:
+            raise SystemExit(
+                f"unknown {kind} stack {flag_value!r} (choices: {', '.join(ids)})"
+            )
+        return flag_value
+    if len(stacks) == 1 or no_input:
+        return ids[0]
+    print(f"\nAvailable {kind} stacks:")
+    for i, s in enumerate(stacks, 1):
+        print(f"  {i}) {s.get('label', s['id'])}")
+    while True:
+        resp = input(f"Choose {kind} [1]: ").strip() or "1"
+        if resp.isdigit() and 1 <= int(resp) <= len(stacks):
+            return ids[int(resp) - 1]
+        print(f"  enter a number 1-{len(stacks)}")
+
+
+def _cmd_new(args: argparse.Namespace) -> int:
+    """Handle ``claude-kit new`` — generate a project from the stack registry."""
+    with ExitStack() as stack:
+        src = scaffold.payload_dir(stack)
+        backends = generate.list_stacks(src, "backend")
+        frontends = generate.list_stacks(src, "frontend")
+        if not backends or not frontends:
+            print("error: no stacks found in the claude-kit payload.", file=sys.stderr)
+            return 1
+
+        # Resolve the target directory and the human project name.
+        if args.here:
+            target = Path(args.path or ".").expanduser().resolve()
+            name_default = target.name
+        elif args.path:
+            target = Path(args.path).expanduser().resolve()
+            name_default = target.name
+        else:
+            name = "my-app" if args.no_input else _prompt("Project name", "my-app")
+            target = Path.cwd() / generate.slugify(name)
+            name_default = name
+
+        project_name = args.name or (
+            name_default if args.no_input else _prompt("Project name", name_default)
+        )
+        backend_id = _choose_stack(backends, "backend", args.backend, args.no_input)
+        frontend_id = _choose_stack(frontends, "frontend", args.frontend, args.no_input)
+
+        for line in generate.generate(
+            src,
+            target,
+            project_name=project_name,
+            backend_id=backend_id,
+            frontend_id=frontend_id,
+            db=args.db,
+            force=args.force,
+            here=args.here,
+        ):
+            print(line)
+
+    print("\nNext:")
+    if not args.here:
+        print(f"  cd {target.name}")
+    print(
+        "  docker compose up --build        # zero local installs — or `make dev` for native"
+    )
+    print("  open the project in Claude Code, then: /claude-kit:sdlc <your first task>")
+    return 0
 
 
 def _cmd_init(args: argparse.Namespace) -> int:
@@ -96,6 +193,31 @@ def build_parser() -> argparse.ArgumentParser:
         "-V", "--version", action="version", version=f"claude-kit {__version__}"
     )
     sub = parser.add_subparsers(dest="command", metavar="<command>")
+
+    p_new = sub.add_parser(
+        "new",
+        help="generate a new project (React + FastAPI) with the SDLC config baked in",
+    )
+    p_new.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="target directory / project name (prompted if omitted)",
+    )
+    p_new.add_argument("--name", help="human project name (default: target dir name)")
+    p_new.add_argument("--backend", help="backend stack id (e.g. python-fastapi)")
+    p_new.add_argument("--frontend", help="frontend stack id (e.g. react)")
+    p_new.add_argument("--db", default="postgres", help="database (default: postgres)")
+    p_new.add_argument(
+        "--no-input", action="store_true", help="accept defaults; never prompt"
+    )
+    p_new.add_argument(
+        "--here", action="store_true", help="generate into the current directory"
+    )
+    p_new.add_argument(
+        "--force", action="store_true", help="generate into a non-empty directory"
+    )
+    p_new.set_defaults(func=_cmd_new)
 
     p_init = sub.add_parser("init", help="scaffold claude-kit into a project")
     p_init.add_argument(

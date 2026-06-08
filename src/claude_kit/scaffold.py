@@ -21,19 +21,34 @@ def payload_dir(stack: ExitStack) -> Path:
         stack: An ``ExitStack`` that keeps any temporary extraction alive for the caller's
             scope (needed when the package is imported from a zip).
 
+    Resolution order:
+
+    1. The bundled ``claude_kit/_payload`` (present in an installed/built package).
+    2. A source-checkout fallback: the repository root (two levels above this file), which holds
+       ``rules/``, ``agents/``, ``templates/`` directly. This lets ``claude-kit`` run from a clone
+       (``PYTHONPATH=src``) without a build step.
+
     Returns:
-        Path to the ``_payload`` directory containing rules/agents/skills/hooks/templates.
+        Path to the payload root containing rules/agents/skills/hooks/templates.
 
     Raises:
-        FileNotFoundError: If the payload is missing from the installed package.
+        FileNotFoundError: If no payload can be located by either route.
     """
-    resource = files("claude_kit").joinpath("_payload")
-    path = Path(stack.enter_context(as_file(resource)))
-    if not path.is_dir():
-        raise FileNotFoundError(
-            "claude-kit payload not found — the package was built without its data files."
-        )
-    return path
+    try:
+        resource = files("claude_kit").joinpath("_payload")
+        path = Path(stack.enter_context(as_file(resource)))
+        if path.is_dir():
+            return path
+    except (FileNotFoundError, ModuleNotFoundError, NotADirectoryError):
+        pass
+
+    repo_root = Path(__file__).resolve().parents[2]
+    if (repo_root / "rules").is_dir() and (repo_root / "templates").is_dir():
+        return repo_root
+
+    raise FileNotFoundError(
+        "claude-kit payload not found — the package was built without its data files."
+    )
 
 
 def _copy_tree(src: Path, dest: Path) -> None:
@@ -58,6 +73,80 @@ def _copy_root_file(
         log.append(f"  • {label} installed")
 
 
+def install_sdlc(
+    src: Path,
+    target: Path,
+    *,
+    force: bool = False,
+    minimal: bool = False,
+    no_hooks: bool = False,
+    log: list[str] | None = None,
+) -> list[str]:
+    """Install the claude-kit SDLC config from ``src`` into ``target``.
+
+    Copies rules, the generic ``CLAUDE.md``, the continuity template, and (unless ``minimal``)
+    agents, skills, the agent-memory seed, hooks, and ``settings.json`` into ``target/.claude``
+    (with ``CLAUDE.md`` at ``target`` root). Shared by :func:`init` (pip CLI) and the project
+    generator so both behave identically.
+
+    Args:
+        src: A real filesystem path to the payload (the dir containing ``rules/``, ``agents/``,
+            ``skills/``, ``hooks/``, and ``templates/``).
+        target: Project root to install into.
+        force: Overwrite an existing ``CLAUDE.md`` / ``settings.json`` instead of writing a sidecar.
+        minimal: Install only ``CLAUDE.md`` and ``rules/`` (skip agents, skills, hooks, memory).
+        no_hooks: Skip hook scripts and ``settings.json``.
+        log: Optional list to append human-readable log lines to (a new one is created if omitted).
+
+    Returns:
+        The log list, with one line appended per installed component.
+    """
+    if log is None:
+        log = []
+    dest = target / ".claude"
+    dest.mkdir(parents=True, exist_ok=True)
+
+    # Always installed: rules, the generic CLAUDE.md, and the continuity template.
+    _copy_tree(src / "rules", dest / "rules")
+    log.append(f"  • rules/ ({_count(dest / 'rules', '*.md')} files)")
+    _copy_root_file(
+        src / "templates" / "CLAUDE.md",
+        target / "CLAUDE.md",
+        force=force,
+        log=log,
+        label="CLAUDE.md",
+    )
+    shutil.copy2(
+        src / "templates" / "CONTINUITY.template.md",
+        dest / "CONTINUITY.template.md",
+    )
+
+    if not minimal:
+        _copy_tree(src / "agents", dest / "agents")
+        log.append(f"  • agents/ ({_count(dest / 'agents', '*.md')} files)")
+        _copy_tree(src / "skills", dest / "skills")
+        log.append(f"  • skills/ ({_count_dirs(dest / 'skills')} skills)")
+        if not (dest / "agent-memory").exists():
+            _copy_tree(src / "templates" / "agent-memory", dest / "agent-memory")
+            log.append("  • agent-memory/ seed")
+
+    if not minimal and not no_hooks:
+        hooks_dest = dest / "hooks"
+        hooks_dest.mkdir(parents=True, exist_ok=True)
+        for script in (src / "hooks" / "scripts").glob("*.sh"):
+            shutil.copy2(script, hooks_dest / script.name)
+            (hooks_dest / script.name).chmod(0o755)
+        log.append(f"  • hooks/ ({_count(hooks_dest, '*.sh')} scripts)")
+        _copy_root_file(
+            src / "templates" / "settings.json",
+            dest / "settings.json",
+            force=force,
+            log=log,
+            label="settings.json",
+        )
+    return log
+
+
 def init(
     target: str | Path,
     *,
@@ -77,51 +166,13 @@ def init(
         A list of human-readable log lines describing what was installed.
     """
     target = Path(target).expanduser().resolve()
-    dest = target / ".claude"
-    dest.mkdir(parents=True, exist_ok=True)
     log: list[str] = [f"claude-kit: scaffolding into {target}"]
 
     with ExitStack() as stack:
         src = payload_dir(stack)
-
-        # Always installed: rules, the generic CLAUDE.md, and the continuity template.
-        _copy_tree(src / "rules", dest / "rules")
-        log.append(f"  • rules/ ({_count(dest / 'rules', '*.md')} files)")
-        _copy_root_file(
-            src / "templates" / "CLAUDE.md",
-            target / "CLAUDE.md",
-            force=force,
-            log=log,
-            label="CLAUDE.md",
+        install_sdlc(
+            src, target, force=force, minimal=minimal, no_hooks=no_hooks, log=log
         )
-        shutil.copy2(
-            src / "templates" / "CONTINUITY.template.md",
-            dest / "CONTINUITY.template.md",
-        )
-
-        if not minimal:
-            _copy_tree(src / "agents", dest / "agents")
-            log.append(f"  • agents/ ({_count(dest / 'agents', '*.md')} files)")
-            _copy_tree(src / "skills", dest / "skills")
-            log.append(f"  • skills/ ({_count_dirs(dest / 'skills')} skills)")
-            if not (dest / "agent-memory").exists():
-                _copy_tree(src / "templates" / "agent-memory", dest / "agent-memory")
-                log.append("  • agent-memory/ seed")
-
-        if not minimal and not no_hooks:
-            hooks_dest = dest / "hooks"
-            hooks_dest.mkdir(parents=True, exist_ok=True)
-            for script in (src / "hooks" / "scripts").glob("*.sh"):
-                shutil.copy2(script, hooks_dest / script.name)
-                (hooks_dest / script.name).chmod(0o755)
-            log.append(f"  • hooks/ ({_count(hooks_dest, '*.sh')} scripts)")
-            _copy_root_file(
-                src / "templates" / "settings.json",
-                dest / "settings.json",
-                force=force,
-                log=log,
-                label="settings.json",
-            )
 
     log.append(
         "claude-kit: done. Open the project in Claude Code; CLAUDE.md and .claude/ are now active."

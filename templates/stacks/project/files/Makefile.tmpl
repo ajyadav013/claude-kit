@@ -1,0 +1,52 @@
+.DEFAULT_GOAL := help
+.PHONY: help up down logs setup dev test lint fmt migrate
+
+help:
+	@echo "{{ project_name }} — common tasks"
+	@echo ""
+	@echo "  Docker (no local toolchains needed):"
+	@echo "    make up        build & start db + backend + frontend"
+	@echo "    make down      stop the stack"
+	@echo "    make logs      tail logs"
+	@echo ""
+	@echo "  Local dev (needs Python 3.11+ and Node 20+):"
+	@echo "    make setup     create backend venv + install both apps"
+	@echo "    make dev       how to run both dev servers"
+	@echo "    make test      run backend + frontend test suites"
+	@echo "    make lint      lint + type-check both apps"
+	@echo "    make fmt       format the backend"
+	@echo "    make migrate   apply backend migrations"
+
+# ---- Docker ---------------------------------------------------------------
+up:
+	docker compose up --build
+
+down:
+	docker compose down
+
+logs:
+	docker compose logs -f
+
+# ---- Local dev ------------------------------------------------------------
+setup:
+	cd backend && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
+	cd frontend && npm install
+
+dev:
+	@echo "Run each in its own terminal:"
+	@echo "  cd backend && .venv/bin/uvicorn app.main:app --reload"
+	@echo "  cd frontend && npm run dev"
+
+test:
+	cd backend && .venv/bin/pytest
+	cd frontend && npm run test
+
+lint:
+	cd backend && .venv/bin/ruff check . && .venv/bin/mypy app
+	cd frontend && npm run lint
+
+fmt:
+	cd backend && .venv/bin/ruff format .
+
+migrate:
+	cd backend && .venv/bin/alembic upgrade head

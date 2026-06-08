@@ -143,14 +143,45 @@ claude-kit/
 │   └── marketplace.json       # marketplace entry (source ".")
 ├── agents/                    # 24 SDLC agents (plugin auto-discovers)
 ├── skills/                    # 42 skills (plugin auto-discovers)
-├── commands/                  # /claude-kit:init · :sdlc · :status
+├── commands/                  # /claude-kit:new · :init · :sdlc · :status
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-shared-modules
 ├── rules/                     # 13 engineering rules (scaffolded into .claude/rules/)
-├── templates/                 # CLAUDE.md, CONTINUITY.template.md, settings.json, agent-memory/ seed
+├── templates/
+│   ├── CLAUDE.md, settings.json, CONTINUITY.template.md, agent-memory/   # SDLC config seed
+│   └── stacks/                # PROJECT GENERATOR registry (backend/ · frontend/ · project/)
 ├── scripts/init.sh            # shared scaffolder used by /claude-kit:init
-├── src/claude_kit/            # pip CLI (init/upgrade/status/list/version)
+├── scripts/new.py            # generator shim used by /claude-kit:new
+├── src/claude_kit/            # pip CLI (new/init/upgrade/status/list/version) + generate.py + render.py
 ├── docs/architecture.md       # this file
 └── pyproject.toml             # force-include bundles the payload into the wheel
 ```
+
+---
+
+## 5. The project generator (`claude-kit new`)
+
+`claude-kit new` scaffolds a runnable monorepo from a **stack registry** and lays the SDLC config on
+top. Stacks are pure data: each `templates/stacks/<kind>/<id>/` folder carries a `stack.json`
+(label, commands, overlay rule), a `files/` tree (rendered), and stack-specific overlay `rules/`.
+Adding a stack is a new folder — never a code change.
+
+```mermaid
+flowchart TB
+    REG["templates/stacks/ registry<br/>backend/python-fastapi · frontend/react · project/"]
+    GEN["generate.py + render.py<br/>(*.tmpl substitution, dot__ → dotfiles)"]
+    REG --> GEN
+    GEN -->|"render project/ → root"| OUT
+    GEN -->|"render backend/<id>/files → backend/"| OUT
+    GEN -->|"render frontend/<id>/files → frontend/"| OUT
+    GEN -->|"install_sdlc() (shared with init)"| OUT
+    GEN -->|"copy overlay rules + fill CLAUDE.md stack block"| OUT
+    OUT["Generated project:<br/>backend/ · frontend/ · docker-compose.yml · Makefile<br/>CLAUDE.md + .claude/{rules incl. overlays, agents, skills, hooks}"]
+```
+
+The renderer is dependency-free: only `*.tmpl` files are substituted (so React JSX `{}` is never
+touched), and `dot__`-prefixed names become dotfiles. The generic core (`rules/ agents/ skills/`)
+stays stack-agnostic; **all** React/FastAPI specifics live under `templates/stacks/` and reach the
+agents through overlay rules (`fastapi-patterns.md`, `react-patterns.md`) and the filled-in
+"Project-specific rules" section of the generated `CLAUDE.md`.

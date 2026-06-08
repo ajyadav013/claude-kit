@@ -4,6 +4,28 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.2.0] — 2026-06-08
+
+Adds a cookiecutter-style **project generator** alongside the existing config scaffolder.
+
+### Added
+- **`claude-kit new`** (and the **`/claude-kit:new`** plugin command) — generate a batteries-included
+  monorepo with the SDLC config baked in. Interactive prompts (or `--no-input`) for the stack;
+  `--backend`, `--frontend`, `--db`, `--here`, `--force` flags.
+- **Stack registry** under `templates/stacks/` — each stack is a folder with a `stack.json`; adding a
+  stack is a data change, not a code change. Ships **`python-fastapi`** (async SQLAlchemy 2.0 +
+  Alembic + Postgres, layered router→service→repository→model, pytest-asyncio) and **`react`**
+  (TypeScript + Vite + Vitest/RTL, typed Axios client, feature folders).
+- **Generated app is batteries-included**: `docker compose up` (db + backend + frontend, zero local
+  installs) *and* a `Makefile` for native dev; a worked **items** vertical slice with tests on both
+  sides; an initial Alembic migration so `alembic upgrade head` works out of the box.
+- **Stack overlay rules** — `fastapi-patterns.md` and `react-patterns.md` are installed into
+  `.claude/rules/` only for the chosen stacks, and the generated `CLAUDE.md` "Project-specific rules"
+  section is filled with the concrete commands and layout, so the agents follow the stack.
+- **`docs/agents.md`** — a dedicated guide to using the agents.
+- Zero-dependency template renderer (`*.tmpl` substitution; `dot__`-prefixed dotfiles) and a
+  source-checkout fallback so the CLI runs from a clone.
+
 ## [0.1.0] — 2026-06-08
 
 Initial release.

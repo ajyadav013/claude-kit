@@ -9,8 +9,8 @@
     {
       "name": "claude-kit",
       "source": "./",
-      "description": "An autonomous, stack-agnostic SDLC for Claude Code: 24 specialized agents run spec → review → build → test → security → ship with quality gates, working memory, and a self-improving learnings loop.",
-      "version": "0.1.0",
+      "description": "Autonomous SDLC for Claude Code + a project generator: scaffold a batteries-included React + FastAPI app, or run 24 specialized agents through spec → review → build → test → security → ship with quality gates, working memory, and a self-improving learnings loop.",
+      "version": "0.2.0",
       "license": "MIT",
       "keywords": ["sdlc", "agents", "orchestration", "quality-gates", "workflow"]
     }

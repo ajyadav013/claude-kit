@@ -1,0 +1,13 @@
+{
+  "id": "react",
+  "label": "React · TypeScript · Vite",
+  "language": "TypeScript",
+  "overlay_rule": "react-patterns.md",
+  "dir": "frontend",
+  "install_cmd": "npm install",
+  "dev_cmd": "npm run dev",
+  "test_cmd": "npm run test",
+  "lint_cmd": "npm run lint",
+  "typecheck_cmd": "npm run typecheck",
+  "build_cmd": "npm run build"
+}

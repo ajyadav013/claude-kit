@@ -1,7 +1,7 @@
 {
   "name": "claude-kit",
-  "version": "0.1.0",
-  "description": "An autonomous, stack-agnostic SDLC for Claude Code: spec → review → build → test → security → ship, driven by 24 specialized agents with quality gates, working memory, and a self-improving learnings loop.",
+  "version": "0.2.0",
+  "description": "Autonomous SDLC for Claude Code, plus a project generator (/claude-kit:new) that scaffolds a batteries-included React + FastAPI app: spec → review → build → test → security → ship, driven by 24 specialized agents with quality gates, working memory, and a self-improving learnings loop.",
   "author": {
     "name": "Arjunsingh Yadav",
     "url": "https://github.com/ajyadav013"

@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-kit"
-version = "0.1.0"
-description = "An autonomous, stack-agnostic SDLC for Claude Code: 24 specialized agents run spec → review → build → test → security → ship with quality gates, working memory, and a self-improving learnings loop."
+version = "0.2.0"
+description = "Autonomous SDLC for Claude Code + a project generator: scaffold a batteries-included React + FastAPI app, or install 24 agents that run spec → review → build → test → security → ship with quality gates, working memory, and a self-improving learnings loop."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -21,6 +21,11 @@ keywords = [
   "code-review",
   "testing",
   "automation",
+  "scaffold",
+  "generator",
+  "cookiecutter",
+  "fastapi",
+  "react",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",

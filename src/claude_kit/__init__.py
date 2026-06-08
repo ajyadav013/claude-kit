@@ -5,4 +5,4 @@ and a CLI that scaffolds that payload into any project's ``.claude/`` directory.
 payload is also consumed directly by Claude Code when claude-kit is installed as a plugin.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -13,7 +13,7 @@ with a quality gate between every phase.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757.svg)](https://www.claude.com/product/claude-code)
 
-[Install](#install) · [How it works](#how-it-works) · [The pipeline](#the-pipeline) · [Agents](#the-agents) · [CLI](#cli-reference) · [Architecture](docs/architecture.md)
+[Install](#install) · [Generate a project](#generate-a-project-claude-kit-new) · [How it works](#how-it-works) · [The pipeline](#the-pipeline) · [Agents](#the-agents) · [Agent guide](docs/agents.md) · [CLI](#cli-reference)
 
 </div>
 
@@ -75,6 +75,37 @@ claude-kit init                 # scaffold into the current project
 
 This writes a generic `CLAUDE.md` and a `.claude/` directory (rules, agents, skills, hooks,
 working-memory templates). Open the project in Claude Code and the pipeline is active.
+
+---
+
+## Generate a project (`claude-kit new`)
+
+Don't have a project yet? Generate a **batteries-included monorepo** — a React frontend, a FastAPI
+backend, and a Postgres database — with the SDLC config already wired in:
+
+```bash
+claude-kit new my-app            # prompts for the stack; or:
+claude-kit new my-app --no-input # take the defaults (React + FastAPI + Postgres)
+```
+
+Or inside Claude Code: `/claude-kit:new my-app`.
+
+You get a runnable app with **zero framework setup**:
+
+```bash
+cd my-app
+docker compose up --build        # db + backend + frontend — no local Python/Node needed
+#   frontend → http://localhost:5173   ·   API docs → http://localhost:8000/docs
+# prefer native dev? `make setup` then `make dev` (needs Python 3.11+ and Node 22+)
+```
+
+What's inside: a worked **items** vertical slice (DB model → service/repository → typed API →
+React page) with tests on both sides, async SQLAlchemy 2.0 + Alembic migrations, Vite + Vitest, a
+`docker-compose.yml`, a `Makefile`, and stack-tuned agent rules (`fastapi-patterns.md`,
+`react-patterns.md`) plus a `CLAUDE.md` filled in with your stack's exact commands.
+
+The engine is a **registry**: React and FastAPI are the options today, but each stack is just a
+folder under `templates/stacks/` — adding another is a data change, not a code change.
 
 ---
 
@@ -148,6 +179,8 @@ Tester → PR.
 ## The agents
 
 24 specialized roles in [`agents/`](agents/), each invokable on its own or orchestrated together.
+See the **[agent guide](docs/agents.md)** for how to drive them (`/claude-kit:sdlc`, single-agent
+calls, the gates, and working memory).
 
 | Agent | Role |
 |-------|------|
@@ -197,13 +230,14 @@ claude-kit <command>          # alias: ckit
 
 | Command | Description |
 |---------|-------------|
-| `init [path] [--force] [--minimal] [--no-hooks]` | Scaffold `CLAUDE.md` + `.claude/` into a project |
+| `new [name] [--backend <id>] [--frontend <id>] [--db <id>] [--no-input] [--here] [--force]` | Generate a new React + FastAPI project with the SDLC baked in |
+| `init [path] [--force] [--minimal] [--no-hooks]` | Scaffold `CLAUDE.md` + `.claude/` into an existing project |
 | `upgrade [path]` | Refresh rules/agents/skills/hooks; keep your `CLAUDE.md` & `settings.json` |
 | `status [path]` | Show what's installed and the current working memory |
 | `list` | List the bundled agents, rules, and skills |
 | `version` | Print the version |
 
-Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`.
+Plugin slash commands: `/claude-kit:new`, `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`.
 
 ---
 

@@ -35,6 +35,11 @@ locally, and how to release.
 - **Rule** → add `rules/<name>.md`; cross-reference siblings as `.claude/rules/<name>.md`.
 - **Hook** → add a script to `hooks/scripts/` and wire it in `hooks/hooks.json` (plugin) and
   `templates/settings.json` (scaffolded projects).
+- **Stack** (project generator) → add a folder under `templates/stacks/<kind>/<id>/` (`kind` is
+  `backend` or `frontend`) with: a `stack.json` (`id`, `label`, `language`, `overlay_rule`, and the
+  command fields the `CLAUDE.stack.md.tmpl` references), a `files/` tree (`*.tmpl` for substituted
+  files, `dot__name` for dotfiles), and an overlay rule under `rules/`. No code change is needed —
+  the new id is offered automatically. **This is the only place stack-specific content belongs.**
 
 ## Local testing
 
@@ -47,13 +52,19 @@ pip install -e .
 claude-kit list
 claude-kit init /tmp/ck-demo && ls -R /tmp/ck-demo/.claude
 
+# Project generator:
+claude-kit new /tmp/ck-app --no-input
+( cd /tmp/ck-app/backend && python3 -m venv .venv && .venv/bin/pip install -e '.[dev]' && .venv/bin/pytest )
+( cd /tmp/ck-app/frontend && npm install && npm run test && npm run build )
+
 # Build + validate the package:
 python3 -m pip install build twine
 python3 -m build
 python3 -m twine check dist/*
 ```
 
-Verify there's no stack leakage before opening a PR:
+Verify there's no stack leakage in the **core** payload before opening a PR (stack specifics belong
+under `templates/stacks/`, which is intentionally excluded here):
 
 ```bash
 grep -rInE 'sentinel|fastapi|sqlalchemy|alembic' rules agents skills && echo "FOUND — fix it" || echo "clean"
