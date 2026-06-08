@@ -1,0 +1,73 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-kit"
+version = "0.1.0"
+description = "An autonomous, stack-agnostic SDLC for Claude Code: 24 specialized agents run spec → review → build → test → security → ship with quality gates, working memory, and a self-improving learnings loop."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Arjunsingh Yadav" }]
+keywords = [
+  "claude",
+  "claude-code",
+  "sdlc",
+  "agents",
+  "agentic",
+  "orchestration",
+  "code-review",
+  "testing",
+  "automation",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development",
+  "Topic :: Software Development :: Quality Assurance",
+  "Environment :: Console",
+]
+
+[project.urls]
+Homepage = "https://github.com/ajyadav013/claude-kit"
+Repository = "https://github.com/ajyadav013/claude-kit"
+Issues = "https://github.com/ajyadav013/claude-kit/issues"
+
+[project.scripts]
+claude-kit = "claude_kit.cli:main"
+ckit = "claude_kit.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claude_kit"]
+
+# Bundle the kit payload (read by the pip CLI via importlib.resources) into the wheel.
+# The same directories are read directly by Claude Code when installed as a plugin.
+[tool.hatch.build.targets.wheel.force-include]
+"agents" = "claude_kit/_payload/agents"
+"skills" = "claude_kit/_payload/skills"
+"rules" = "claude_kit/_payload/rules"
+"hooks" = "claude_kit/_payload/hooks"
+"commands" = "claude_kit/_payload/commands"
+"templates" = "claude_kit/_payload/templates"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/agents",
+  "/skills",
+  "/rules",
+  "/hooks",
+  "/commands",
+  "/templates",
+  "/scripts",
+  "/docs",
+  "/.claude-plugin",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/CLAUDE.md",
+]

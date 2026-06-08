@@ -1,0 +1,76 @@
+# Agent Memory System
+
+Claude maintains a project-scoped knowledge base in `.claude/agent-memory/` that persists learnings across sessions. This memory is shared — any Claude session working in this project can read and contribute.
+
+## When to READ memory
+
+- **At the start of every task**: Read `.claude/agent-memory/MEMORY.md` to see what's been learned
+- **Before debugging**: Check `debugging/` and `gotchas/` for known issues
+- **Before architectural decisions**: Check `architecture/` for prior decisions and reasoning
+- **Before working with APIs**: Check `api/` for integration notes
+
+## When to WRITE memory
+
+Save a memory when you learn something that:
+1. **Would save future sessions time** — a non-obvious fix, a subtle API behavior, a tricky configuration
+2. **Cannot be derived from code alone** — the "why" behind a decision, context that isn't in comments
+3. **Was surprising or hard-won** — debugging insights that took multiple attempts to discover
+
+### Do NOT save
+- Code patterns visible in the codebase (read the code instead)
+- Standard framework behavior (check docs instead)
+- Temporary task state (use tasks instead)
+- Things already in CLAUDE.md or other rules files
+
+## How to WRITE memory
+
+### Step 1: Create the memory file
+
+Write to the appropriate category folder:
+
+| Category | Folder | What goes here |
+|----------|--------|---------------|
+| Architecture Decisions | `architecture/` | Why we chose X over Y, structural decisions |
+| Debugging Insights | `debugging/` | Root causes of tricky bugs, non-obvious failure modes |
+| Project Patterns | `patterns/` | Recurring patterns specific to this project |
+| API & Integration | `api/` | API quirks, auth flows, endpoint behaviors |
+| Performance | `performance/` | Optimization discoveries, bottleneck insights |
+| Gotchas & Pitfalls | `gotchas/` | Things that look right but aren't, common mistakes |
+
+File format:
+```markdown
+---
+title: {{descriptive title}}
+category: {{category name}}
+date: {{YYYY-MM-DD}}
+---
+
+## Context
+{{What situation led to this learning}}
+
+## Learning
+{{The key insight — clear, specific, actionable}}
+
+## Evidence
+{{How this was discovered — error messages, debugging steps, etc.}}
+
+## Recommendation
+{{What to do (or avoid) based on this learning}}
+```
+
+### Step 2: Update the index
+
+Add a one-line entry to `.claude/agent-memory/MEMORY.md` under the appropriate category:
+```markdown
+- [Title](category/filename.md) — one-line hook
+```
+
+## File naming
+
+Use lowercase kebab-case: `state-selector-infinite-loop.md`, `auth-token-refresh-race.md`
+
+## Maintenance
+
+- Before writing, check if a similar memory already exists — update it instead of duplicating
+- If a memory becomes outdated (code changed, pattern no longer applies), remove or update it
+- Keep MEMORY.md index concise — one line per entry, under 150 characters

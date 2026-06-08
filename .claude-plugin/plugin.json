@@ -1,0 +1,23 @@
+{
+  "name": "claude-kit",
+  "version": "0.1.0",
+  "description": "An autonomous, stack-agnostic SDLC for Claude Code: spec → review → build → test → security → ship, driven by 24 specialized agents with quality gates, working memory, and a self-improving learnings loop.",
+  "author": {
+    "name": "Arjunsingh Yadav",
+    "url": "https://github.com/ajyadav013"
+  },
+  "homepage": "https://github.com/ajyadav013/claude-kit",
+  "repository": "https://github.com/ajyadav013/claude-kit",
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "agents",
+    "orchestration",
+    "code-review",
+    "testing",
+    "quality-gates",
+    "workflow",
+    "automation"
+  ],
+  "hooks": "./hooks/hooks.json"
+}
