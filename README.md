@@ -229,10 +229,13 @@ Run `claude-kit list-options` to see everything available.
 
 ## Rules & skills
 
-**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 13 files:
+**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 18 files:
 `mandatory-workflow`, `quality-gates`, `rarv-cycle`, `continuity`, `agent-memory`, `documentation`,
 `design-patterns`, `code-organization`, `linting-and-formatting`, `testing`,
-`frontend-best-practices`, `responsive-and-accessibility`, `devops-observability`. Selected
+`frontend-best-practices`, `responsive-and-accessibility`, `devops-observability`, plus the
+agent-operation rules `reasoning-techniques`, `agent-guardrails`, `agent-resilience`,
+`goal-setting-and-monitoring`, and `human-in-the-loop` (how the agents themselves reason, stay safe,
+recover, and escalate — see [`docs/agentic-patterns.md`](docs/agentic-patterns.md)). Selected
 **overlay rules** (e.g. `fastapi-patterns`, `react-patterns`, `postgres-patterns`) are layered on top.
 
 **Skills** ([`skills/`](skills/)) are on-demand capabilities Claude activates by context — led by the
@@ -278,7 +281,7 @@ Run `diff` first to preview.
 ```
 claude-kit/
 ├── .claude-plugin/        plugin.json + marketplace.json
-├── agents/                26 SDLC agents          rules/        13 engineering rules
+├── agents/                26 SDLC agents          rules/        18 engineering rules
 ├── skills/                on-demand skills        templates/    CLAUDE.md, settings, artifacts, memory seeds
 ├── commands/              /claude-kit:* commands  hooks/        hooks.json + scripts/
 ├── catalog/               stacks · profiles · mcp templates/stacks/  per-stack overlay rules + agents

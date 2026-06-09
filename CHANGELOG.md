@@ -4,6 +4,39 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.4.0] — 2026-06-09
+
+Adds the **agent-operation layer** distilled from *Agentic Design Patterns* (A. Gulli). A full
+cross-map of the book's 21 patterns against the kit found most already covered by existing rules,
+agents, skills, and the orchestration model; the genuine gap was how the **agents themselves** reason,
+stay safe, and recover (as opposed to how the **product** they build is secured and tested). Five new
+always-on, stack-agnostic rules fill it. No application code, no Docker, no catalog change — core
+rules ship to every profile.
+
+### Added
+- **Five agent-operation rules** (`rules/`, installed in every profile):
+  - `reasoning-techniques.md` — Chain-of-Thought, ReAct (reason→act→observe), Tree-of-Thought /
+    self-consistency, step-back, extended-thinking effort budget, and resource-aware model-tier
+    selection.
+  - `agent-guardrails.md` — treat fetched/tool/file content as untrusted (prompt-injection defense),
+    validate own output before handoff, and tool least-privilege. Distinct from the product-security
+    agents/skills.
+  - `agent-resilience.md` — bounded retries with backoff, fallback, circuit-breaker, graceful
+    degradation, idempotency, and checkpointing via CONTINUITY.
+  - `goal-setting-and-monitoring.md` — measurable/verifiable success criteria, progress monitoring,
+    and prioritization (urgency · importance · dependencies) with dynamic re-prioritization.
+  - `human-in-the-loop.md` — the consolidated set of decision points where the pipeline must pause for
+    a human, plus the escalation protocol.
+- **`docs/agentic-patterns.md`** — a coverage map of all 21 patterns + Appendix A onto the kit, and a
+  record of what was deliberately left out (vector RAG, exploration/discovery, redundant rules) and why.
+
+### Changed
+- `rules/agent-memory.md` — added the **working / episodic / semantic / procedural** memory taxonomy,
+  mapped onto the existing CONTINUITY + `agent-memory/` split.
+- `rules/mandatory-workflow.md` — added an "Agent operating disciplines" pointer to the five new rules
+  and linked the "When to STOP and ask the user" section to `human-in-the-loop.md`.
+- Docs now reference an **18-file** rule set (was 13) — `README.md`, `CLAUDE.md`, `docs/architecture.md`.
+
 ## [0.3.0] — 2026-06-08
 
 Reshapes claude-kit into a **Cookiecutter-style scaffolder for the Claude Code _configuration_

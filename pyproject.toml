@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-kit"
-version = "0.3.0"
+version = "0.4.0"
 description = "Cookiecutter-style scaffolder for an autonomous Claude Code SDLC configuration (no app code, no Docker). Asks ordered questions and installs CLAUDE.md + .claude/ (rules, the chosen profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates, working memory, and a self-improving learnings loop."
 readme = "README.md"
 requires-python = ">=3.9"

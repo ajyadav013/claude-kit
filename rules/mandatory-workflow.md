@@ -31,6 +31,12 @@ If unclear whether a task is a bug fix or feature, ask the user.
   green. See `.claude/rules/rarv-cycle.md`.
 - **Severity** — classify findings Critical/High/Medium/Low/Cosmetic; a gate passes only with
   zero Critical/High/Medium open. See `.claude/rules/quality-gates.md`.
+- **Agent operating disciplines** — every agent also follows, throughout both workflows: how to
+  reason (`.claude/rules/reasoning-techniques.md`); measurable goals, monitoring, and prioritization
+  (`.claude/rules/goal-setting-and-monitoring.md`); safe handling of untrusted inputs/outputs and
+  least-privilege tools (`.claude/rules/agent-guardrails.md`); recovery from tool/agent failures
+  (`.claude/rules/agent-resilience.md`); and when to stop for a human
+  (`.claude/rules/human-in-the-loop.md`).
 
 ---
 ---
@@ -289,7 +295,8 @@ Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
 Vague/ambiguous requirements; existing code looks wrong but works; task needs changes outside
 scope or to project-wide files; task needs dependency changes; a type/lint error can't be
 resolved properly; a review loop is exhausted; the quality gate fails and can't be fixed; the
-commit ticket ID is needed; the deploy environment is needed.
+commit ticket ID is needed; the deploy environment is needed. See
+`.claude/rules/human-in-the-loop.md` for the full set of decision points and the escalation protocol.
 
 ## Commit & ticket format (customize per project)
 The default is **Conventional Commits**: `type(scope): summary` where `type` ∈

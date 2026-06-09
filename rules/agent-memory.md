@@ -2,6 +2,19 @@
 
 Claude maintains a project-scoped knowledge base in `.claude/agent-memory/` that persists learnings across sessions. This memory is shared — any Claude session working in this project can read and contribute.
 
+## The memory taxonomy (where each kind lives)
+
+Agents use four kinds of memory; this kit splits them across two systems — don't conflate them (see `.claude/rules/continuity.md`).
+
+| Kind | What it is | Where it lives here |
+|------|-----------|---------------------|
+| **Working** (short-term) | The current task's state — phase, active work, next steps | `.claude/CONTINUITY.md` — ephemeral, this run only |
+| **Episodic** | What happened before — incidents, hard-won fixes, surprises | `agent-memory/debugging/`, `agent-memory/gotchas/` |
+| **Semantic** | Durable facts & decisions — conventions, architecture, API behavior | `agent-memory/architecture/`, `api/`, `patterns/`, `performance/` |
+| **Procedural** | How to do things — repeatable workflows and disciplines | the `.claude/rules/*` and `.claude/skills/*` themselves |
+
+Working memory is the scratchpad (overwritten constantly); the rest is the notebook (accumulates). Promote a durable CONTINUITY learning into the right `agent-memory/` category via the `remember` skill.
+
 ## When to READ memory
 
 - **At the start of every task**: Read `.claude/agent-memory/MEMORY.md` to see what's been learned

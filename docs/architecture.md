@@ -17,7 +17,7 @@ flowchart LR
         S["skills/"]
         C["commands/"]
         H["hooks/"]
-        R["rules/ (13)"]
+        R["rules/ (18)"]
         T["templates/ (+ stacks/ overlays)"]
         K["catalog/ (stacks · profiles · mcp)"]
     end
@@ -141,9 +141,10 @@ flowchart TB
         OAGENTS["DB overlay agents<br/>postgres/mongodb-specialist · migration-specialist"]
     end
 
-    subgraph RULES["rules/ — 13 contracts the agents obey"]
+    subgraph RULES["rules/ — 18 contracts the agents obey"]
         MW["mandatory-workflow · quality-gates · rarv-cycle"]
         MEM["continuity · agent-memory"]
+        AGENTOP["reasoning-techniques · agent-guardrails · agent-resilience<br/>goal-setting-and-monitoring · human-in-the-loop"]
         CRAFT["design-patterns · code-organization · documentation<br/>linting-and-formatting · testing<br/>frontend-best-practices · responsive-and-accessibility · devops-observability"]
     end
 
@@ -190,7 +191,7 @@ claude-kit/
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-shared-modules
-├── rules/                     # 13 stack-agnostic engineering rules
+├── rules/                     # 18 stack-agnostic engineering rules (incl. agent-operation rules)
 ├── catalog/                   # stacks.yaml · profiles.yaml · mcp.yaml (the resolver's data)
 ├── templates/
 │   ├── CLAUDE.md · CLAUDE.stack.md.tmpl · README.claude-sdlc.md.tmpl
@@ -200,6 +201,7 @@ claude-kit/
 ├── src/claude_kit/            # pip CLI: cli · catalog · prompts · models · scaffold · render · hooks · validator · upgrader
 ├── tests/                     # pytest suite (catalog · render · scaffold · validator · upgrader · cli)
 ├── docs/architecture.md       # this file
+├── docs/agentic-patterns.md   # how the kit maps onto the 21 agentic design patterns
 └── pyproject.toml             # force-include bundles the payload into the wheel
 ```
 

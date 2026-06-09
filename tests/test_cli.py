@@ -14,9 +14,11 @@ runner = CliRunner()
 
 
 def test_version_flag():
+    from claude_kit import __version__
+
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "0.3.0" in result.stdout
+    assert __version__ in result.stdout
 
 
 def test_init_defaults_end_to_end(tmp_path):

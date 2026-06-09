@@ -22,6 +22,22 @@ def test_install_writes_the_full_tree(tmp_path, payload):
     assert (claude / "tmp" / ".gitkeep").is_file()
 
 
+def test_agent_operation_rules_ship_in_every_profile(tmp_path, payload):
+    """The agentic-patterns rules are core (not profile-gated) — present even in lean."""
+    expected = {
+        "reasoning-techniques.md",
+        "agent-guardrails.md",
+        "agent-resilience.md",
+        "goal-setting-and-monitoring.md",
+        "human-in-the-loop.md",
+    }
+    for profile in ("lean", "standard", "enterprise"):
+        target = tmp_path / profile
+        install(payload, target, profile=profile)
+        rules = {p.name for p in (target / ".claude" / "rules").glob("*.md")}
+        assert expected <= rules, f"{profile} missing rules: {expected - rules}"
+
+
 def test_no_docker_anywhere(tmp_path, payload):
     """The acceptance criterion: a scaffolded config contains no Docker artifacts."""
     install(payload, tmp_path)
