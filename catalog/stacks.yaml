@@ -84,8 +84,8 @@ database:
   options:
     postgres:
       label: "PostgreSQL"
-      overlay_rules: [postgres-patterns.md]
-      overlay_agents: [postgres-specialist, migration-specialist]
+      overlay_rules: [postgres-patterns.md, database-performance.md]
+      overlay_agents: [postgres-specialist, migration-specialist, db-performance-reviewer]
       stack_dir: db/postgres
       mcp_suggested: postgres
     mongodb:

@@ -75,8 +75,10 @@ profiles:
       - browser-testing-with-devtools
       - api-integration
       - performance-optimization
+      - load-testing
+      - incident-postmortem
     gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear]
-    hooks: [load-continuity, load-learnings, skill-routing, learning-detection, guard-rm-rf, guard-push-main, protect-secrets, warn-shared-modules, lint-fix, type-check]
+    hooks: [load-continuity, load-learnings, skill-routing, learning-detection, guard-rm-rf, guard-push-main, protect-secrets, guard-commit-secrets, warn-shared-modules, lint-fix, type-check]
 
   enterprise:
     label: "Enterprise — adds DevOps, Observability, full audit + acceptance"
@@ -85,6 +87,7 @@ profiles:
       - devops-engineer
       - observability-engineer
       - auditor
+      - incident-responder
     skills: all
     gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, pipeline-green, observability-ready, acceptance]
     hooks: all

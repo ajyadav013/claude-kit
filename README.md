@@ -181,7 +181,7 @@ A **fast-track** mode collapses small changes (< 5 files) to Developer → Code 
 
 ## The agents
 
-26 specialized roles in [`agents/`](agents/), each tagged with a `tier` (orchestrator · stage-lead ·
+27 specialized roles in [`agents/`](agents/), each tagged with a `tier` (orchestrator · stage-lead ·
 specialist · review) and installed per profile. Plus per-database **overlay agents** added only for
 your chosen DB. See the **[agent guide](docs/agents.md)** for how to drive them.
 
@@ -229,14 +229,16 @@ Run `claude-kit list-options` to see everything available.
 
 ## Rules & skills
 
-**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 18 files:
+**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 19 files:
 `mandatory-workflow`, `quality-gates`, `rarv-cycle`, `continuity`, `agent-memory`, `documentation`,
 `design-patterns`, `code-organization`, `linting-and-formatting`, `testing`,
 `frontend-best-practices`, `responsive-and-accessibility`, `devops-observability`, plus the
 agent-operation rules `reasoning-techniques`, `agent-guardrails`, `agent-resilience`,
-`goal-setting-and-monitoring`, and `human-in-the-loop` (how the agents themselves reason, stay safe,
-recover, and escalate — see [`docs/agentic-patterns.md`](docs/agentic-patterns.md)). Selected
-**overlay rules** (e.g. `fastapi-patterns`, `react-patterns`, `postgres-patterns`) are layered on top.
+`goal-setting-and-monitoring`, `human-in-the-loop`, and `model-tiers` (how the agents themselves
+reason, stay safe, recover, escalate, and pick a model tier — see
+[`docs/agentic-patterns.md`](docs/agentic-patterns.md)). Selected
+**overlay rules** (e.g. `fastapi-patterns`, `react-patterns`, `postgres-patterns`,
+`database-performance`) are layered on top.
 
 **Skills** ([`skills/`](skills/)) are on-demand capabilities Claude activates by context — led by the
 `sdlc` entrypoint, plus spec-driven development, planning, TDD, debugging, code review, security
@@ -281,7 +283,7 @@ Run `diff` first to preview.
 ```
 claude-kit/
 ├── .claude-plugin/        plugin.json + marketplace.json
-├── agents/                26 SDLC agents          rules/        18 engineering rules
+├── agents/                27 SDLC agents          rules/        19 engineering rules
 ├── skills/                on-demand skills        templates/    CLAUDE.md, settings, artifacts, memory seeds
 ├── commands/              /claude-kit:* commands  hooks/        hooks.json + scripts/
 ├── catalog/               stacks · profiles · mcp templates/stacks/  per-stack overlay rules + agents

@@ -24,15 +24,17 @@ def test_resolve_worked_example(payload):
     sel = make_selection(payload, mcp=["github"])
     plan = catalog.resolve(payload, sel)
 
-    # Overlay rules from the three selected stacks.
+    # Overlay rules from the three selected stacks (postgres carries a perf overlay too).
     assert set(plan.overlay_rules) == {
         "react-patterns.md",
         "fastapi-patterns.md",
         "postgres-patterns.md",
+        "database-performance.md",
     }
     # Postgres overlay agents.
     assert "postgres-specialist" in plan.overlay_agents
     assert "migration-specialist" in plan.overlay_agents
+    assert "db-performance-reviewer" in plan.overlay_agents
     assert "mongodb-specialist" not in plan.overlay_agents
     # MCP resolved to a config fragment for github only.
     assert set(plan.mcp_servers) == {"github"}

@@ -115,6 +115,12 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": {"type": "command", "command": _SECRETS_GUARD},
         "script": None,
     },
+    "guard-commit-secrets": {
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "entry": _script_entry("guard-secrets.sh"),
+        "script": "guard-secrets.sh",
+    },
     "warn-shared-modules": {
         "event": "PreToolUse",
         "matcher": "Edit|Write",

@@ -72,11 +72,11 @@ metadata; Claude still auto-selects by description.
 | **Coordinate** | `orchestrator` (delegates and gates; never writes code) |
 | **Plan** | `spec-doc-writer`, `story-planner`, `ui-designer` |
 | **Review** | `senior-backend-dev`, `senior-frontend-dev`, `technical-architect`, `em-reviewer`, `merge-reviewer` |
-| **Build** | `developer`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`) |
+| **Build** | `developer`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`, and `db-performance-reviewer` for PostgreSQL) |
 | **Test** | `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `auditor` |
 | **Rigor** | `devils-advocate`, `acceptance-reviewer` |
 | **Secure** | `security-reviewer` + `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` |
-| **Ship** | `devops-engineer`, `observability-engineer`, `pr-raiser` |
+| **Ship** | `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` (enterprise) |
 
 In a scaffolded project with both a frontend and a backend stack, the two review/build lanes are
 concrete: **backend** (`senior-backend-dev`, following the backend overlay rule such as

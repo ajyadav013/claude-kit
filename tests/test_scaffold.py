@@ -38,6 +38,79 @@ def test_agent_operation_rules_ship_in_every_profile(tmp_path, payload):
         assert expected <= rules, f"{profile} missing rules: {expected - rules}"
 
 
+def test_model_tiers_rule_ships_in_every_profile(tmp_path, payload):
+    """model-tiers.md is a core rule — present even in lean (not profile-gated)."""
+    for profile in ("lean", "standard", "enterprise"):
+        target = tmp_path / profile
+        install(payload, target, profile=profile)
+        assert (target / ".claude" / "rules" / "model-tiers.md").is_file(), (
+            f"{profile} missing model-tiers.md"
+        )
+
+
+def test_ops_skills_gated_by_profile(tmp_path, payload):
+    """incident-postmortem + load-testing arrive in standard (not lean), persist in enterprise."""
+    ops = {"incident-postmortem", "load-testing"}
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    enterprise = tmp_path / "enterprise"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+    install(payload, enterprise, profile="enterprise")
+
+    def skills(target):
+        return {p.name for p in (target / ".claude" / "skills").iterdir() if p.is_dir()}
+
+    assert not (ops & skills(lean)), "ops skills must not ship in lean"
+    assert ops <= skills(standard), "ops skills must ship in standard"
+    assert ops <= skills(enterprise), "ops skills must ship in enterprise"
+
+
+def test_incident_responder_is_enterprise_only(tmp_path, payload):
+    """The incident-responder agent is gated to the enterprise profile."""
+    for profile, present in (
+        ("lean", False),
+        ("standard", False),
+        ("enterprise", True),
+    ):
+        target = tmp_path / profile
+        install(payload, target, profile=profile)
+        exists = (target / ".claude" / "agents" / "incident-responder.md").is_file()
+        assert exists is present, f"{profile}: incident-responder present={exists}"
+
+
+def test_guard_commit_secrets_hook_in_standard(tmp_path, payload):
+    """The commit-time secret guard installs its script and wires into settings.json (standard+)."""
+    target = tmp_path / "standard"
+    install(payload, target, profile="standard")
+    script = target / ".claude" / "hooks" / "guard-secrets.sh"
+    assert script.is_file(), "guard-secrets.sh not copied"
+    settings = json.loads(
+        (target / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    commands = [
+        h["command"]
+        for block in settings["hooks"].get("PreToolUse", [])
+        if block["matcher"] == "Bash"
+        for h in block["hooks"]
+    ]
+    assert any("guard-secrets.sh" in c for c in commands), (
+        "commit-secret hook not wired"
+    )
+
+
+def test_postgres_performance_overlays_install(tmp_path, payload):
+    """Selecting PostgreSQL pulls in the perf overlay rule + reviewer agent; Mongo does not."""
+    pg = tmp_path / "pg"
+    mg = tmp_path / "mg"
+    install(payload, pg, database="postgres")
+    install(payload, mg, database="mongodb")
+    assert (pg / ".claude" / "rules" / "database-performance.md").is_file()
+    assert (pg / ".claude" / "agents" / "db-performance-reviewer.md").is_file()
+    assert not (mg / ".claude" / "rules" / "database-performance.md").exists()
+    assert not (mg / ".claude" / "agents" / "db-performance-reviewer.md").exists()
+
+
 def test_no_docker_anywhere(tmp_path, payload):
     """The acceptance criterion: a scaffolded config contains no Docker artifacts."""
     install(payload, tmp_path)

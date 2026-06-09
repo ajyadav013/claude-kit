@@ -46,7 +46,8 @@ failure side of resource awareness).
   strongest reasoning. Don't over-deliberate trivial work and don't under-deliberate the consequential.
 - **Model tier is a per-agent choice.** When an agent's role is a narrow specialist scan, a smaller/
   faster `model:` in its frontmatter is appropriate; reserve the most capable model for
-  architecture, security, and decisive reviews. This is set in the agent's frontmatter, not at runtime.
+  architecture, security, and decisive reviews. This is set in the agent's frontmatter, not at runtime
+  — see `.claude/rules/model-tiers.md` for the concrete per-agent tier policy.
 - **Prune context before you reason.** Summarize or drop what the current decision doesn't need —
   isolate large reads behind a research subagent (`Explore`) so the main context stays clear enough
   to think. See the `context-engineering` skill.

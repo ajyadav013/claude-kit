@@ -4,6 +4,45 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.5.0] — 2026-06-09
+
+Imports a curated set of components that were proven in a downstream project and generalized back
+into the kit: two SDLC skills, an incident-response agent, a model-tier reference rule, a commit-time
+secret guard, and PostgreSQL performance overlays. Everything was neutralized of app/stack specifics
+before landing — the agnostic core stays stack-free; PostgreSQL detail lives only in the db overlay.
+No application code, no Docker.
+
+### Added
+- **Two SDLC skills** (`skills/`, activated in `standard` and up):
+  - `incident-postmortem` — blameless postmortem: timeline, 5-whys, contributing factors, and tracked
+    action items. Reads the project's structured logs / error-tracking and monitoring tooling.
+  - `load-testing` — tool-agnostic performance/throughput testing (k6, Locust, etc. as examples).
+    Distinct from the frontend `performance-optimization` skill.
+- **`agents/incident-responder.md`** — a `plan`-mode stage-lead that triages live incidents (health/
+  readiness checks, recent service logs, common suspects) and hands off to the `incident-postmortem`
+  skill. Activated in the `enterprise` profile.
+- **`rules/model-tiers.md`** — a core reference mapping each agent to a model tier
+  (critical → opus, default → sonnet, fast → haiku), so model selection is explicit and auditable.
+  Cross-linked from `reasoning-techniques.md`. Rule set is now **19 files** (was 18).
+- **`hooks/scripts/guard-secrets.sh`** + the `guard-commit-secrets` hook (`PreToolUse`/`Bash`,
+  `standard`+) — blocks `git commit` when staged files or staged content look like secrets. Complements
+  the existing read-time `protect-secrets` guard.
+- **PostgreSQL overlays** (`templates/stacks/db/postgres/`, installed only when PostgreSQL is chosen):
+  - `rules/database-performance.md` — N+1 avoidance, composite/tenant indexes, keyset pagination,
+    async connection-pool tuning.
+  - `agents/db-performance-reviewer.md` — a `plan`-mode reviewer for query/index/pooling regressions.
+
+### Changed
+- `catalog/profiles.yaml` — `standard` gains the two skills + the commit-secret hook; `enterprise`
+  gains `incident-responder`.
+- `catalog/stacks.yaml` — the PostgreSQL stack wires the new overlay rule + overlay agent.
+- Docs now reference **27** SDLC agents (was 26) and a **19-file** rule set (was 18) — `README.md`,
+  `CLAUDE.md`, `docs/architecture.md`, `docs/agents.md`, `docs/agentic-patterns.md`.
+
+### Notes
+- Four other candidate skills from the source project were evaluated and **not** imported — already
+  covered by existing kit skills (e.g. security hardening, debugging/error recovery, planning).
+
 ## [0.4.0] — 2026-06-09
 
 Adds the **agent-operation layer** distilled from *Agentic Design Patterns* (A. Gulli). A full

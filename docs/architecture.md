@@ -13,11 +13,11 @@ is driven by a data **catalog**, and ships through **two channels from one sourc
 flowchart LR
     subgraph SRC["claude-kit repo — single source of truth"]
         direction TB
-        A["agents/ (26)"]
+        A["agents/ (27)"]
         S["skills/"]
         C["commands/"]
         H["hooks/"]
-        R["rules/ (18)"]
+        R["rules/ (19)"]
         T["templates/ (+ stacks/ overlays)"]
         K["catalog/ (stacks · profiles · mcp)"]
     end
@@ -124,7 +124,7 @@ gate counts).
 
 ```mermaid
 flowchart TB
-    subgraph AGENTS["agents/ — 26 roles (tier-tagged)"]
+    subgraph AGENTS["agents/ — 27 roles (tier-tagged)"]
         direction TB
         ORC["orchestrator (controller)"]
         PLAN["spec-doc-writer · story-planner · ui-designer"]
@@ -132,19 +132,19 @@ flowchart TB
         BUILD["developer · sdlc-code-reviewer"]
         TST["unit-tester · e2e-tester · tester · senior-tester · auditor"]
         SECG["security-reviewer · secret-scanner · dependency-scanner<br/>owasp-reviewer · policy-validator"]
-        SHIP["devops-engineer · observability-engineer · pr-raiser"]
+        SHIP["devops-engineer · observability-engineer · pr-raiser · incident-responder"]
         DA["devils-advocate · acceptance-reviewer (rigor)"]
     end
 
     subgraph OVERLAY["templates/stacks/ — installed per selection"]
-        ORULES["overlay rules<br/>fastapi · react · postgres · mongodb"]
-        OAGENTS["DB overlay agents<br/>postgres/mongodb-specialist · migration-specialist"]
+        ORULES["overlay rules<br/>fastapi · react · postgres (+ database-performance) · mongodb"]
+        OAGENTS["DB overlay agents<br/>postgres/mongodb-specialist · migration-specialist · db-performance-reviewer"]
     end
 
-    subgraph RULES["rules/ — 18 contracts the agents obey"]
+    subgraph RULES["rules/ — 19 contracts the agents obey"]
         MW["mandatory-workflow · quality-gates · rarv-cycle"]
         MEM["continuity · agent-memory"]
-        AGENTOP["reasoning-techniques · agent-guardrails · agent-resilience<br/>goal-setting-and-monitoring · human-in-the-loop"]
+        AGENTOP["reasoning-techniques · agent-guardrails · agent-resilience<br/>goal-setting-and-monitoring · human-in-the-loop · model-tiers"]
         CRAFT["design-patterns · code-organization · documentation<br/>linting-and-formatting · testing<br/>frontend-best-practices · responsive-and-accessibility · devops-observability"]
     end
 
@@ -185,13 +185,13 @@ claude-kit/
 ├── .claude-plugin/
 │   ├── plugin.json            # plugin manifest (hooks → ./hooks/hooks.json)
 │   └── marketplace.json       # marketplace entry (source ".")
-├── agents/                    # 26 SDLC agents, tier-tagged (plugin auto-discovers)
+├── agents/                    # 27 SDLC agents, tier-tagged (plugin auto-discovers)
 ├── skills/                    # on-demand skills incl. sdlc/ (the /sdlc entrypoint)
 ├── commands/                  # /claude-kit:init · :sdlc · :status
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-shared-modules
-├── rules/                     # 18 stack-agnostic engineering rules (incl. agent-operation rules)
+├── rules/                     # 19 stack-agnostic engineering rules (incl. agent-operation rules)
 ├── catalog/                   # stacks.yaml · profiles.yaml · mcp.yaml (the resolver's data)
 ├── templates/
 │   ├── CLAUDE.md · CLAUDE.stack.md.tmpl · README.claude-sdlc.md.tmpl

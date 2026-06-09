@@ -1,6 +1,6 @@
 {
   "name": "claude-kit",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Cookiecutter-style scaffolder for an autonomous Claude Code SDLC config (no app code, no Docker). `claude-kit init` asks ordered questions and installs CLAUDE.md + .claude/ (rules, the profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with working memory and a self-improving learnings loop.",
   "author": {
     "name": "Arjunsingh Yadav",
