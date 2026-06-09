@@ -358,6 +358,41 @@ Is the work one perspective on one artifact?
 
 ---
 
+## Why these patterns work: the failure modes they counter
+
+Single-context, single-agent execution drifts in predictable ways. The endorsed patterns exist to
+counter three recurring failure modes — name them so you can spot which pattern a situation needs:
+
+- **Agentic laziness** — the agent declares done early ("35 of 50 handled") or takes the cheap path.
+  *Counter:* isolation (a fresh sub-agent per item) + a loop with an explicit completion check.
+- **Self-preferential bias** — the agent rates its own output highly when asked to judge it.
+  *Counter:* a **separate** verifier (the Agent-Teams adversarial example above), ideally each verifier
+  given a **distinct failure-mode lens** (correctness vs. security vs. performance) rather than N
+  identical checks — diversity catches what redundancy can't.
+- **Goal drift** — after a long run or a lossy compaction, the agent loses the original objective.
+  *Counter:* re-state the goal/acceptance criteria into each sub-agent's fresh context, and keep
+  orchestration depth flat (≤1) so hand-offs don't accumulate paraphrase.
+
+## Programmatic orchestration (the Workflow / harness layer)
+
+The patterns above are about **personas** — the user or a slash command orchestrates subagents. A
+second, lower-level layer exists when you drive fan-out **programmatically** from a single orchestrator
+(e.g. Claude Code's Workflow tool runs a script that spawns and joins many subagents). The same
+isolation principle applies, plus a few composable shapes worth knowing:
+
+- **fan-out-and-synthesize** — split a work-list, run each item in its own context, merge results.
+- **generate-and-filter** — over-generate candidates, then a rubric/verifier keeps the best.
+- **tournament** — pairwise/bracket comparison when you need the single best of many.
+- **loop-until-done / loop-until-dry** — repeat until a completion (or "no new findings") check passes;
+  the direct counter to agentic laziness.
+
+Use this layer for large, repetitive, or adversarial work (migrations, broad audits, deep research). It
+costs more than a single pass — reserve it for high-value tasks and prefer the persona patterns above
+for ordinary work. Pair it with `.claude/rules/evals.md` to confirm the extra cost actually buys quality.
+
+> Source: "A harness for every task: dynamic workflows in Claude Code"; "Building a C compiler with a
+> team of parallel Claudes." Paraphrased for this kit.
+
 ## When to add a new pattern to this catalog
 
 Add a new entry only after:

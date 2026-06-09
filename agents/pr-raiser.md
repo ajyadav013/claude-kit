@@ -2,7 +2,7 @@
 name: pr-raiser
 description: Final pipeline agent that runs lint, build, and tests, then creates a structured pull request with proper commit formatting.
 tools: Read, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: purple
 tier: stage-lead

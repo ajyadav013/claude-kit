@@ -17,7 +17,7 @@ flowchart LR
         S["skills/"]
         C["commands/"]
         H["hooks/"]
-        R["rules/ (21)"]
+        R["rules/ (23)"]
         T["templates/ (+ stacks/ & org/ overlays)"]
         K["catalog/ (stacks · profiles · mcp · org)"]
     end
@@ -150,7 +150,7 @@ flowchart TB
         OPOL["org policy/vibe rules<br/>secrets · pii · production-data · branch-and-pr · compliance · …"]
     end
 
-    subgraph RULES["rules/ — 21 contracts the agents obey"]
+    subgraph RULES["rules/ — 23 contracts the agents obey"]
         MW["mandatory-workflow · quality-gates · rarv-cycle"]
         MEM["continuity · agent-memory"]
         AGENTOP["reasoning-techniques · agent-guardrails · agent-resilience<br/>goal-setting-and-monitoring · human-in-the-loop · model-tiers"]
@@ -202,7 +202,7 @@ claude-kit/
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-* / validate-* / audit-log
-├── rules/                     # 21 stack-agnostic engineering rules (incl. agent-operation + org-core rules)
+├── rules/                     # 23 stack-agnostic engineering rules (incl. agent-operation + org-core rules)
 ├── catalog/                   # stacks.yaml · profiles.yaml · mcp.yaml · org.yaml (the resolver's data)
 ├── templates/
 │   ├── CLAUDE.md · CLAUDE.stack.md.tmpl · README.claude-sdlc.md.tmpl

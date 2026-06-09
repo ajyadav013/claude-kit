@@ -2,7 +2,7 @@
 name: policy-validator
 description: Security sub-scanner. Validates that required security policies are enforced — CORS allowlist, rate limiting on auth endpoints, secure session-cookie flags, security headers, input validation at boundaries, and the authz dependency chain. PASS/FAIL per policy with remediation. Reports only.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: yellow
 tier: specialist

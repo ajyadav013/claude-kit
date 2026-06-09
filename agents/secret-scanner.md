@@ -2,7 +2,7 @@
 name: secret-scanner
 description: Security sub-scanner. Detects hardcoded secrets, API keys, tokens, passwords, connection strings, and private keys in code, config, compose, CI, and tests — plus accidental .env commits and secrets in git history. Reports only; never edits code.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: yellow
 tier: specialist

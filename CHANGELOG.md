@@ -4,6 +4,66 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+_Nothing yet — changes land here before the next tagged release._
+
+## [0.7.0] — 2026-06-09
+
+Adopts durable AI-engineering practices mined from a curated knowledge base of industry articles
+(Anthropic & Cursor engineering blogs, agent-harness write-ups, a security post-mortem, and
+context-engineering essays) into the stack-agnostic core. Only **genuine gaps** were filled; existing
+coverage was left intact to preserve description-based agent selection (golden rule #1). Still
+config-only, stack-agnostic, no app code, no Docker; `resolve()` is unchanged — the two new rules are
+always-on core (not catalog-gated).
+
+### Added
+- **`rules/evals.md`** — eval-driven development for AI/agent features: build a graded set before
+  iterating, **grade outcomes not paths**, calibrate LLM-as-judge against human labels, report
+  **pass@k vs pass^k**, keep regression + capability suites, re-eval before a model swap.
+  *(Source: Anthropic "Demystifying evals for AI agents"; Cursor "Bench".)*
+- **`rules/tool-design.md`** — designing tools/MCP for an agent consumer: composable CLI/code over
+  always-loaded servers, progressive disclosure, single-line grep-friendly errors, print-sparsely /
+  log-to-file, structured output for machine consumption, least-privilege + idempotency.
+  *(Source: "What if you don't need MCP at all?"; "Building a C compiler with parallel Claudes"; "The
+  Anatomy of an Agent Harness".)*
+- The core rule set is now **23 files** (was 21); both new rules ship in every profile.
+
+### Changed
+- **`rules/agent-guardrails.md`** — added a **secure-defaults baseline** (localhost binding, no
+  plaintext credentials, sandboxed execution, dependency/marketplace distrust) + an OWASP Top-10 for
+  Agentic Apps (ASI01–ASI10) reference. *(Source: "From Clawdbot to OpenClaw".)*
+- **`rules/agent-memory.md`** — **record the *why***, not just the *what* (decision traces: decision,
+  reasoning, rejected alternatives, refs). *(Source: "Context Graphs".)*
+- **`skills/_references/orchestration-patterns.md`** — the **three failure modes** the patterns counter
+  (agentic laziness, self-preferential bias, goal drift) + a **programmatic fan-out** layer
+  (fan-out-and-synthesize, generate-and-filter, tournament, loop-until-done).
+  *(Source: "A harness for every task: dynamic workflows in Claude Code".)*
+- **`skills/context-engineering/SKILL.md`** — a **context-degradation taxonomy** (poisoning,
+  distraction, clash, lost-in-the-middle) + progressive disclosure / compaction / tool-output offloading.
+- **`docs/agentic-patterns.md`** — coverage map updated; new "Digest-sourced additions" section records
+  provenance for all of the above.
+- Version bumped to **0.7.0**; `tests/test_scaffold.py` now asserts `evals.md` + `tool-design.md` ship
+  in every profile.
+
+### Fixed
+Surfaced by a full install-readiness audit of both distribution paths (plugin + pip):
+- **`git push` guard no longer over-blocks.** The PreToolUse guard matched the bare substrings
+  `main`/`master` anywhere after `git push`, blocking legitimate branches (`maintenance`,
+  `mainframe-fix`, `remaster-ui`, `domain-model`). It now anchors to the *target* ref token. Fixed in
+  all three copies — `hooks/hooks.json`, `templates/settings.json`, and `src/claude_kit/hooks.py`.
+- **Agent frontmatter uses the correct key.** Renamed the invalid `mode:` field to **`permissionMode:`**
+  across all 26 agents (core + DB overlays); Claude Code silently ignores `mode:`, so the read-only
+  `plan` / `acceptEdits` intent was dead config in scaffolded projects.
+- **pip-CLI installs `skills/_references/`.** `claude-kit init` now copies the shared deep-dive
+  references, so the "See Also" links in scaffolded `SKILL.md` files resolve (previously only the
+  plugin / `init.sh` path shipped them); the `validate` skill count now requires a `SKILL.md` so the
+  shared dir is not counted as a skill.
+- **`rules/quality-gates.md`** scopes the Devil's Advocate pass to the profiles that install the agent
+  (standard, enterprise); the **lean** fast track no longer carries a dangling `devils-advocate` ref.
+- **Doc rule counts corrected** to **23** in `README.md` and `docs/architecture.md` (were 21); the
+  README rule list now includes `evals` and `tool-design`.
+
 ## [0.6.0] — 2026-06-09
 
 Adds an **Organization Vibe-Coding Capability Layer** so the kit serves whole organizations —

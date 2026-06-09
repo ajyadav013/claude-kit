@@ -2,7 +2,7 @@
 name: spec-doc-writer
 description: Transforms requirements into a structured specification with developer documentation — API contracts, data models, and implementation steps — in a single pass for any stack.
 tools: Read, Write, Edit, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: green
 tier: stage-lead

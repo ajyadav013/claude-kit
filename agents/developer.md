@@ -2,7 +2,7 @@
 name: developer
 description: Writes production code from approved specs. Works in an isolated git worktree and responds to code review feedback. Handles backend, frontend, or full-stack implementation depending on the project.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: opus
 color: blue
 tier: stage-lead

@@ -2,7 +2,7 @@
 name: merge-reviewer
 description: Verifies that parallel work streams (e.g., backend + frontend, or any independent development lanes) are consistent, compatible, and integration-ready. Gates pipeline progression at join points.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: orange
 tier: review

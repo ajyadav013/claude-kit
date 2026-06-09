@@ -2,7 +2,7 @@
 name: tester
 description: Validates backend APIs together with the frontend. Verifies API correctness, request/response behavior, UI rendering against spec, integration, error states, and edge cases. Can be spawned in parallel with a testing lane focus.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: lime
 tier: specialist

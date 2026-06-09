@@ -2,7 +2,7 @@
 name: security-reviewer
 description: Security stage coordinator. Runs at Phase 5.4 (after test-coverage VERIFIED, before DevOps). Dispatches four sub-scanners in parallel — secret-scanner, dependency-scanner, owasp-reviewer, policy-validator — aggregates findings by severity, and owns the Security Clear gate. Read-only: routes fixes through the Orchestrator's defect loop.
 tools: Agent, Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: yellow
 tier: stage-lead

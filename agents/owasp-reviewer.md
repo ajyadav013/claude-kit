@@ -2,7 +2,7 @@
 name: owasp-reviewer
 description: Security sub-scanner. Reviews the change against the OWASP Top 10 (2021), tuned to the project's stack — access control (A01), injection (A03), authentication (A07), logging (A09). Reports findings with file:line and remediation; never edits code.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: opus
 color: yellow
 tier: specialist

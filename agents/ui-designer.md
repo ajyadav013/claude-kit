@@ -2,7 +2,7 @@
 name: ui-designer
 description: Drafts and self-reviews UI/UX design specs for frontend work. Combines designer and design specialist roles — produces a complete, reviewed design spec in one pass.
 tools: Read, Write, Edit, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: violet
 tier: stage-lead

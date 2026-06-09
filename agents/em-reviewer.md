@@ -2,7 +2,7 @@
 name: em-reviewer
 description: Engineering Manager persona that challenges, questions, and approves specs and developer documentation before any code is written.
 tools: Read, Glob, Grep, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: amber
 tier: review

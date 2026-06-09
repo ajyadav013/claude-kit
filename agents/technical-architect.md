@@ -2,7 +2,7 @@
 name: technical-architect
 description: Reviews specs and developer documentation from an architecture perspective. Validates system design, scalability, integration patterns, and technical feasibility after senior developer review and before EM review.
 tools: Read, Glob, Grep, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: slate
 tier: review

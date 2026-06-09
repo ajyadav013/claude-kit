@@ -69,13 +69,13 @@ Applies wherever **multiple reviewers assess the same artifact in parallel** —
 ### Devil's Advocate (anti-sycophancy)
 A **unanimous PASS is suspicious**, not reassuring — independent AI reviewers tend to converge and rubber-stamp.
 
-> When all reviewers return PASS with no Critical/High/Medium findings, the Orchestrator MUST spawn the `devils-advocate` agent before the gate is allowed to pass.
+> When all reviewers return PASS with no Critical/High/Medium findings, the Orchestrator MUST spawn the `devils-advocate` agent before the gate is allowed to pass — **in any profile that installs it** (standard and enterprise). The **lean** profile's fast track omits this adversarial pass and does not install the agent.
 
 The Devil's Advocate assumes the artifact is guilty and hunts for what everyone missed. Its verdict:
 - **UPHELD** — found a real Critical/High/Medium issue → gate FAILs, route to the fix lane.
 - **CONFIRMED** — genuinely clean after adversarial effort → gate PASSes.
 
-A gate reached by unanimous PASS is not PASS until the Devil's Advocate returns CONFIRMED. See `.claude/agents/devils-advocate.md`.
+Where the agent is installed, a gate reached by unanimous PASS is not PASS until the Devil's Advocate returns CONFIRMED. See `.claude/agents/devils-advocate.md` (present in the standard and enterprise profiles).
 
 ---
 

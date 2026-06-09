@@ -2,7 +2,7 @@
 name: dependency-scanner
 description: Security sub-scanner agent. Audits project dependencies (backend and frontend) for known CVEs — direct and transitive — flags deprecated/outdated packages, and recommends pinned upgrades. Reports only; never edits code.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: yellow
 tier: specialist

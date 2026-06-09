@@ -2,7 +2,7 @@
 name: orchestrator
 description: SDLC Pipeline Controller. Never writes code — only delegates, coordinates, and gates agent progression. Supports parallel execution lanes for independent work streams.
 tools: Agent, Read, Glob, Grep, Bash, TaskCreate, TaskGet, TaskList, TaskUpdate, SendMessage
-mode: plan
+permissionMode: plan
 model: opus
 color: indigo
 tier: orchestrator

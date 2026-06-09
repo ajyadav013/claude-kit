@@ -2,7 +2,7 @@
 name: risk-classifier
 description: Classifies a task or change as low / medium / high / restricted risk and states the required protocol. Read-only — gates how much caution, review, and human approval the work needs before it proceeds.
 tools: Read, Glob, Grep, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: yellow
 tier: review

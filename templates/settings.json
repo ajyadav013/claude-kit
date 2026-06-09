@@ -30,7 +30,7 @@
         "matcher": "Bash",
         "hooks": [
           { "type": "command", "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE 'rm[[:space:]]+-[^[:space:]]*r[^[:space:]]*f'; then echo 'BLOCKED: rm -rf is disabled. Move to trash or delete specific paths explicitly.' >&2; exit 2; fi" },
-          { "type": "command", "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE 'git[[:space:]]+push.*(main|master)'; then echo 'BLOCKED: do not push directly to main/master — use a feature branch and a PR.' >&2; exit 2; fi" }
+          { "type": "command", "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE 'git[[:space:]]+push.*[[:space:]:](main|master)([[:space:]]|$)'; then echo 'BLOCKED: refusing to push to main/master — use a feature branch and a PR.' >&2; exit 2; fi" }
         ]
       },
       {

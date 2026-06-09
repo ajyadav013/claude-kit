@@ -2,7 +2,7 @@
 name: senior-backend-dev
 description: Senior backend developer agent. Handles API endpoint design, database work, migrations, authentication, authorization, and backend testing for any stack.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: teal
 tier: review

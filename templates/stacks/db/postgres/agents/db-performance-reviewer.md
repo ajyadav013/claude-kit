@@ -2,7 +2,7 @@
 name: db-performance-reviewer
 description: Read-only database performance reviewer. Audits a diff or feature for N+1 queries, missing tenant-scoped indexes, offset pagination, over-fetching, and pool misuse on the SQLAlchemy 2.0 async + PostgreSQL stack. Reports findings by severity; routes fixes to the dev lane. Invoke on data-layer changes or when an endpoint is slow.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: cyan
 tier: review

@@ -184,6 +184,12 @@ def _install_skills(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -
         else:
             log.append(f"  ! skill missing (skipped): {name}")
     log.append(f"  • skills/ ({installed} of {len(plan.skills)} selected)")
+    # _references/ is shared support content (not a profile-selected skill), but several SKILL.md
+    # files link into .claude/skills/_references/…; copy it so those "See Also" links resolve.
+    refs_src = src / "skills" / "_references"
+    if refs_src.is_dir():
+        _copy_tree(refs_src, skills_dest / "_references")
+        log.append("  • skills/_references/ (shared deep-dive references)")
 
 
 def _install_org(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:

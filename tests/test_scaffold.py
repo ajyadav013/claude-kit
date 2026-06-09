@@ -30,6 +30,8 @@ def test_agent_operation_rules_ship_in_every_profile(tmp_path, payload):
         "agent-resilience.md",
         "goal-setting-and-monitoring.md",
         "human-in-the-loop.md",
+        "evals.md",
+        "tool-design.md",
     }
     for profile in ("lean", "standard", "enterprise"):
         target = tmp_path / profile

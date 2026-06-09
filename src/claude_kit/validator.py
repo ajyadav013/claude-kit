@@ -140,7 +140,7 @@ def validate(target: str | Path) -> tuple[bool, list[str]]:
         else:
             good(
                 f"skills/ descriptions present "
-                f"({sum(1 for d in skills_dir.iterdir() if d.is_dir())} skills)"
+                f"({sum(1 for d in skills_dir.iterdir() if d.is_dir() and (d / 'SKILL.md').is_file())} skills)"
             )
 
     rules_dir = claude / "rules"

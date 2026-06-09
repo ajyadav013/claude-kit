@@ -2,7 +2,7 @@
 name: e2e-tester
 description: Writes end-to-end integration tests simulating real user interactions and validating full user journeys across the application.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: teal
 tier: specialist

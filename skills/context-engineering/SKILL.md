@@ -118,6 +118,38 @@ Long conversations accumulate stale context. Manage this:
 - **Summarize progress** when context is getting long: "So far we've completed X, Y, Z. Now working on W."
 - **Compact deliberately** — if the tool supports it, compact/summarize before critical work
 
+## Context Degradation: the failure taxonomy
+
+Context window *size* ≠ *attention budget*. As context grows, quality degrades through named failure
+modes — recognize them so you reach for the right fix:
+
+- **Poisoning** — a hallucination or wrong fact enters the context and is then treated as ground truth
+  in every later step. *Fix:* correct or drop it immediately; don't let one error compound.
+- **Distraction** — so much history / irrelevant material accumulates that the model loses focus.
+  *Fix:* compact, or start a fresh session (Level 5).
+- **Clash** — contradictory information is present at once (stale spec vs. current code) and the model
+  picks arbitrarily. *Fix:* surface the conflict (Confusion Management, below) and remove the loser.
+- **Lost-in-the-middle** — content in the *middle* of a long context gets less attention than the start
+  and end (a U-shaped curve). *Fix:* put the most important instructions/facts at the top or bottom,
+  never buried in a long paste.
+
+## Advanced: progressive disclosure, compaction, offloading
+
+Three primitives keep long runs coherent:
+
+- **Progressive disclosure** — don't load everything up front. Expose names + one-line descriptions and
+  load full detail only on use (how skills and well-designed tools work — see
+  `.claude/rules/tool-design.md`). Preserves the baseline attention budget for the task.
+- **Compaction** — when history grows, summarize completed work into a compact state ("done: X, Y;
+  now: Z") and continue from the summary, not the full transcript. Compact *deliberately* before
+  critical work, not only when forced.
+- **Tool-output offloading** — don't dump large tool/command output into context. Keep a few signal
+  lines inline and write the full output to a file the agent can open if needed (mirror of the output
+  rules in `.claude/rules/tool-design.md`).
+
+> Source: "Agent Skills for Context Engineering"; "The Anatomy of an Agent Harness"; "Shell + Skills +
+> Compaction: tips for long-running agents." Paraphrased for this kit.
+
 ## Context Packing Strategies
 
 ### The Brain Dump

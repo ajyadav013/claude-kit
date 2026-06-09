@@ -1,6 +1,7 @@
 # Organization vibe-coding capabilities — coverage map
 
-This document describes the **Organization Vibe-Coding Capability Layer** (claude-kit 0.6.0) and maps
+This document describes the **Organization Vibe-Coding Capability Layer** (introduced in claude-kit
+0.6.0) and maps
 the requested org capabilities onto what the kit actually ships. It exists to prove the layer was built
 by **reuse, not duplication**: roughly 70% of the requested components already existed and were *mapped*
 to capability packs; only genuinely-new content (the vibe-coding / non-engineer layer, safety &

@@ -10,6 +10,9 @@ venv/
 # OS / editor cruft
 .DS_Store
 
+# Stray MCP tool artifacts (e.g. Playwright MCP session logs) — never part of the kit.
+.playwright-mcp/
+
 # Reference material kept locally only — never distributed (copyrighted source book whose
 # concepts were paraphrased into rules/, never its text). Keep the binary out of the repo.
 Agentic_Design_Patterns.pdf

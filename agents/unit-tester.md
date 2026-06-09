@@ -2,7 +2,7 @@
 name: unit-tester
 description: Writes comprehensive unit test suites for the project. Covers happy paths, edge cases, and error scenarios using the project's test framework.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: green
 tier: specialist

@@ -2,7 +2,7 @@
 name: devops-engineer
 description: Delivery & operability agent. Owns the CI pipeline, build & packaging, release/rollback, environment & secret configuration, database migrations, and the local developer experience for any stack. Container-optional — works whether the project ships as containers, plain processes, managed services, or serverless.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: slate
 tier: stage-lead

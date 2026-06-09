@@ -24,10 +24,13 @@ _RM_RF_GUARD = (
     "explicitly.' >&2; exit 2; fi"
 )
 
+# Block pushes whose *target* ref is main/master. The branch token must be bounded by a space or
+# ':' before and a space/end after, so legit branches that merely contain the substring
+# (maintenance, mainframe-fix, remaster-ui, domain-model) are NOT blocked.
 _PUSH_GUARD = (
     "CMD=$(jq -r '.tool_input.command'); "
-    "if echo \"$CMD\" | grep -qE 'git[[:space:]]+push.*(main|master)'; then "
-    "echo 'BLOCKED: do not push directly to main/master — use a feature branch and a PR.' >&2; "
+    "if echo \"$CMD\" | grep -qE 'git[[:space:]]+push.*[[:space:]:](main|master)([[:space:]]|$)'; "
+    "then echo 'BLOCKED: refusing to push to main/master — use a feature branch and a PR.' >&2; "
     "exit 2; fi"
 )
 

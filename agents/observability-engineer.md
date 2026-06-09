@@ -2,7 +2,7 @@
 name: observability-engineer
 description: Observability agent for production readiness. Owns SLOs/SLIs, health and readiness checks, structured logging, alert rules, and request tracing. Runs after DevOps and gates the pipeline at "Observability Ready" before the PR is raised.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: teal
 tier: stage-lead

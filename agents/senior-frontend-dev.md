@@ -2,7 +2,7 @@
 name: senior-frontend-dev
 description: Senior frontend developer agent. Handles UI/UX, component architecture, API integration, client state management, routing, unit testing, performance, security, and E2E testing. Stack-agnostic — adapts to the project's frontend framework, type system, build tool, and testing setup.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: indigo
 tier: review

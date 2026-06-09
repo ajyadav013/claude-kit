@@ -2,7 +2,7 @@
 name: senior-tester
 description: Independently verifies the tester's coverage, findings, and conclusions. Can be spawned in parallel with a verification lane focus. Testing is not complete without senior tester sign-off.
 tools: Read, Write, Edit, Bash, Glob, Grep
-mode: acceptEdits
+permissionMode: acceptEdits
 model: sonnet
 color: emerald
 tier: review

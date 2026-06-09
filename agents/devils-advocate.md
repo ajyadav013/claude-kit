@@ -2,7 +2,7 @@
 name: devils-advocate
 description: Anti-sycophancy adversarial reviewer. Invoked ONLY when a parallel review or test-coverage gate reaches a unanimous PASS. Assumes the work is guilty and hunts for what every other reviewer missed. Gates the pipeline — a unanimous PASS is not final until this agent returns CONFIRMED.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: opus
 color: purple
 tier: review

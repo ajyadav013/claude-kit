@@ -2,7 +2,7 @@
 name: incident-responder
 description: Production incident commander. Use when prod is broken — errors spiking, a latency/availability breach, a dependency down, or a bad deploy. Triages severity, gathers signals (health, logs, metrics, error tracking), drives mitigation (rollback/flag) FIRST, then root cause. Coordinates; routes code fixes to the dev lane.
 tools: Read, Glob, Grep, Bash, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: red
 tier: stage-lead

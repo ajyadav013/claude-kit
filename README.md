@@ -2,7 +2,7 @@
 
 # claude-kit
 
-**A Cookiecutter-style scaffolder for an autonomous SDLC inside [Claude Code](https://www.claude.com/product/claude-code).**
+**A Cookiecutter-style scaffolder for an autonomous SDLC (software-delivery lifecycle) inside [Claude Code](https://www.claude.com/product/claude-code).**
 
 `claude-kit init` asks a few questions and lays down a `CLAUDE.md` + a `.claude/` configuration —
 rules, a profile-selected set of specialized agents and skills, hooks, and artifact templates — that
@@ -13,6 +13,7 @@ every phase. **No application code. No Docker. Configuration only.**
 [![Python](https://img.shields.io/pypi/pyversions/claude-kit.svg)](https://pypi.org/project/claude-kit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757.svg)](https://www.claude.com/product/claude-code)
+[![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
 
 [Install](#install) · [The init flow](#the-init-flow) · [How it works](#how-it-works) · [The pipeline](#the-pipeline) · [Agents](#the-agents) · [Catalog](#catalog--extensibility) · [Agent guide](docs/agents.md) · [CLI](#cli-reference)
 
@@ -69,8 +70,12 @@ Then, inside any project you want managed by the pipeline:
 
 ```text
 /claude-kit:init        # asks the ordered questions, lays down CLAUDE.md + .claude/
+# ↻ restart Claude Code so the project's agents, skills & hooks load
 /sdlc Add a CSV export button to the reports page
 ```
+
+> `/sdlc` is a **project skill** installed by `init`, so it becomes available after the restart. The
+> plugin also exposes `/claude-kit:sdlc <task>`, which works immediately (no restart needed).
 
 ### B) As a pip package
 
@@ -78,12 +83,17 @@ A CLI (`claude-kit`, aliases `ckit` / `claude-sdlc`) that scaffolds the same con
 great for CI, onboarding, or non-plugin workflows:
 
 ```bash
-pip install claude-kit
-claude-kit init                 # interactive: prompts for stack, profile, MCP
+# Until the first PyPI release, install straight from the repo:
+pip install "git+https://github.com/ajyadav013/claude-kit.git"
+# Once published to PyPI this becomes:  pip install claude-kit
+
+claude-kit init                 # interactive: prompts for stack, profile, MCP (Model Context Protocol)
 claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Postgres + standard
 ```
 
-Open the project in Claude Code afterwards and the pipeline is active.
+> **Prerequisites:** [Claude Code](https://www.claude.com/product/claude-code); Python ≥ 3.9 for the
+> CLI; `jq` to enable the shell hooks (they no-op without it); Node / `npx` only if you turn on an MCP
+> server. Open the project in Claude Code afterwards and the pipeline is active.
 
 ---
 
@@ -97,7 +107,7 @@ config — nothing else:
 3. **Backend language** (default: Python) → **backend framework** (default: FastAPI)
 4. **Database** (PostgreSQL · MongoDB)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP integrations** (GitHub, Jira/Linear, Postgres/Mongo, Playwright, Docs) — a
+6. **Optional MCP (Model Context Protocol) integrations** (GitHub, Jira/Linear, Postgres/Mongo, Playwright, Docs) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
 
 Non-interactive equivalents: `--defaults`, or `--config init.yaml` (flat or nested YAML). What lands:
@@ -212,8 +222,9 @@ your chosen DB, and **org persona agents** added only in organization scope. See
 | `secret-scanner` · `dependency-scanner` · `owasp-reviewer` · `policy-validator` | The four parallel security sub-scanners |
 | `devops-engineer` | CI/build/release, env, migrations, runbook — container-optional; owns Pipeline Green |
 | `observability-engineer` | SLOs, health/readiness, structured logging, alerts — owns Observability Ready |
+| `incident-responder` | Production-incident triage, mitigation, and postmortem (enterprise scope) |
 | `pr-raiser` | Final checks, commit hygiene, and PR creation |
-| **DB overlays** | `postgres-specialist` · `mongodb-specialist` · `migration-specialist` (installed for the selected database) |
+| **DB overlays** | `postgres-specialist` · `mongodb-specialist` · `migration-specialist` · `db-performance-reviewer` (installed for the selected database) |
 | **Org personas** | `pm-copilot` · `founder-prototype-agent` · `support-ticket-engineer` · `data-workflow-agent` · `internal-tools-builder` (organization scope only) |
 
 ---
@@ -243,13 +254,14 @@ Run `claude-kit list-options` to see everything available.
 
 ## Rules & skills
 
-**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 21 files:
+**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 23 files:
 `mandatory-workflow`, `quality-gates`, `rarv-cycle`, `continuity`, `agent-memory`, `documentation`,
 `design-patterns`, `code-organization`, `linting-and-formatting`, `testing`,
 `frontend-best-practices`, `responsive-and-accessibility`, `devops-observability`, the
 agent-operation rules `reasoning-techniques`, `agent-guardrails`, `agent-resilience`,
-`goal-setting-and-monitoring`, `human-in-the-loop`, and `model-tiers` (how the agents themselves
-reason, stay safe, recover, escalate, and pick a model tier — see
+`goal-setting-and-monitoring`, `human-in-the-loop`, `model-tiers`, `evals`, and `tool-design` (how
+the agents themselves reason, stay safe, recover, escalate, pick a model tier, run evals, and design
+tools — see
 [`docs/agentic-patterns.md`](docs/agentic-patterns.md)), plus `autonomy-levels` and
 `risk-classification` (how much Claude may do before a human acts, and how work is risk-gated — see
 [`docs/org-capabilities.md`](docs/org-capabilities.md)). Selected
@@ -280,6 +292,7 @@ claude-kit <command>          # aliases: ckit · claude-sdlc
 | `list-options` | List available frontend/backend/database/profile/MCP options |
 | `status [path]` | Show what's installed, the selection, and working memory |
 | `version` | Print the version |
+| `package-org-pack` · `install-org-pack` | Package / install an organization capability pack (organization scope) |
 
 Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`; and the
 `/sdlc` skill inside any scaffolded project.
@@ -296,12 +309,27 @@ Run `diff` first to preview.
 
 ---
 
+## Troubleshooting
+
+Run **`claude-kit doctor`** first — it checks your environment (git, `jq`, hook scripts) and prints
+fix hints.
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `/sdlc`, agents, or skills "not found" right after `init` | Claude Code hasn't loaded the new project config yet | **Restart Claude Code** — or use the plugin command `/claude-kit:sdlc <task>` (works without a restart) |
+| Guard / quality hooks seem to do nothing | `jq` isn't installed (the hooks parse tool input with it) | Install `jq`; without it the hooks degrade to no-ops by design |
+| A selected MCP server won't start | `node` / `npx` missing (most MCP servers launch via `npx`) | Install Node.js, or remove the server from `.mcp.json` |
+| `pip install claude-kit` fails | Not yet published to PyPI | Use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
+| `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |
+
+---
+
 ## Project structure
 
 ```
 claude-kit/
 ├── .claude-plugin/        plugin.json + marketplace.json
-├── agents/                28 SDLC agents          rules/        21 engineering rules
+├── agents/                28 SDLC agents          rules/        23 engineering rules
 ├── skills/                on-demand skills        templates/    CLAUDE.md, settings, artifacts, memory seeds
 ├── commands/              /claude-kit:* commands  hooks/        hooks.json + scripts/
 ├── catalog/         stacks·profiles·mcp·org       templates/stacks/  per-stack overlay rules + agents

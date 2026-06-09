@@ -78,6 +78,23 @@ Add a one-line entry to `.claude/agent-memory/MEMORY.md` under the appropriate c
 - [Title](category/filename.md) — one-line hook
 ```
 
+## Record the *why*, not just the *what*
+
+The durable value of a memory is the **rationale**, not the outcome — outcomes are visible in the code,
+but the reasoning behind a decision is the part that's lost when a person (or session) moves on. When
+you write to `architecture/` or `patterns/`, capture the **decision trace**, not just the conclusion:
+
+- **what** was decided, **why** (the reasoning), **what alternatives were rejected** and why, and a
+  pointer (PR, file, issue) — roughly `{decision, why, rejected-alternatives, refs, date}`.
+- A memory that says *"we use X"* is weak; *"we chose X over Y because Z, see PR #123"* lets a future
+  agent inherit the **judgment**, defend the decision, and know when it no longer applies.
+
+This is why the file template above leads with **Context** and ends with **Recommendation** — fill them
+with reasoning, not a restatement of the title.
+
+> Source: "Context Graphs — building persistent memory for the agentic enterprise" (decision traces as
+> the system of record). Paraphrased for this kit.
+
 ## File naming
 
 Use lowercase kebab-case: `state-selector-infinite-loop.md`, `auth-token-refresh-race.md`
