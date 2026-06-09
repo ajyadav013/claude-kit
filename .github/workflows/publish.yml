@@ -1,17 +1,48 @@
 name: Publish to PyPI
 
-# Publishes claude-kit to PyPI via Trusted Publishing (OIDC) — no API token needed.
-# Triggered by pushing a version tag (e.g. v0.7.0), by publishing a GitHub Release, or manually.
+# Publishes claude-code-kit to PyPI via Trusted Publishing (OIDC) — no API token needed.
+#
+# Triggers: every push to `main` (i.e. every merge), every version tag (e.g. v0.7.0), a published
+# GitHub Release, or a manual dispatch. PyPI versions are immutable, so a merge that does NOT bump the
+# version cannot be re-uploaded. The `version-check` job below therefore gates the build/publish on
+# whether `pyproject.toml`'s version is already on PyPI: a new version publishes, an unchanged version
+# is skipped cleanly. Combined with the release rule (bump the version in all four manifests + the
+# CHANGELOG), this means "merge to main → publish" whenever — and only when — the version is bumped.
 on:
   push:
+    branches: ["main"]
     tags: ["v*"]
   release:
     types: [published]
   workflow_dispatch:
 
 jobs:
+  version-check:
+    name: Check version is new
+    runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.check.outputs.should_publish }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        name: Compare pyproject version against PyPI
+        run: |
+          version="$(grep -E '^version *= *"' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          code="$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/claude-code-kit/$version/json")"
+          if [ "$code" = "200" ]; then
+            echo "::notice::claude-code-kit $version is already on PyPI (HTTP $code) — skipping publish. Bump the version to release."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::claude-code-kit $version is not on PyPI (HTTP $code) — will build and publish."
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build distributions
+    needs: version-check
+    if: needs.version-check.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +61,8 @@ jobs:
 
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: [version-check, build]
+    if: needs.version-check.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     # The trusted publisher on PyPI must reference: workflow `publish.yml` and (if set) environment `pypi`.
     environment: pypi
@@ -44,9 +76,12 @@ jobs:
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          # PEP 740 attestations are temporarily disabled: Sigstore's Rekor
-          # transparency log was returning HTTP 502s and blocking the upload
-          # (the OIDC trusted-publishing auth itself works). Re-enable by removing
-          # this line (the action defaults to attestations: true) once Sigstore
-          # is healthy again — e.g. for the next release.
+          # Belt-and-suspenders against the immutable-version race: if the version somehow already
+          # exists at upload time, skip instead of failing the run (the version-check job already
+          # gates this, but two merges in flight could both pass the check).
+          skip-existing: true
+          # PEP 740 attestations are temporarily disabled: Sigstore's Rekor transparency log was
+          # returning HTTP 502s and blocking the upload (the OIDC trusted-publishing auth itself
+          # works). Re-enable by removing this line (the action defaults to attestations: true) once
+          # Sigstore is healthy again — e.g. for the next release.
           attestations: false

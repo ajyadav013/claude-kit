@@ -4,6 +4,16 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **CI now publishes on merge to `main`, gated by a version check.** `publish.yml` also triggers on
+  every push to `main` (in addition to version tags, releases, and manual dispatch). A `version-check`
+  job compares `pyproject.toml`'s version against PyPI and only builds/publishes when the version is
+  new; an unchanged version is skipped cleanly (PyPI versions are immutable). The publisher also passes
+  `skip-existing: true` as a race guard. Net effect: bump the version in a PR, merge it, and the
+  release ships automatically — no manual tag required.
+
 ## [0.7.1] — 2026-06-09
 
 A parity fix for the no-pip fallback scaffolder so the plugin's `/claude-kit:init` command works
