@@ -43,3 +43,10 @@ jobs:
           path: dist/
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # PEP 740 attestations are temporarily disabled: Sigstore's Rekor
+          # transparency log was returning HTTP 502s and blocking the upload
+          # (the OIDC trusted-publishing auth itself works). Re-enable by removing
+          # this line (the action defaults to attestations: true) once Sigstore
+          # is healthy again — e.g. for the next release.
+          attestations: false
