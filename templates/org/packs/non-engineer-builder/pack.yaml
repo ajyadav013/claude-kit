@@ -1,0 +1,39 @@
+# Org capability pack manifest. References components by name; they install in the standard
+# auto-discovered .claude/ locations. `existing: true` = ships with claude-kit already (reused, not
+# duplicated); `existing: false` = added by the org layer (templates/org/).
+id: non-engineer-builder
+label: "Non-Engineer Builder"
+version: 0.1.0
+purpose: >
+  Help non-engineers — PMs, founders, designers, operators, support, and data folks — safely
+  vibe-code prototypes and internal tools: clarify the request, plan before touching anything, keep
+  edit scope small, require tests, and gate every meaningful change behind human approval.
+teams: [product, design, founders, support, data]
+risk_default: high
+
+skills:
+  - { name: prompt-to-safe-task, existing: false }
+  - { name: feature-from-idea, existing: false }
+  - { name: prototype-to-production, existing: false }
+  - { name: customer-issue-to-fix, existing: false }
+  - { name: repo-onboarding, existing: false }
+  - { name: idea-refine, existing: true }
+  - { name: interview-me, existing: true }
+agents:
+  - { name: pm-copilot, existing: false }
+  - { name: founder-prototype-agent, existing: false }
+  - { name: support-ticket-engineer, existing: false }
+  - { name: data-workflow-agent, existing: false }
+  - { name: internal-tools-builder, existing: false }
+  - { name: risk-classifier, existing: true }
+rules:
+  - { name: non-engineer-safe-coding.md, existing: false }
+  - { name: prompt-to-task-conversion.md, existing: false }
+  - { name: prototype-boundaries.md, existing: false }
+  - { name: ambiguity-resolution.md, existing: false }
+  - { name: autonomy-levels.md, existing: true }
+  - { name: risk-classification.md, existing: true }
+hooks:
+  - { name: warn-sensitive-files, existing: false }
+  - { name: warn-large-edits, existing: false }
+  - { name: warn-missing-tests, existing: false }

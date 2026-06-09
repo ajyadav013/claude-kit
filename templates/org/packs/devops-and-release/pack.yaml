@@ -1,0 +1,32 @@
+# Org capability pack manifest. References components by name; they install in the standard
+# auto-discovered .claude/ locations. `existing: true` = ships with claude-kit already (reused, not
+# duplicated); `existing: false` = added by the org layer (templates/org/).
+id: devops-and-release
+label: "DevOps & Release"
+version: 0.1.0
+purpose: >
+  Standardise CI/CD, deployment planning, rollback planning, release notes, observability, incident
+  runbooks, and operational readiness — the path from a green build to a safe, observable release.
+teams: [devops, engineering]
+risk_default: high
+
+skills:
+  - { name: shipping-and-launch, existing: true }
+  - { name: ci-cd-and-automation, existing: true }
+  - { name: deprecation-and-migration, existing: true }
+  - { name: load-testing, existing: true }
+  - { name: incident-postmortem, existing: true }
+agents:
+  - { name: devops-engineer, existing: true }
+  - { name: observability-engineer, existing: true }
+  - { name: pr-raiser, existing: true }
+  - { name: incident-responder, existing: true }
+  - { name: migration-specialist, existing: true }
+rules:
+  - { name: devops-observability.md, existing: true }
+  - { name: branch-and-pr-policy.md, existing: false }
+  - { name: risk-classification.md, existing: true }
+hooks:
+  - { name: guard-push-main, existing: true }
+  - { name: lint-fix, existing: true }
+  - { name: type-check, existing: true }

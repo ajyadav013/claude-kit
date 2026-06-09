@@ -1,0 +1,36 @@
+# Org capability pack manifest. References components by name; they install in the standard
+# auto-discovered .claude/ locations. `existing: true` = ships with claude-kit already (reused, not
+# duplicated); `existing: false` = added by the org layer (templates/org/).
+id: security-and-compliance
+label: "Security & Compliance"
+version: 0.1.0
+purpose: >
+  Prevent secrets exposure, insecure code, unsafe shell commands, dependency risks, auth flaws, data
+  leakage, and unreviewed sensitive changes — the guardrails that keep delivery safe and compliant.
+teams: [security, devops]
+risk_default: high
+
+skills:
+  - { name: security-and-hardening, existing: true }
+  - { name: security-verification, existing: true }
+  - { name: threat-model, existing: true }
+agents:
+  - { name: security-reviewer, existing: true }
+  - { name: secret-scanner, existing: true }
+  - { name: dependency-scanner, existing: true }
+  - { name: owasp-reviewer, existing: true }
+  - { name: policy-validator, existing: true }
+  - { name: risk-classifier, existing: true }
+rules:
+  - { name: secrets-policy.md, existing: false }
+  - { name: pii-policy.md, existing: false }
+  - { name: production-data-policy.md, existing: false }
+  - { name: compliance-policy.md, existing: false }
+  - { name: agent-guardrails.md, existing: true }
+  - { name: risk-classification.md, existing: true }
+hooks:
+  - { name: protect-secrets, existing: true }
+  - { name: guard-commit-secrets, existing: true }
+  - { name: warn-sensitive-files, existing: false }
+  - { name: validate-settings, existing: false }
+  - { name: audit-log, existing: false }

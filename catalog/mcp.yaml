@@ -1,0 +1,54 @@
+# claude-kit optional MCP integrations. Selected servers are written into a project-root `.mcp.json`
+# ONLY when chosen at init (default: none). Configs use ${ENV} placeholders — no credentials are ever
+# generated. Fill the referenced env vars (e.g. in your shell or .env) before using a server.
+
+version: 1
+
+servers:
+  github:
+    label: "GitHub (issues, PRs, repos)"
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-github"]
+      env:
+        GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+  linear:
+    label: "Linear (issues)"
+    config:
+      type: http
+      url: "https://mcp.linear.app/mcp"
+  jira:
+    label: "Jira (issues)"
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "mcp-atlassian"]
+      env:
+        JIRA_URL: "${JIRA_URL}"
+        JIRA_API_TOKEN: "${JIRA_API_TOKEN}"
+  postgres:
+    label: "PostgreSQL (query the database)"
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+  mongodb:
+    label: "MongoDB (query the database)"
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "mongodb-mcp-server"]
+      env:
+        MDB_MCP_CONNECTION_STRING: "${MONGODB_URI}"
+  playwright:
+    label: "Playwright (browser automation / E2E)"
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@playwright/mcp@latest"]
+  docs:
+    label: "Docs / Context7 (live library docs)"
+    config:
+      type: http
+      url: "https://mcp.context7.com/mcp"

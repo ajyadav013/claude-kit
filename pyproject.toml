@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claude-kit"
+version = "0.7.0"
+description = "Cookiecutter-style scaffolder for an autonomous Claude Code SDLC configuration (no app code, no Docker). Asks ordered questions and installs CLAUDE.md + .claude/ (rules, the chosen profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates, working memory, and a self-improving learnings loop."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Arjunsingh Yadav" }]
+keywords = [
+  "claude",
+  "claude-code",
+  "sdlc",
+  "agents",
+  "agentic",
+  "orchestration",
+  "code-review",
+  "testing",
+  "automation",
+  "scaffold",
+  "generator",
+  "cookiecutter",
+  "fastapi",
+  "react",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development",
+  "Topic :: Software Development :: Quality Assurance",
+  "Environment :: Console",
+]
+dependencies = [
+  "typer>=0.12",
+  "jinja2>=3.1",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "build>=1.2",
+  "twine>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/ajyadav013/claude-kit"
+Repository = "https://github.com/ajyadav013/claude-kit"
+Issues = "https://github.com/ajyadav013/claude-kit/issues"
+
+[project.scripts]
+claude-kit = "claude_kit.cli:main"
+ckit = "claude_kit.cli:main"
+claude-sdlc = "claude_kit.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/claude_kit"]
+
+# Bundle the kit payload (read by the pip CLI via importlib.resources) into the wheel.
+# The same directories are read directly by Claude Code when installed as a plugin.
+[tool.hatch.build.targets.wheel.force-include]
+"agents" = "claude_kit/_payload/agents"
+"skills" = "claude_kit/_payload/skills"
+"rules" = "claude_kit/_payload/rules"
+"hooks" = "claude_kit/_payload/hooks"
+"commands" = "claude_kit/_payload/commands"
+"templates" = "claude_kit/_payload/templates"
+"catalog" = "claude_kit/_payload/catalog"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/agents",
+  "/skills",
+  "/rules",
+  "/hooks",
+  "/commands",
+  "/templates",
+  "/catalog",
+  "/scripts",
+  "/docs",
+  "/.claude-plugin",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/CONTRIBUTING.md",
+  "/LICENSE",
+  "/CLAUDE.md",
+]

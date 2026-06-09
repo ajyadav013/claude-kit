@@ -1,0 +1,25 @@
+# Python build artifacts
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor cruft
+.DS_Store
+
+# Stray MCP tool artifacts (e.g. Playwright MCP session logs) — never part of the kit.
+.playwright-mcp/
+
+# Reference material kept locally only — never distributed (copyrighted source book whose
+# concepts were paraphrased into rules/, never its text). Keep the binary out of the repo.
+Agentic_Design_Patterns.pdf
+
+# Local Claude Code working state (this repo's own; not part of the distributable kit).
+# This already covers the live working-memory file at .claude/CONTINUITY.md.
+# Do NOT add a bare `CONTINUITY.md` here: with no leading slash it matches at every
+# depth, and on case-insensitive filesystems (macOS default) it also swallows
+# rules/continuity.md — the tracked rule file.
+.claude/

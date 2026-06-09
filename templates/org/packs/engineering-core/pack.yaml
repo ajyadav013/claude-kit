@@ -1,0 +1,44 @@
+# Org capability pack manifest. References components by name; they install in the standard
+# auto-discovered .claude/ locations. `existing: true` = ships with claude-kit already (reused, not
+# duplicated); `existing: false` = added by the org layer (templates/org/).
+id: engineering-core
+label: "Engineering Core"
+version: 0.1.0
+purpose: >
+  Standard feature development, refactoring, debugging, code review, test generation, and release
+  preparation — the everyday engineering loop.
+teams: [engineering]
+risk_default: medium
+
+skills:
+  - { name: sdlc, existing: true }
+  - { name: spec-driven-development, existing: true }
+  - { name: planning-and-task-breakdown, existing: true }
+  - { name: incremental-implementation, existing: true }
+  - { name: test-driven-development, existing: true }
+  - { name: debugging-and-error-recovery, existing: true }
+  - { name: code-review-and-quality, existing: true }
+  - { name: code-simplification, existing: true }
+  - { name: git-workflow-and-versioning, existing: true }
+agents:
+  - { name: orchestrator, existing: true }
+  - { name: developer, existing: true }
+  - { name: sdlc-code-reviewer, existing: true }
+  - { name: technical-architect, existing: true }
+  - { name: tester, existing: true }
+  - { name: risk-classifier, existing: true }
+rules:
+  - { name: mandatory-workflow.md, existing: true }
+  - { name: rarv-cycle.md, existing: true }
+  - { name: quality-gates.md, existing: true }
+  - { name: code-organization.md, existing: true }
+  - { name: testing.md, existing: true }
+  - { name: autonomy-levels.md, existing: true }
+  - { name: risk-classification.md, existing: true }
+  - { name: branch-and-pr-policy.md, existing: false }
+hooks:
+  - { name: guard-rm-rf, existing: true }
+  - { name: lint-fix, existing: true }
+  - { name: type-check, existing: true }
+  - { name: warn-large-edits, existing: false }
+  - { name: warn-missing-tests, existing: false }

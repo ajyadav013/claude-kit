@@ -1,0 +1,145 @@
+# claude-kit organization capability layer. This is the ONLY place org behaviour is decided — the
+# resolver (catalog.resolve) reads it the same branch-free way it reads profiles.yaml / mcp.yaml.
+#
+# The org layer is a third install dimension alongside `profile` (a subset of agents/skills/gates/hooks)
+# and `stack` (overlay rules/agents). It activates ONLY when the selection's scope is `organization`:
+# then the new org skills/agents/rules under templates/org/ install into the standard auto-discovered
+# .claude/{skills,agents,rules} dirs, the chosen autonomy level's guardrail hooks merge into the plan,
+# and the pack manifests under templates/org/packs/ install into .claude/org-packs/.
+#
+# Adding a pack/role/skill is a data change here + a templates/org/ file — never a code change.
+
+version: 1
+
+# --- usage scope --------------------------------------------------------------------------------------
+default_scope: team
+scopes:
+  - id: individual
+    label: "Individual — one developer, minimal ceremony"
+  - id: team
+    label: "Team — a single repo's engineering team (default)"
+  - id: organization
+    label: "Organization — multiple teams + roles, reusable capability packs"
+
+# Teams that may adopt the config (organization scope). Selection personalises the generated README;
+# the org install itself is comprehensive (all packs + all new content) so any team can adopt any pack.
+teams:
+  - { id: engineering, label: "Engineering" }
+  - { id: product, label: "Product" }
+  - { id: design, label: "Design" }
+  - { id: qa, label: "QA" }
+  - { id: devops, label: "DevOps / SRE" }
+  - { id: security, label: "Security" }
+  - { id: data, label: "Data" }
+  - { id: support, label: "Support" }
+  - { id: founders, label: "Founders / Executives" }
+
+# --- autonomy levels ----------------------------------------------------------------------------------
+# Each level adds deterministic guardrail hooks (by id, must exist in the hook registry). The `policy`
+# string is rendered into CLAUDE.md / the README so the operating posture is explicit. Levels are
+# cumulative in spirit; the hook lists are explicit (not inherited) for auditability.
+autonomy:
+  default: assisted
+  levels:
+    advisory:
+      label: "Advisory — plan & review only"
+      policy: "Claude may inspect, explain, plan, and review. It does NOT edit files unless you explicitly ask."
+      hooks: []
+    assisted:
+      label: "Assisted — edit after the plan is explained"
+      policy: "Claude may edit files after explaining the plan, and must ask before broad or cross-cutting changes."
+      hooks: []
+    autonomous-local:
+      label: "Autonomous (local) — implement within the repo with guardrails"
+      policy: "Claude may implement local changes within repo boundaries and must run the project's validation (or explain why it could not)."
+      hooks: [warn-large-edits, warn-missing-tests]
+    autonomous-pr:
+      label: "Autonomous (PR) — branches & PR-ready changes, never merge"
+      policy: "Claude may create branches and PR-ready changes but must NOT merge; human review is required before merge."
+      hooks: [warn-large-edits, warn-missing-tests, guard-push-main]
+    enterprise-controlled:
+      label: "Enterprise-controlled — strict gates + audit"
+      policy: "Sensitive-file edits require approval; security & review agents run before completion; a local audit trail is written."
+      hooks: [warn-sensitive-files, warn-large-edits, warn-missing-tests, validate-frontmatter, validate-settings, audit-log, guard-push-main, guard-commit-secrets]
+
+# --- review strictness --------------------------------------------------------------------------------
+strictness:
+  default: standard
+  levels:
+    light:
+      label: "Light — minimal gates"
+      hooks: []
+      extra_gates: []
+    standard:
+      label: "Standard — the default gate set"
+      hooks: []
+      extra_gates: []
+    regulated:
+      label: "Regulated — compliance-grade gates"
+      hooks: [validate-frontmatter, validate-settings]
+      extra_gates: [security-clear, acceptance]
+
+# --- core agents the org layer activates regardless of profile ---------------------------------------
+# These live in the core agents/ dir (installed via the normal agent path); listing them here unions
+# them into the plan when scope == organization so risk gating is available in any profile.
+core_agents_added: [risk-classifier]
+
+# --- the genuinely-new org content (installed comprehensively when org_packs is true) ----------------
+# These are NOT duplicates of existing components — they are the vibe-coding / non-engineer / policy
+# layer. Everything else a pack "contains" is an EXISTING component the pack manifest references.
+new_skills:
+  - feature-from-idea
+  - prototype-to-production
+  - customer-issue-to-fix
+  - prompt-to-safe-task
+  - repo-onboarding
+new_agents:
+  - pm-copilot
+  - founder-prototype-agent
+  - support-ticket-engineer
+  - data-workflow-agent
+  - internal-tools-builder
+new_rules:
+  - ai-working-agreement.md
+  - prompt-to-task-conversion.md
+  - non-engineer-safe-coding.md
+  - prototype-boundaries.md
+  - ambiguity-resolution.md
+  - secrets-policy.md
+  - production-data-policy.md
+  - pii-policy.md
+  - branch-and-pr-policy.md
+  - compliance-policy.md
+
+# --- reusable capability packs (manifests install under .claude/org-packs/) ---------------------------
+# Authoritative component lists live in each templates/org/packs/<id>/pack.yaml; this index carries the
+# id/label/purpose + the teams each pack primarily serves (used to personalise the generated README).
+packs:
+  - id: engineering-core
+    label: "Engineering Core"
+    purpose: "Feature development, refactoring, debugging, code review, test generation, release prep."
+    teams: [engineering]
+  - id: product-to-code
+    label: "Product to Code"
+    purpose: "Turn ideas, tickets, PRDs, and feedback into specs, stories, acceptance criteria, and reviewable tasks."
+    teams: [product, founders]
+  - id: quality-and-review
+    label: "Quality & Review"
+    purpose: "Standardise test planning, regression analysis, PR/security/performance/acceptance review."
+    teams: [qa, engineering]
+  - id: security-and-compliance
+    label: "Security & Compliance"
+    purpose: "Prevent secrets exposure, insecure code, unsafe commands, dependency/auth/data risks, unreviewed sensitive changes."
+    teams: [security, devops]
+  - id: devops-and-release
+    label: "DevOps & Release"
+    purpose: "CI/CD, deployment & rollback planning, release notes, observability, incident runbooks, operational readiness."
+    teams: [devops, engineering]
+  - id: onboarding-and-docs
+    label: "Onboarding & Docs"
+    purpose: "Help newcomers understand the repo, generate architecture docs, and keep docs synchronised with code."
+    teams: [engineering, support]
+  - id: non-engineer-builder
+    label: "Non-Engineer Builder"
+    purpose: "Support PMs, founders, designers, and operators vibe-coding prototypes/internal tools — clarify, plan safely, limit edit scope, require approval."
+    teams: [product, design, founders, support, data]

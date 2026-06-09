@@ -1,0 +1,96 @@
+# claude-kit SDLC profiles — which slice of the agent/skill superset and which quality gates
+# and hooks are activated. Profiles are the ONLY thing that makes lean ⊊ standard ⊊ enterprise.
+#
+# Each profile lists agents / skills / gates / hooks. `inherit: <profile>` composes on top of
+# another profile (this profile's lists are unioned with the inherited ones). The special value
+# `all` means "every available item discovered in the payload" (agents/, skills/, hooks/).
+#
+# Agent and skill names must match files in agents/ and skills/. Hook ids map to entries in the
+# hook registry in scaffold.py (script-backed hooks copy their .sh; inline/prompt hooks don't).
+
+version: 1
+default: standard
+
+profiles:
+  lean:
+    label: "Lean — fast track, minimal gates"
+    agents: [orchestrator, developer, sdlc-code-reviewer, tester, pr-raiser]
+    skills:
+      - sdlc
+      - execute
+      - incremental-implementation
+      - test-driven-development
+      - debugging-and-error-recovery
+      - git-workflow-and-versioning
+      - code-review-and-quality
+      - using-agent-skills
+    gates: [code-review, build-green]
+    hooks: [load-continuity, lint-fix]
+
+  standard:
+    label: "Standard — full SDLC, parallel lanes, security gate"
+    inherit: lean
+    agents:
+      - spec-doc-writer
+      - story-planner
+      - ui-designer
+      - technical-architect
+      - em-reviewer
+      - senior-backend-dev
+      - senior-frontend-dev
+      - merge-reviewer
+      - unit-tester
+      - e2e-tester
+      - senior-tester
+      - devils-advocate
+      - acceptance-reviewer
+      - security-reviewer
+      - secret-scanner
+      - dependency-scanner
+      - owasp-reviewer
+      - policy-validator
+    skills:
+      - spec-driven-development
+      - planning-and-task-breakdown
+      - interview-me
+      - idea-refine
+      - scope
+      - api-and-interface-design
+      - frontend-ui-engineering
+      - component-design
+      - ui-ux-design
+      - unit-test
+      - security-and-hardening
+      - security-verification
+      - documentation-and-adrs
+      - decision
+      - remember
+      - context-engineering
+      - source-driven-development
+      - doubt-driven-development
+      - code-simplification
+      - refresh-docs
+      - smoke-test
+      - manual-test
+      - browser-testing-with-devtools
+      - api-integration
+      - performance-optimization
+      - load-testing
+      - incident-postmortem
+      - threat-model
+      - accessibility-review
+    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear]
+    hooks: [load-continuity, load-learnings, skill-routing, learning-detection, guard-rm-rf, guard-push-main, protect-secrets, guard-commit-secrets, warn-shared-modules, lint-fix, type-check]
+
+  enterprise:
+    label: "Enterprise — adds DevOps, Observability, full audit + acceptance"
+    inherit: standard
+    agents:
+      - devops-engineer
+      - observability-engineer
+      - auditor
+      - incident-responder
+      - risk-classifier
+    skills: all
+    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, pipeline-green, observability-ready, acceptance]
+    hooks: all

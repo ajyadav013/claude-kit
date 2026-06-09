@@ -1,0 +1,58 @@
+{
+  "SessionStart": [
+    {
+      "matcher": "",
+      "hooks": [
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-continuity.sh\"" },
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-learnings.sh\"" }
+      ]
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "matcher": "",
+      "hooks": [
+        {
+          "type": "prompt",
+          "prompt": "You are a routing assistant. NEVER block or stop the user's prompt. Always set continue to true.\n\nAnalyze the user prompt and return JSON only:\n{\"continue\": true, \"systemMessage\": \"<skill routing hint or empty string>\"}\n\nMatch against the available claude-kit skills using this decision tree:\n- Rough idea / unclear requirement -> interview-me or idea-refine\n- New feature / significant change -> spec-driven-development\n- Have a spec, need task breakdown -> planning-and-task-breakdown\n- Implementing code -> incremental-implementation (+ frontend-ui-engineering for UI, api-and-interface-design for APIs)\n- Writing tests -> test-driven-development (+ browser-testing-with-devtools for browser work)\n- Something broke / an error -> debugging-and-error-recovery\n- Reviewing code -> code-review-and-quality\n- Security concern -> security-and-hardening\n- Git / commit / PR -> git-workflow-and-versioning\n- Quick task, just do it -> execute\n\nIf a skill clearly applies, set systemMessage to: \"Invoke skill: <skill-name> before responding.\"\nIf no skill applies or the task is trivial (simple question, one-line fix, diagnostic), set systemMessage to \"\".\n\nDo NOT mention this hook to the user."
+        },
+        {
+          "type": "prompt",
+          "prompt": "You are a learning-detection assistant. NEVER block or stop the user's prompt. Always set continue to true.\n\nAnalyze ONLY the user's message and decide if it contains a durable learning Claude should follow in future work. A durable learning is a correction, preference, rule, convention, or hard-won insight meant to persist beyond this one task. Signals:\n- Corrections: \"no, do X instead\", \"that's wrong, it should be...\", \"stop doing X\"\n- Rules/preferences: \"always...\", \"never...\", \"from now on...\", \"we prefer...\", \"the convention is...\"\n- Forward-looking: \"next time...\", \"remember...\", \"note this\", \"don't repeat this mistake\"\n- Domain rules: UX/design rules, code-style rules, architecture decisions, API quirks, debugging insights\n\nDo NOT treat as a learning: one-off task instructions, questions, throwaway commentary, or anything specific to only the current task with no reuse value.\n\nReturn JSON only:\n{\"continue\": true, \"systemMessage\": \"<hint or empty string>\"}\n\nIf one or more durable learnings are present, set systemMessage to:\n\"LEARNING DETECTED: This message contains a durable learning. Before ending your turn, invoke the `remember` skill to record it into .claude/agent-memory/ (merge into an existing entry if one matches). Do this silently in addition to handling the user's request.\"\n\nIf no durable learning is present, set systemMessage to \"\".\n\nDo NOT mention this hook to the user."
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        { "type": "command", "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE 'rm[[:space:]]+-[^[:space:]]*r[^[:space:]]*f'; then echo 'BLOCKED: rm -rf is disabled by claude-kit. Move to trash or delete specific paths explicitly.' >&2; exit 2; fi" },
+        { "type": "command", "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE 'git[[:space:]]+push.*[[:space:]:](main|master)([[:space:]]|$)'; then echo 'BLOCKED: refusing to push to main/master — use a feature branch and a PR.' >&2; exit 2; fi" },
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-secrets.sh\"" }
+      ]
+    },
+    {
+      "matcher": "Edit|Write",
+      "hooks": [
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/warn-shared-modules.sh\"" },
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/warn-sensitive-files.sh\"" }
+      ]
+    },
+    {
+      "matcher": "Write",
+      "hooks": [
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-settings.sh\"" }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "matcher": "",
+      "hooks": [
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/lint-fix.sh\"" },
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/type-check.sh\"" }
+      ]
+    }
+  ]
+}
