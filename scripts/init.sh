@@ -7,8 +7,10 @@
 # Used by the /claude-kit:init slash command (plugin) and runnable directly from a checkout.
 # The pip CLI (`claude-kit init`) performs the same scaffolding in Python.
 #
-# Usage:  init.sh [TARGET_DIR] [--force] [--minimal] [--no-hooks]
+# Usage:  init.sh [TARGET_DIR] [--defaults] [--force] [--minimal] [--no-hooks]
 #   TARGET_DIR  project to scaffold into (default: $CLAUDE_PROJECT_DIR or current dir)
+#   --defaults  accepted for parity with the pip CLI (`claude-kit init --defaults`); a no-op here
+#               because this shell fallback is already non-interactive
 #   --force     overwrite existing CLAUDE.md / settings.json (otherwise written as *.example)
 #   --minimal   only CLAUDE.md + rules/ (skip agents, skills, hooks, memory)
 #   --no-hooks  skip installing hook scripts and settings.json
@@ -20,6 +22,7 @@ for arg in "$@"; do
     --force) FORCE=1 ;;
     --minimal) MINIMAL=1 ;;
     --no-hooks) NO_HOOKS=1 ;;
+    --defaults) : ;;  # parity with `claude-kit init --defaults`; no-op (this fallback is non-interactive)
     -*) echo "unknown flag: $arg" >&2; exit 2 ;;
     *) TARGET="$arg" ;;
   esac
