@@ -4,15 +4,18 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.1] — 2026-06-09
 
-### Changed
+A parity fix for the no-pip fallback scaffolder so the plugin's `/claude-kit:init` command works
+end-to-end when the Python CLI is not installed. No change to the scaffolded configuration.
 
-- **PyPI distribution name is now `claude-code-kit`** (was `claude-kit`). The name `claude-kit`
-  is blocked on PyPI by its typosquat guard (too similar to the existing `claudekit`), so the
-  package is published as `claude-code-kit`: `pip install claude-code-kit`. The CLI commands
-  (`claude-kit` / `ckit` / `claude-sdlc`), the import package (`claude_kit`), the GitHub repo, and
-  the Claude Code plugin name all remain `claude-kit` — only the PyPI project name changed.
+### Fixed
+- **`scripts/init.sh` now accepts `--defaults`.** The `/claude-kit:init` command advertises
+  `[target-dir] [--defaults] [--force]` and passes the arguments straight through to the bundled
+  shell fallback when neither `claude-kit` nor `ckit` is on `PATH` — but the fallback rejected
+  `--defaults` with `unknown flag` (exit 2), breaking `/claude-kit:init --defaults` for plugin-only
+  users. The flag is now accepted as a no-op for parity with `claude-kit init --defaults` (the shell
+  scaffolder is already non-interactive). The pip-CLI path was never affected.
 
 ## [0.7.0] — 2026-06-09
 
@@ -51,6 +54,11 @@ always-on core (not catalog-gated).
   provenance for all of the above.
 - Version bumped to **0.7.0**; `tests/test_scaffold.py` now asserts `evals.md` + `tool-design.md` ship
   in every profile.
+- **PyPI distribution name is `claude-code-kit`.** The name `claude-kit` is blocked on PyPI by its
+  typosquat guard (too similar to the existing `claudekit`), so the package publishes as
+  `claude-code-kit` (`pip install claude-code-kit`). The CLI commands (`claude-kit` / `ckit` /
+  `claude-sdlc`), the import package (`claude_kit`), the GitHub repo, and the Claude Code plugin name
+  all remain `claude-kit` — only the PyPI project name changed.
 
 ### Fixed
 Surfaced by a full install-readiness audit of both distribution paths (plugin + pip):
