@@ -6,7 +6,13 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet — changes land here before the next tagged release._
+### Changed
+
+- **PyPI distribution name is now `claude-code-kit`** (was `claude-kit`). The name `claude-kit`
+  is blocked on PyPI by its typosquat guard (too similar to the existing `claudekit`), so the
+  package is published as `claude-code-kit`: `pip install claude-code-kit`. The CLI commands
+  (`claude-kit` / `ckit` / `claude-sdlc`), the import package (`claude_kit`), the GitHub repo, and
+  the Claude Code plugin name all remain `claude-kit` — only the PyPI project name changed.
 
 ## [0.7.0] — 2026-06-09
 

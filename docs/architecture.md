@@ -22,10 +22,10 @@ flowchart LR
         K["catalog/ (stacks · profiles · mcp · org)"]
     end
 
-    SRC -->|"hatchling force-include<br/>(bundled into the wheel)"| PKG["PyPI: claude-kit<br/>CLI: claude-kit / ckit / claude-sdlc"]
+    SRC -->|"hatchling force-include<br/>(bundled into the wheel)"| PKG["PyPI: claude-code-kit<br/>CLI: claude-kit / ckit / claude-sdlc"]
     SRC -->|"auto-discovered at repo root"| MKT["GitHub marketplace<br/>.claude-plugin/marketplace.json"]
 
-    PKG -->|"pip install claude-kit<br/>claude-kit init"| PROJ
+    PKG -->|"pip install claude-code-kit<br/>claude-kit init"| PROJ
     MKT -->|"/plugin marketplace add ajyadav013/claude-kit<br/>/plugin install claude-kit"| CC["Claude Code session<br/>(agents · skills · commands · hooks live)"]
     CC -->|"/claude-kit:init"| PROJ["Your project:<br/>CLAUDE.md + .claude/{rules,agents,skills,hooks,templates,config}"]
 

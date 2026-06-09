@@ -17,7 +17,7 @@ command -v claude-kit >/dev/null 2>&1 && claude-kit init $ARGUMENTS \
 
 If neither `claude-kit` nor `ckit` is installed, fall back to the **thin** bundled scaffolder (it
 copies the full payload with no stack/profile resolution — a superset install; suggest the user
-`pip install claude-kit` afterwards for the catalog-driven experience):
+`pip install claude-code-kit` afterwards for the catalog-driven experience):
 
 ```
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" $ARGUMENTS
