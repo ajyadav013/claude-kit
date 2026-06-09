@@ -9,8 +9,8 @@ rules, a profile-selected set of specialized agents and skills, hooks, and artif
 turn a one-line request into reviewed, tested, secured, shippable code, with a quality gate between
 every phase. **No application code. No Docker. Configuration only.**
 
-[![PyPI](https://img.shields.io/pypi/v/claude-kit.svg)](https://pypi.org/project/claude-kit/)
-[![Python](https://img.shields.io/pypi/pyversions/claude-kit.svg)](https://pypi.org/project/claude-kit/)
+[![PyPI](https://img.shields.io/pypi/v/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
+[![Python](https://img.shields.io/pypi/pyversions/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757.svg)](https://www.claude.com/product/claude-code)
 [![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
@@ -85,7 +85,7 @@ great for CI, onboarding, or non-plugin workflows:
 ```bash
 # Until the first PyPI release, install straight from the repo:
 pip install "git+https://github.com/ajyadav013/claude-kit.git"
-# Once published to PyPI this becomes:  pip install claude-kit
+# Once published to PyPI this becomes:  pip install claude-code-kit
 
 claude-kit init                 # interactive: prompts for stack, profile, MCP (Model Context Protocol)
 claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Postgres + standard
@@ -319,7 +319,7 @@ fix hints.
 | `/sdlc`, agents, or skills "not found" right after `init` | Claude Code hasn't loaded the new project config yet | **Restart Claude Code** — or use the plugin command `/claude-kit:sdlc <task>` (works without a restart) |
 | Guard / quality hooks seem to do nothing | `jq` isn't installed (the hooks parse tool input with it) | Install `jq`; without it the hooks degrade to no-ops by design |
 | A selected MCP server won't start | `node` / `npx` missing (most MCP servers launch via `npx`) | Install Node.js, or remove the server from `.mcp.json` |
-| `pip install claude-kit` fails | Not yet published to PyPI | Use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
+| `pip install claude-code-kit` fails | Not yet published to PyPI | Use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
 | `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |
 
 ---
