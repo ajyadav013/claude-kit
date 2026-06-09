@@ -74,15 +74,23 @@ metadata; Claude still auto-selects by description.
 | **Review** | `senior-backend-dev`, `senior-frontend-dev`, `technical-architect`, `em-reviewer`, `merge-reviewer` |
 | **Build** | `developer`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`, and `db-performance-reviewer` for PostgreSQL) |
 | **Test** | `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `auditor` |
-| **Rigor** | `devils-advocate`, `acceptance-reviewer` |
+| **Rigor** | `devils-advocate`, `acceptance-reviewer`, `risk-classifier` (enterprise + org) |
 | **Secure** | `security-reviewer` + `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` |
 | **Ship** | `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` (enterprise) |
+| **Org personas** | `pm-copilot`, `founder-prototype-agent`, `support-ticket-engineer`, `data-workflow-agent`, `internal-tools-builder` (organization scope only) |
 
 In a scaffolded project with both a frontend and a backend stack, the two review/build lanes are
 concrete: **backend** (`senior-backend-dev`, following the backend overlay rule such as
 `.claude/rules/fastapi-patterns.md`) and **frontend** (`senior-frontend-dev`, following the frontend
 overlay rule such as `.claude/rules/react-patterns.md`). They run in parallel and reconcile at the
 API contract; the DB specialist + migration specialist support the backend lane.
+
+In **organization scope**, persona agents let non-engineers drive work safely: each plans and
+clarifies in `plan` mode, then routes the actual implementation to the engineering agents — they never
+write code themselves and require human approval before any change. They pair with the org skills
+(`/feature-from-idea`, `/prototype-to-production`, `/customer-issue-to-fix`, `/prompt-to-safe-task`,
+`/repo-onboarding`) and are governed by the autonomy and risk-classification rules. See
+[`org-capabilities.md`](org-capabilities.md).
 
 ## What keeps long runs reliable
 

@@ -14,11 +14,13 @@ mechanical. This is the concrete assignment policy behind the "resource-aware ef
 | Tier | Model | Use for | Agents |
 |------|-------|---------|--------|
 | **Critical** | `opus` | Architecture decisions, deep code/security reasoning, orchestration, adversarial review | `orchestrator`, `developer`, `devils-advocate`, `owasp-reviewer` |
-| **Default** | `sonnet` | Specs, reviews, testing, infra, coordination, scanning, incident command | `spec-doc-writer`, `story-planner`, `technical-architect`, `em-reviewer`, `senior-backend-dev`, `senior-frontend-dev`, `ui-designer`, `merge-reviewer`, `sdlc-code-reviewer`, `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `acceptance-reviewer`, `security-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` |
+| **Default** | `sonnet` | Specs, reviews, testing, infra, coordination, scanning, incident command, risk classification | `spec-doc-writer`, `story-planner`, `technical-architect`, `em-reviewer`, `senior-backend-dev`, `senior-frontend-dev`, `ui-designer`, `merge-reviewer`, `sdlc-code-reviewer`, `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `acceptance-reviewer`, `risk-classifier`, `security-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` |
 | **Fast** | `haiku` | Mechanical, read-only reporting | `auditor` |
 
 Stack **overlay** agents (e.g. `postgres-specialist`, `mongodb-specialist`, `migration-specialist`,
-`db-performance-reviewer`) default to the **Default** tier — they are focused reviewers/specialists.
+`db-performance-reviewer`) and the organization persona agents (`pm-copilot`, `founder-prototype-agent`,
+`support-ticket-engineer`, `data-workflow-agent`, `internal-tools-builder`) default to the **Default**
+tier — they are focused specialists/personas, not deep-reasoning orchestrators.
 
 ## Notes
 

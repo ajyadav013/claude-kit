@@ -7,4 +7,4 @@ Docker): ``claude-kit init`` asks ordered questions and lays down ``CLAUDE.md`` 
 as a plugin. Extensibility is data-driven via the ``catalog/`` (stacks, profiles, MCP).
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

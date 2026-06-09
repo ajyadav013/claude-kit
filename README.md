@@ -38,6 +38,10 @@ Three things keep it reliable over long runs:
 
 - **Profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills, hooks, and gates are
   active, so you can dial the rigor from "fast track" to "full audit".
+- **Scope** — `individual` / `team` (default) / `organization`. Organization scope adds a
+  **vibe-coding capability layer** so PMs, designers, QA, support, data, and founders can drive work
+  safely too — with role-based **packs**, an **autonomy model**, and **risk classification**. See
+  [`docs/org-capabilities.md`](docs/org-capabilities.md).
 - **Working memory (`CONTINUITY.md`)** — the current task state is re-read every turn, so work
   survives context compaction and brand-new sessions.
 - **A self-improving learnings loop (`agent-memory/`)** — durable lessons are captured and
@@ -181,9 +185,10 @@ A **fast-track** mode collapses small changes (< 5 files) to Developer → Code 
 
 ## The agents
 
-27 specialized roles in [`agents/`](agents/), each tagged with a `tier` (orchestrator · stage-lead ·
+28 specialized roles in [`agents/`](agents/), each tagged with a `tier` (orchestrator · stage-lead ·
 specialist · review) and installed per profile. Plus per-database **overlay agents** added only for
-your chosen DB. See the **[agent guide](docs/agents.md)** for how to drive them.
+your chosen DB, and **org persona agents** added only in organization scope. See the
+**[agent guide](docs/agents.md)** for how to drive them.
 
 | Agent | Role |
 |-------|------|
@@ -202,12 +207,14 @@ your chosen DB. See the **[agent guide](docs/agents.md)** for how to drive them.
 | `auditor` | Read-only audit for accessibility, performance, responsiveness, console errors |
 | `devils-advocate` | Anti-sycophancy adversarial reviewer (runs on a unanimous PASS) |
 | `acceptance-reviewer` | Verifies delivery against acceptance criteria before the human gate |
+| `risk-classifier` | Read-only — classifies work as low/medium/high/restricted and names the required gates (enterprise + org) |
 | `security-reviewer` | Security stage coordinator — owns the Security Clear gate |
 | `secret-scanner` · `dependency-scanner` · `owasp-reviewer` · `policy-validator` | The four parallel security sub-scanners |
 | `devops-engineer` | CI/build/release, env, migrations, runbook — container-optional; owns Pipeline Green |
 | `observability-engineer` | SLOs, health/readiness, structured logging, alerts — owns Observability Ready |
 | `pr-raiser` | Final checks, commit hygiene, and PR creation |
 | **DB overlays** | `postgres-specialist` · `mongodb-specialist` · `migration-specialist` (installed for the selected database) |
+| **Org personas** | `pm-copilot` · `founder-prototype-agent` · `support-ticket-engineer` · `data-workflow-agent` · `internal-tools-builder` (organization scope only) |
 
 ---
 
@@ -222,6 +229,13 @@ change**:
   `planned` (offered by `list-options`, not yet selectable).
 - **`catalog/profiles.yaml`** — what each profile activates (`inherit:` composes; `all` = everything).
 - **`catalog/mcp.yaml`** — ready `.mcp.json` fragments per server, with `${ENV}` placeholders.
+- **`catalog/org.yaml`** — the **organization layer**: scopes, teams, the autonomy model, review
+  strictness, and the 7 capability **packs**. Scope-gated content lives under `templates/org/` and
+  installs only when `scope == organization`. See [`docs/org-capabilities.md`](docs/org-capabilities.md).
+
+A third install dimension joins `profile` (a subset) and `stack` (an overlay): **org** (scope-gated).
+`resolve()` stays branch-free — adding a pack, team, autonomy level, or org rule is a `catalog/org.yaml`
+edit plus content under `templates/org/`, never a code change.
 
 Run `claude-kit list-options` to see everything available.
 
@@ -229,16 +243,20 @@ Run `claude-kit list-options` to see everything available.
 
 ## Rules & skills
 
-**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 19 files:
+**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 21 files:
 `mandatory-workflow`, `quality-gates`, `rarv-cycle`, `continuity`, `agent-memory`, `documentation`,
 `design-patterns`, `code-organization`, `linting-and-formatting`, `testing`,
-`frontend-best-practices`, `responsive-and-accessibility`, `devops-observability`, plus the
+`frontend-best-practices`, `responsive-and-accessibility`, `devops-observability`, the
 agent-operation rules `reasoning-techniques`, `agent-guardrails`, `agent-resilience`,
 `goal-setting-and-monitoring`, `human-in-the-loop`, and `model-tiers` (how the agents themselves
 reason, stay safe, recover, escalate, and pick a model tier — see
-[`docs/agentic-patterns.md`](docs/agentic-patterns.md)). Selected
+[`docs/agentic-patterns.md`](docs/agentic-patterns.md)), plus `autonomy-levels` and
+`risk-classification` (how much Claude may do before a human acts, and how work is risk-gated — see
+[`docs/org-capabilities.md`](docs/org-capabilities.md)). Selected
 **overlay rules** (e.g. `fastapi-patterns`, `react-patterns`, `postgres-patterns`,
-`database-performance`) are layered on top.
+`database-performance`) and, in organization scope, **org policy rules** (`secrets-policy`,
+`pii-policy`, `production-data-policy`, `branch-and-pr-policy`, `compliance-policy`, …) are layered
+on top.
 
 **Skills** ([`skills/`](skills/)) are on-demand capabilities Claude activates by context — led by the
 `sdlc` entrypoint, plus spec-driven development, planning, TDD, debugging, code review, security
@@ -283,10 +301,11 @@ Run `diff` first to preview.
 ```
 claude-kit/
 ├── .claude-plugin/        plugin.json + marketplace.json
-├── agents/                27 SDLC agents          rules/        19 engineering rules
+├── agents/                28 SDLC agents          rules/        21 engineering rules
 ├── skills/                on-demand skills        templates/    CLAUDE.md, settings, artifacts, memory seeds
 ├── commands/              /claude-kit:* commands  hooks/        hooks.json + scripts/
-├── catalog/               stacks · profiles · mcp templates/stacks/  per-stack overlay rules + agents
+├── catalog/         stacks·profiles·mcp·org       templates/stacks/  per-stack overlay rules + agents
+│                                                  templates/org/     org packs · personas · policies (scope-gated)
 ├── scripts/init.sh        thin fallback scaffolder  src/claude_kit/  the pip CLI (Typer + Jinja2 + PyYAML)
 ├── docs/architecture.md   diagrams                pyproject.toml   packaging
 ```

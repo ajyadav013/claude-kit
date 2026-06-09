@@ -27,6 +27,15 @@ class Selection:
         database: Database id (``"postgres"`` or ``"mongodb"``).
         profile: SDLC profile id (``"lean"``/``"standard"``/``"enterprise"``).
         mcp: Selected MCP server ids (empty means no ``.mcp.json`` is written).
+        scope: Usage scope (``"individual"``/``"team"``/``"organization"``). Only ``organization``
+            installs the org capability layer (packs, persona agents, org rules, autonomy hooks).
+        teams: Teams adopting the config (organization scope only; personalises the generated README).
+        autonomy: Autonomy level (``advisory``/``assisted``/``autonomous-local``/``autonomous-pr``/
+            ``enterprise-controlled``); higher levels enable more guardrail hooks. Prompted only in
+            organization scope; defaults to ``assisted`` everywhere else.
+        review_strictness: Review strictness (``light``/``standard``/``regulated``); ``regulated``
+            adds extra gates/hooks. Prompted only in organization scope.
+        org_packs: Whether to generate the reusable org capability packs (organization scope only).
     """
 
     frontend_framework: str
@@ -36,6 +45,11 @@ class Selection:
     database: str
     profile: str
     mcp: list[str] = field(default_factory=list)
+    scope: str = "team"
+    teams: list[str] = field(default_factory=list)
+    autonomy: str = "assisted"
+    review_strictness: str = "standard"
+    org_packs: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON/YAML-serialisable mapping of this selection."""
@@ -46,7 +60,8 @@ class Selection:
         """Build a :class:`Selection` from a mapping, ignoring unknown keys.
 
         Args:
-            data: A mapping with the selection fields (e.g. parsed from ``--config``).
+            data: A mapping with the selection fields (e.g. parsed from ``--config``). Org fields
+                may be absent in older documents; their dataclass defaults apply (back-compatible).
 
         Returns:
             A populated :class:`Selection`.
@@ -58,20 +73,67 @@ class Selection:
 
 
 @dataclass
+class OrgPlan:
+    """The resolved organization capability layer (only present when ``scope == organization``).
+
+    Produced by :func:`claude_kit.catalog.resolve` from ``catalog/org.yaml`` and consumed by
+    :func:`claude_kit.scaffold.install_sdlc` (its ``_install_org`` step). The new skills/agents/rules
+    install into the standard auto-discovered ``.claude/{skills,agents,rules}`` dirs; the packs install
+    as manifests under ``.claude/org-packs/``. Autonomy hooks are merged into :attr:`ResolvedPlan.hooks`
+    so they flow through the normal settings assembly.
+
+    Attributes:
+        scope: The usage scope (always ``"organization"`` here).
+        teams: Teams adopting the config (personalises the generated README).
+        autonomy: The chosen autonomy level id.
+        autonomy_policy: One-line human-readable policy for the chosen autonomy level.
+        review_strictness: The chosen review-strictness id.
+        packs: Org-pack ids whose manifests install under ``.claude/org-packs/``.
+        org_skills: New skill dir names to copy from ``templates/org/skills/`` into ``.claude/skills/``.
+        org_agents: New persona agent names to copy from ``templates/org/agents/`` into ``.claude/agents/``.
+        org_rules: New rule filenames to copy from ``templates/org/rules/`` into ``.claude/rules/``.
+        added_hooks: Hook ids added by the autonomy level / strictness (merged into the plan's hooks).
+        added_agents: Core agent names the org layer activates regardless of profile (e.g.
+            ``risk-classifier``; installed via the normal core-agent path, so merged into the plan's
+            ``agents``).
+        extra_gates: Quality-gate ids added by the chosen review strictness (merged into the plan's
+            ``gates``).
+    """
+
+    scope: str
+    teams: list[str]
+    autonomy: str
+    autonomy_policy: str
+    review_strictness: str
+    packs: list[str]
+    org_skills: list[str]
+    org_agents: list[str]
+    org_rules: list[str]
+    added_hooks: list[str]
+    added_agents: list[str] = field(default_factory=list)
+    extra_gates: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON/YAML-serialisable mapping of this org plan."""
+        return asdict(self)
+
+
+@dataclass
 class ResolvedPlan:
     """The concrete install plan produced by :func:`claude_kit.catalog.resolve`.
 
     Attributes:
         selection: The originating :class:`Selection`.
-        agents: Core agent names to install (profile subset).
+        agents: Core agent names to install (profile subset, ∪ org core agents in organization scope).
         skills: Skill directory names to install (profile subset ∪ stack-suggested).
         overlay_rules: Overlay rule filenames to copy from the selected stacks.
         overlay_agents: Overlay agent names to copy from the selected stacks.
         hooks: Hook ids to enable (drives copied scripts + assembled ``settings.json``).
-        gates: Quality-gate ids active for the chosen profile.
+        gates: Quality-gate ids active for the chosen profile (∪ strictness gates in org scope).
         mcp_servers: Mapping of selected MCP server id to its ``.mcp.json`` config fragment.
         context: Flat string context for rendering ``CLAUDE.md`` / ``README`` (labels + commands).
         stack_dirs: Mapping of selected stack kind to its ``templates/stacks`` subdir.
+        org: The resolved org capability layer, or ``None`` for individual/team scope.
     """
 
     selection: Selection
@@ -84,6 +146,7 @@ class ResolvedPlan:
     mcp_servers: dict[str, dict[str, Any]]
     context: dict[str, str]
     stack_dirs: dict[str, str]
+    org: OrgPlan | None = None
 
 
 @dataclass

@@ -1,0 +1,26 @@
+# Org capability pack manifest. References components by name; they install in the standard
+# auto-discovered .claude/ locations. `existing: true` = ships with claude-kit already (reused, not
+# duplicated); `existing: false` = added by the org layer (templates/org/).
+id: onboarding-and-docs
+label: "Onboarding & Docs"
+version: 0.1.0
+purpose: >
+  Help newcomers understand the repo, generate architecture docs, explain modules, build onboarding
+  paths, and keep documentation synchronised with the code as it changes.
+teams: [engineering, support]
+risk_default: low
+
+skills:
+  - { name: repo-onboarding, existing: false }
+  - { name: documentation-and-adrs, existing: true }
+  - { name: refresh-docs, existing: true }
+  - { name: source-driven-development, existing: true }
+  - { name: context-engineering, existing: true }
+  - { name: using-agent-skills, existing: true }
+agents:
+  - { name: orchestrator, existing: true }
+  - { name: technical-architect, existing: true }
+rules:
+  - { name: documentation.md, existing: true }
+  - { name: code-organization.md, existing: true }
+hooks: []

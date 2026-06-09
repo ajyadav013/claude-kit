@@ -264,6 +264,44 @@ def version() -> None:
     typer.echo(f"claude-kit {__version__}")
 
 
+@app.command("package-org-pack")
+def package_org_pack(
+    pack: str = typer.Argument(
+        ..., help="org-pack id under .claude/org-packs/ (e.g. engineering-core)"
+    ),
+    out: Optional[str] = typer.Option(
+        None, "--out", help="output directory for the packaged plugin"
+    ),
+) -> None:
+    """(Planned) Package an org-pack into a reusable, versioned plugin-style directory."""
+    typer.echo(
+        "package-org-pack is planned but not yet implemented.\n"
+        "When available it will bundle the selected org-pack (manifest + the skills/agents/hooks it "
+        "references + settings + README + CHANGELOG + version + license + compatibility metadata) into "
+        "a distributable plugin directory for an internal registry.\n"
+        f"(given: pack={pack}, out={out or 'dist/org-packs/'})"
+    )
+
+
+@app.command("install-org-pack")
+def install_org_pack(
+    source: str = typer.Argument(
+        ..., help="path or registry id of an approved org-pack"
+    ),
+    user: bool = typer.Option(
+        False, "--user", help="install into user-level ~/.claude instead of this repo"
+    ),
+) -> None:
+    """(Planned) Install an approved org-pack into a repo or user-level Claude config."""
+    typer.echo(
+        "install-org-pack is planned but not yet implemented.\n"
+        "When available it will verify a pack's compatibility metadata and merge its components into "
+        "the target .claude/ (repo) or ~/.claude (user) config, recording the pack id + version for "
+        "safe upgrades.\n"
+        f"(given: source={source}, target={'user (~/.claude)' if user else 'repo (.claude)'})"
+    )
+
+
 @research_app.command("import-sources")
 def research_import_sources(
     sources: str = typer.Argument(

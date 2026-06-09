@@ -77,6 +77,8 @@ profiles:
       - performance-optimization
       - load-testing
       - incident-postmortem
+      - threat-model
+      - accessibility-review
     gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear]
     hooks: [load-continuity, load-learnings, skill-routing, learning-detection, guard-rm-rf, guard-push-main, protect-secrets, guard-commit-secrets, warn-shared-modules, lint-fix, type-check]
 
@@ -88,6 +90,7 @@ profiles:
       - observability-engineer
       - auditor
       - incident-responder
+      - risk-classifier
     skills: all
     gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, pipeline-green, observability-ready, acceptance]
     hooks: all

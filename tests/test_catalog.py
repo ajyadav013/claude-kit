@@ -85,3 +85,100 @@ def test_list_options_reports_live_and_planned(payload):
     assert {"postgres", "mongodb"} == db_ids
     profile_ids = {p["id"] for p in opts["profiles"]}
     assert {"lean", "standard", "enterprise"} == profile_ids
+
+
+# --- Organization layer (scope-gated) ------------------------------------------------------------
+
+
+def test_team_scope_resolves_without_org(payload):
+    """Default scope (team) leaves the plan org-free — existing installs are unchanged."""
+    plan = catalog.resolve(payload, make_selection(payload))  # scope defaults to "team"
+    assert plan.org is None
+
+
+def test_org_scope_builds_orgplan(payload):
+    """Organization scope resolves an OrgPlan with all 7 packs + the new org components."""
+    plan = catalog.resolve(
+        payload, make_selection(payload, profile="enterprise", scope="organization")
+    )
+    assert plan.org is not None
+    assert len(plan.org.packs) == 7
+    assert len(plan.org.org_skills) == 5
+    assert len(plan.org.org_agents) == 5
+    assert len(plan.org.org_rules) == 10
+    # The persona agents are NOT folded into the profile agent set (they install via the org overlay).
+    assert "pm-copilot" not in plan.agents
+
+
+def test_org_enterprise_controlled_unions_hooks_and_gates(payload):
+    """enterprise-controlled autonomy + regulated strictness add hooks, the classifier, and gates."""
+    plan = catalog.resolve(
+        payload,
+        make_selection(
+            payload,
+            profile="enterprise",
+            scope="organization",
+            autonomy="enterprise-controlled",
+            review_strictness="regulated",
+        ),
+    )
+    assert "audit-log" in plan.hooks
+    assert "warn-sensitive-files" in plan.hooks
+    assert "risk-classifier" in plan.agents
+    assert {"security-clear", "acceptance"} <= set(plan.gates)
+
+
+def test_org_assisted_adds_no_autonomy_hooks(payload):
+    """The default autonomy (assisted) enables no extra hooks beyond the profile's."""
+    team = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    org = catalog.resolve(
+        payload,
+        make_selection(
+            payload, profile="standard", scope="organization", autonomy="assisted"
+        ),
+    )
+    # No autonomy hooks were unioned in (gates/hook set unchanged from the team plan).
+    assert set(org.hooks) == set(team.hooks)
+    assert "audit-log" not in org.hooks
+
+
+def test_org_packs_false_skips_pack_and_skill_content(payload):
+    """Declining packs yields an OrgPlan with no packs/skills (autonomy rules still apply)."""
+    plan = catalog.resolve(
+        payload,
+        make_selection(
+            payload, profile="enterprise", scope="organization", org_packs=False
+        ),
+    )
+    assert plan.org is not None
+    assert plan.org.packs == []
+    assert plan.org.org_skills == []
+
+
+def test_unknown_autonomy_is_rejected(payload):
+    with pytest.raises(ValueError):
+        catalog.resolve(
+            payload,
+            make_selection(payload, scope="organization", autonomy="full-self-drive"),
+        )
+
+
+def test_selection_from_dict_tolerates_missing_org_fields(payload):
+    """Back-compat: a pre-0.6.0 selection snapshot (no org keys) loads with safe defaults."""
+    from claude_kit.models import Selection
+
+    legacy = {
+        "frontend_framework": "react",
+        "frontend_language": "typescript",
+        "backend_language": "python",
+        "backend_framework": "fastapi",
+        "database": "postgres",
+        "profile": "standard",
+        "mcp": [],
+    }
+    sel = Selection.from_dict(legacy)
+    assert sel.scope == "team"
+    assert sel.autonomy == "assisted"
+    assert sel.review_strictness == "standard"
+    assert sel.org_packs is True
+    assert sel.teams == []

@@ -1,0 +1,40 @@
+# Org capability pack manifest. References components by name; they install in the standard
+# auto-discovered .claude/ locations. `existing: true` = ships with claude-kit already (reused, not
+# duplicated); `existing: false` = added by the org layer (templates/org/).
+id: quality-and-review
+label: "Quality & Review"
+version: 0.1.0
+purpose: >
+  Standardise test planning, regression analysis, PR review, security review, performance review,
+  accessibility review, and acceptance review — the verification loop that gates every change.
+teams: [qa, engineering]
+risk_default: medium
+
+skills:
+  - { name: code-review-and-quality, existing: true }
+  - { name: test-driven-development, existing: true }
+  - { name: unit-test, existing: true }
+  - { name: security-verification, existing: true }
+  - { name: performance-optimization, existing: true }
+  - { name: accessibility-review, existing: true }
+  - { name: threat-model, existing: true }
+  - { name: doubt-driven-development, existing: true }
+  - { name: manual-test, existing: true }
+  - { name: smoke-test, existing: true }
+agents:
+  - { name: sdlc-code-reviewer, existing: true }
+  - { name: senior-tester, existing: true }
+  - { name: unit-tester, existing: true }
+  - { name: e2e-tester, existing: true }
+  - { name: tester, existing: true }
+  - { name: devils-advocate, existing: true }
+  - { name: acceptance-reviewer, existing: true }
+  - { name: merge-reviewer, existing: true }
+rules:
+  - { name: quality-gates.md, existing: true }
+  - { name: testing.md, existing: true }
+  - { name: rarv-cycle.md, existing: true }
+hooks:
+  - { name: warn-missing-tests, existing: false }
+  - { name: lint-fix, existing: true }
+  - { name: type-check, existing: true }

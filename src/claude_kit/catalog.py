@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from claude_kit import hooks as hooks_mod
-from claude_kit.models import ResolvedPlan, Selection
+from claude_kit.models import OrgPlan, ResolvedPlan, Selection
 
 #: Canonical backend command keys surfaced in CLAUDE.md (defaulted to "" so templates never break).
 _BACKEND_CMD_KEYS = (
@@ -191,12 +191,89 @@ def _build_context(
         "frontend_overlay_rule": (frontend.get("overlay_rules") or [""])[0],
         "backend_overlay_rule": (backend_fw.get("overlay_rules") or [""])[0],
         "db_overlay_rule": (database.get("overlay_rules") or [""])[0],
+        "scope": sel.scope,
+        "teams_list": ", ".join(sel.teams) if sel.teams else "all",
+        "autonomy": sel.autonomy,
+        "review_strictness": sel.review_strictness,
+        "org_packs": "yes" if sel.org_packs else "no",
+        "is_org": "yes" if sel.scope == "organization" else "no",
+        # Overwritten with the resolved policy in organization scope (see resolve()).
+        "autonomy_policy": "",
     }
     for key in _BACKEND_CMD_KEYS:
         ctx[f"backend_{key}_cmd"] = str(be_cmds.get(key, ""))
     for key in _FRONTEND_CMD_KEYS:
         ctx[f"frontend_{key}_cmd"] = str(fe_cmds.get(key, ""))
     return ctx
+
+
+def _resolve_org(
+    payload_root: Path, selection: Selection, avail: dict[str, list[str]]
+) -> OrgPlan | None:
+    """Resolve the org capability layer from ``org.yaml`` (only for ``scope == organization``).
+
+    Returns ``None`` for individual/team scope, leaving the rest of the plan untouched. Otherwise
+    looks up the chosen autonomy level + strictness (data, no branching), validates that the hooks and
+    core agents they reference exist, and returns an :class:`OrgPlan`. The new skills/agents/rules and
+    pack manifests are installed comprehensively when ``org_packs`` is true.
+
+    Raises:
+        ValueError: If the chosen autonomy/strictness id is unknown, or a referenced hook/agent is not
+            registered/available (a misconfigured ``org.yaml``).
+    """
+    if selection.scope != "organization":
+        return None
+    org = _load(payload_root, "org.yaml")
+
+    autonomy = selection.autonomy or org.get("autonomy", {}).get("default", "assisted")
+    levels = org.get("autonomy", {}).get("levels", {})
+    if autonomy not in levels:
+        raise ValueError(
+            f"unknown autonomy level {autonomy!r} (choices: {', '.join(levels)})"
+        )
+    level = levels[autonomy]
+
+    strictness = selection.review_strictness or org.get("strictness", {}).get(
+        "default", "standard"
+    )
+    strict_levels = org.get("strictness", {}).get("levels", {})
+    if strictness not in strict_levels:
+        raise ValueError(
+            f"unknown review strictness {strictness!r} (choices: {', '.join(strict_levels)})"
+        )
+    strict = strict_levels[strictness]
+
+    added_hooks = _dedup(list(level.get("hooks", [])) + list(strict.get("hooks", [])))
+    valid_hooks = set(hooks_mod.all_ids())
+    unknown_hooks = [h for h in added_hooks if h not in valid_hooks]
+    if unknown_hooks:
+        raise ValueError(
+            f"org.yaml references unknown hook(s): {', '.join(unknown_hooks)}"
+        )
+
+    core_agents_added = list(org.get("core_agents_added", []))
+    unknown_agents = [a for a in core_agents_added if a not in set(avail["agents"])]
+    if unknown_agents:
+        raise ValueError(
+            f"org.yaml core_agents_added not found in agents/: {', '.join(unknown_agents)}"
+        )
+
+    want_packs = bool(selection.org_packs)
+    pack_ids = [p["id"] for p in org.get("packs", [])] if want_packs else []
+    return OrgPlan(
+        scope="organization",
+        teams=list(selection.teams),
+        autonomy=autonomy,
+        autonomy_policy=str(level.get("policy", "")),
+        review_strictness=strictness,
+        packs=pack_ids,
+        org_skills=list(org.get("new_skills", [])) if want_packs else [],
+        org_agents=list(org.get("new_agents", [])) if want_packs else [],
+        org_rules=list(org.get("new_rules", [])) if want_packs else [],
+        added_hooks=added_hooks,
+        added_agents=core_agents_added,
+        extra_gates=list(strict.get("extra_gates", [])),
+    )
 
 
 def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
@@ -208,7 +285,7 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
 
     Returns:
         The install plan: agent/skill/hook subsets, overlay rules+agents, gates, MCP configs,
-        per-stack dirs, and the render context.
+        per-stack dirs, the render context, and (organization scope only) the org capability layer.
 
     Raises:
         ValueError: If any selected stack/profile is unknown or not yet shipped.
@@ -260,20 +337,58 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
         "database": str(database.get("stack_dir", "")),
     }
 
+    org = _resolve_org(payload_root, selection, avail)
+    agents = _dedup(prof["agents"] + (org.added_agents if org else []))
+    hooks = _dedup(prof["hooks"] + (org.added_hooks if org else []))
+    gates = _dedup(prof["gates"] + (org.extra_gates if org else []))
+
+    context = _build_context(
+        selection, frontend, backend_lang, backend_fw, database, profiles
+    )
+    if org is not None:
+        context["autonomy_policy"] = org.autonomy_policy
+        context["org_packs_list"] = ", ".join(org.packs) or "none"
+
     return ResolvedPlan(
         selection=selection,
-        agents=_dedup(prof["agents"]),
+        agents=agents,
         skills=skills,
         overlay_rules=overlay_rules,
         overlay_agents=overlay_agents,
-        hooks=prof["hooks"],
-        gates=prof["gates"],
+        hooks=hooks,
+        gates=gates,
         mcp_servers=mcp_servers,
-        context=_build_context(
-            selection, frontend, backend_lang, backend_fw, database, profiles
-        ),
+        context=context,
         stack_dirs=stack_dirs,
+        org=org,
     )
+
+
+def org_options(payload_root: str | Path) -> dict[str, Any]:
+    """Return the org-layer choices for the prompt/menu layer (scopes, teams, autonomy, strictness).
+
+    Each list is ``[{"id", "label"}, ...]`` with the catalog defaults surfaced under ``defaults``.
+    """
+    org = _load(Path(payload_root), "org.yaml")
+    autonomy = org.get("autonomy", {})
+    strictness = org.get("strictness", {})
+    return {
+        "scopes": list(org.get("scopes", [])),
+        "teams": list(org.get("teams", [])),
+        "autonomy": [
+            {"id": lid, "label": lvl.get("label", lid)}
+            for lid, lvl in autonomy.get("levels", {}).items()
+        ],
+        "strictness": [
+            {"id": lid, "label": lvl.get("label", lid)}
+            for lid, lvl in strictness.get("levels", {}).items()
+        ],
+        "defaults": {
+            "scope": org.get("default_scope", "team"),
+            "autonomy": autonomy.get("default", "assisted"),
+            "strictness": strictness.get("default", "standard"),
+        },
+    }
 
 
 def defaults(payload_root: str | Path) -> Selection:

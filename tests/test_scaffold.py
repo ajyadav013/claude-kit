@@ -202,6 +202,145 @@ def test_gitignore_is_selective(tmp_path, payload):
     assert "\n.claude/\n" not in "\n" + gi
 
 
+def test_core_org_rules_ship_in_every_profile(tmp_path, payload):
+    """autonomy-levels + risk-classification are core rules — present even in lean, team scope."""
+    expected = {"autonomy-levels.md", "risk-classification.md"}
+    for profile in ("lean", "standard", "enterprise"):
+        target = tmp_path / profile
+        install(payload, target, profile=profile)
+        rules = {p.name for p in (target / ".claude" / "rules").glob("*.md")}
+        assert expected <= rules, (
+            f"{profile} missing core org rules: {expected - rules}"
+        )
+
+
+def test_new_core_skills_gated_by_profile(tmp_path, payload):
+    """threat-model + accessibility-review arrive in standard (not lean)."""
+    new_skills = {"threat-model", "accessibility-review"}
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+
+    def skills(target):
+        return {p.name for p in (target / ".claude" / "skills").iterdir() if p.is_dir()}
+
+    assert not (new_skills & skills(lean)), "new core skills must not ship in lean"
+    assert new_skills <= skills(standard), "new core skills must ship in standard"
+
+
+def test_risk_classifier_is_enterprise_only(tmp_path, payload):
+    """The risk-classifier agent is gated to the enterprise profile (team scope)."""
+    for profile, present in (
+        ("lean", False),
+        ("standard", False),
+        ("enterprise", True),
+    ):
+        target = tmp_path / profile
+        install(payload, target, profile=profile)
+        exists = (target / ".claude" / "agents" / "risk-classifier.md").is_file()
+        assert exists is present, f"{profile}: risk-classifier present={exists}"
+
+
+def test_team_scope_installs_no_org_overlay(tmp_path, payload):
+    """Default (team) scope: no org-packs/, no persona agents, no org policy rules."""
+    target = tmp_path / "team"
+    install(payload, target, profile="enterprise")  # scope defaults to team
+    assert not (target / ".claude" / "org-packs").exists()
+    assert not (target / ".claude" / "agents" / "pm-copilot.md").exists()
+    assert not (target / ".claude" / "rules" / "secrets-policy.md").exists()
+
+
+def test_org_scope_installs_packs_personas_and_rules(tmp_path, payload):
+    """Organization scope writes the 7 pack manifests, 5 personas, 5 org skills, and org rules."""
+    target = tmp_path / "org"
+    install(payload, target, profile="enterprise", scope="organization")
+    packs = target / ".claude" / "org-packs"
+    assert packs.is_dir()
+    assert (packs / "README.md").is_file()
+    manifests = sorted(d.name for d in packs.iterdir() if (d / "pack.yaml").is_file())
+    assert len(manifests) == 7, f"expected 7 pack manifests, got {manifests}"
+
+    personas = {
+        "pm-copilot",
+        "founder-prototype-agent",
+        "support-ticket-engineer",
+        "data-workflow-agent",
+        "internal-tools-builder",
+    }
+    agents = {p.stem for p in (target / ".claude" / "agents").glob("*.md")}
+    assert personas <= agents, f"missing personas: {personas - agents}"
+
+    org_skills = {
+        "feature-from-idea",
+        "prototype-to-production",
+        "customer-issue-to-fix",
+        "prompt-to-safe-task",
+        "repo-onboarding",
+    }
+    skills = {p.name for p in (target / ".claude" / "skills").iterdir() if p.is_dir()}
+    assert org_skills <= skills, f"missing org skills: {org_skills - skills}"
+
+    assert (target / ".claude" / "rules" / "secrets-policy.md").is_file()
+    assert (target / ".claude" / "rules" / "ai-working-agreement.md").is_file()
+
+
+def test_org_packs_false_skips_packs_but_keeps_autonomy(tmp_path, payload):
+    """Declining packs: no org-packs/ tree, but the org-core autonomy rule still ships."""
+    target = tmp_path / "org-nopacks"
+    install(
+        payload, target, profile="enterprise", scope="organization", org_packs=False
+    )
+    assert not (target / ".claude" / "org-packs").exists()
+    assert not (target / ".claude" / "agents" / "pm-copilot.md").exists()
+    assert (target / ".claude" / "rules" / "autonomy-levels.md").is_file()
+
+
+def test_org_enterprise_controlled_wires_audit_log_into_settings(tmp_path, payload):
+    """enterprise-controlled autonomy copies audit-log.sh and wires it into settings.json."""
+    target = tmp_path / "org-strict"
+    install(
+        payload,
+        target,
+        profile="enterprise",
+        scope="organization",
+        autonomy="enterprise-controlled",
+    )
+    assert (target / ".claude" / "hooks" / "audit-log.sh").is_file()
+    settings = json.loads(
+        (target / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    commands = [
+        h["command"]
+        for block in settings["hooks"].get("PostToolUse", [])
+        for h in block["hooks"]
+    ]
+    assert any("audit-log.sh" in c for c in commands), (
+        "audit-log hook not wired into settings"
+    )
+
+
+def test_org_selection_recorded_in_snapshots(tmp_path, payload):
+    """The org selection round-trips: scope into init-options, the OrgPlan into the catalog snapshot."""
+    import yaml
+
+    target = tmp_path / "org"
+    install(payload, target, profile="enterprise", scope="organization")
+    options = json.loads(
+        (target / ".claude" / "config" / "init-options.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert options["selection"]["scope"] == "organization"
+    snapshot = yaml.safe_load(
+        (target / ".claude" / "config" / "stack-catalog.snapshot.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert snapshot["org"] is not None
+    assert len(snapshot["org"]["packs"]) == 7
+
+
 def test_reinstall_is_idempotent(tmp_path, payload):
     """Re-running install produces identical recorded checksums (deterministic config)."""
     install(payload, tmp_path)

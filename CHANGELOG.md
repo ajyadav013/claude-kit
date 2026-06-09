@@ -4,6 +4,76 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.6.0] — 2026-06-09
+
+Adds an **Organization Vibe-Coding Capability Layer** so the kit serves whole organizations —
+engineers, PMs, designers, QA, DevOps, security, data, support, and founders — driving work in natural
+language *safely and consistently*. The design follows "reuse, don't duplicate": capability **packs**
+map roles to the components the kit already ships, and only genuinely-new content (the vibe-coding /
+non-engineer layer, safety & compliance policies, risk classification, and a few deterministic hooks)
+is created. A new **org** install dimension joins `profile` (subset) and `stack` (overlay); it is
+**scope-gated** and activates only when `scope == organization`, so existing team/individual installs
+are unchanged except for two new always-on core rules. Still config-only, stack-agnostic, no app code,
+no Docker; `resolve()` stays branch-free (the org layer is pure `catalog/org.yaml` data +
+`templates/org/` content).
+
+### Added
+- **`catalog/org.yaml`** — the org data contract: `scopes` (individual/team/**organization**, default
+  team), `teams`, an **autonomy** model (advisory → assisted → autonomous-local → autonomous-pr →
+  enterprise-controlled, default **assisted**) where each level lists the hooks it enables, a
+  **strictness** axis (light/standard/regulated) with extra gates, and the **7 packs** mapping roles to
+  components. Read the same branch-free way as `profiles.yaml` / `mcp.yaml`.
+- **`templates/org/`** — the org overlay payload, installed only in organization scope: 5 non-engineer
+  **skills** (`feature-from-idea`, `prototype-to-production`, `customer-issue-to-fix`,
+  `prompt-to-safe-task`, `repo-onboarding`), 5 persona **agents** (`pm-copilot`,
+  `founder-prototype-agent`, `support-ticket-engineer`, `data-workflow-agent`, `internal-tools-builder`),
+  10 policy/vibe **rules** (`ai-working-agreement`, `prompt-to-task-conversion`,
+  `non-engineer-safe-coding`, `prototype-boundaries`, `ambiguity-resolution`, `secrets-policy`,
+  `production-data-policy`, `pii-policy`, `branch-and-pr-policy`, `compliance-policy`), and **7 pack
+  manifests + READMEs** (`engineering-core`, `product-to-code`, `quality-and-review`,
+  `security-and-compliance`, `devops-and-release`, `onboarding-and-docs`, `non-engineer-builder`).
+  Skills/agents/rules install into the auto-discovered `.claude/{skills,agents,rules}`; packs +
+  governance index land under `.claude/org-packs/`.
+- **Two core rules** (`rules/`, ship in every profile/scope): `autonomy-levels.md` (the 5 levels and
+  what each permits, default assisted) and `risk-classification.md` (low/medium/high/restricted tiers
+  + the high-risk protocol: plan · approval · security review · test review · rollback notes ·
+  residual-risk summary). Rule set is now **21 files** (was 19).
+- **Two core skills** (`skills/`, activated in `standard`+): `threat-model` and `accessibility-review`
+  — two general gaps with no prior dedicated skill. Core skills are now **46** (was 44).
+- **`agents/risk-classifier.md`** — a read-only `plan`-mode agent that classifies work into the risk
+  tiers; activated in the `enterprise` profile and in org mode. SDLC agents are now **28** (was 27).
+- **Six deterministic hooks** (`hooks/scripts/` + `HOOK_REGISTRY`), enabled by autonomy level via
+  `org.yaml` (kept out of the default profiles): `warn-sensitive-files`, `warn-large-edits`,
+  `warn-missing-tests`, `validate-frontmatter`, `validate-settings`, and `audit-log` (appends
+  `ts·tool·target` to `.claude/state/audit.log` — **local only**, never external, never file bodies).
+  All degrade to no-ops without `jq`.
+- **`docs/org-capabilities.md`** — the requested→existing **coverage map** (the "reuse, not duplicate"
+  evidence): every requested agent/skill/rule mapped to an existing component or a new file.
+
+### Changed
+- **CLI / resolver / installer** (`src/claude_kit/`): `Selection` gains org fields
+  (`scope`/`teams`/`autonomy`/`review_strictness`/`org_packs`, all defaulted → back-compatible);
+  `interactive()` asks scope first and (in organization scope) teams/autonomy/strictness/packs;
+  `from_config()` parses the same keys; `catalog.resolve()` builds an `OrgPlan`, unioning pack
+  components + autonomy hooks + strictness gates into the plan; `scaffold._install_org()` writes the
+  overlay only when `plan.org` is set.
+- **`catalog/profiles.yaml`** — `standard` gains `threat-model` + `accessibility-review`; `enterprise`
+  gains `risk-classifier`.
+- **`rules/model-tiers.md`** — records `risk-classifier` (sonnet) and the org persona agents.
+- **CLI stubs** — `claude-sdlc package-org-pack` / `install-org-pack` print a "planned" message
+  (mirroring the existing `research import-sources` stub).
+- The generated per-project README gains an **"Organization-wide vibe-coding capabilities"** section
+  (capability matrix, autonomy model, risk classification, distribution model, governance, metrics, and
+  five worked examples across PM / engineer / QA / support / founder).
+- Docs now reference **28** SDLC agents, **46** skills, and a **21-file** rule set — `README.md`,
+  `CLAUDE.md`, `docs/architecture.md`, `docs/agents.md`.
+
+### Notes
+- ~70% of the requested org components already existed and were **mapped**, not recreated (e.g.
+  `code-reviewer`→`sdlc-code-reviewer`, `security-engineer`→`security-reviewer`,
+  `system-architect`→`technical-architect`, the requested stack rules → existing `templates/stacks/`
+  overlays). See `docs/org-capabilities.md` for the full map.
+
 ## [0.5.0] — 2026-06-09
 
 Imports a curated set of components that were proven in a downstream project and generalized back

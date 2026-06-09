@@ -35,7 +35,14 @@
     {
       "matcher": "Edit|Write",
       "hooks": [
-        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/warn-shared-modules.sh\"" }
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/warn-shared-modules.sh\"" },
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/warn-sensitive-files.sh\"" }
+      ]
+    },
+    {
+      "matcher": "Write",
+      "hooks": [
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-settings.sh\"" }
       ]
     }
   ],

@@ -127,6 +127,42 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("warn-shared-modules.sh"),
         "script": "warn-shared-modules.sh",
     },
+    "warn-sensitive-files": {
+        "event": "PreToolUse",
+        "matcher": "Edit|Write",
+        "entry": _script_entry("warn-sensitive-files.sh"),
+        "script": "warn-sensitive-files.sh",
+    },
+    "warn-large-edits": {
+        "event": "PreToolUse",
+        "matcher": "Edit|Write",
+        "entry": _script_entry("warn-large-edits.sh"),
+        "script": "warn-large-edits.sh",
+    },
+    "validate-frontmatter": {
+        "event": "PreToolUse",
+        "matcher": "Write",
+        "entry": _script_entry("validate-frontmatter.sh"),
+        "script": "validate-frontmatter.sh",
+    },
+    "validate-settings": {
+        "event": "PreToolUse",
+        "matcher": "Write",
+        "entry": _script_entry("validate-settings.sh"),
+        "script": "validate-settings.sh",
+    },
+    "warn-missing-tests": {
+        "event": "PostToolUse",
+        "matcher": "Edit|Write",
+        "entry": _script_entry("warn-missing-tests.sh"),
+        "script": "warn-missing-tests.sh",
+    },
+    "audit-log": {
+        "event": "PostToolUse",
+        "matcher": "",
+        "entry": _script_entry("audit-log.sh"),
+        "script": "audit-log.sh",
+    },
     "lint-fix": {
         "event": "Stop",
         "matcher": "",

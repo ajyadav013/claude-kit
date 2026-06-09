@@ -58,6 +58,16 @@ def _choose_one(title: str, options: list[dict[str, Any]], default: str) -> str:
         print("  please enter one of the listed ids or numbers")
 
 
+def _ask_bool(prompt: str, default: bool) -> bool:
+    """Prompt for a yes/no answer with a default, tolerant of EOF (non-interactive) input."""
+    resp = _ask(f"{prompt} [y/n]", "y" if default else "n").strip().lower()
+    if resp in ("y", "yes", "true", "1"):
+        return True
+    if resp in ("n", "no", "false", "0"):
+        return False
+    return default
+
+
 def _choose_many(title: str, options: list[dict[str, Any]]) -> list[str]:
     """Render a menu and read a comma/space-separated multi-selection (empty = none)."""
     print(f"\n{title} (comma-separated ids or numbers; empty = none)")
@@ -107,6 +117,21 @@ def interactive(payload_root: str | Path) -> Selection:
     profile = _choose_one("SDLC profile", opts["profiles"], dflt.profile)
     mcp = _choose_many("Optional MCP integrations", opts["mcp"])
 
+    # Usage scope — and, for organizations, the capability-layer questions.
+    org = catalog.org_options(payload_root)
+    scope = _choose_one("Usage scope", org["scopes"], org["defaults"]["scope"])
+    teams: list[str] = []
+    autonomy = org["defaults"]["autonomy"]
+    review_strictness = org["defaults"]["strictness"]
+    org_packs = True
+    if scope == "organization":
+        teams = _choose_many("Which teams will use this?", org["teams"])
+        autonomy = _choose_one("Autonomy level", org["autonomy"], autonomy)
+        review_strictness = _choose_one(
+            "Review strictness", org["strictness"], review_strictness
+        )
+        org_packs = _ask_bool("Generate reusable org capability packs?", True)
+
     return Selection(
         frontend_framework=fe,
         frontend_language=fe_lang,
@@ -115,6 +140,11 @@ def interactive(payload_root: str | Path) -> Selection:
         database=db,
         profile=profile,
         mcp=mcp,
+        scope=scope,
+        teams=teams,
+        autonomy=autonomy,
+        review_strictness=review_strictness,
+        org_packs=org_packs,
     )
 
 
@@ -128,16 +158,24 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
         database: postgres
         profile:  standard
         mcp:      [github]
+        scope:    organization
+        org:      { teams: [engineering, product], autonomy: autonomous-pr,
+                    review_strictness: regulated, packs: true }
 
-    Missing keys fall back to the catalog defaults.
+    Org fields may also be given flat (``scope``/``teams``/``autonomy``/``review_strictness``/
+    ``org_packs``). Missing keys fall back to the catalog defaults.
     """
     data = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict):
         raise ValueError("config file did not parse to a mapping")
     dflt = catalog.defaults(payload_root)
+    org_defaults = catalog.org_options(payload_root)["defaults"]
 
     fe = data.get("frontend", {})
     be = data.get("backend", {})
+    org = data.get("org", {})
+    if not isinstance(org, dict):
+        org = {}
     flat = {
         "frontend_framework": data.get("frontend_framework")
         or (fe.get("framework") if isinstance(fe, dict) else fe)
@@ -154,5 +192,18 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
         "database": data.get("database") or dflt.database,
         "profile": data.get("profile") or dflt.profile,
         "mcp": data.get("mcp") or [],
+        "scope": data.get("scope") or org_defaults["scope"],
+        "teams": data.get("teams") or org.get("teams") or [],
+        "autonomy": data.get("autonomy")
+        or org.get("autonomy")
+        or org_defaults["autonomy"],
+        "review_strictness": data.get("review_strictness")
+        or org.get("review_strictness")
+        or org_defaults["strictness"],
     }
+    # org_packs / org.packs: accept an explicit bool, else default True.
+    packs = data.get("org_packs")
+    if packs is None:
+        packs = org.get("packs")
+    flat["org_packs"] = True if packs is None else bool(packs)
     return Selection.from_dict(flat)

@@ -93,6 +93,49 @@ def test_list_options_runs(tmp_path):
     assert "React" in result.stdout and "PostgreSQL" in result.stdout
 
 
+def test_init_config_organization_scope(tmp_path):
+    """A --config with organization scope installs the org overlay end-to-end via the CLI."""
+    cfg = tmp_path / "init.yaml"
+    cfg.write_text(
+        "profile: enterprise\n"
+        "scope: organization\n"
+        "teams: [engineering, product, security]\n"
+        "autonomy: enterprise-controlled\n"
+        "review_strictness: regulated\n"
+        "org_packs: true\n",
+        encoding="utf-8",
+    )
+    target = tmp_path / "proj"
+    result = runner.invoke(app, ["init", str(target), "--config", str(cfg)])
+    assert result.exit_code == 0, result.stdout
+    assert (target / ".claude" / "org-packs" / "README.md").is_file()
+    assert (target / ".claude" / "agents" / "pm-copilot.md").is_file()
+    assert (target / ".claude" / "rules" / "autonomy-levels.md").is_file()
+    assert runner.invoke(app, ["validate", str(target)]).exit_code == 0
+
+
+def test_init_config_team_scope_has_no_org(tmp_path):
+    """Omitting scope (defaults to team) installs no org overlay."""
+    cfg = tmp_path / "init.yaml"
+    cfg.write_text("profile: enterprise\n", encoding="utf-8")
+    target = tmp_path / "proj"
+    result = runner.invoke(app, ["init", str(target), "--config", str(cfg)])
+    assert result.exit_code == 0, result.stdout
+    assert not (target / ".claude" / "org-packs").exists()
+    assert not (target / ".claude" / "agents" / "pm-copilot.md").exists()
+
+
+def test_org_pack_stub_commands_are_planned(tmp_path):
+    """The package/install-org-pack commands are registered, exit 0, and announce 'planned'."""
+    pkg = runner.invoke(app, ["package-org-pack", "engineering-core"])
+    assert pkg.exit_code == 0, pkg.stdout
+    assert "planned" in pkg.stdout.lower()
+
+    inst = runner.invoke(app, ["install-org-pack", "engineering-core"])
+    assert inst.exit_code == 0, inst.stdout
+    assert "planned" in inst.stdout.lower()
+
+
 def test_payload_dir_resolves_from_checkout():
     with ExitStack() as stack:
         root = scaffold.payload_dir(stack)

@@ -186,6 +186,58 @@ def _install_skills(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -
     log.append(f"  • skills/ ({installed} of {len(plan.skills)} selected)")
 
 
+def _install_org(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:
+    """Install the org capability layer (only when ``plan.org`` is present — organization scope).
+
+    The new skills/agents/rules install into the standard auto-discovered ``.claude/`` dirs (so Claude
+    Code picks them up like any other component); the pack manifests install under ``.claude/org-packs/``
+    as a governance/catalog layer that *references* the active components.
+    """
+    org = plan.org
+    if org is None:
+        return
+    org_src = src / "templates" / "org"
+
+    for name in org.org_skills:
+        srcd = org_src / "skills" / name
+        if (srcd / "SKILL.md").is_file():
+            _copy_tree(srcd, dest / "skills" / name)
+        else:
+            log.append(f"  ! org skill missing (skipped): {name}")
+    for name in org.org_agents:
+        srcf = org_src / "agents" / f"{name}.md"
+        if srcf.is_file():
+            shutil.copy2(srcf, dest / "agents" / f"{name}.md")
+        else:
+            log.append(f"  ! org agent missing (skipped): {name}")
+    for name in org.org_rules:
+        srcf = org_src / "rules" / name
+        if srcf.is_file():
+            shutil.copy2(srcf, dest / "rules" / name)
+        else:
+            log.append(f"  ! org rule missing (skipped): {name}")
+    log.append(
+        f"  • org layer: {len(org.org_skills)} skills, {len(org.org_agents)} persona agents, "
+        f"{len(org.org_rules)} rules (autonomy={org.autonomy})"
+    )
+
+    if org.packs:
+        packs_dest = dest / "org-packs"
+        packs_dest.mkdir(parents=True, exist_ok=True)
+        index = org_src / "README.md"
+        if index.is_file():
+            shutil.copy2(index, packs_dest / "README.md")
+        installed = 0
+        for pack in org.packs:
+            srcd = org_src / "packs" / pack
+            if (srcd / "pack.yaml").is_file():
+                _copy_tree(srcd, packs_dest / pack)
+                installed += 1
+            else:
+                log.append(f"  ! org pack missing (skipped): {pack}")
+        log.append(f"  • org-packs/ ({installed} pack manifests)")
+
+
 def _install_hooks_and_settings(
     src: Path, dest: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
 ) -> None:
@@ -366,6 +418,7 @@ def _write_config(src: Path, target: Path, plan: ResolvedPlan, log: list[str]) -
         "hooks": plan.hooks,
         "gates": plan.gates,
         "mcp": list(plan.mcp_servers),
+        "org": plan.org.to_dict() if plan.org else None,
     }
     (config_dest / "stack-catalog.snapshot.yaml").write_text(
         yaml.safe_dump(snapshot, sort_keys=False), encoding="utf-8"
@@ -421,6 +474,7 @@ def install_sdlc(
     )
     _install_agents(src, dest, plan, log)
     _install_skills(src, dest, plan, log)
+    _install_org(src, dest, plan, log)
     _seed_agent_memory(src, dest, log)
     _install_hooks_and_settings(src, dest, plan, force=force, log=log)
     _install_artifact_templates(src, dest, log)

@@ -13,13 +13,13 @@ is driven by a data **catalog**, and ships through **two channels from one sourc
 flowchart LR
     subgraph SRC["claude-kit repo — single source of truth"]
         direction TB
-        A["agents/ (27)"]
+        A["agents/ (28)"]
         S["skills/"]
         C["commands/"]
         H["hooks/"]
-        R["rules/ (19)"]
-        T["templates/ (+ stacks/ overlays)"]
-        K["catalog/ (stacks · profiles · mcp)"]
+        R["rules/ (21)"]
+        T["templates/ (+ stacks/ & org/ overlays)"]
+        K["catalog/ (stacks · profiles · mcp · org)"]
     end
 
     SRC -->|"hatchling force-include<br/>(bundled into the wheel)"| PKG["PyPI: claude-kit<br/>CLI: claude-kit / ckit / claude-sdlc"]
@@ -49,18 +49,20 @@ skills, commands, and hooks available globally without any files in your repo.
 
 ```mermaid
 flowchart TB
-    SEL["Selection<br/>(frontend · language · backend · framework · database · profile · mcp)"]
+    SEL["Selection<br/>(frontend · language · backend · framework · database · profile · mcp<br/>· scope · teams · autonomy · review_strictness · org_packs)"]
     subgraph CAT["catalog/"]
         ST["stacks.yaml"]
         PR["profiles.yaml"]
         MC["mcp.yaml"]
+        OR["org.yaml"]
     end
     SEL --> RESOLVE["catalog.resolve()"]
     CAT --> RESOLVE
-    RESOLVE --> PLAN["ResolvedPlan<br/>agents · skills · hooks · gates<br/>overlay_rules · overlay_agents · mcp_servers · context"]
+    RESOLVE --> PLAN["ResolvedPlan<br/>agents · skills · hooks · gates<br/>overlay_rules · overlay_agents · mcp_servers · context<br/>· org (OrgPlan, only when scope == organization)"]
     PLAN --> INSTALL["scaffold.install_sdlc()"]
     INSTALL --> OUT["CLAUDE.md (stack block filled) + .claude/<br/>rules (core + overlays) · agents (profile subset + DB overlays)<br/>skills (profile subset incl. sdlc/) · hooks · templates · config"]
     INSTALL -.->|"only if mcp selected"| MCPJSON[".mcp.json"]
+    INSTALL -.->|"only if scope == organization"| ORGOUT[".claude/org-packs/ + org skills/agents/rules"]
 ```
 
 - **Profiles** (`lean ⊊ standard ⊊ enterprise`) select *which* agents/skills/hooks/gates are
@@ -124,14 +126,14 @@ gate counts).
 
 ```mermaid
 flowchart TB
-    subgraph AGENTS["agents/ — 27 roles (tier-tagged)"]
+    subgraph AGENTS["agents/ — 28 roles (tier-tagged)"]
         direction TB
         ORC["orchestrator (controller)"]
         PLAN["spec-doc-writer · story-planner · ui-designer"]
         REV["senior-backend-dev · senior-frontend-dev<br/>technical-architect · em-reviewer · merge-reviewer"]
         BUILD["developer · sdlc-code-reviewer"]
         TST["unit-tester · e2e-tester · tester · senior-tester · auditor"]
-        SECG["security-reviewer · secret-scanner · dependency-scanner<br/>owasp-reviewer · policy-validator"]
+        SECG["security-reviewer · secret-scanner · dependency-scanner<br/>owasp-reviewer · policy-validator · risk-classifier"]
         SHIP["devops-engineer · observability-engineer · pr-raiser · incident-responder"]
         DA["devils-advocate · acceptance-reviewer (rigor)"]
     end
@@ -141,10 +143,18 @@ flowchart TB
         OAGENTS["DB overlay agents<br/>postgres/mongodb-specialist · migration-specialist · db-performance-reviewer"]
     end
 
-    subgraph RULES["rules/ — 19 contracts the agents obey"]
+    subgraph ORG["templates/org/ — installed only when scope == organization"]
+        OPACKS["7 capability packs<br/>(pack.yaml + README → .claude/org-packs/)"]
+        OPERS["persona agents<br/>pm-copilot · founder-prototype-agent · support-ticket-engineer<br/>data-workflow-agent · internal-tools-builder"]
+        OSKILLS["org skills<br/>feature-from-idea · prototype-to-production · customer-issue-to-fix<br/>prompt-to-safe-task · repo-onboarding"]
+        OPOL["org policy/vibe rules<br/>secrets · pii · production-data · branch-and-pr · compliance · …"]
+    end
+
+    subgraph RULES["rules/ — 21 contracts the agents obey"]
         MW["mandatory-workflow · quality-gates · rarv-cycle"]
         MEM["continuity · agent-memory"]
         AGENTOP["reasoning-techniques · agent-guardrails · agent-resilience<br/>goal-setting-and-monitoring · human-in-the-loop · model-tiers"]
+        ORGCORE["autonomy-levels · risk-classification (org-core)"]
         CRAFT["design-patterns · code-organization · documentation<br/>linting-and-formatting · testing<br/>frontend-best-practices · responsive-and-accessibility · devops-observability"]
     end
 
@@ -157,6 +167,7 @@ flowchart TB
 
     AGENTS -->|"read & enforce"| RULES
     AGENTS -->|"read"| OVERLAY
+    AGENTS -->|"read (org scope)"| ORG
     AGENTS -->|"read/write each turn"| CONT
     HOOKS -->|"inject at SessionStart"| CONT
     HOOKS -->|"inject at SessionStart"| AMEM
@@ -185,23 +196,25 @@ claude-kit/
 ├── .claude-plugin/
 │   ├── plugin.json            # plugin manifest (hooks → ./hooks/hooks.json)
 │   └── marketplace.json       # marketplace entry (source ".")
-├── agents/                    # 27 SDLC agents, tier-tagged (plugin auto-discovers)
+├── agents/                    # 28 SDLC agents, tier-tagged (plugin auto-discovers)
 ├── skills/                    # on-demand skills incl. sdlc/ (the /sdlc entrypoint)
 ├── commands/                  # /claude-kit:init · :sdlc · :status
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
-│   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-shared-modules
-├── rules/                     # 19 stack-agnostic engineering rules (incl. agent-operation rules)
-├── catalog/                   # stacks.yaml · profiles.yaml · mcp.yaml (the resolver's data)
+│   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-* / validate-* / audit-log
+├── rules/                     # 21 stack-agnostic engineering rules (incl. agent-operation + org-core rules)
+├── catalog/                   # stacks.yaml · profiles.yaml · mcp.yaml · org.yaml (the resolver's data)
 ├── templates/
 │   ├── CLAUDE.md · CLAUDE.stack.md.tmpl · README.claude-sdlc.md.tmpl
 │   ├── CONTINUITY.template.md · settings.json · artifacts/ · agent-memory/
-│   └── stacks/<kind>/<id>/    # per-stack overlay rules (+ agents/ for databases)
+│   ├── stacks/<kind>/<id>/    # per-stack overlay rules (+ agents/ for databases)
+│   └── org/                   # org overlay: skills · agents (personas) · rules · packs/ (scope-gated)
 ├── scripts/init.sh            # thin no-pip fallback scaffolder
 ├── src/claude_kit/            # pip CLI: cli · catalog · prompts · models · scaffold · render · hooks · validator · upgrader
 ├── tests/                     # pytest suite (catalog · render · scaffold · validator · upgrader · cli)
 ├── docs/architecture.md       # this file
 ├── docs/agentic-patterns.md   # how the kit maps onto the 21 agentic design patterns
+├── docs/org-capabilities.md   # the org vibe-coding layer + reuse-not-duplicate coverage map
 └── pyproject.toml             # force-include bundles the payload into the wheel
 ```
 
