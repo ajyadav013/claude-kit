@@ -136,6 +136,12 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("warn-shared-modules.sh"),
         "script": "warn-shared-modules.sh",
     },
+    "warn-llm-io": {
+        "event": "PreToolUse",
+        "matcher": "Edit|Write",
+        "entry": _script_entry("warn-llm-io.sh"),
+        "script": "warn-llm-io.sh",
+    },
     "warn-sensitive-files": {
         "event": "PreToolUse",
         "matcher": "Edit|Write",

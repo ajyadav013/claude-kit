@@ -80,6 +80,14 @@ def test_task_tracker_sync_resolves_in_standard(payload):
     assert "story-planner" in standard.agents
 
 
+def test_warn_llm_io_resolves_in_standard(payload):
+    """warn-llm-io (llm-guard-inspired advisory hook) resolves in standard, not lean."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    assert "warn-llm-io" in standard.hooks
+    assert "warn-llm-io" not in lean.hooks
+
+
 def test_every_profile_includes_sdlc_entrypoint(payload):
     for profile in ("lean", "standard", "enterprise"):
         plan = catalog.resolve(payload, make_selection(payload, profile=profile))

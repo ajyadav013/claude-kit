@@ -441,3 +441,41 @@ def test_feature_spec_template_has_requirement_ids_and_assumptions(tmp_path, pay
     spec = matches[0].read_text(encoding="utf-8")
     assert "**R1**" in spec, "requirement ids missing"
     assert "## Assumptions" in spec, "Assumptions section missing"
+
+
+def test_warn_llm_io_hook_in_standard_not_lean(tmp_path, payload):
+    """warn-llm-io (llm-guard-inspired, advisory) ships + wires into PreToolUse(Edit|Write) in standard; absent in lean."""
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+    assert not (lean / ".claude" / "hooks" / "warn-llm-io.sh").exists()
+    assert (standard / ".claude" / "hooks" / "warn-llm-io.sh").is_file()
+    settings = json.loads(
+        (standard / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    commands = [
+        h["command"]
+        for block in settings["hooks"].get("PreToolUse", [])
+        if block["matcher"] == "Edit|Write"
+        for h in block["hooks"]
+    ]
+    assert any("warn-llm-io.sh" in c for c in commands), (
+        "warn-llm-io hook not wired into PreToolUse(Edit|Write)"
+    )
+
+
+def test_security_skill_carries_optin_llm_section(tmp_path, payload):
+    """security-and-hardening ships the opt-in, bypassable LLM/AI Feature Security section (standard+)."""
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+    # The skill is standard+ (not in lean) — the LLM guidance is not forced on minimal installs.
+    assert not (lean / ".claude" / "skills" / "security-and-hardening").exists()
+    skill = (
+        standard / ".claude" / "skills" / "security-and-hardening" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "LLM / AI Feature Security" in skill, "LLM section missing"
+    assert "Security implications of bypassing" in skill, "implications table missing"
+    assert "risk acceptance" in skill.lower(), "bypass/risk-acceptance protocol missing"

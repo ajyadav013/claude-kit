@@ -13,6 +13,8 @@ and how bad, and what to do about it — **before** the code is written.
 ## When to use
 - New or changed auth/authorization, sessions, password/secret handling, payments, file upload,
   data export, webhooks/external callbacks, or a multi-tenant boundary.
+- A new **LLM / AI feature** (prompts, chat, RAG, agents, or any model call) — also walk the LLM
+  threat class (step 6 below).
 - Before implementing anything in a sensitive area; pairs with the `security-and-hardening` and
   `security-verification` skills (this one is design-time; those are build/verify-time).
 
@@ -32,6 +34,12 @@ authenticated user, admin, service).
    Denial of service · Elevation of privilege.
 5. For each credible threat: likelihood × impact → severity, and the **mitigation** + the **test** that
    proves it.
+6. **If the feature calls a model:** also walk the **LLM Top 10** — prompt injection (untrusted
+   input/RAG/tool content treated as instructions), insecure output handling (output executed/rendered
+   without validation → Info disclosure / EoP), sensitive-info disclosure (PII to the provider), model
+   DoS (token/cost), excessive agency (over-privileged model tools). Apply the input/output guardrails
+   in `.claude/skills/security-and-hardening/SKILL.md` → *LLM / AI Feature Security* (opt-in; state any
+   bypass as a residual risk).
 
 ## Agents to delegate to
 `security-reviewer` (+ `owasp-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`)

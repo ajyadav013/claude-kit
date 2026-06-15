@@ -44,7 +44,7 @@ Adapt these to the project's stack (use Grep/Bash to search the codebase for pat
 
 - **A07 Identification & Auth Failures** — login + forgot/reset rate-limited; session cookie `HttpOnly`+`SameSite`+`Secure(prod)`; password-reset tokens expire; strong password hashing; no user-enumeration via differential responses/timing.
 
-- **A08 Software & Data Integrity** — no untrusted deserialization; CI/deps integrity; no dynamic `eval`/`exec`/`pickle`/`unserialize` of user data.
+- **A08 Software & Data Integrity** — no untrusted deserialization; CI/deps integrity; no dynamic `eval`/`exec`/`pickle`/`unserialize` of user data. **Model/LLM output is untrusted data too**: flag any `eval`/`exec`, raw-HTML render, or SQL/shell/tool call built from a model's response without validation (insecure output handling). The *broader* LLM-feature guardrails (prompt-injection screening, PII vault, token limits) are **advisory** — see `.claude/skills/security-and-hardening/SKILL.md` → *LLM / AI Feature Security*; note gaps but do **not** block the gate on them.
 
 - **A09 Logging & Monitoring Failures** — structured logging on security-relevant actions; **never log** passwords, password hashes, full session ids, tokens, API keys, PII; errors logged at appropriate severity.
   - Search for: print statements, log statements containing sensitive keywords.

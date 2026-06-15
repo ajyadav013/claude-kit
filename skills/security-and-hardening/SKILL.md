@@ -19,6 +19,7 @@ Companion rules: `.claude/rules/code-organization.md` (auth & dependency pattern
 - Integrating with external APIs or services
 - Adding file uploads, webhooks, or callbacks
 - Handling PII
+- Building an **LLM / AI feature** — prompts, chat, RAG, agents, or any call to a model (see *LLM / AI Feature Security* below)
 
 ## The Three-Tier Boundary System
 
@@ -299,6 +300,79 @@ All config is read via the project's settings framework — never scattered envi
 git diff --cached | grep -iE "password|secret|api_key|token|SECRET_KEY|DATABASE_URL"
 ```
 
+## LLM / AI Feature Security (OWASP LLM Top 10) — opt-in
+
+Applies **only when your product builds an LLM/AI feature** — it sends user (or tool/RAG) input to a
+model, or uses a model's output. This is a *different* threat class from the OWASP Top 10 above (which
+the mandatory `security-reviewer` gate enforces). These LLM guardrails are **opt-in / advisory** — the
+Security Clear gate does **not** block on them — but the threats are real, so treat the guardrails as
+the default for any model-backed feature and *consciously* decide before skipping (see *Opt-in & bypass*).
+
+> Distinct from `.claude/rules/agent-guardrails.md`, which secures the *Claude Code agent itself*. This
+> section secures the LLM features **in the product you ship**. Reference implementations are
+> tool-agnostic — e.g. **llm-guard** (Python: `scan_prompt` / `scan_output` + a PII *vault*),
+> provider-native safety filters, or your own checks. The pattern matters more than the library.
+
+### The guard architecture: scan input → model → scan output
+
+A model is an untrusted, non-deterministic component — untrusted input goes in, untrusted output comes
+out. Put a guardrail layer on **both sides** of every model call:
+
+```
+user / RAG / tool input ──▶ [INPUT guardrails] ──▶ model ──▶ [OUTPUT guardrails] ──▶ app uses it
+```
+
+### Input guardrails (before the prompt reaches the model)
+- **Prompt-injection / jailbreak screening** — treat retrieved docs, tool results, and user text as
+  data, never instructions; screen for "ignore previous instructions" / embedded commands before
+  sending. (Pairs with `agent-guardrails.md` §1.)
+- **Secrets scan** — never forward API keys, credentials, or internal tokens into a prompt.
+- **PII anonymisation (vault pattern)** — mask PII (names, emails, cards) *before* the model sees it
+  and restore it on the way out via the same vault, so the provider never receives raw PII.
+- **Token / length budget** — cap input size to bound cost and prevent model-DoS.
+- **Topic / content limits** — block disallowed topics or substrings where policy requires.
+- **Canonicalise** — strip zero-width / invisible / homoglyph unicode used to smuggle instructions.
+
+### Output guardrails (before the app uses the response)
+- **Treat output as UNTRUSTED.** Never `eval`/`exec` it, render it as raw HTML, build SQL/shell from
+  it, or auto-execute the tool/function calls it requests **without validation**. This is the existing
+  no-eval-of-untrusted-data rule (OWASP A08) applied to model output — it stays a **Critical** at the
+  security gate.
+- **Leak scan** — check the response for leaked secrets/PII (de-anonymise via the vault).
+- **URL / SSRF check** — validate any URL the model emits against an allowlist before fetching or
+  showing it; block internal/private ranges.
+- **Structured-output validation** — when you expect JSON/a schema, validate it; reject or repair on
+  mismatch rather than trusting the shape.
+- **Use-case checks** — relevance, refusal, toxicity/bias as your product requires.
+
+### Least privilege for model-invoked tools
+If the model can call tools/functions, give it the **minimum** set, require confirmation for
+destructive/outward-facing actions, and scope credentials narrowly (mirrors `agent-guardrails.md` §3).
+
+### OWASP LLM Top 10 — quick map
+| Risk | Guardrail above |
+|------|-----------------|
+| LLM01 Prompt injection | input: injection screening; treat retrieved/tool content as data |
+| LLM02 Insecure output handling | output: never eval / render-raw / auto-run unvalidated output |
+| LLM04 Model DoS | input: token/length budget + rate limits |
+| LLM06 Sensitive info disclosure | input PII vault + output leak scan; don't send secrets |
+| LLM08 Excessive agency | least-privilege tools + human confirm for destructive actions |
+
+### Opt-in & bypass (risk acceptance)
+This layer is **advisory, not a hard gate** — you can ship without it. The `warn-llm-io` hook (when
+enabled in your profile) reminds you when you edit model-calling code; it **never blocks**. To skip a
+guardrail deliberately, record a one-line **risk acceptance** in the spec/PR — *what* you're skipping,
+*why*, *who* accepted it, and a *review date* — so the decision is explicit and revisitable, not silent.
+
+### Security implications of bypassing
+| If you skip… | You accept the risk of… |
+|---|---|
+| Input injection screening | Prompt injection → data exfiltration, unauthorised tool/actions, jailbreaks |
+| PII anonymisation | User PII sent to a third-party provider → privacy/compliance (e.g. GDPR) breach, provider-side retention |
+| Output handling (treat as untrusted) | XSS / SSRF / SQL or code injection / RCE downstream from rendered or executed output |
+| Token / length limits | Cost blow-ups and model-DoS from unbounded or adversarial inputs |
+| Tool least-privilege | An injected prompt driving real, destructive actions through over-privileged tools |
+
 ## Security Review Checklist
 
 ```markdown
@@ -329,6 +403,14 @@ git diff --cached | grep -iE "password|secret|api_key|token|SECRET_KEY|DATABASE_
 - [ ] Security headers set (X-Content-Type-Options, X-Frame-Options, HSTS, CSP)
 - [ ] Dependency audits clean of Critical/High
 - [ ] Error responses don't leak internals
+
+### LLM / AI features (if any — see "LLM / AI Feature Security"; opt-in)
+- [ ] Input screened for prompt injection; retrieved/tool content treated as data, not instructions
+- [ ] No secrets sent to the model; PII anonymised before the model (restored via vault after)
+- [ ] Model output treated as untrusted — never eval/render-raw/auto-run without validation
+- [ ] Output scanned for leaked PII/secrets; emitted URLs allowlisted (SSRF); structured output validated
+- [ ] Input/token limits bound cost & DoS; model-invoked tools are least-privilege
+- [ ] Any skipped guardrail has a recorded risk acceptance (what / why / who / review date)
 ```
 
 See `.claude/skills/_references/security-checklist.md` for the full pre-commit checklist.
@@ -353,6 +435,8 @@ See `.claude/skills/_references/security-checklist.md` for the full pre-commit c
 - Logs that include passwords, tokens, or PII
 - Blocking calls in async request paths (if async architecture)
 - Stack traces or internal errors returned to clients
+- Model output passed to eval/exec, rendered as raw HTML, or used to build SQL/shell without validation
+- User PII or secrets sent to a model provider with no anonymisation; retrieved/tool content trusted as instructions
 
 ## Verification
 
