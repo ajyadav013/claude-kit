@@ -43,6 +43,10 @@ data**, **reversible**, and **decoupled from the deploy** so it never causes dow
   tables. Prefer additive + backfill + validate.
 - Verify the down path actually works — apply, roll back, re-apply against a scratch database using
   the project's migration command before declaring done.
+- **Never destruct in the same release as the code that stops using the old shape.** A `DROP COLUMN` /
+  `DROP TABLE`, a type narrowing, or a new `NOT NULL` / unique constraint on existing data is the
+  *contract* step — it ships in a later deploy than the expand step, never both at once. A same-release
+  destructive change (no expand/contract) is at least **High**.
 
 ## Quality gate & self-check
 

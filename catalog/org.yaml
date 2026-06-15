@@ -77,7 +77,10 @@ strictness:
     regulated:
       label: "Regulated — compliance-grade gates"
       hooks: [validate-frontmatter, validate-settings]
-      extra_gates: [security-clear, acceptance]
+      # accessibility-clear (brief #2 P1-2): a WCAG gate owned by acceptance-reviewer, driving the
+      # accessibility-review skill. Regulated-strictness only (WCAG is often a legal requirement there);
+      # self-skips when the change touches no UI surface, so API/back-end-only work is unaffected.
+      extra_gates: [security-clear, acceptance, accessibility-clear]
 
 # --- core agents the org layer activates regardless of profile ---------------------------------------
 # These live in the core agents/ dir (installed via the normal agent path); listing them here unions

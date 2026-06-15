@@ -21,6 +21,12 @@ layer concrete for MongoDB.
   silently at boot.
 - Prefer additive changes (new optional fields) over destructive ones; backfill before requiring a
   new field.
+- **Expand/contract — drop fields in a later deploy.** Old and new document shapes coexist during a
+  rollout: deploy code that reads *both*, backfill (idempotent + batched), deploy code that writes only
+  the new shape, then — in a **separate, later** release — drop the old field. A backfill that isn't
+  idempotent, a read that can crash on an un-migrated document, or removing a field in the same release
+  as the code that stops reading it (no read-compat window) is at least **High** (per
+  `.claude/rules/quality-gates.md`); the `migration-specialist` reviews every shape change against this.
 
 ## Modeling
 

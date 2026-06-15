@@ -67,6 +67,10 @@ honest:
 > 3 models × 5 tasks at 10 runs each (median reported), with a line-count *measurement* that always
 > passes beside a *correctness gate* that spawns the runtime to actually execute the generated code.
 > A concrete instance of this section's two practices.
+>
+> To measure the **claude-kit pipeline itself** (the same tasks run with vs without the gates, and
+> which gate caught each defect), the claude-kit repo ships a fill-in template — `docs/eval-harness.md`
+> — that builds the with/without comparison on top of this section's median-of-N method.
 
 ## Rules
 

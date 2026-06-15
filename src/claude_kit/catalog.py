@@ -17,12 +17,14 @@ from claude_kit import hooks as hooks_mod
 from claude_kit.models import OrgPlan, ResolvedPlan, Selection
 
 #: Canonical backend command keys surfaced in CLAUDE.md (defaulted to "" so templates never break).
+#: ``build`` covers compiled backends (e.g. Go ``go build ./...``); it is empty for interpreted ones.
 _BACKEND_CMD_KEYS = (
     "install",
     "dev",
     "test",
     "lint",
     "format",
+    "build",
     "migrate",
     "make_migration",
 )

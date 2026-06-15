@@ -4,6 +4,89 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.13.0] — 2026-06-15
+
+A **second improvement brief** (external self-review, post-0.12.0) — Item 0 (a covered-vs-gated audit)
++ P0-1/P0-2, P1-1/P1-2/P1-3, and six P2 items — run through the kit's mandated **adversarial
+reuse-first map→verify** (a 24-agent map→verify pass). The decisive finding repeated from last time:
+several premises were **overstated** against the live files (migration safety was already largely
+enforced; the README "no PyPI yet" text was simply stale; the README is already progressively
+disclosed). The result is a mix of **two new gates wired as data, one new live backend stack, and
+targeted extensions** — **zero new agents/skills/rules** beyond what already existed (core counts
+unchanged: 28 agents · 50 skills · 23 rules).
+
+### Added
+- **Item 0 — `docs/coverage-audit.md`.** The justification record the briefs kept eliding: every
+  "already covered" capability classified **GATED (enforced) / RULE (always-on) / SKILL-DOC
+  (advisory)** with file evidence. Verifies rollback (GATED enterprise-only; RULE elsewhere), cost
+  (DOC by design), migration safety (overlay-advisory + enterprise rollback), accessibility, and
+  flags the one *looks-enforced-but-isn't* trap (the `accessibility-review` skill's internal "Quality
+  gates" heading is **not** a gate token).
+- **P0-1 — `contract-clear` reaches the default `standard` profile** (API stacks), not just
+  enterprise (`catalog/profiles.yaml`). It still self-skips when the stack exposes no API contract
+  surface, so non-API projects are unaffected. *(Deliberate posture change: 0.12.0 placed it in
+  enterprise under golden-rule-#6 "heavyweight gates default to enterprise"; the brief explicitly
+  authorizes promoting it because breaking-change detection is table-stakes for the headline FastAPI
+  backend. Documented, not silent.)* Owned by `merge-reviewer`; quality-gates §4 + mandatory-workflow
+  §2d + the api-change-report template updated to say "standard+".
+- **P1-1 — a live Go backend stack** (Go · stdlib **net/http**): a pure `catalog/stacks.yaml` entry +
+  `templates/stacks/backend/go/net-http/rules/go-patterns.md` overlay + exact `go` commands
+  (`go build ./...`, `go test ./...`, `go vet`, `gofmt`). Chosen over Node/Express precisely because
+  its build/test command shapes differ most from npm/pip — the strongest test of the stack-agnostic
+  claim. The one supporting code change: a **`build`** key added to `_BACKEND_CMD_KEYS` (compiled
+  backends surface a build command; interpreted ones leave it empty). No `resolve()` branch.
+- **P1-2 — `accessibility-clear` gate** at organization scope, **`regulated` strictness only**
+  (`catalog/org.yaml` `extra_gates`). Owned by `acceptance-reviewer` (read-only, already present at
+  standard+), drives the existing `accessibility-review` skill over changed UI (WCAG-AA), self-skips
+  when no UI surface. Wired in `org.yaml` only, so the `lean⊊standard⊊enterprise` profile invariant is
+  untouched.
+- **`examples/react-fastapi-postgres-feature/`** (P2-2) — a clearly-labelled **synthetic** end-to-end
+  walkthrough: request → feature-spec → story breakdown (coverage gate) → gate verdicts (incl. one
+  defect-loop cycle and a Devil's-Advocate CONFIRMED line) → sample PR diff. Repo reference (like
+  `docs/`), **not** bundled into the wheel.
+- **`docs/eval-harness.md`** (P2-4) — a fill-in template to measure the pipeline with vs without the
+  gates (which gate caught which defect), built on `rules/evals.md` §6 median-of-N. Ships **no**
+  numbers by design (an eval result is environment-specific); honesty rules included.
+- **Self-test matrix** (P2-5) — a parametrized test sweeping **every live frontend × backend ×
+  database × profile × scope** (now 24 combos incl. Go), each resolved + installed + validated +
+  Docker-checked. Driven off `catalog.list_options`, so new live stacks auto-join with no test edit.
+
+### Changed
+- **P0-2 — migration safety made explicit.** Both `migration-specialist` overlays (postgres + mongodb)
+  already mandated expand/contract, reversible down-path, and idempotent backfill *as agent guidance*;
+  added the explicit hard rule **"no destructive drop in the same release as the code that stops using
+  the old shape"** with **severity** to the always-on overlay RULES (`postgres-patterns.md`,
+  `mongodb-patterns.md`) — so it lives in a rule, not only an agent prompt. (Same-release destruction
+  = at least **High**.)
+- **P1-3 — the PyPI story reconciled.** `claude-code-kit` **is** published (latest 0.12.0); the README
+  install block, troubleshooting row, and a stale `changelog-v0.10.0` badge said otherwise. Install is
+  now `pip install claude-code-kit`; the changelog badge is de-versioned (self-healing); the CI
+  publish machinery (`publish.yml`) was correct and left untouched.
+- **P2-3 (on-ramp, minimal)** — added an **Examples** nav link + pipeline pointer only; the proposed
+  full README restructure was **rejected** (see below). Pipeline gate table + `docs/architecture.md`
+  diagram updated for `contract-clear` (standard+) and the Go stack.
+
+### Not adopted (deliberately — premise overstated or against the kit's design)
+- **A dedicated migration GATE token (P0-2).** Migrations are overlay-conditioned and not every-run;
+  `resolve()` can't emit stack gates without a branch. Strengthened the always-on overlay rules +
+  reviewer agents instead — enforcement via review + the enterprise rollback gate (`pipeline-green`),
+  per the coverage audit.
+- **Node/Express as the new backend (P1-1).** Chose **Go** instead — its command shapes differ more
+  from the existing npm/pip stacks, which is the whole point of the breadth test. Express/Vue/Svelte/
+  Django remain `planned`.
+- **A full README restructure + GIF (P2-3).** The README already uses progressive disclosure
+  (`<details>`); a big move-to-`docs/` churn is negative-value and a GIF can't be produced here. Added
+  only the example link. (Recording a demo GIF is a human follow-up.)
+- **Relocating the CHANGELOG "Not adopted" blocks to `docs/decision-log.md` (P2-6).** Those blocks are
+  a **marketed feature** the README links to; moving them would break that cross-reference for low
+  value. Added a forward-looking note in `CONTRIBUTING.md` instead (split later *only if* the README
+  link is updated in the same change).
+- **Repo About-box metadata (P2-1)** — host config outside the payload; `gh` is unavailable here.
+  Human follow-up: `gh repo edit ajyadav013/claude-kit --description "Config-only, stack-agnostic
+  autonomous-SDLC scaffolder for Claude Code (plugin + pip)" --add-topic claude-code --add-topic
+  claude-code-plugins --add-topic sdlc --add-topic ai-agents --add-topic agentic-coding --add-topic
+  claude-skills`.
+
 ## [0.12.0] — 2026-06-15
 
 An **improvement brief** (external self-review, no repo access) proposed ~15 changes — four P0, five

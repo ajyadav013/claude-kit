@@ -178,8 +178,8 @@ Frontend code reviewed: ✓ | Build/tests: ✓
 > source is found — mirror the hooks' detect-then-skip pattern; never block a project that has no
 > contract.
 
-Owns the **contract-clear** gate (enterprise; or any profile an org opts into via `org.yaml`
-strictness). With `Bash`:
+Owns the **contract-clear** gate (runs in **standard and enterprise** — any profile that includes the
+`merge-reviewer` — whenever the selected stack exposes an API surface). With `Bash`:
 
 1. **Locate or generate the contract** — a committed `openapi.(json|yaml)` / GraphQL SDL, or generate it from the framework's typed routes.
 2. **Diff against the base branch** — `git show <base>:<contract-path>` vs the working copy.

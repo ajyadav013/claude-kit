@@ -83,9 +83,14 @@ a specific stack — `pytest` enforces the no-Docker invariant on a scaffolded p
 
 1. Bump the version in **all four** places: `pyproject.toml`, `.claude-plugin/plugin.json`, the
    `.claude-plugin/marketplace.json` entry, and `src/claude_kit/__init__.py`.
-2. Add a `CHANGELOG.md` entry.
+2. Add a `CHANGELOG.md` entry, including a **"Not adopted (deliberately)"** block stating what you
+   chose *not* to add and why — this is a marketed feature of the changelog (the README links to it),
+   so keep it. If those blocks ever grow unwieldy they may later split into `docs/decision-log.md`,
+   but **only if** the README's CHANGELOG cross-reference is updated in the same change; until then
+   they stay in `CHANGELOG.md` by design.
 3. `pytest` green, then `python3 -m build && python3 -m twine check dist/*`.
-4. `python3 -m twine upload dist/*` (PyPI).
+4. CI auto-publishes to PyPI on merge to `main` when the version is new (`.github/workflows/publish.yml`,
+   OIDC trusted publishing). Manual `python3 -m twine upload dist/*` is the fallback.
 5. Tag the release and push so plugin users get the update.
 
 ## License

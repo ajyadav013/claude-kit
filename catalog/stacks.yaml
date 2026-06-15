@@ -3,7 +3,7 @@
 # Adding a frontend framework, backend language/framework, or database is a DATA change here
 # (plus a templates/stacks/<stack_dir>/ folder for its overlay rules/agents) — never a code change.
 # Entries marked `status: planned` are offered by `list-options` as "coming soon" but cannot be
-# selected yet (no overlay content shipped). React + Python/FastAPI + Postgres/Mongo are live.
+# selected yet (no overlay content shipped). React + Python/FastAPI + Go/net-http + Postgres/Mongo are live.
 #
 # Each live entry may declare:
 #   label          human name shown in prompts
@@ -78,6 +78,23 @@ backend:
           label: "Express"
           status: planned
           stack_dir: backend/node/express
+    go:
+      label: "Go"
+      default_framework: net-http
+      frameworks:
+        net-http:
+          label: "net/http (stdlib)"
+          overlay_rules: [go-patterns.md]
+          overlay_agents: []
+          skills: [api-and-interface-design, api-integration]
+          stack_dir: backend/go/net-http
+          commands:
+            install: "go mod download"
+            dev: "go run ./..."
+            test: "go test ./..."
+            lint: "go vet ./... && gofmt -l ."
+            format: "gofmt -w ."
+            build: "go build ./..."
 
 database:
   default: postgres

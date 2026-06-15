@@ -42,12 +42,16 @@ def test_resolve_worked_example(payload):
     assert plan.context["backend_test_cmd"] == "pytest"
 
 
-def test_contract_clear_gate_is_enterprise_only(payload):
-    """The contract-clear gate (API base-branch breaking-change diff) ships in enterprise, not standard."""
-    ent = catalog.resolve(payload, make_selection(payload, profile="enterprise"))
+def test_contract_clear_gate_in_standard_and_enterprise_not_lean(payload):
+    """The contract-clear gate (API base-branch breaking-change diff) reaches the default standard
+    profile (brief #2 P0-1) and enterprise, but not the fast-track lean profile. It self-skips at
+    runtime when the stack exposes no API contract surface, so non-API projects are unaffected."""
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
     std = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    ent = catalog.resolve(payload, make_selection(payload, profile="enterprise"))
+    assert "contract-clear" in std.gates
     assert "contract-clear" in ent.gates
-    assert "contract-clear" not in std.gates
+    assert "contract-clear" not in lean.gates
 
 
 def test_sentry_mcp_is_opt_in_and_resolves(payload):
@@ -80,6 +84,26 @@ def test_repowise_mcp_is_opt_in_and_resolves(payload):
     labels = {m["id"]: m["label"] for m in catalog.list_options(payload)["mcp"]}
     assert "repowise" in labels
     assert "AGPL" in labels["repowise"]
+
+
+def test_go_backend_is_live_and_resolves(payload):
+    """The Go (stdlib net/http) backend (brief #2 P1-1) is a live, selectable compiled stack:
+    its overlay rule + commands resolve, including the new `build` command key."""
+    plan = catalog.resolve(
+        payload,
+        make_selection(payload, backend_language="go", backend_framework="net-http"),
+    )
+    assert "go-patterns.md" in plan.overlay_rules
+    assert "fastapi-patterns.md" not in plan.overlay_rules
+    # The compiled-backend `build` command is surfaced in the CLAUDE.md context.
+    assert plan.context["backend_build_cmd"] == "go build ./..."
+    assert plan.context["backend_test_cmd"] == "go test ./..."
+    # It is offered as a live (not planned) backend by list-options.
+    go = next(b for b in catalog.list_options(payload)["backend"] if b["id"] == "go")
+    assert go["status"] == "live"
+    assert any(
+        fw["id"] == "net-http" and fw["status"] == "live" for fw in go["frameworks"]
+    )
 
 
 def test_mongo_selection_swaps_db_overlays(payload):
@@ -203,6 +227,32 @@ def test_org_enterprise_controlled_unions_hooks_and_gates(payload):
     assert "warn-sensitive-files" in plan.hooks
     assert "risk-classifier" in plan.agents
     assert {"security-clear", "acceptance"} <= set(plan.gates)
+
+
+def test_accessibility_gate_is_regulated_only(payload):
+    """accessibility-clear (brief #2 P1-2) binds only at org `regulated` strictness — not at
+    light/standard strictness, and not in a plain (non-org) enterprise plan."""
+    regulated = catalog.resolve(
+        payload,
+        make_selection(
+            payload,
+            profile="standard",
+            scope="organization",
+            review_strictness="regulated",
+        ),
+    )
+    light = catalog.resolve(
+        payload,
+        make_selection(
+            payload, profile="standard", scope="organization", review_strictness="light"
+        ),
+    )
+    plain_enterprise = catalog.resolve(
+        payload, make_selection(payload, profile="enterprise")
+    )
+    assert "accessibility-clear" in regulated.gates
+    assert "accessibility-clear" not in light.gates
+    assert "accessibility-clear" not in plain_enterprise.gates
 
 
 def test_org_assisted_adds_no_autonomy_hooks(payload):

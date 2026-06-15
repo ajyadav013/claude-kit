@@ -100,7 +100,8 @@ flowchart TD
     FORK --> LANES
     LANES --> MR1{{"Gate: Merge Reviewer<br/>cross-lane consistency"}}
 
-    MR1 -->|"pass"| TEST["Testing (parallel): unit · e2e · integration<br/>then Senior Tester verification"]
+    MR1 -->|"pass"| CC{{"Gate: Contract clear<br/>standard+ · API stacks (self-skips otherwise)"}}
+    CC -->|"pass"| TEST["Testing (parallel): unit · e2e · integration<br/>then Senior Tester verification"]
     TEST --> TCG{{"Gate: Test coverage<br/>blind review + Devil's Advocate"}}
 
     TCG -->|"pass / CONFIRMED"| SEC{{"Gate: Security Clear<br/>security-reviewer + 4 sub-scanners"}}

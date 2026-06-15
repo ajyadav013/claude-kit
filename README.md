@@ -12,9 +12,9 @@ with a quality gate between every phase. **No application code. No Docker. Confi
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757.svg)](https://www.claude.com/product/claude-code)
 [![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
-[![Changelog](https://img.shields.io/badge/changelog-v0.10.0-blue.svg)](CHANGELOG.md)
+[![Changelog](https://img.shields.io/badge/changelog-md-blue.svg)](CHANGELOG.md)
 
-🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
+🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
 
 </div>
 
@@ -32,7 +32,7 @@ refuses to advance a phase until its **quality gate** passes. You drive it all w
 **At a glance:**
 
 - 🧱 **Stack-agnostic** — the pipeline assumes no language or framework. Pick a stack at `init` and it
-  installs matching overlay rules (React · FastAPI · PostgreSQL · MongoDB) and your exact
+  installs matching overlay rules (React · FastAPI · Go/net-http · PostgreSQL · MongoDB) and your exact
   lint/test/build commands. It never writes your app code and never needs Docker.
 - 🎚️ **Dial the rigor with profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills,
   hooks, and gates are active, from "fast track" to "full audit".
@@ -82,9 +82,9 @@ Then, inside any project you want the pipeline to manage:
 A CLI (`claude-kit`, aliases `ckit` / `claude-sdlc`) that scaffolds the same config into any repo:
 
 ```bash
-# Until the first PyPI release, install straight from the repo:
-pip install "git+https://github.com/ajyadav013/claude-kit.git"
-# Once published to PyPI this becomes:  pip install claude-code-kit
+pip install claude-code-kit
+# or, for the bleeding edge straight from the repo:
+#   pip install "git+https://github.com/ajyadav013/claude-kit.git"
 
 claude-kit init                 # interactive: prompts for stack, profile, MCP
 claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Postgres + standard
@@ -196,10 +196,16 @@ flowchart TD
 | Profile | Gates that run |
 |---|---|
 | **lean** | code-review · build-green |
-| **standard** | spec-complete · em-approved · code-review · build-green · test-coverage · security-clear |
+| **standard** | spec-complete · em-approved · code-review · build-green · test-coverage · security-clear · contract-clear\* |
 | **enterprise** | standard + pipeline-green · observability-ready · acceptance |
 
-A **fast-track** mode collapses small changes (< 5 files) to Developer → Code Reviewer → Tester → PR.
+\* `contract-clear` (API breaking-change diff) self-skips when the stack exposes no API surface, so it
+is inert for non-API projects. Organization scope at `regulated` strictness adds `accessibility-clear`
+(WCAG-AA on changed UI). A **fast-track** mode collapses small changes (< 5 files) to Developer →
+Code Reviewer → Tester → PR.
+
+See [`examples/`](examples/) for a synthetic end-to-end walkthrough — request → spec → story breakdown
+→ gate verdicts (with one defect-loop cycle) → sample PR diff.
 
 ---
 
@@ -218,6 +224,7 @@ non-duplicative gaps**, minimally and catalog-wired.
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec → tasks → **analyze** coverage gate; tasks → tracker issues; stable requirement IDs + assumptions in specs | Wired the (previously orphaned) `story-planner` as the **coverage gate (1f)**, a tracker-agnostic `task-tracker-sync` skill, and enriched the feature-spec template | `0.9.0` |
 | **[protectai/llm-guard](https://github.com/protectai/llm-guard)** | Input→model→output guardrails for LLM features — prompt injection, PII vault, treating model output as untrusted | **Opt-in** "LLM / AI Feature Security" guidance in `security-and-hardening` + the advisory `warn-llm-io` hook (warns, **never blocks**) | `0.10.0` |
 | **Improvement brief** (external self-review) | API backward-compat as a gate; load-against-SLO as a release criterion; supply-chain maintenance cadence; pipeline resumability, clean abort, and worktree lifecycle; pipeline cost/concurrency/cross-platform transparency | The enterprise **`contract-clear`** gate (owned by `merge-reviewer`) + `api-change-report` template; a load-vs-SLO criterion in Observability Ready; dependency **Cadence Mode**; `/sdlc` resume-vs-restart, `/claude-kit:abort`, worktree teardown; cost/concurrency/Windows notes — **9 surgical extensions, 0 new agents/skills/rules** | `0.12.0` |
+| **Improvement brief #2** (external self-review) | The covered-vs-**gated** distinction (a skill ≠ a gate); enforce API breaking-changes by default; expand/contract migration safety; back the stack-agnostic claim with a compiled backend; WCAG as a regulated gate; reconcile the PyPI story; ship a worked example + a self-test matrix | [`docs/coverage-audit.md`](docs/coverage-audit.md); **`contract-clear` promoted to `standard`**; a live **Go/net-http** backend; the **`accessibility-clear`** regulated gate; explicit migration-drop rules; a synthetic [`examples/`](examples/) run; an eval-harness template; a profile×stack×scope self-test matrix — **2 gates wired + 1 stack, 0 new agents/skills/rules** | `0.13.0` |
 
 > Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
 > deliberately **did not** add because the kit already covered it.
@@ -359,8 +366,8 @@ change.
 <br>
 
 - **`catalog/stacks.yaml`** — frontend frameworks, backend languages → frameworks, and databases.
-  Live today: React · Python/FastAPI · PostgreSQL/MongoDB. Vue/Svelte/Django/Express are listed as
-  `planned` (offered by `list-options`, not yet selectable).
+  Live today: React · Python/FastAPI · **Go/net-http** · PostgreSQL/MongoDB. Vue/Svelte/Django/Express
+  are listed as `planned` (offered by `list-options`, not yet selectable).
 - **`catalog/profiles.yaml`** — what each profile activates (`inherit:` composes; `all` = everything).
 - **`catalog/mcp.yaml`** — ready `.mcp.json` fragments per server, with `${ENV}` placeholders.
 - **`catalog/org.yaml`** — the **organization layer**: scopes, teams, the autonomy model, review
@@ -427,7 +434,7 @@ hints.
 | Guard / quality hooks seem to do nothing | `jq` isn't installed (the hooks parse tool input with it) | Install `jq`; without it the hooks degrade to no-ops by design |
 | Hooks do nothing on **Windows** | No POSIX shell — `.sh` hooks can't run under `cmd`/PowerShell | Run claude-kit inside **WSL or Git Bash** (with `jq`); `claude-kit doctor` confirms. Config + CLI work natively regardless |
 | A selected MCP server won't start | `node` / `npx` missing (most MCP servers launch via `npx`) | Install Node.js, or remove the server from `.mcp.json` |
-| `pip install claude-code-kit` fails | Not yet published to PyPI | Use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
+| `pip install claude-code-kit` fails | Outdated `pip`, or you want an unreleased change | Upgrade pip (`pip install -U pip`); for unreleased changes use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
 | `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |
 
 </details>

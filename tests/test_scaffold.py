@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 
+from claude_kit import validator
 from claude_kit.models import InitOptions
-from tests._helpers import install
+from tests._helpers import install, live_matrix
 
 
 def test_install_writes_the_full_tree(tmp_path, payload):
@@ -127,6 +128,30 @@ def test_no_docker_anywhere(tmp_path, payload):
         )
     ]
     assert offenders == [], f"unexpected Docker files: {offenders}"
+
+
+def test_self_test_matrix_resolves_installs_and_validates(tmp_path, payload):
+    """Brief #2 P2-5: sweep EVERY live frontend × backend × database × profile × scope. Each combo
+    must resolve, install, validate green, carry gates, and stay Docker-free — the matrix where
+    silent breakage hides. New live stacks (e.g. the Go backend) auto-join via catalog.list_options."""
+    combos = live_matrix(payload)
+    # 1 frontend × 2 live backends (fastapi, go) × 2 dbs × 3 profiles × 2 scopes = 24.
+    assert len(combos) >= 24, (
+        f"matrix too small ({len(combos)}) — a live stack may be missing"
+    )
+    for i, overrides in enumerate(combos):
+        target = tmp_path / f"combo{i}"
+        plan = install(payload, target, **overrides)
+        ok, messages = validator.validate(target)
+        assert ok, f"validate failed for {overrides}:\n" + "\n".join(messages)
+        assert plan.gates, f"no gates resolved for {overrides}"
+        offenders = [
+            p.name
+            for p in (target / ".claude").rglob("*")
+            if p.is_file()
+            and (p.name == "Dockerfile" or p.name.startswith("docker-compose"))
+        ]
+        assert offenders == [], f"Docker artifact for {overrides}: {offenders}"
 
 
 def test_init_options_round_trips_and_records_files(tmp_path, payload):
