@@ -1,0 +1,76 @@
+# 05 — Sample PR diff  (SYNTHETIC — illustrative shape, not a real commit)
+#
+# What the pr-raiser would open after all standard gates pass. Paths/contents are made up to show the
+# two-lane shape (backend + frontend + migration + tests); they are NOT generated app code shipped by
+# the kit. claude-kit installs configuration only.
+
+diff --git a/backend/app/schemas/task.py b/backend/app/schemas/task.py
+--- a/backend/app/schemas/task.py
++++ b/backend/app/schemas/task.py
+@@
+ class TaskRead(TaskBase):
+     id: int
++    done: bool
+     model_config = ConfigDict(from_attributes=True)
++
++
++class TaskUpdate(BaseModel):
++    """PATCH body — `done` is required and must be a boolean (invalid → 422)."""
++    done: bool
+
+diff --git a/backend/app/api/routes/tasks.py b/backend/app/api/routes/tasks.py
+--- a/backend/app/api/routes/tasks.py
++++ b/backend/app/api/routes/tasks.py
+@@
++@router.patch("/{task_id}", response_model=TaskRead, summary="Toggle a task's done state")
++async def update_task(task_id: int, body: TaskUpdate, svc: TaskServiceDep) -> TaskRead:
++    try:
++        task = await svc.set_done(task_id, body.done)
++    except TaskNotFoundError:
++        raise HTTPException(status_code=404, detail="task not found")
++    return TaskRead.model_validate(task)
+
+diff --git a/backend/migrations/0007_task_done.py b/backend/migrations/0007_task_done.py
+new file mode 100644
+--- /dev/null
++++ b/backend/migrations/0007_task_done.py
+@@
++# Expand step: add nullable column, backfill false, then set default + not-null.
++def upgrade() -> None:
++    op.add_column("tasks", sa.Column("done", sa.Boolean(), nullable=True))
++    op.execute("UPDATE tasks SET done = false WHERE done IS NULL")
++    op.alter_column("tasks", "done", server_default=sa.false(), nullable=False)
++
++def downgrade() -> None:
++    op.drop_column("tasks", "done")
+
+diff --git a/frontend/src/features/tasks/TaskRow.tsx b/frontend/src/features/tasks/TaskRow.tsx
+--- a/frontend/src/features/tasks/TaskRow.tsx
++++ b/frontend/src/features/tasks/TaskRow.tsx
+@@
+-  return <li>{task.title}</li>;
++  return (
++    <li style={{ textDecoration: task.done ? "line-through" : "none" }}>
++      <input
++        type="checkbox"
++        checked={task.done}
++        aria-label={`Mark "${task.title}" complete`}
++        onChange={(e) => onToggle(task.id, e.target.checked)}
++      />
++      {task.title}
++    </li>
++  );
+
+diff --git a/backend/tests/test_tasks.py b/backend/tests/test_tasks.py
+--- a/backend/tests/test_tasks.py
++++ b/backend/tests/test_tasks.py
+@@
++async def test_patch_marks_done(client, seeded_task):        # AC1
++    r = await client.patch(f"/tasks/{seeded_task.id}", json={"done": True})
++    assert r.status_code == 200 and r.json()["done"] is True
++
++async def test_patch_missing_is_404(client):                 # AC2
++    assert (await client.patch("/tasks/999999", json={"done": True})).status_code == 404
++
++async def test_patch_invalid_body_is_422(client, seeded_task):  # AC3 (the defect-loop fix)
++    assert (await client.patch(f"/tasks/{seeded_task.id}", json={"done": "yes"})).status_code == 422

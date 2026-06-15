@@ -1,6 +1,6 @@
 # API change report: <feature / version>
 
-> Produced by the **contract-clear** gate (`merge-reviewer`, enterprise / API-exposing stacks). It
+> Produced by the **contract-clear** gate (`merge-reviewer`, standard+ / API-exposing stacks). It
 > diffs the externally-exposed API contract against the base branch. Backward-incompatible deltas for
 > already-shipped consumers block the gate unless an approved migration note + version bump accompany
 > them. The gate self-skips when no contract surface (OpenAPI / GraphQL / typed routes) is found.

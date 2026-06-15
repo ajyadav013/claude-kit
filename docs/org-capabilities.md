@@ -47,7 +47,10 @@ How much Claude may do before a human acts. Set per repo; default **assisted**. 
 | `enterprise-controlled` | work through strict gates + audit | edit sensitive files / finish without security + review | `warn-sensitive-files`, `warn-large-edits`, `warn-missing-tests`, `validate-frontmatter`, `validate-settings`, `audit-log`, `guard-push-main`, `guard-commit-secrets` |
 
 Review **strictness** (`light` / `standard` / `regulated`) is an independent axis; `regulated` adds the
-`validate-frontmatter` + `validate-settings` hooks and the `security-clear` + `acceptance` gates.
+`validate-frontmatter` + `validate-settings` hooks and the `security-clear` + `acceptance` +
+`accessibility-clear` gates. The `accessibility-clear` gate (owned by `acceptance-reviewer`, driving
+the `accessibility-review` skill) enforces WCAG-AA on changed UI and self-skips when the change has no
+UI surface — so it binds only when both `regulated` strictness **and** a frontend are in play.
 
 ## Risk classification
 

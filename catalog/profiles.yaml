@@ -82,7 +82,10 @@ profiles:
       - over-engineering-review
       - simplification-debt
       - task-tracker-sync
-    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear]
+    # contract-clear self-skips when the stack exposes no API contract surface, so it is inert for
+    # non-API projects on standard while enforcing backward-compatibility for API-exposing backends
+    # (e.g. FastAPI). Promoted from enterprise-only per brief #2 P0-1 — see CHANGELOG 0.13.0.
+    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, contract-clear]
     hooks: [load-continuity, load-learnings, load-autonomy, skill-routing, learning-detection, guard-rm-rf, guard-push-main, guard-destructive-git, protect-secrets, guard-commit-secrets, warn-shared-modules, warn-llm-io, lint-fix, type-check]
 
   enterprise:

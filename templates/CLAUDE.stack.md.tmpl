@@ -24,6 +24,7 @@ Backend:
 {% endif %}{% if backend_test_cmd %}- Test: `{{ backend_test_cmd }}`
 {% endif %}{% if backend_lint_cmd %}- Lint + types: `{{ backend_lint_cmd }}`
 {% endif %}{% if backend_format_cmd %}- Format: `{{ backend_format_cmd }}`
+{% endif %}{% if backend_build_cmd %}- Build: `{{ backend_build_cmd }}`
 {% endif %}{% if backend_migrate_cmd %}- Apply migrations: `{{ backend_migrate_cmd }}`
 {% endif %}{% if backend_make_migration_cmd %}- New migration: `{{ backend_make_migration_cmd }}`
 {% endif %}

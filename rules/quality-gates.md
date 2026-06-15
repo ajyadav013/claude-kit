@@ -91,7 +91,8 @@ Where the agent is installed, a gate reached by unanimous PASS is not PASS until
 | Security clear | 5.4 | 0 Critical/High/Medium, no secrets, deps patched, policies enforced | No — `security-reviewer` + sub-scanners |
 | Pipeline green | DevOps | CI valid, container/build artifacts healthy, runbook complete | No — see `devops-observability.md` |
 | Observability ready | Observability | SLOs, health checks, alerts, structured logs + (for hot backend paths) a load run meets the SLO | No — see `devops-observability.md` |
-| Contract clear *(enterprise; API stacks)* | Pre-merge | API contract diff vs base branch: 0 backward-incompatible deltas without an approved migration note + version bump; self-skips when no contract surface | No — `merge-reviewer` |
+| Contract clear *(standard+; API stacks)* | Pre-merge | API contract diff vs base branch: 0 backward-incompatible deltas without an approved migration note + version bump; self-skips when no contract surface | No — `merge-reviewer` |
+| Accessibility clear *(org · `regulated` strictness; UI stacks)* | Acceptance | WCAG-AA review of changed UI (keyboard, focus, semantics/ARIA, contrast, labels) via the `accessibility-review` skill: 0 Critical/High/Medium; self-skips when no UI surface | No — `acceptance-reviewer` |
 
 ---
 

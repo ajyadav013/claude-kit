@@ -26,6 +26,13 @@ layer concrete for Postgres.
 - For new non-null columns on populated tables, set a dialect-safe `server_default`
   (`sa.false()`, `sa.text("now()")`) so existing rows get a value, then drop the default if it
   shouldn't persist.
+- **Expand/contract — never destruct in place.** A destructive or narrowing change (`DROP COLUMN` /
+  `DROP TABLE`, a type narrowing, or adding `NOT NULL` / a unique constraint to existing data) is the
+  **contract** step: it ships in a **later** release than the code that stops using the old shape
+  (expand → backfill → contract), with a real reverse path. Dropping a column in the same release as
+  the code that obsoletes it, an irreversible migration with no documented data-loss acceptance, or a
+  table-locking migration on a large table is at least **High** (per `.claude/rules/quality-gates.md`);
+  the `migration-specialist` reviews every schema change against this.
 
 ## Modeling
 

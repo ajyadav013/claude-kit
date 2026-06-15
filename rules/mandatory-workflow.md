@@ -223,7 +223,7 @@ every consumer and verify it still works. Run the full test suite (not just your
 Review the diff for changes outside your scope.
 **Gate:** zero regressions verified across the codebase.
 
-> **Mechanical counterpart (enterprise, API-exposing stacks):** the `merge-reviewer` runs the
+> **Mechanical counterpart (standard+, API-exposing stacks):** the `merge-reviewer` runs the
 > **contract-clear** gate — a base-branch API-surface diff (`git show <base>:<schema>`) that classifies
 > each delta by severity and blocks backward-incompatible changes lacking an approved migration note +
 > version bump. It self-skips when no API contract surface exists. This §2d is the manual consumer

@@ -47,6 +47,9 @@ collection during a rollout. Your job is to make that coexistence **safe**, **re
 - Backfills must be idempotent and batched; verify resumability by re-running on a scratch dataset.
 - Verify both directions — run the backfill, exercise reads on mixed old/new documents, and run the
   reverse — against a scratch database using the project's tooling before declaring done.
+- **Drop the old field in a later deploy, never the same release** as the code that stops writing or
+  reading it — that removal is the *contract* step of expand/contract, after the read-compat window.
+  A same-release removal (no compatibility shim) is at least **High**.
 
 ## Quality gate & self-check
 
