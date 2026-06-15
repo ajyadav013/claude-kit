@@ -88,6 +88,12 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("load-learnings.sh"),
         "script": "load-learnings.sh",
     },
+    "load-autonomy": {
+        "event": "SessionStart",
+        "matcher": "",
+        "entry": _script_entry("load-autonomy.sh"),
+        "script": "load-autonomy.sh",
+    },
     "skill-routing": {
         "event": "UserPromptSubmit",
         "matcher": "",
@@ -129,6 +135,12 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "matcher": "Edit|Write",
         "entry": _script_entry("warn-shared-modules.sh"),
         "script": "warn-shared-modules.sh",
+    },
+    "warn-llm-io": {
+        "event": "PreToolUse",
+        "matcher": "Edit|Write",
+        "entry": _script_entry("warn-llm-io.sh"),
+        "script": "warn-llm-io.sh",
     },
     "warn-sensitive-files": {
         "event": "PreToolUse",

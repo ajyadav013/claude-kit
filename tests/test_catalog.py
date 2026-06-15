@@ -60,6 +60,34 @@ def test_profiles_are_strict_supersets(payload):
     assert set(lean.gates) < set(standard.gates) < set(enterprise.gates)
 
 
+def test_minimalism_additions_resolve_in_standard(payload):
+    """The ponytail-inspired minimalism layer resolves in standard (and not in lean)."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    assert {"over-engineering-review", "simplification-debt"} <= set(standard.skills)
+    assert "load-autonomy" in standard.hooks
+    assert "over-engineering-review" not in lean.skills
+    assert "load-autonomy" not in lean.hooks
+
+
+def test_task_tracker_sync_resolves_in_standard(payload):
+    """task-tracker-sync (spec-kit /taskstoissues) resolves in standard, not lean; story-planner is wired in standard."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    assert "task-tracker-sync" in standard.skills
+    assert "task-tracker-sync" not in lean.skills
+    # story-planner ships in the standard agent set (now wired into the workflow as the 1f gate).
+    assert "story-planner" in standard.agents
+
+
+def test_warn_llm_io_resolves_in_standard(payload):
+    """warn-llm-io (llm-guard-inspired advisory hook) resolves in standard, not lean."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    assert "warn-llm-io" in standard.hooks
+    assert "warn-llm-io" not in lean.hooks
+
+
 def test_every_profile_includes_sdlc_entrypoint(payload):
     for profile in ("lean", "standard", "enterprise"):
         plan = catalog.resolve(payload, make_selection(payload, profile=profile))

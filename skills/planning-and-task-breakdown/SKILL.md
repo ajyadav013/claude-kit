@@ -193,6 +193,12 @@ When multiple agents or sessions are available:
 - **Must be sequential:** Database migrations, shared state changes, dependency chains
 - **Needs coordination:** Features that share an API contract (define the contract first, then parallelize)
 
+## Pushing the plan to a tracker
+
+Once the breakdown is approved and you want it tracked, the `task-tracker-sync` skill mirrors it into
+the project's configured issue tracker (GitHub / Linear / Jira) — one issue per task, dependencies
+preserved, idempotent. It syncs an existing breakdown; it does not create one.
+
 ## Common Rationalizations
 
 | Rationalization | Reality |

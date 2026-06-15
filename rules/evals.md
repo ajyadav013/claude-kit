@@ -47,6 +47,27 @@ the one that matches how the feature is actually used.
   (`.claude/rules/quality-gates.md`).
 - **Capability** — pushes the frontier; tracks progress on hard cases you don't pass yet.
 
+## 6. Run repeated trials, and split measurement from gate
+
+A single run of a non-deterministic feature tells you almost nothing. Two practices keep the numbers
+honest:
+
+- **Repeat and aggregate.** Run each case **N times** (commonly 5–10) and report the **median**, not
+  the mean — the median is robust to the occasional wild outlier a model produces. Report N alongside
+  the result; a "90%" from one run and from twenty runs are not the same claim.
+- **Separate metrics that *measure* from metrics that *gate*.** A **measurement** metric records a
+  number and always passes (lines of code, token cost, latency, output length) — it's there to track a
+  trend, not to block. A **gate** metric actually exercises the output and **fails** when it breaks
+  (run the generated code, assert the result, check the file state). Don't let a measurement masquerade
+  as a gate: a solution that scores beautifully on "fewer lines" but doesn't run must still **fail**,
+  because the correctness gate executed it. Wire only gate metrics into `.claude/rules/quality-gates.md`;
+  keep measurements as dashboards.
+
+> Worked example: the [ponytail](https://github.com/DietrichGebert/ponytail) benchmark runs 3 arms ×
+> 3 models × 5 tasks at 10 runs each (median reported), with a line-count *measurement* that always
+> passes beside a *correctness gate* that spawns the runtime to actually execute the generated code.
+> A concrete instance of this section's two practices.
+
 ## Rules
 
 1. **No prompt/rule/tool/model change ships without an eval run** that covers the affected behavior.

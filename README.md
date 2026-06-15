@@ -4,18 +4,17 @@
 
 **A Cookiecutter-style scaffolder for an autonomous SDLC (software-delivery lifecycle) inside [Claude Code](https://www.claude.com/product/claude-code).**
 
-`claude-kit init` asks a few questions and lays down a `CLAUDE.md` + a `.claude/` configuration —
-rules, a profile-selected set of specialized agents and skills, hooks, and artifact templates — that
-turn a one-line request into reviewed, tested, secured, shippable code, with a quality gate between
-every phase. **No application code. No Docker. Configuration only.**
+One command turns a one-line request into reviewed, tested, secured, shippable code —
+with a quality gate between every phase. **No application code. No Docker. Configuration only.**
 
 [![PyPI](https://img.shields.io/pypi/v/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built for Claude Code](https://img.shields.io/badge/built%20for-Claude%20Code-d97757.svg)](https://www.claude.com/product/claude-code)
 [![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
+[![Changelog](https://img.shields.io/badge/changelog-v0.10.0-blue.svg)](CHANGELOG.md)
 
-[Install](#install) · [The init flow](#the-init-flow) · [How it works](#how-it-works) · [The pipeline](#the-pipeline) · [Agents](#the-agents) · [Catalog](#catalog--extensibility) · [Agent guide](docs/agents.md) · [CLI](#cli-reference)
+🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
 
 </div>
 
@@ -24,40 +23,36 @@ every phase. **No application code. No Docker. Configuration only.**
 ## What is this?
 
 claude-kit installs a **complete software-delivery lifecycle** into Claude Code. Instead of one
-assistant doing everything in one pass, your work flows through a pipeline of focused agents —
-a spec writer, story planner, reviewers, a developer, code reviewers, testers, security scanners,
+assistant doing everything in a single pass, your work flows through a pipeline of focused agents —
+a spec writer, a story planner, reviewers, a developer, code reviewers, testers, security scanners,
 and a PR raiser — coordinated by an **Orchestrator** that runs independent work in parallel and
 refuses to advance a phase until its **quality gate** passes. You drive it all with one command:
-`/sdlc <your task>`.
+**`/sdlc <your task>`**.
 
-It is **stack-agnostic**: the pipeline itself assumes no language or framework. You pick a stack at
-`init` time and claude-kit installs matching **overlay rules** (e.g. for React, FastAPI, PostgreSQL,
-MongoDB) and fills `CLAUDE.md` with your stack's exact lint/test/build commands — but it never writes
-your application code and never requires Docker.
+**At a glance:**
 
-Three things keep it reliable over long runs:
+- 🧱 **Stack-agnostic** — the pipeline assumes no language or framework. Pick a stack at `init` and it
+  installs matching overlay rules (React · FastAPI · PostgreSQL · MongoDB) and your exact
+  lint/test/build commands. It never writes your app code and never needs Docker.
+- 🎚️ **Dial the rigor with profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills,
+  hooks, and gates are active, from "fast track" to "full audit".
+- 👥 **Scope to your team** — `individual` / `team` (default) / `organization`. Org scope adds a
+  vibe-coding layer so PMs, designers, QA, support, and founders can drive work safely too.
+- 🧠 **Remembers across sessions** — working memory (`CONTINUITY.md`) survives context compaction, and a
+  learnings loop (`agent-memory/`) means the same mistake isn't made twice.
+- 📦 **Two channels, one source** — a first-class Claude Code **plugin** *and* a **pip** scaffolder.
 
-- **Profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills, hooks, and gates are
-  active, so you can dial the rigor from "fast track" to "full audit".
-- **Scope** — `individual` / `team` (default) / `organization`. Organization scope adds a
-  **vibe-coding capability layer** so PMs, designers, QA, support, data, and founders can drive work
-  safely too — with role-based **packs**, an **autonomy model**, and **risk classification**. See
-  [`docs/org-capabilities.md`](docs/org-capabilities.md).
-- **Working memory (`CONTINUITY.md`)** — the current task state is re-read every turn, so work
-  survives context compaction and brand-new sessions.
-- **A self-improving learnings loop (`agent-memory/`)** — durable lessons are captured and
-  re-injected into future sessions, so the same mistake isn't made twice.
-
-> Inspired by the autonomous-SDLC idea, rebuilt from the ground up **for Claude Code** — as a
-> first-class plugin **and** a pip-installable scaffolder, both from one source of truth.
+> Inspired by the autonomous-SDLC idea, rebuilt from the ground up **for Claude Code**, and kept small
+> by a **reuse-first** policy — see [what we adopted](#influences--what-we-adopted) and from where.
 
 ---
 
-## Install
+## Quick start
 
-claude-kit ships through two channels from one source of truth. Use either — or both.
+<details open>
+<summary><b>A) As a Claude Code plugin&nbsp; (recommended)</b></summary>
 
-### A) As a Claude Code plugin (recommended)
+<br>
 
 Makes all agents, skills, commands, and hooks available inside Claude Code:
 
@@ -66,7 +61,7 @@ Makes all agents, skills, commands, and hooks available inside Claude Code:
 /plugin install claude-kit
 ```
 
-Then, inside any project you want managed by the pipeline:
+Then, inside any project you want the pipeline to manage:
 
 ```text
 /claude-kit:init        # asks the ordered questions, lays down CLAUDE.md + .claude/
@@ -77,27 +72,34 @@ Then, inside any project you want managed by the pipeline:
 > `/sdlc` is a **project skill** installed by `init`, so it becomes available after the restart. The
 > plugin also exposes `/claude-kit:sdlc <task>`, which works immediately (no restart needed).
 
-### B) As a pip package
+</details>
 
-A CLI (`claude-kit`, aliases `ckit` / `claude-sdlc`) that scaffolds the same config into any repo —
-great for CI, onboarding, or non-plugin workflows:
+<details>
+<summary><b>B) As a pip package&nbsp; (CI, onboarding, non-plugin workflows)</b></summary>
+
+<br>
+
+A CLI (`claude-kit`, aliases `ckit` / `claude-sdlc`) that scaffolds the same config into any repo:
 
 ```bash
 # Until the first PyPI release, install straight from the repo:
 pip install "git+https://github.com/ajyadav013/claude-kit.git"
 # Once published to PyPI this becomes:  pip install claude-code-kit
 
-claude-kit init                 # interactive: prompts for stack, profile, MCP (Model Context Protocol)
+claude-kit init                 # interactive: prompts for stack, profile, MCP
 claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Postgres + standard
 ```
 
+</details>
+
 > **Prerequisites:** [Claude Code](https://www.claude.com/product/claude-code); Python ≥ 3.9 for the
-> CLI; `jq` to enable the shell hooks (they no-op without it); Node / `npx` only if you turn on an MCP
-> server. Open the project in Claude Code afterwards and the pipeline is active.
+> CLI; `jq` to enable the shell hooks (they no-op without it); Node / `npx` only if you enable an MCP
+> (Model Context Protocol) server.
 
----
+<details>
+<summary><b>What the init flow asks &amp; what lands on disk</b></summary>
 
-## The init flow
+<br>
 
 `claude-kit init` asks an ordered set of questions (all with sensible defaults), then writes the
 config — nothing else:
@@ -107,7 +109,7 @@ config — nothing else:
 3. **Backend language** (default: Python) → **backend framework** (default: FastAPI)
 4. **Database** (PostgreSQL · MongoDB)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP (Model Context Protocol) integrations** (GitHub, Jira/Linear, Postgres/Mongo, Playwright, Docs) — a
+6. **Optional MCP integrations** (GitHub · Jira/Linear · Postgres/Mongo · Playwright · Docs) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
 
 Non-interactive equivalents: `--defaults`, or `--config init.yaml` (flat or nested YAML). What lands:
@@ -127,6 +129,8 @@ README.claude-sdlc.md
 .mcp.json                       # only if MCP servers were selected
 ```
 
+</details>
+
 ---
 
 ## How it works
@@ -141,7 +145,7 @@ flowchart LR
         H["hooks/"]
         R["rules/"]
         T["templates/"]
-        K["catalog/<br/>(stacks · profiles · mcp)"]
+        K["catalog/<br/>(stacks · profiles · mcp · org)"]
     end
     SRC -->|"pip install + claude-kit init"| PROJ["Your project<br/>CLAUDE.md + .claude/"]
     SRC -->|"/plugin install"| CC["Claude Code<br/>(agents · skills · commands · hooks)"]
@@ -152,13 +156,13 @@ flowchart LR
 Three ideas do the heavy lifting:
 
 1. **Quality gates with a shared severity model.** Every finding is classified
-   Critical / High / Medium / Low / Cosmetic. A gate passes **only** with zero
-   Critical/High/Medium open. No silent advancement.
-2. **RARV self-check.** Every agent runs **R**eason → **A**ct → **R**eflect → **V**erify and
-   must show a *green Verify* (real commands run, not imagined) before handing off.
-3. **Blind review + Devil's Advocate.** Parallel reviewers judge independently. A *unanimous*
-   PASS is treated as suspicious and triggers an adversarial `devils-advocate` pass before the
-   gate is allowed to close — an explicit guard against agents rubber-stamping each other.
+   Critical / High / Medium / Low / Cosmetic. A gate passes **only** with zero Critical/High/Medium
+   open. No silent advancement.
+2. **RARV self-check.** Every agent runs **R**eason → **A**ct → **R**eflect → **V**erify and must show
+   a *green Verify* (real commands run, not imagined) before handing off.
+3. **Blind review + Devil's Advocate.** Parallel reviewers judge independently; a *unanimous* PASS is
+   treated as suspicious and triggers an adversarial `devils-advocate` pass before the gate may close —
+   an explicit guard against agents rubber-stamping each other.
 
 See [`docs/architecture.md`](docs/architecture.md) for the full diagrams.
 
@@ -171,9 +175,10 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagrams.
 ```mermaid
 flowchart TD
     REQ(["/sdlc request"]) --> CLS{"Classify"}
-    CLS -->|"feature"| SPEC["Spec & Dev Docs → Story Planner"]
+    CLS -->|"feature"| SPEC["Spec & Dev Docs"]
     SPEC --> EM{{"Gate: EM approved"}}
-    EM -->|"pass"| LANES["Parallel lanes:<br/>Senior Dev → Architect → Developer → Code Review"]
+    EM -->|"pass"| STORY["Story breakdown + coverage gate<br/>story-planner"]
+    STORY --> LANES["Parallel lanes:<br/>Senior Dev → Architect → Developer → Code Review"]
     LANES --> MR{{"Gate: Merge Reviewer"}}
     MR --> TEST["Unit · E2E · Integration + Senior verification"]
     TEST --> TCG{{"Gate: Test coverage<br/>+ Devil's Advocate"}}
@@ -193,18 +198,73 @@ A **fast-track** mode collapses small changes (< 5 files) to Developer → Code 
 
 ---
 
+## Influences & what we adopted
+
+claude-kit is built **reuse-first**. We periodically review excellent open-source projects and adopt
+**only the genuinely-new ideas** — never duplicating what the kit already does (near-duplicates would
+dilute Claude's ability to auto-select the right skill). Each adoption follows the same method:
+**fetch the real source → adversarially map it against the kit's existing files → ship only the
+non-duplicative gaps**, minimally and catalog-wired.
+
+| Source | What we learned | What we shipped | Since |
+|---|---|---|:--:|
+| **Agentic Design Patterns** — A. Gulli ([coverage map](docs/agentic-patterns.md)) | Reasoning, guardrails, resilience, human-in-the-loop, evals, and tool design as first-class agent disciplines | 8 agent-operation rules + [`docs/agentic-patterns.md`](docs/agentic-patterns.md) | `0.4.0` |
+| **[ponytail](https://github.com/DietrichGebert/ponytail)** | YAGNI / anti-over-engineering as an explicit recurring pass; deferral-debt tracking; surfacing the active autonomy level | `over-engineering-review` & `simplification-debt` skills, the `load-autonomy` hook, median-of-N in `evals` | `0.8.0` |
+| **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec → tasks → **analyze** coverage gate; tasks → tracker issues; stable requirement IDs + assumptions in specs | Wired the (previously orphaned) `story-planner` as the **coverage gate (1f)**, a tracker-agnostic `task-tracker-sync` skill, and enriched the feature-spec template | `0.9.0` |
+| **[protectai/llm-guard](https://github.com/protectai/llm-guard)** | Input→model→output guardrails for LLM features — prompt injection, PII vault, treating model output as untrusted | **Opt-in** "LLM / AI Feature Security" guidance in `security-and-hardening` + the advisory `warn-llm-io` hook (warns, **never blocks**) | `0.10.0` |
+
+> Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
+> deliberately **did not** add because the kit already covered it.
+
+<details>
+<summary><b>The latest three reviews, in a bit more depth</b></summary>
+
+<br>
+
+**🪶 ponytail → minimalism layer (0.8.0).** Most of ponytail's philosophy (YAGNI, stdlib-first,
+surgical diffs) was already enforced by `CLAUDE.md` "Simplicity First" + `code-simplification`, so we
+added only the missing *mechanisms*: `over-engineering-review` (a complexity-only, report-only
+delete-list), `simplification-debt` (harvests `TODO`/`FIXME`/inline `shortcut:` markers into a ledger
+and flags ones that name no upgrade path), and the `load-autonomy` SessionStart hook (surfaces the
+active autonomy level each session).
+
+**🧭 GitHub spec-kit → coverage gate + tracker sync (0.9.0).** The headline was *reuse*: the kit
+already had a `story-planner` agent that verifies every acceptance criterion maps to a story, but it
+was **never wired into the pipeline**. We made it **stage 1f** (between EM approval and the developer),
+so implementation can't start until coverage is proven. We also added `task-tracker-sync` (mirrors a
+plan into GitHub / Linear / Jira issues, dependencies preserved) and gave the feature-spec template
+stable requirement IDs + an Assumptions section. We **skipped** spec-kit's `/constitution`,
+`/clarify`, and `/checklist` — all already covered.
+
+**🛡️ protectai/llm-guard → opt-in LLM security (0.10.0).** The kit secured the *agent itself* and
+*traditional* web appsec, but nothing covered **the LLM features you build into your product** (the
+OWASP LLM Top 10). Per request, the new layer is **opt-in, bypassable, and states the risk of
+bypassing**: an "LLM / AI Feature Security" section in `security-and-hardening` (input/output
+guardrails, PII vault, untrusted-output handling, a security-implications-of-bypassing table) plus a
+non-blocking `warn-llm-io` hook. We deliberately did **not** add a new rule or fold it into the
+mandatory security gate — that would have made it mandatory.
+
+</details>
+
+---
+
 ## The agents
 
-28 specialized roles in [`agents/`](agents/), each tagged with a `tier` (orchestrator · stage-lead ·
-specialist · review) and installed per profile. Plus per-database **overlay agents** added only for
-your chosen DB, and **org persona agents** added only in organization scope. See the
-**[agent guide](docs/agents.md)** for how to drive them.
+**28 specialized roles** in [`agents/`](agents/), each tagged with a `tier`
+(orchestrator · stage-lead · specialist · review) and installed per profile — plus per-database
+**overlay agents** and, in organization scope, **persona agents**. The
+**[agent guide](docs/agents.md)** explains how to drive them.
+
+<details>
+<summary><b>See the full roster (28 + overlays + personas)</b></summary>
+
+<br>
 
 | Agent | Role |
 |-------|------|
 | `orchestrator` | Pipeline controller — decomposes, delegates, runs lanes in parallel, gates progression (never writes code) |
 | `spec-doc-writer` | Turns requirements into a spec + developer documentation in one pass |
-| `story-planner` | Decomposes an approved spec into ordered, parallelizable stories |
+| `story-planner` | Decomposes an approved spec into ordered, parallelizable stories; verifies every acceptance criterion maps to a story (workflow gate 1f) |
 | `ui-designer` | Drafts and self-reviews UI/UX design specs |
 | `senior-backend-dev` · `senior-frontend-dev` | Senior review of a work stream's spec (the two-lane example) |
 | `technical-architect` | Cross-system architecture, scalability, integration review |
@@ -217,23 +277,58 @@ your chosen DB, and **org persona agents** added only in organization scope. See
 | `auditor` | Read-only audit for accessibility, performance, responsiveness, console errors |
 | `devils-advocate` | Anti-sycophancy adversarial reviewer (runs on a unanimous PASS) |
 | `acceptance-reviewer` | Verifies delivery against acceptance criteria before the human gate |
-| `risk-classifier` | Read-only — classifies work as low/medium/high/restricted and names the required gates (enterprise + org) |
+| `risk-classifier` | Read-only — classifies work low/medium/high/restricted and names the required gates (enterprise + org) |
 | `security-reviewer` | Security stage coordinator — owns the Security Clear gate |
 | `secret-scanner` · `dependency-scanner` · `owasp-reviewer` · `policy-validator` | The four parallel security sub-scanners |
 | `devops-engineer` | CI/build/release, env, migrations, runbook — container-optional; owns Pipeline Green |
 | `observability-engineer` | SLOs, health/readiness, structured logging, alerts — owns Observability Ready |
 | `incident-responder` | Production-incident triage, mitigation, and postmortem (enterprise scope) |
 | `pr-raiser` | Final checks, commit hygiene, and PR creation |
-| **DB overlays** | `postgres-specialist` · `mongodb-specialist` · `migration-specialist` · `db-performance-reviewer` (installed for the selected database) |
+| **DB overlays** | installed for the selected database — PostgreSQL → `postgres-specialist` · `migration-specialist` · `db-performance-reviewer`; MongoDB → `mongodb-specialist` · `migration-specialist` |
 | **Org personas** | `pm-copilot` · `founder-prototype-agent` · `support-ticket-engineer` · `data-workflow-agent` · `internal-tools-builder` (organization scope only) |
+
+</details>
+
+---
+
+## Rules & skills
+
+**Rules** ([`rules/`](rules/)) are the 23 stack-agnostic contracts every agent obeys — the
+`mandatory-workflow` pipeline, `quality-gates`, `rarv-cycle`, `continuity`, `documentation`,
+`testing`, the eight agent-operation rules (`reasoning-techniques`, `agent-guardrails`,
+`agent-resilience`, `goal-setting-and-monitoring`, `human-in-the-loop`, `model-tiers`, `evals`,
+`tool-design` — see [`docs/agentic-patterns.md`](docs/agentic-patterns.md)), and `autonomy-levels` +
+`risk-classification` (see [`docs/org-capabilities.md`](docs/org-capabilities.md)). Stack **overlay
+rules** (`fastapi-patterns`, `react-patterns`, `postgres-patterns`, …) and, in organization scope,
+**org policy rules** (`secrets-policy`, `pii-policy`, `compliance-policy`, …) layer on top.
+
+**Skills** ([`skills/`](skills/)) are on-demand capabilities Claude activates by context — led by the
+`sdlc` entrypoint. Highlights, including this session's additions:
+
+| Skill | What it does |
+|---|---|
+| `spec-driven-development` · `planning-and-task-breakdown` | Spec first, then a verifiable task breakdown |
+| `task-tracker-sync` | Mirror a plan/story breakdown into GitHub / Linear / Jira issues (tracker-agnostic, idempotent) |
+| `security-and-hardening` | Traditional appsec **+ opt-in LLM / AI Feature Security** (OWASP LLM Top 10, with a bypass + implications) |
+| `threat-model` | Design-time STRIDE — now with an LLM/AI branch |
+| `over-engineering-review` · `simplification-debt` | Keep the code lean: a complexity-only delete-list, and a deferral-debt ledger |
+| `test-driven-development` · `debugging-and-error-recovery` · `code-review-and-quality` | The build / fix / review staples |
+| `remember` | The self-improving learnings loop into `agent-memory/` |
+
+Each profile installs a subset (`lean ⊂ standard ⊂ enterprise`).
 
 ---
 
 ## Catalog & extensibility
 
-Everything selectable lives in [`catalog/`](catalog/) as data — **adding a stack, framework,
+Everything selectable lives in [`catalog/`](catalog/) as **data** — adding a stack, framework,
 database, profile, or MCP server is a YAML edit plus a `templates/stacks/<dir>/` folder, never a code
-change**:
+change.
+
+<details>
+<summary><b>The four catalog files</b></summary>
+
+<br>
 
 - **`catalog/stacks.yaml`** — frontend frameworks, backend languages → frameworks, and databases.
   Live today: React · Python/FastAPI · PostgreSQL/MongoDB. Vue/Svelte/Django/Express are listed as
@@ -241,50 +336,28 @@ change**:
 - **`catalog/profiles.yaml`** — what each profile activates (`inherit:` composes; `all` = everything).
 - **`catalog/mcp.yaml`** — ready `.mcp.json` fragments per server, with `${ENV}` placeholders.
 - **`catalog/org.yaml`** — the **organization layer**: scopes, teams, the autonomy model, review
-  strictness, and the 7 capability **packs**. Scope-gated content lives under `templates/org/` and
-  installs only when `scope == organization`. See [`docs/org-capabilities.md`](docs/org-capabilities.md).
+  strictness, and the 7 capability **packs**. Scope-gated content under `templates/org/` installs only
+  when `scope == organization`. See [`docs/org-capabilities.md`](docs/org-capabilities.md).
 
 A third install dimension joins `profile` (a subset) and `stack` (an overlay): **org** (scope-gated).
 `resolve()` stays branch-free — adding a pack, team, autonomy level, or org rule is a `catalog/org.yaml`
-edit plus content under `templates/org/`, never a code change.
+edit plus content under `templates/org/`, never a code change. Run **`claude-kit list-options`** to see
+everything available.
 
-Run `claude-kit list-options` to see everything available.
-
----
-
-## Rules & skills
-
-**Rules** ([`rules/`](rules/)) are the stack-agnostic contracts every agent obeys — 23 files:
-`mandatory-workflow`, `quality-gates`, `rarv-cycle`, `continuity`, `agent-memory`, `documentation`,
-`design-patterns`, `code-organization`, `linting-and-formatting`, `testing`,
-`frontend-best-practices`, `responsive-and-accessibility`, `devops-observability`, the
-agent-operation rules `reasoning-techniques`, `agent-guardrails`, `agent-resilience`,
-`goal-setting-and-monitoring`, `human-in-the-loop`, `model-tiers`, `evals`, and `tool-design` (how
-the agents themselves reason, stay safe, recover, escalate, pick a model tier, run evals, and design
-tools — see
-[`docs/agentic-patterns.md`](docs/agentic-patterns.md)), plus `autonomy-levels` and
-`risk-classification` (how much Claude may do before a human acts, and how work is risk-gated — see
-[`docs/org-capabilities.md`](docs/org-capabilities.md)). Selected
-**overlay rules** (e.g. `fastapi-patterns`, `react-patterns`, `postgres-patterns`,
-`database-performance`) and, in organization scope, **org policy rules** (`secrets-policy`,
-`pii-policy`, `production-data-policy`, `branch-and-pr-policy`, `compliance-policy`, …) are layered
-on top.
-
-**Skills** ([`skills/`](skills/)) are on-demand capabilities Claude activates by context — led by the
-`sdlc` entrypoint, plus spec-driven development, planning, TDD, debugging, code review, security
-hardening, API design, the `remember` learnings loop, and more. Each profile installs a subset.
+</details>
 
 ---
 
 ## CLI reference
 
-```text
-claude-kit <command>          # aliases: ckit · claude-sdlc
-```
+<details>
+<summary><b>All commands</b> (<code>claude-kit</code> · aliases <code>ckit</code> · <code>claude-sdlc</code>)</summary>
+
+<br>
 
 | Command | Description |
 |---------|-------------|
-| `init [path] [--defaults] [--config FILE] [--force]` | Scaffold `CLAUDE.md` + `.claude/` (interactive, or non-interactive) |
+| `init [path] [--defaults] [--config FILE] [--force]` | Scaffold `CLAUDE.md` + `.claude/` (interactive or non-interactive) |
 | `validate [path]` | Structurally validate an installed config |
 | `doctor [path]` | Validate + environment/health checks with fix hints |
 | `diff [path]` | Preview what an `upgrade` would change (no writes) |
@@ -292,39 +365,52 @@ claude-kit <command>          # aliases: ckit · claude-sdlc
 | `list-options` | List available frontend/backend/database/profile/MCP options |
 | `status [path]` | Show what's installed, the selection, and working memory |
 | `version` | Print the version |
-| `package-org-pack` · `install-org-pack` | Package / install an organization capability pack (organization scope) |
+| `package-org-pack` · `install-org-pack` | Package / install an organization capability pack (org scope) |
 
 Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`; and the
 `/sdlc` skill inside any scaffolded project.
 
----
+</details>
 
-## Safe upgrades
+<details>
+<summary><b>Safe upgrades</b> — how your edits are protected</summary>
+
+<br>
 
 Every install records per-file checksums and an `owner` (kit / overlay / user-editable) in
 `.claude/config/init-options.json`. `upgrade` refreshes kit and overlay files to the latest version,
-**never clobbers your edits** (a user-modified file is kept and the new version is dropped beside it
-as a `.claude-kit` sidecar), backs up anything it changes or removes, and restores files you deleted.
-Run `diff` first to preview.
+**never clobbers your edits** (a user-modified file is kept and the new version dropped beside it as a
+`.claude-kit` sidecar), backs up anything it changes or removes, and restores files you deleted. Run
+`diff` first to preview.
 
----
+</details>
 
-## Troubleshooting
+<details>
+<summary><b>Troubleshooting</b></summary>
 
-Run **`claude-kit doctor`** first — it checks your environment (git, `jq`, hook scripts) and prints
-fix hints.
+<br>
+
+Run **`claude-kit doctor`** first — it checks your environment (git, `jq`, hook scripts) and prints fix
+hints.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `/sdlc`, agents, or skills "not found" right after `init` | Claude Code hasn't loaded the new project config yet | **Restart Claude Code** — or use the plugin command `/claude-kit:sdlc <task>` (works without a restart) |
+| `/sdlc`, agents, or skills "not found" right after `init` | Claude Code hasn't loaded the new project config yet | **Restart Claude Code** — or use `/claude-kit:sdlc <task>` (works without a restart) |
 | Guard / quality hooks seem to do nothing | `jq` isn't installed (the hooks parse tool input with it) | Install `jq`; without it the hooks degrade to no-ops by design |
 | A selected MCP server won't start | `node` / `npx` missing (most MCP servers launch via `npx`) | Install Node.js, or remove the server from `.mcp.json` |
 | `pip install claude-code-kit` fails | Not yet published to PyPI | Use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
 | `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |
 
+</details>
+
 ---
 
 ## Project structure
+
+<details>
+<summary><b>Repository layout</b></summary>
+
+<br>
 
 ```
 claude-kit/
@@ -340,6 +426,8 @@ claude-kit/
 
 See [`docs/architecture.md`](docs/architecture.md) for the full picture and [`CLAUDE.md`](CLAUDE.md)
 for how to develop the kit itself.
+
+</details>
 
 ---
 

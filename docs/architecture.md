@@ -87,10 +87,11 @@ independent, and enforces a quality gate between phases. **Only the active profi
 flowchart TD
     REQ(["/sdlc request"]) --> CLS{"Classify:<br/>bug · feature · fast-track"}
 
-    CLS -->|"feature"| SPEC["1. Spec & Dev Docs → Story Planner<br/>spec-doc-writer · story-planner (+ ui-designer if UI)"]
+    CLS -->|"feature"| SPEC["1. Spec & Dev Docs<br/>spec-doc-writer (+ ui-designer if UI)"]
     SPEC --> EM{{"Gate: EM approved<br/>em-reviewer"}}
 
-    EM -->|"pass"| FORK["Fork independent work streams"]
+    EM -->|"pass"| STORY["2. Story breakdown + coverage gate<br/>story-planner: every acceptance criterion → a story"]
+    STORY --> FORK["Fork independent work streams"]
     subgraph LANES["Parallel lanes (canonical example: backend + frontend)"]
         direction LR
         L1["Senior Dev → Tech Architect → Developer → Code Reviewer"]

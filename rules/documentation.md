@@ -260,6 +260,10 @@ class UserCreate(BaseModel):
 - **Performance decisions**: `# Eager-load to prevent N+1 on the list page`
 - **Security decisions**: `# Rate limit to 5 req/min to prevent credential stuffing`
 - **TODO with ticket**: `# TODO(PROJ-123): Replace with proper RBAC once permissions service is built`
+- **Deliberate shortcut with an upgrade path**: name the ceiling and the trigger inline, as an
+  alternative to an external ticket: `# shortcut: global lock — per-account locks if throughput matters`.
+  A deferral with no trigger is the kind that silently rots; the `simplification-debt` skill harvests
+  these markers into a ledger and flags any that name no upgrade path.
 
 ### Do NOT Comment
 - What the code does when it's obvious from the code itself

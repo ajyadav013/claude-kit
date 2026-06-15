@@ -4,9 +4,115 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.10.0] — 2026-06-15
+
+Adds **LLM / AI application-security** guidance distilled from a field review of
+[protectai/llm-guard](https://github.com/protectai/llm-guard). An adversarial map→verify pass found a
+real, single gap: claude-kit secured (a) the *agent itself* (`agent-guardrails`, OWASP **Agentic**
+ASI01–10) and (b) *traditional* appsec of the product (`security-and-hardening` / `owasp-reviewer` =
+OWASP Top 10 **2021** web), but **nothing** covered securing the **LLM features a user builds into
+their product** (OWASP **LLM** Top 10 — prompt injection, insecure output handling, sensitive-info
+disclosure, model DoS). Per your steer, the new layer is **opt-in, bypassable, and states the security
+implications of bypassing** — and per golden rule #1 it reuses existing components rather than adding a
+new rule/agent/gate (all of which the verify pass flagged as either over-engineering or, for a new
+`rules/` file, a *mandatory*-framing conflict). No application code, no Docker; llm-guard is named only
+as one reference implementation, never a dependency.
+
+### Added
+- **`hooks/scripts/warn-llm-io.sh`** + the `warn-llm-io` hook (`standard`+, after `warn-shared-modules`):
+  an **advisory, non-blocking** PreToolUse(Edit|Write) hook. When an edited file looks like an LLM
+  feature (provider SDKs / prompt construction / RAG), it surfaces the LLM guardrails and the explicit
+  risks of skipping them (prompt-injection exfiltration, PII leaking to the provider,
+  insecure-output-handling XSS/SSRF/RCE), and names the bypass: record a one-line risk acceptance. It
+  always exits 0 (never blocks) and degrades to a no-op without `jq`.
 
 ### Changed
+- **`skills/security-and-hardening`** gains an **"LLM / AI Feature Security (OWASP LLM Top 10) — opt-in"**
+  section: the input→model→output guard architecture; input guardrails (prompt-injection screening,
+  secrets scan, PII *anonymise/vault* pattern, token caps, topic limits, unicode canonicalisation);
+  output guardrails (treat output as untrusted — no eval/render-raw/auto-run; PII/secret leak scan;
+  malicious-URL/SSRF; structured-output validation); least-privilege model tools; an OWASP-LLM-Top-10
+  map; a **risk-acceptance/bypass** protocol; and a **security-implications-of-bypassing** table. (The
+  `security-reviewer` already reads this skill, so the security stage becomes LLM-aware for free.)
+- **`skills/threat-model`** adds an LLM/AI trigger and a step-6 LLM branch (walk the LLM Top 10; point
+  to the guardrails; record any bypass as a residual risk).
+- **`agents/owasp-reviewer`** A08 now states that **model output is untrusted data** — the existing
+  no-eval/exec/render-raw rule applies to it (insecure output handling stays a Critical), while the
+  broader LLM guardrails are explicitly **advisory** and must not block the gate.
+
+### Not done (deliberately, per the assessment)
+- No new `rules/` file (a rule installs in every profile and reads as *mandatory* — conflicts with the
+  opt-in requirement), no new `llm-security` agent, and no new blocking gate. The LLM Top 10 was **not**
+  folded into the mandatory `owasp-reviewer`/Security Clear gate (that would make it mandatory and dilute
+  a tightly-scoped 2021-web reviewer). LLM security stays a separate, advisory, bypassable path.
+
+## [0.9.0] — 2026-06-15
+
+Distils a field review of GitHub's [spec-kit](https://github.com/github/spec-kit) (Spec-Driven
+Development). An adversarial map→verify pass cross-checked spec-kit's seven distinctive features
+against claude-kit's existing spec-driven machinery; most were already covered (the `/constitution`
+artifact by `CLAUDE.md` "Project-specific rules" + the org `ai-working-agreement`; `/clarify` by
+`interview-me`; `/checklist` by `em-reviewer` + the spec-driven reframe + workflow §1b). Per golden
+rule #1 (reuse, don't duplicate), those were **not** re-implemented. The genuine gaps were a
+**built-but-unwired capability** and a **missing mechanism** — both addressed without new spec
+machinery, no application code, and no Docker.
+
+### Added
+- **`skills/task-tracker-sync`** (`standard`+): a thin, **tracker-agnostic** skill that mirrors an
+  existing task/story breakdown into the project's configured issue tracker (GitHub / Linear / Jira
+  via whichever MCP is set up), one issue per task, dependencies carried across, idempotent
+  (match-then-update, never blind-create). This implements spec-kit's `/taskstoissues` as the real
+  mechanism behind what was previously only a permission — `story-planner` said tasks *may* be
+  created, but nothing did it. It syncs a breakdown; it does not create one.
+
+### Changed
+- **Wired the orphaned `story-planner` agent into the pipeline as a coverage gate** — the headline
+  reuse. `story-planner` already decomposes an approved spec into ordered stories and verifies that
+  *every acceptance criterion maps to ≥1 story* (gaps and scope creep flagged), but it appeared in
+  neither `rules/mandatory-workflow.md` nor `agents/orchestrator.md`. It is now **stage 1f — Story
+  Breakdown & Coverage Gate**, between EM approval (1e) and the Developer (2a): implementation cannot
+  start until acceptance-criterion coverage is complete. This is spec-kit's tasks→analyze→implement
+  discipline, fulfilled with an existing component instead of a new one. Flow diagrams, the gating
+  table, and the orchestrator pipeline/spawn-reference/state-tracking were updated to match.
+- **`templates/artifacts/feature-spec.md`** now gives requirements stable ids (R1, R2 …) nesting
+  their Given/When/Then acceptance criteria, and adds an explicit **Assumptions** section — aligning
+  the artifact with the spec shape `mandatory-workflow.md` §1c already mandates and making the new
+  coverage gate concrete (stories and tests trace back to R-ids).
+- `agents/story-planner.md` and `skills/planning-and-task-breakdown` now point at `task-tracker-sync`
+  for pushing a plan to a tracker.
+
+## [0.8.0] — 2026-06-15
+
+Adds a **minimalism / anti-over-engineering** layer distilled from a field review of the
+[ponytail](https://github.com/DietrichGebert/ponytail) plugin. Most of ponytail's philosophy (YAGNI,
+stdlib-first, surgical diffs) was already enforced by `templates/CLAUDE.md` "Simplicity First",
+`skills/code-simplification`, and `rules/rarv-cycle`, so — per golden rule #1 (reuse, don't duplicate)
+— only the genuinely-missing *mechanisms* were added. No application code, no Docker; new components
+are wired through the catalog.
+
+### Added
+- **`skills/over-engineering-review`** (`standard`+): a complexity-**only**, report-**only** scan that
+  returns a terse delete-list (`delete:/stdlib:/native:/yagni:/shrink:` tags, each naming the
+  replacement) over a diff or a whole repo, ending with `net: -N lines possible` or `Lean already.
+  Ship.`. Complements the multi-axis `code-review-and-quality` (it isolates the complexity axis) and
+  stops short of the behavior-preserving refactor that `code-simplification` performs. Never flags the
+  kit's required test or the safety carve-outs.
+- **`skills/simplification-debt`** (`standard`+): harvests deliberately-deferred shortcuts
+  (`TODO(TICKET)`, `FIXME`, and inline `shortcut: ceiling — upgrade` markers) into one ledger grouped
+  by file, and flags any marker that names **no upgrade trigger** as a silent-rot risk. Report-only;
+  persists to a file only when asked.
+- **`load-autonomy` hook** (`SessionStart`, `standard`+): surfaces the repo's active autonomy level
+  (read from the install snapshot) into context each session, so `rules/autonomy-levels.md` is visible
+  and persistent rather than purely instructional. Degrades to a no-op without `jq`. Registered in the
+  hook registry and the plugin `hooks/hooks.json`.
+
+### Changed
+- **`rules/evals.md`** gains section 6: run repeated trials and report the **median of N**, and
+  **separate measurement metrics** (record-and-pass: LOC, cost, latency) **from gate metrics**
+  (execute-and-fail: run the output, assert it) — with the ponytail benchmark cited as a worked example.
+- **`rules/documentation.md`** now blesses an inline upgrade-path shortcut marker
+  (`# shortcut: ceiling — upgrade path`) as an alternative to a ticketed `TODO`, and points at the
+  `simplification-debt` skill that harvests them.
 - **CI now publishes on merge to `main`, gated by a version check.** `publish.yml` also triggers on
   every push to `main` (in addition to version tags, releases, and manual dispatch). A `version-check`
   job compares `pyproject.toml`'s version against PyPI and only builds/publishes when the version is

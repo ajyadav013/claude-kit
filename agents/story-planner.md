@@ -35,7 +35,9 @@ A story breakdown (write it where the spec lives, or to `.claude/state/` for the
 5. **Traceability** — every acceptance criterion in the spec maps to at least one story; flag any
    criterion with no story (a gap) and any story with no criterion (scope creep).
 
-When the task tracker is in use, you may create the corresponding tasks with their dependencies.
+When a task tracker is configured, mirror the stories to it (one issue per story, dependencies
+carried across) using the `task-tracker-sync` skill (`.claude/skills/task-tracker-sync/SKILL.md`) —
+it is tracker-agnostic (GitHub / Linear / Jira) and idempotent. Sync after the coverage gate passes.
 
 ## Constraints
 

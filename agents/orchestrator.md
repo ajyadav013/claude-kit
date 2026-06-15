@@ -79,6 +79,9 @@ Human PRD
 [MR1] Merge Reviewer ──── verifies spec consistency across lanes
   │
   ▼
+[SP]  Story Planner ───── decomposes spec into ordered stories + verifies every
+  │                       acceptance criterion maps to a story (coverage gate)
+  ▼
 ┌─────── FORK POINT 2 (implementation) ───────────────────────┐
 │                                                              │
 │  LANE A — FRONTEND                  LANE B — BACKEND         │
@@ -139,6 +142,7 @@ Done
 ```
 Spec-Doc Writer → [UI Designer if UI]
   → Senior Dev → Technical Architect → EM
+  → Story Planner (coverage gate)
   → Developer → SDLC Code Reviewer → Unit Tests
   → Tester (full) → Senior Tester (full)
   → PR Raiser
@@ -237,6 +241,24 @@ For full-stack work, **spawn these lanes in parallel**:
 - **Wait** for BOTH lanes to have all three approvals (Senior Dev + Tech Architect + EM).
 - **Spawn**: `merge-reviewer` to verify cross-lane spec consistency (API contracts, data models, shared state).
 - **Gate**: `VERIFIED` signal from merge-reviewer.
+
+---
+
+### Stage SP: Story Breakdown & Coverage Gate (after the spec is approved + consistent)
+
+The bridge between an approved spec and implementation: decompose, then prove coverage before any
+code is written.
+
+- **Spawn**: `story-planner` with the approved spec (+ design spec and architecture notes, if any).
+- It decomposes the spec into the smallest independently-shippable stories, orders them with an
+  acyclic `blockedBy`/`blocks` graph, identifies the immediately-startable parallel set per lane,
+  and builds a traceability map of **every acceptance criterion → ≥1 story**.
+- **Gate**: every acceptance criterion is covered (no **gap**), no story maps to no criterion (no
+  **scope creep**), the graph is acyclic, and the parallel set is genuinely unblocked. A gap or
+  scope-creep finding routes back to the **Spec Writer** (fix the spec) — never silently into a
+  lane. The story breakdown then drives lane assignment at Fork Point 2.
+- For **single-stack** work (Mode A), this runs after EM approval and before the Developer; there
+  is no merge-reviewer, so the Story Planner runs directly on the EM-approved spec.
 
 ---
 
@@ -438,6 +460,7 @@ PIPELINE: [FORK 1] Lane A: Tech Architect (iteration 1/3) | Lane B: Sr BE Dev Re
 PIPELINE: [FORK 1] Lane A: EM Review (in progress) | Lane B: Tech Architect (in progress)
 PIPELINE: [FORK 1] Lane A: DONE ✓ | Lane B: EM Review (in progress)
 PIPELINE: [JOIN 1] Merge Reviewer (verifying spec consistency)
+PIPELINE: [SP] Story Planner — acceptance-criterion coverage verified ✓
 PIPELINE: [FORK 2] Lane A: FE Developer (in progress) | Lane B: BE Developer (in progress)
 PIPELINE: [FORK 2] Lane A: FE Code Review (iteration 2/5) | Lane B: BE Unit Tests (running)
 PIPELINE: [FORK 2] Lane A: FE Unit Tests (running) | Lane B: DONE ✓
@@ -478,6 +501,7 @@ PIPELINE: DEFECT LOOP (cycle 1/2) - Backend lane re-entered, re-test API lane on
 | 3c-FE | `em-reviewer` | EM review of frontend | Yes — Lane A |
 | 3c-BE | `em-reviewer` | EM review of backend | Yes — Lane B |
 | JOIN | `merge-reviewer` | Verifies spec consistency | No — gate |
+| SP | `story-planner` | Decomposes spec → ordered stories + acceptance-criterion coverage gate | No — gate |
 | 4a-FE | `developer` (FE mode) | Frontend implementation | Yes — Lane A |
 | 4a-BE | `developer` (BE mode) | Backend implementation | Yes — Lane B |
 | 4b-FE | `sdlc-code-reviewer` | Frontend code review | Yes — Lane A |
