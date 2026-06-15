@@ -4,6 +4,58 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.11.1] — 2026-06-15
+
+A field review of **seven** external projects, each run through the same adversarial map→verify pass
+(read the source *and* the actual kit files; adopt only genuine, non-duplicative, config-only,
+stack-agnostic, IP-safe gaps). The result is deliberately tiny: across all seven, exactly **one** real
+gap survived — everything else is already covered, runtime-only, stack-specific, out of SDLC scope, or
+IP-unsafe to copy. Reviewed: [obra/superpowers](https://github.com/obra/superpowers),
+[wshobson/agents](https://github.com/wshobson/agents),
+[anthropics/skills](https://github.com/anthropics/skills),
+[karpathy/autoresearch](https://github.com/karpathy/autoresearch),
+[browser-use](https://github.com/browser-use/browser-use),
+[x1xhlol/system-prompts-and-models-of-ai-tools](https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools),
+and [langgenius/dify](https://github.com/langgenius/dify).
+
+### Changed
+- **`rules/testing.md`** — the "Async/Event-Loop Systems" guidance gains a **condition-based waiting**
+  rule (distilled from superpowers' `condition-based-waiting`, MIT, re-expressed in original,
+  stack-agnostic words): never wait on a fixed delay/sleep, poll for the observable condition instead
+  (framework waiter or a small `wait_for(condition, timeout)`), and avoid the three flakiness traps
+  (no timeout, interval too tight, stale reads). The section previously only said "mock I/O, use
+  async/await" — it never addressed timing-dependent test flakiness.
+
+### Not adopted (deliberately, per the assessment)
+- **superpowers** — 14 skills, ~all duplicate existing kit skills (TDD, `systematic-debugging`→
+  `debugging-and-error-recovery`, `brainstorming`→`idea-refine`/`doubt-driven-development`/`interview-me`,
+  `writing-plans`→`planning-and-task-breakdown`, `executing-plans`→`execute`, `requesting`/`receiving-code-review`→
+  `code-review-and-quality`, `using-git-worktrees`/`finishing-a-development-branch`→`git-workflow-and-versioning`/
+  `shipping-and-launch`/`pr-raiser`, `verification-before-completion`→`rarv-cycle`+`mandatory-workflow`,
+  `dispatching-parallel-agents`→`orchestrator`, `writing-skills`→`using-agent-skills`). Its
+  `testing-anti-patterns` was refuted as a near-duplicate of the TDD skill's existing anti-pattern table.
+- **wshobson/agents** — almost entirely language/framework specialists (violate the stack-agnostic core)
+  or roles the kit already has (`code-reviewer`, `security-auditor`, `incident-responder`,
+  `observability-engineer`, `performance-engineer`, `debugger`, `docs-architect`, `architect-reviewer`,
+  database/devops roles), plus out-of-SDLC-scope domains (SEO, business, data-science). No general gap.
+- **anthropics/skills** — document skills are source-available (not open) and out of scope; the example
+  skills are out of scope (art/design/comms) or duplicative (`skill-creator`→`using-agent-skills`,
+  `frontend-design`→`frontend-ui-engineering`). The `SKILL.md` `name`+`description` convention is already followed.
+- **karpathy/autoresearch** — the closed-loop / single-metric / fixed-budget principles are covered by
+  `evals` + `goal-setting-and-monitoring`; the ML-training loop itself is stack-specific. "Iterate the
+  instructions, not the code" is what the kit already *is* (config-only).
+- **browser-use** — a runtime library; browser automation is already covered by the opt-in `playwright`
+  MCP entry + `browser-testing-with-devtools`/`playwright-verification`. Its "treat DOM/console/network
+  as untrusted" guidance is already a verbatim "Security Boundaries" section in `browser-testing-with-devtools`.
+- **x1xhlol/system-prompts** — GPL-3.0 archive of prompts extracted from proprietary tools (double IP
+  hazard: copyleft + unresolved vendor rights). Its generic principles (plan-first, tool discipline,
+  minimal diffs, verification, concise comms, refusal/secret-safety) are already in `reasoning-techniques`,
+  `tool-design`, `mandatory-workflow`, `agent-guardrails`, `human-in-the-loop`, and `code-review-and-quality`.
+  Nothing was copied.
+- **langgenius/dify** — a runtime platform (Apache-2.0 *with additional conditions*); its principles
+  (ReAct/function-calling agents, inspectable workflow steps, RAG stages, prompt-management feedback)
+  are covered by `reasoning-techniques`, `tool-design`, `context-engineering`, `evals`, and `devops-observability`.
+
 ## [0.11.0] — 2026-06-15
 
 Distils a field review of [repowise](https://github.com/repowise-dev/repowise) (a runtime

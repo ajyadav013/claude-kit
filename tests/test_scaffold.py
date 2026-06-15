@@ -493,3 +493,14 @@ def test_security_skill_carries_optin_llm_section(tmp_path, payload):
     assert "LLM / AI Feature Security" in skill, "LLM section missing"
     assert "Security implications of bypassing" in skill, "implications table missing"
     assert "risk acceptance" in skill.lower(), "bypass/risk-acceptance protocol missing"
+
+
+def test_testing_rule_carries_condition_based_waiting(tmp_path, payload):
+    """rules/testing.md teaches condition-based waiting for async tests (installs in every profile)."""
+    target = tmp_path / "lean"
+    install(payload, target, profile="lean")
+    testing = (target / ".claude" / "rules" / "testing.md").read_text(encoding="utf-8")
+    assert "Wait on conditions, never on the clock" in testing, (
+        "condition-based waiting missing"
+    )
+    assert "wait_for(condition" in testing, "wait_for helper guidance missing"

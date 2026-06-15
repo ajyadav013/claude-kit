@@ -383,6 +383,16 @@ For systems with async I/O or event loops (Node.js, Python asyncio, Go goroutine
 - Mock all I/O operations (database, HTTP, file system)
 - Use the test framework's async support (`async/await` in tests)
 - Never use blocking I/O in tests for async systems — mock it or use async equivalents
+- **Wait on conditions, never on the clock.** A fixed delay ("sleep" to let the async work finish)
+  is the single biggest source of flaky tests — too short and it fails under load, too long and it
+  drags out the whole suite. Instead, **poll for the observable condition you actually care about**
+  (the value, state, or side effect) and continue the instant it holds:
+  - Use your framework's condition waiter — e.g. `waitFor` / `expect.poll` (JS), `Awaitility` (JVM),
+    `tenacity` or a polling fixture (Python), `Eventually` (Go) — or a small generic
+    `wait_for(condition, timeout)` that re-checks the live value on a short interval.
+  - Three mistakes that quietly re-introduce flakiness: (1) **no timeout** — the test hangs forever
+    instead of failing; (2) **interval too tight** — a busy-loop that pegs the CPU; (3) **stale
+    reads** — re-evaluate the live value on every poll, never assert against a snapshot captured once.
 
 ### Multi-Tenant/Authorization Systems
 
