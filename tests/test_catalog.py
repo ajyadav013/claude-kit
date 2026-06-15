@@ -42,6 +42,21 @@ def test_resolve_worked_example(payload):
     assert plan.context["backend_test_cmd"] == "pytest"
 
 
+def test_sentry_mcp_is_opt_in_and_resolves(payload):
+    """sentry (error-monitoring MCP for the incident-responder/observability roles) is opt-in only."""
+    # Not installed unless explicitly selected.
+    assert "sentry" not in catalog.resolve(payload, make_selection(payload)).mcp_servers
+    # Resolves to the hosted OAuth HTTP endpoint when chosen (no credentials generated).
+    plan = catalog.resolve(payload, make_selection(payload, mcp=["sentry"]))
+    cfg = plan.mcp_servers["sentry"]
+    assert cfg["type"] == "http"
+    assert cfg["url"] == "https://mcp.sentry.dev/mcp"
+    # Surfaced in list-options with the source-available licence flagged in its label.
+    labels = {m["id"]: m["label"] for m in catalog.list_options(payload)["mcp"]}
+    assert "sentry" in labels
+    assert "FSL" in labels["sentry"] or "source-available" in labels["sentry"]
+
+
 def test_repowise_mcp_is_opt_in_and_resolves(payload):
     """repowise (repowise-inspired codebase intelligence) is an opt-in MCP server, never default."""
     # Not installed unless explicitly selected.
