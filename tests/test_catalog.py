@@ -105,6 +105,15 @@ def test_warn_llm_io_resolves_in_standard(payload):
     assert "warn-llm-io" not in lean.hooks
 
 
+def test_guard_destructive_git_resolves_in_standard(payload):
+    """guard-destructive-git (completes the rm-rf/push-main destructive-command guard family)
+    resolves in standard, not lean."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    assert "guard-destructive-git" in standard.hooks
+    assert "guard-destructive-git" not in lean.hooks
+
+
 def test_every_profile_includes_sdlc_entrypoint(payload):
     for profile in ("lean", "standard", "enterprise"):
         plan = catalog.resolve(payload, make_selection(payload, profile=profile))

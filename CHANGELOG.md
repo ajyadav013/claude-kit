@@ -4,6 +4,61 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.11.2] — 2026-06-15
+
+A field review of **thirteen** more external collections — marketplaces, awesome-lists, subagent
+packs, and hook/config repos — run through the same adversarial map→verify pass against the actual
+kit files. Most are *distribution channels* (no copyable content) or *stack-specific* role packs that
+would violate the agnostic core. Crucially, grounding the strongest candidates against the real hook
+registry showed the kit **already** ships destructive-command blocking (`guard-rm-rf`,
+`guard-push-main`), secret protection (`protect-secrets`, `guard-commit-secrets`), and skill
+auto-routing (`skill-routing`) — refuting the headline ideas. Exactly **one** genuine gap survived.
+Reviewed: [anthropics/claude-plugins-official](https://github.com/anthropics/claude-code) ·
+claude-plugins-community · [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) ·
+ccplugins/awesome-claude-code-plugins · rohitg00/awesome-claude-code-toolkit ·
+[VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) ·
+[0xfurai/claude-code-subagents](https://github.com/0xfurai/claude-code-subagents) ·
+[disler/claude-code-hooks-mastery](https://github.com/disler/claude-code-hooks-mastery) ·
+yurukusa/claude-code-hooks (cc-safe-setup) · alirezarezvani/claude-skills ·
+eddiemessiah/config-claude-code · ChrisWiles/claude-code-showcase.
+
+### Added
+- **`hooks/scripts/guard-destructive-git.sh`** + the `guard-destructive-git` hook (PreToolUse·Bash,
+  `standard`→`enterprise`; absent in `lean`). A hard **block** (exit 2) for the git commands that
+  irreversibly destroy *uncommitted* work — `git reset --hard`, `git clean -f`, and worktree-wide
+  discards (`git checkout/restore .`) — each message pointing at the reversible alternative
+  (`git stash`). This completes the `guard-rm-rf` / `guard-push-main` destructive-command family with
+  the single most common irreversible agent mistake: nuking its own output. A *warn* would be theatre
+  here (the command would still run and the work would be gone), so this is a guard, consistent with
+  `guard-rm-rf`. Scope is deliberately git-only and conservative — no false positives on
+  `git clean -n`, branch checkouts, or single-file restores; fail-open without `jq`. (+2 tests, 78.)
+
+### Not adopted (deliberately, per the assessment)
+- **Marketplaces** (anthropics official/community) — Apache-2.0 *distribution* manifests, not content;
+  claude-kit already ships its own `.claude-plugin/marketplace.json`. Nothing to copy.
+- **Awesome-lists** (hesreallyhim, ccplugins, rohitg00) — curated discovery indexes; no installable
+  components of their own.
+- **Subagent packs** (VoltAgent 154+, 0xfurai 100+; MIT) — overwhelmingly language/framework
+  specialists (violate the stack-agnostic core) or roles the kit already has; `api-designer`→
+  `technical-architect`/`api-and-interface-design`, `chaos-engineer`→`incident-responder`+`load-testing`,
+  `penetration-tester`→`security-reviewer`/`owasp-reviewer`/`threat-model`, `product-manager`→ the org
+  `pm-copilot` persona + `interview-me`/`idea-refine`. No genuine stack-agnostic SDLC role gap.
+- **disler/claude-code-hooks-mastery** (no licence) — its destructive-command guard and skill-suggestion
+  ideas are already covered (`guard-rm-rf`/`guard-push-main`, `skill-routing`); lifecycle hooks
+  (SessionEnd/PreCompact continuity persistence) are covered by the continuity rule + `load-continuity`
+  + the SessionStart:compact reload. The one residual — git work-loss blocking — became the adoption above.
+- **yurukusa/cc-safe-setup** (MIT) — its **database-wipe** guard (`migrate reset`/`drop database`) was
+  considered and **rejected as over-reach**: DB resets are legitimate in local dev and a hook can't tell
+  dev from prod, so a block would break normal workflows and a warn would be theatre. DB risk stays
+  governed by `risk-classification.md` (production-data/migrations → high/restricted) + `warn-sensitive-files`
+  on migration edits.
+- **alirezarezvani/claude-skills** — a codebase-onboarding skill duplicates `context-engineering` +
+  `source-driven-development` (+ the org `repo-onboarding` skill).
+- **eddiemessiah/config-claude-code, ChrisWiles/claude-code-showcase** (MIT) — personal config
+  collections; the transferable ideas (tool-budget hygiene → `agent-guardrails`§3/`tool-design`/
+  `context-engineering`; skill auto-suggestion → `skill-routing`; scheduled-maintenance CI → out of
+  scope for a config-only kit, covered by `ci-cd-and-automation`/`devops-engineer`) are already covered.
+
 ## [0.11.1] — 2026-06-15
 
 A field review of **seven** external projects, each run through the same adversarial map→verify pass

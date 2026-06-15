@@ -118,6 +118,12 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": {"type": "command", "command": _PUSH_GUARD},
         "script": None,
     },
+    "guard-destructive-git": {
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "entry": _script_entry("guard-destructive-git.sh"),
+        "script": "guard-destructive-git.sh",
+    },
     "protect-secrets": {
         "event": "PreToolUse",
         "matcher": "Read",
