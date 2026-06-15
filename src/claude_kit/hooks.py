@@ -88,6 +88,12 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("load-learnings.sh"),
         "script": "load-learnings.sh",
     },
+    "load-autonomy": {
+        "event": "SessionStart",
+        "matcher": "",
+        "entry": _script_entry("load-autonomy.sh"),
+        "script": "load-autonomy.sh",
+    },
     "skill-routing": {
         "event": "UserPromptSubmit",
         "matcher": "",

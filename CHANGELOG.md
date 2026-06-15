@@ -4,9 +4,38 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.0] — 2026-06-15
+
+Adds a **minimalism / anti-over-engineering** layer distilled from a field review of the
+[ponytail](https://github.com/DietrichGebert/ponytail) plugin. Most of ponytail's philosophy (YAGNI,
+stdlib-first, surgical diffs) was already enforced by `templates/CLAUDE.md` "Simplicity First",
+`skills/code-simplification`, and `rules/rarv-cycle`, so — per golden rule #1 (reuse, don't duplicate)
+— only the genuinely-missing *mechanisms* were added. No application code, no Docker; new components
+are wired through the catalog.
+
+### Added
+- **`skills/over-engineering-review`** (`standard`+): a complexity-**only**, report-**only** scan that
+  returns a terse delete-list (`delete:/stdlib:/native:/yagni:/shrink:` tags, each naming the
+  replacement) over a diff or a whole repo, ending with `net: -N lines possible` or `Lean already.
+  Ship.`. Complements the multi-axis `code-review-and-quality` (it isolates the complexity axis) and
+  stops short of the behavior-preserving refactor that `code-simplification` performs. Never flags the
+  kit's required test or the safety carve-outs.
+- **`skills/simplification-debt`** (`standard`+): harvests deliberately-deferred shortcuts
+  (`TODO(TICKET)`, `FIXME`, and inline `shortcut: ceiling — upgrade` markers) into one ledger grouped
+  by file, and flags any marker that names **no upgrade trigger** as a silent-rot risk. Report-only;
+  persists to a file only when asked.
+- **`load-autonomy` hook** (`SessionStart`, `standard`+): surfaces the repo's active autonomy level
+  (read from the install snapshot) into context each session, so `rules/autonomy-levels.md` is visible
+  and persistent rather than purely instructional. Degrades to a no-op without `jq`. Registered in the
+  hook registry and the plugin `hooks/hooks.json`.
 
 ### Changed
+- **`rules/evals.md`** gains section 6: run repeated trials and report the **median of N**, and
+  **separate measurement metrics** (record-and-pass: LOC, cost, latency) **from gate metrics**
+  (execute-and-fail: run the output, assert it) — with the ponytail benchmark cited as a worked example.
+- **`rules/documentation.md`** now blesses an inline upgrade-path shortcut marker
+  (`# shortcut: ceiling — upgrade path`) as an alternative to a ticketed `TODO`, and points at the
+  `simplification-debt` skill that harvests them.
 - **CI now publishes on merge to `main`, gated by a version check.** `publish.yml` also triggers on
   every push to `main` (in addition to version tags, releases, and manual dispatch). A `version-check`
   job compares `pyproject.toml`'s version against PyPI and only builds/publishes when the version is

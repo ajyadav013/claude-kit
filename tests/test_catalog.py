@@ -60,6 +60,16 @@ def test_profiles_are_strict_supersets(payload):
     assert set(lean.gates) < set(standard.gates) < set(enterprise.gates)
 
 
+def test_minimalism_additions_resolve_in_standard(payload):
+    """The ponytail-inspired minimalism layer resolves in standard (and not in lean)."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    assert {"over-engineering-review", "simplification-debt"} <= set(standard.skills)
+    assert "load-autonomy" in standard.hooks
+    assert "over-engineering-review" not in lean.skills
+    assert "load-autonomy" not in lean.hooks
+
+
 def test_every_profile_includes_sdlc_entrypoint(payload):
     for profile in ("lean", "standard", "enterprise"):
         plan = catalog.resolve(payload, make_selection(payload, profile=profile))

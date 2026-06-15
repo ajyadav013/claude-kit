@@ -343,6 +343,45 @@ def test_org_selection_recorded_in_snapshots(tmp_path, payload):
     assert len(snapshot["org"]["packs"]) == 7
 
 
+def test_minimalism_skills_gated_by_profile(tmp_path, payload):
+    """over-engineering-review + simplification-debt arrive in standard (not lean), persist in enterprise."""
+    new = {"over-engineering-review", "simplification-debt"}
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    enterprise = tmp_path / "enterprise"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+    install(payload, enterprise, profile="enterprise")
+
+    def skills(target):
+        return {p.name for p in (target / ".claude" / "skills").iterdir() if p.is_dir()}
+
+    assert not (new & skills(lean)), "minimalism skills must not ship in lean"
+    assert new <= skills(standard), "minimalism skills must ship in standard"
+    assert new <= skills(enterprise), "minimalism skills must ship in enterprise"
+
+
+def test_load_autonomy_hook_in_standard_not_lean(tmp_path, payload):
+    """load-autonomy ships its script + wires into SessionStart settings in standard, absent in lean."""
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+    assert not (lean / ".claude" / "hooks" / "load-autonomy.sh").exists()
+    assert (standard / ".claude" / "hooks" / "load-autonomy.sh").is_file()
+    settings = json.loads(
+        (standard / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    commands = [
+        h["command"]
+        for block in settings["hooks"].get("SessionStart", [])
+        for h in block["hooks"]
+    ]
+    assert any("load-autonomy.sh" in c for c in commands), (
+        "load-autonomy hook not wired into SessionStart"
+    )
+
+
 def test_reinstall_is_idempotent(tmp_path, payload):
     """Re-running install produces identical recorded checksums (deterministic config)."""
     install(payload, tmp_path)
