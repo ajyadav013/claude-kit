@@ -4,6 +4,62 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.11.3] — 2026-06-15
+
+A field review of a **reference table of ecosystem repos** — official + community **MCP-server
+directories** ([modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers),
+[wong2/awesome-mcp-servers](https://github.com/wong2/awesome-mcp-servers),
+[appcypher/awesome-mcp-servers](https://github.com/appcypher/awesome-mcp-servers)), **Cursor-rules**
+collections ([PatrickJS/awesome-cursorrules](https://github.com/PatrickJS/awesome-cursorrules),
+[sanjeed5/awesome-cursor-rules-mdc](https://github.com/sanjeed5/awesome-cursor-rules-mdc)), a
+**community skills** index ([GetBindu/awesome-claude-code-and-skills](https://github.com/GetBindu/awesome-claude-code-and-skills)),
+and a **plugins** marketplace ([ComposioHQ/awesome-claude-plugins](https://github.com/ComposioHQ/awesome-claude-plugins)) —
+run through the same adversarial map→verify pass (six candidates surfaced, each refuted against the
+actual kit files). Exactly **one** survived. (anthropics/skills, wshobson/agents,
+hesreallyhim/awesome-claude-code, rohitg00/awesome-claude-code-toolkit, and
+anthropics/claude-plugins-official were re-confirmed at **zero** from prior reviews.)
+
+### Added
+- **`catalog/mcp.yaml`** — a new opt-in **`sentry`** MCP server (error monitoring / issue triage:
+  top unresolved issues, stacktraces, performance & trace data, Seer root-cause analysis). This fills
+  a gap the kit had already *designed in*: `agents/incident-responder.md` explicitly says *"If an
+  error-tracking / monitoring integration is connected (e.g. via an MCP), pull the top unresolved
+  issue + event trend"* and lists an "error-tracking issue" as a triage signal — yet no catalog entry
+  fulfilled it, even though the kit ships both `incident-responder` and `observability-engineer`
+  agents. Uses the **hosted OAuth HTTP endpoint** (`https://mcp.sentry.dev/mcp`, matching the
+  `linear`/`docs` http style) so **no credentials are generated**. NOT bundled — only referenced; the
+  server's source is **FSL-1.1-Apache-2.0 (source-available)**, flagged inline in the label exactly
+  like the `repowise` AGPL note (a self-hosted/token `npx @sentry/mcp-server` alternative is
+  documented in a comment). Opt-in (catalog default stays *none*), stack-agnostic, zero resolver
+  change. (+2 tests, 80.)
+
+### Not adopted (deliberately, per the assessment)
+- **Semgrep MCP** (MIT, modelcontextprotocol directories) — SAST is already owned by `owasp-reviewer`
+  + `security-reviewer` + `secret-scanner` + `dependency-scanner`, which follow the kit's "shell out to
+  an installed CLI via Bash" pattern (`gitleaks detect`, `pip-audit`/`npm audit`); `owasp-reviewer`
+  can run `semgrep --config auto` today with no catalog change. An MCP would add a privilege surface
+  for zero new capability (`agent-guardrails §4`: treat MCP servers as untrusted until reviewed).
+- **Composio `connect-apps` MCP** (ComposioHQ) — a closed commercial broker holding one key to authed
+  **write** access across 500+ SaaS apps via an external relay. It overlaps the existing
+  `github`/`linear`/`jira` servers and is the textbook supply-chain + data-egress risk that
+  `agent-guardrails §4` and `human-in-the-loop` (outward-facing actions = mandatory STOP) warn
+  against. Contradicts the catalog's deliberate one-server-per-purpose, least-privilege posture.
+- **PatrickJS/awesome-cursorrules, sanjeed5/awesome-cursor-rules-mdc** (CC0) — overwhelmingly
+  *stack-specific* `.cursorrules`/`.mdc` files (one per framework/language), which cannot enter the
+  agnostic core. The one cross-cutting near-miss — anti-sycophancy *directed at the user* (resist
+  manufactured urgency/authority) — is already expressed in `code-review-and-quality` ("Push back;
+  sycophancy is a failure mode"), `idea-refine`, and `interview-me`, and its residual angle sits
+  awkwardly against `human-in-the-loop`'s human-as-authority contract. The generator tool is out of
+  scope for a config-only kit.
+- **GetBindu skills** (Apache-2.0 index) — `should-i-care` (CVE applicability triage) duplicates the
+  "Triaging Dependency Audit Results" decision tree in `security-and-hardening` + `dependency-scanner`
+  (A06) and depends on a global `~/.config` state file foreign to the per-project `.claude/` model;
+  `claudemd-auditor` is meta/out-of-SDLC-scope and covered by `context-engineering` + the harness's own
+  `claude-md-management` skills.
+- **Re-confirmed zero** — anthropics/skills (grew 8→17 skills, still document-processing/source-available/
+  covered), wshobson/agents (stack-specific/covered), hesreallyhim & rohitg00 (meta-lists/aggregators),
+  anthropics/claude-plugins-official (distribution marketplace).
+
 ## [0.11.2] — 2026-06-15
 
 A field review of **thirteen** more external collections — marketplaces, awesome-lists, subagent

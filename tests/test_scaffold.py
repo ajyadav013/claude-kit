@@ -195,6 +195,16 @@ def test_mcp_written_only_when_selected(tmp_path, payload):
     assert set(doc["mcpServers"]) == {"github"}
 
 
+def test_sentry_mcp_written_when_selected(tmp_path, payload):
+    """The opt-in sentry server lands in .mcp.json as the hosted OAuth HTTP endpoint when selected."""
+    target = tmp_path / "sentry"
+    install(payload, target, mcp=["sentry"])
+    doc = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert "sentry" in doc["mcpServers"]
+    assert doc["mcpServers"]["sentry"]["type"] == "http"
+    assert doc["mcpServers"]["sentry"]["url"] == "https://mcp.sentry.dev/mcp"
+
+
 def test_repowise_mcp_written_when_selected(tmp_path, payload):
     """The opt-in repowise server lands in .mcp.json with its repo-path placeholder when selected."""
     target = tmp_path / "rw"

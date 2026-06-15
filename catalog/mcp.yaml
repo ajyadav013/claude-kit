@@ -52,6 +52,21 @@ servers:
     config:
       type: http
       url: "https://mcp.context7.com/mcp"
+  # Sentry (github.com/getsentry/sentry-mcp) — official, vendor-maintained MCP for production error
+  # monitoring / issue triage: top unresolved issues, stacktraces, performance & trace data, and Seer
+  # root-cause analysis. Fills the error-monitoring gap the `incident-responder` + `observability-engineer`
+  # agents already expect (incident-responder.md: "If an error-tracking / monitoring integration is
+  # connected (e.g. via an MCP), pull the top unresolved issue + event trend"). NOT bundled — only
+  # referenced; the hosted HTTP endpoint below uses OAuth and generates NO credentials. The server's
+  # source is FSL-1.1-Apache-2.0 (source-available; converts to Apache-2.0 two years after each
+  # release) — flagged in the label like the repowise AGPL note; this entry references only the
+  # OAuth-hosted service, not the source. Self-hosted/token alternative (instead of the http url):
+  #   command: npx, args: ["-y", "@sentry/mcp-server@latest"], env: SENTRY_ACCESS_TOKEN: "${SENTRY_ACCESS_TOKEN}".
+  sentry:
+    label: "Sentry (error monitoring / issue triage; source-available FSL-1.1)"
+    config:
+      type: http
+      url: "https://mcp.sentry.dev/mcp"
   # Repowise (github.com/repowise-dev/repowise) — optional codebase-intelligence engine exposing an
   # MCP server: deterministic hotspots (churn × complexity), change-risk, co-change coupling, dead
   # code, and a dependency graph. NOT bundled (claude-kit only references it): it is AGPL-3.0, so
