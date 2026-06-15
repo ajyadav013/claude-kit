@@ -32,3 +32,21 @@ tier — they are focused specialists/personas, not deep-reasoning orchestrators
   (`secret-scanner`, `dependency-scanner`, `policy-validator`) are `sonnet` (pattern/tool work).
 - **Re-map when names/prices change.** Keep the tier *intent* (Critical / Default / Fast); swap the
   concrete alias if Anthropic's model lineup shifts.
+
+## Profile cost expectations
+
+Token cost scales with the **profile** (the agent / skill / hook set it installs — see
+`catalog/profiles.yaml`): more agents and more parallel review lanes mean more model turns. As a
+*relative* guide (not a currency figure):
+
+- **lean** — cheapest: ~5 agents, a single review lane, no Devil's Advocate, fewest gates. Only
+  `orchestrator` + `developer` run on `opus`; the rest are `sonnet`/`haiku`.
+- **standard** — adds the spec / design / test / security lanes and the blind-review + Devil's
+  Advocate pass: mostly `sonnet` reviewers and scanners layered on top of lean.
+- **enterprise** — heaviest: adds the DevOps / Observability / audit agents, `skills: all`, and
+  `hooks: all`, with more gates — but still only the four `opus` agents (`orchestrator`, `developer`,
+  `devils-advocate`, `owasp-reviewer`); everything it adds is `sonnet`/`haiku`.
+
+Scale effort to the work, not the ceremony: pick the smallest profile that fits, and use the per-agent
+tier table above plus `.claude/rules/reasoning-techniques.md` ("resource-aware effort") to avoid
+spending `opus` on mechanical turns.

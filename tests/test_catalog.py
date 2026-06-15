@@ -42,6 +42,14 @@ def test_resolve_worked_example(payload):
     assert plan.context["backend_test_cmd"] == "pytest"
 
 
+def test_contract_clear_gate_is_enterprise_only(payload):
+    """The contract-clear gate (API base-branch breaking-change diff) ships in enterprise, not standard."""
+    ent = catalog.resolve(payload, make_selection(payload, profile="enterprise"))
+    std = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    assert "contract-clear" in ent.gates
+    assert "contract-clear" not in std.gates
+
+
 def test_sentry_mcp_is_opt_in_and_resolves(payload):
     """sentry (error-monitoring MCP for the incident-responder/observability roles) is opt-in only."""
     # Not installed unless explicitly selected.

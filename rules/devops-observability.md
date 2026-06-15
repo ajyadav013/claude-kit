@@ -41,6 +41,7 @@ Ensures the feature is **operable in production**: you can tell when it breaks a
 
 **Observability Ready passes when:**
 - [ ] **SLOs/SLIs** defined for each critical user journey the feature adds (e.g., "p95 endpoint latency < 200ms", "login success rate ≥ 99.5%").
+- [ ] **Load verified against the SLO** — for a change to a hot / SLO-bearing backend path, an empirical load run (drive `.claude/skills/load-testing`) was executed against the defined SLO and **met** its p95/p99 latency + error-rate + throughput budgets; record it under `docs/performance/` and link it from the feature SLO doc. *Skip (note why in `CONTINUITY.md`) for changes with no concurrency-sensitive surface.* A budget breach is **High** (`.claude/rules/quality-gates.md`).
 - [ ] **Health/readiness** — any new external dependency (database, cache, third-party service) is reflected in the readiness check; liveness stays dependency-free.
 - [ ] **Structured logging** — new state changes log via the project's structured logger as JSON key-values, semantic event names, **no secrets/PII**; error paths log at `error`/`exception` level.
 - [ ] **Alerts** — alert rules defined for the feature's failure modes (error-rate spike, latency breach, dependency down) with a severity and an owner.

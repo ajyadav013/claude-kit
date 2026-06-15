@@ -176,7 +176,10 @@ CANNOT start until coverage is complete.
 # Phase 2 — Development (Stages 4-5)
 
 ## 2a — Read Existing Code & Confirm Scope `[Developer]`
-Work in an **isolated git worktree**. Before writing code, read the approved spec + dev docs,
+Work in an **isolated git worktree** (lifecycle: create one per lane → merge after the gates pass →
+**remove it after the PR is raised or the run is aborted** — only the worktrees this run created, never
+the user's others; `git worktree remove`, see `.claude/skills/git-workflow-and-versioning/SKILL.md`).
+Before writing code, read the approved spec + dev docs,
 the relevant `.claude/rules/*` for your stack, and EVERY file you plan to modify — in full.
 Understand a function's callers/returns before changing it. Reuse existing utilities and
 components — search before creating.
@@ -219,6 +222,13 @@ If you renamed an export, changed a signature, or modified a shared module/utili
 every consumer and verify it still works. Run the full test suite (not just your tests).
 Review the diff for changes outside your scope.
 **Gate:** zero regressions verified across the codebase.
+
+> **Mechanical counterpart (enterprise, API-exposing stacks):** the `merge-reviewer` runs the
+> **contract-clear** gate — a base-branch API-surface diff (`git show <base>:<schema>`) that classifies
+> each delta by severity and blocks backward-incompatible changes lacking an approved migration note +
+> version bump. It self-skips when no API contract surface exists. This §2d is the manual consumer
+> check; contract-clear is its automated, externally-exposed-contract complement. See
+> `.claude/agents/merge-reviewer.md`.
 
 ---
 

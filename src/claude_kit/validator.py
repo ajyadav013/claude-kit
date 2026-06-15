@@ -9,6 +9,7 @@ and choose an exit code.
 from __future__ import annotations
 
 import json
+import platform
 import shutil
 from pathlib import Path
 
@@ -170,6 +171,20 @@ def doctor(target: str | Path) -> tuple[bool, list[str]]:
             msgs.append(f"OK    {tool} found ({why})")
         else:
             msgs.append(f"WARN  {tool} not on PATH — {why}")
+
+    # Platform visibility: the shell hooks need a POSIX shell + jq. On Windows they no-op silently
+    # unless run under WSL/Git Bash; the config and CLI work natively regardless. Never a failure.
+    if platform.system() == "Windows":
+        if shutil.which("jq"):
+            msgs.append(
+                "OK    Windows with jq on PATH — a POSIX shell (Git Bash/WSL) is providing the hooks"
+            )
+        else:
+            msgs.append(
+                "WARN  Windows detected and jq not on PATH — the shell hooks (guard-*, warn-*) will "
+                "no-op. Run claude-kit inside WSL or Git Bash to enable them; the kit config "
+                "(agents/skills/rules) and the claude-kit CLI work natively on Windows regardless."
+            )
 
     hooks_dir = claude / "hooks"
     if hooks_dir.is_dir():
