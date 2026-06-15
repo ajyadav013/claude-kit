@@ -4,6 +4,149 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.11.2] — 2026-06-15
+
+A field review of **thirteen** more external collections — marketplaces, awesome-lists, subagent
+packs, and hook/config repos — run through the same adversarial map→verify pass against the actual
+kit files. Most are *distribution channels* (no copyable content) or *stack-specific* role packs that
+would violate the agnostic core. Crucially, grounding the strongest candidates against the real hook
+registry showed the kit **already** ships destructive-command blocking (`guard-rm-rf`,
+`guard-push-main`), secret protection (`protect-secrets`, `guard-commit-secrets`), and skill
+auto-routing (`skill-routing`) — refuting the headline ideas. Exactly **one** genuine gap survived.
+Reviewed: [anthropics/claude-plugins-official](https://github.com/anthropics/claude-code) ·
+claude-plugins-community · [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) ·
+ccplugins/awesome-claude-code-plugins · rohitg00/awesome-claude-code-toolkit ·
+[VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) ·
+[0xfurai/claude-code-subagents](https://github.com/0xfurai/claude-code-subagents) ·
+[disler/claude-code-hooks-mastery](https://github.com/disler/claude-code-hooks-mastery) ·
+yurukusa/claude-code-hooks (cc-safe-setup) · alirezarezvani/claude-skills ·
+eddiemessiah/config-claude-code · ChrisWiles/claude-code-showcase.
+
+### Added
+- **`hooks/scripts/guard-destructive-git.sh`** + the `guard-destructive-git` hook (PreToolUse·Bash,
+  `standard`→`enterprise`; absent in `lean`). A hard **block** (exit 2) for the git commands that
+  irreversibly destroy *uncommitted* work — `git reset --hard`, `git clean -f`, and worktree-wide
+  discards (`git checkout/restore .`) — each message pointing at the reversible alternative
+  (`git stash`). This completes the `guard-rm-rf` / `guard-push-main` destructive-command family with
+  the single most common irreversible agent mistake: nuking its own output. A *warn* would be theatre
+  here (the command would still run and the work would be gone), so this is a guard, consistent with
+  `guard-rm-rf`. Scope is deliberately git-only and conservative — no false positives on
+  `git clean -n`, branch checkouts, or single-file restores; fail-open without `jq`. (+2 tests, 78.)
+
+### Not adopted (deliberately, per the assessment)
+- **Marketplaces** (anthropics official/community) — Apache-2.0 *distribution* manifests, not content;
+  claude-kit already ships its own `.claude-plugin/marketplace.json`. Nothing to copy.
+- **Awesome-lists** (hesreallyhim, ccplugins, rohitg00) — curated discovery indexes; no installable
+  components of their own.
+- **Subagent packs** (VoltAgent 154+, 0xfurai 100+; MIT) — overwhelmingly language/framework
+  specialists (violate the stack-agnostic core) or roles the kit already has; `api-designer`→
+  `technical-architect`/`api-and-interface-design`, `chaos-engineer`→`incident-responder`+`load-testing`,
+  `penetration-tester`→`security-reviewer`/`owasp-reviewer`/`threat-model`, `product-manager`→ the org
+  `pm-copilot` persona + `interview-me`/`idea-refine`. No genuine stack-agnostic SDLC role gap.
+- **disler/claude-code-hooks-mastery** (no licence) — its destructive-command guard and skill-suggestion
+  ideas are already covered (`guard-rm-rf`/`guard-push-main`, `skill-routing`); lifecycle hooks
+  (SessionEnd/PreCompact continuity persistence) are covered by the continuity rule + `load-continuity`
+  + the SessionStart:compact reload. The one residual — git work-loss blocking — became the adoption above.
+- **yurukusa/cc-safe-setup** (MIT) — its **database-wipe** guard (`migrate reset`/`drop database`) was
+  considered and **rejected as over-reach**: DB resets are legitimate in local dev and a hook can't tell
+  dev from prod, so a block would break normal workflows and a warn would be theatre. DB risk stays
+  governed by `risk-classification.md` (production-data/migrations → high/restricted) + `warn-sensitive-files`
+  on migration edits.
+- **alirezarezvani/claude-skills** — a codebase-onboarding skill duplicates `context-engineering` +
+  `source-driven-development` (+ the org `repo-onboarding` skill).
+- **eddiemessiah/config-claude-code, ChrisWiles/claude-code-showcase** (MIT) — personal config
+  collections; the transferable ideas (tool-budget hygiene → `agent-guardrails`§3/`tool-design`/
+  `context-engineering`; skill auto-suggestion → `skill-routing`; scheduled-maintenance CI → out of
+  scope for a config-only kit, covered by `ci-cd-and-automation`/`devops-engineer`) are already covered.
+
+## [0.11.1] — 2026-06-15
+
+A field review of **seven** external projects, each run through the same adversarial map→verify pass
+(read the source *and* the actual kit files; adopt only genuine, non-duplicative, config-only,
+stack-agnostic, IP-safe gaps). The result is deliberately tiny: across all seven, exactly **one** real
+gap survived — everything else is already covered, runtime-only, stack-specific, out of SDLC scope, or
+IP-unsafe to copy. Reviewed: [obra/superpowers](https://github.com/obra/superpowers),
+[wshobson/agents](https://github.com/wshobson/agents),
+[anthropics/skills](https://github.com/anthropics/skills),
+[karpathy/autoresearch](https://github.com/karpathy/autoresearch),
+[browser-use](https://github.com/browser-use/browser-use),
+[x1xhlol/system-prompts-and-models-of-ai-tools](https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools),
+and [langgenius/dify](https://github.com/langgenius/dify).
+
+### Changed
+- **`rules/testing.md`** — the "Async/Event-Loop Systems" guidance gains a **condition-based waiting**
+  rule (distilled from superpowers' `condition-based-waiting`, MIT, re-expressed in original,
+  stack-agnostic words): never wait on a fixed delay/sleep, poll for the observable condition instead
+  (framework waiter or a small `wait_for(condition, timeout)`), and avoid the three flakiness traps
+  (no timeout, interval too tight, stale reads). The section previously only said "mock I/O, use
+  async/await" — it never addressed timing-dependent test flakiness.
+
+### Not adopted (deliberately, per the assessment)
+- **superpowers** — 14 skills, ~all duplicate existing kit skills (TDD, `systematic-debugging`→
+  `debugging-and-error-recovery`, `brainstorming`→`idea-refine`/`doubt-driven-development`/`interview-me`,
+  `writing-plans`→`planning-and-task-breakdown`, `executing-plans`→`execute`, `requesting`/`receiving-code-review`→
+  `code-review-and-quality`, `using-git-worktrees`/`finishing-a-development-branch`→`git-workflow-and-versioning`/
+  `shipping-and-launch`/`pr-raiser`, `verification-before-completion`→`rarv-cycle`+`mandatory-workflow`,
+  `dispatching-parallel-agents`→`orchestrator`, `writing-skills`→`using-agent-skills`). Its
+  `testing-anti-patterns` was refuted as a near-duplicate of the TDD skill's existing anti-pattern table.
+- **wshobson/agents** — almost entirely language/framework specialists (violate the stack-agnostic core)
+  or roles the kit already has (`code-reviewer`, `security-auditor`, `incident-responder`,
+  `observability-engineer`, `performance-engineer`, `debugger`, `docs-architect`, `architect-reviewer`,
+  database/devops roles), plus out-of-SDLC-scope domains (SEO, business, data-science). No general gap.
+- **anthropics/skills** — document skills are source-available (not open) and out of scope; the example
+  skills are out of scope (art/design/comms) or duplicative (`skill-creator`→`using-agent-skills`,
+  `frontend-design`→`frontend-ui-engineering`). The `SKILL.md` `name`+`description` convention is already followed.
+- **karpathy/autoresearch** — the closed-loop / single-metric / fixed-budget principles are covered by
+  `evals` + `goal-setting-and-monitoring`; the ML-training loop itself is stack-specific. "Iterate the
+  instructions, not the code" is what the kit already *is* (config-only).
+- **browser-use** — a runtime library; browser automation is already covered by the opt-in `playwright`
+  MCP entry + `browser-testing-with-devtools`/`playwright-verification`. Its "treat DOM/console/network
+  as untrusted" guidance is already a verbatim "Security Boundaries" section in `browser-testing-with-devtools`.
+- **x1xhlol/system-prompts** — GPL-3.0 archive of prompts extracted from proprietary tools (double IP
+  hazard: copyleft + unresolved vendor rights). Its generic principles (plan-first, tool discipline,
+  minimal diffs, verification, concise comms, refusal/secret-safety) are already in `reasoning-techniques`,
+  `tool-design`, `mandatory-workflow`, `agent-guardrails`, `human-in-the-loop`, and `code-review-and-quality`.
+  Nothing was copied.
+- **langgenius/dify** — a runtime platform (Apache-2.0 *with additional conditions*); its principles
+  (ReAct/function-calling agents, inspectable workflow steps, RAG stages, prompt-management feedback)
+  are covered by `reasoning-techniques`, `tool-design`, `context-engineering`, `evals`, and `devops-observability`.
+
+## [0.11.0] — 2026-06-15
+
+Distils a field review of [repowise](https://github.com/repowise-dev/repowise) (a runtime
+codebase-intelligence engine: dependency graph, git analytics, LLM wiki, code-health biomarkers,
+change-risk, dead code). An adversarial map→verify pass over six candidates found that repowise is
+overwhelmingly a **runtime product** whose config-equivalents claude-kit already ships — so the
+honest, reuse-first result is small: one genuine kit-owned methodology gap and one sanctioned,
+opt-in external-tool reference. No application code, no Docker, nothing bundled.
+
+### Added
+- **`catalog/mcp.yaml`** gains an **opt-in** `repowise` MCP server (codebase intelligence: hotspots,
+  change-risk, co-change coupling, dead code). It is **only** written into `.mcp.json` when explicitly
+  selected at init — the kit *references* repowise, never bundles it. The label flags that it is
+  **AGPL-3.0** and requires installing it separately (`pip install repowise`) and indexing the repo
+  once (`repowise init`); the repo path is supplied via the `${REPOWISE_PROJECT_ROOT}` env placeholder
+  (same pattern as postgres's `${DATABASE_URL}`), so this is pure catalog data with no resolver change.
+
+### Changed
+- **`skills/code-review-and-quality`** gains a **"Where to Focus: Change Hotspots & Coupling"** section:
+  a tool-agnostic, `git log`-only technique for spending review attention where defects cluster —
+  churn × complexity hotspots, co-change coupling (hidden dependencies), and single-owner/bus-factor
+  files. It notes that a codebase-intelligence MCP (e.g. the optional repowise server) provides the
+  same signals precomputed via `get_risk`/`get_health`, but always as **advisory input, never a
+  blocking gate**. A matching checklist item was added.
+
+### Not done (deliberately, per the assessment)
+- repowise's engine itself — dependency graph, dashboard (`repowise serve`), deterministic PR bot,
+  LLM wiki/RAG, the 25 code-health biomarkers — is runtime and **cannot** be config. Its
+  config-equivalents already exist and were **not** duplicated: dead-code hygiene
+  (`over-engineering-review` / `code-simplification` / `code-review-and-quality` / `mandatory-workflow`),
+  noisy-output compression a.k.a. "distill" (`tool-design` rule + `context-engineering` skill),
+  read-an-overview-first (`context-engineering` / `source-driven-development`), ADRs
+  (`documentation-and-adrs`), commit provenance (`git-workflow-and-versioning`), and auto-generated
+  project instructions (`templates/CLAUDE.md`). No new rule/agent/skill/gate (the hotspot technique is
+  advisory, so it enriches a profile-gated skill rather than becoming a mandatory rule).
+
 ## [0.10.0] — 2026-06-15
 
 Adds **LLM / AI application-security** guidance distilled from a field review of

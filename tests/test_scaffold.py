@@ -195,6 +195,20 @@ def test_mcp_written_only_when_selected(tmp_path, payload):
     assert set(doc["mcpServers"]) == {"github"}
 
 
+def test_repowise_mcp_written_when_selected(tmp_path, payload):
+    """The opt-in repowise server lands in .mcp.json with its repo-path placeholder when selected."""
+    target = tmp_path / "rw"
+    install(payload, target, mcp=["repowise"])
+    doc = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert "repowise" in doc["mcpServers"]
+    assert doc["mcpServers"]["repowise"]["args"] == [
+        "mcp",
+        "${REPOWISE_PROJECT_ROOT}",
+        "--transport",
+        "stdio",
+    ]
+
+
 def test_gitignore_is_selective(tmp_path, payload):
     install(payload, tmp_path)
     gi = (tmp_path / ".gitignore").read_text(encoding="utf-8")
@@ -465,6 +479,58 @@ def test_warn_llm_io_hook_in_standard_not_lean(tmp_path, payload):
     )
 
 
+def test_guard_destructive_git_hook_in_standard_not_lean(tmp_path, payload):
+    """guard-destructive-git ships + wires into PreToolUse(Bash) in standard; absent in lean.
+    Functionally blocks irreversible work-loss commands (exit 2) and allows safe git (exit 0)."""
+    import shutil
+    import subprocess
+
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+    script = standard / ".claude" / "hooks" / "guard-destructive-git.sh"
+    assert not (lean / ".claude" / "hooks" / "guard-destructive-git.sh").exists()
+    assert script.is_file(), "guard-destructive-git.sh not copied"
+    settings = json.loads(
+        (standard / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    commands = [
+        h["command"]
+        for block in settings["hooks"].get("PreToolUse", [])
+        if block["matcher"] == "Bash"
+        for h in block["hooks"]
+    ]
+    assert any("guard-destructive-git.sh" in c for c in commands), (
+        "guard-destructive-git hook not wired into PreToolUse(Bash)"
+    )
+
+    # Behaviour check (only where jq exists): block the destructive trio, allow the safe forms.
+    if shutil.which("jq"):
+
+        def rc(cmd: str) -> int:
+            return subprocess.run(
+                ["bash", str(script)],
+                input=json.dumps({"tool_input": {"command": cmd}}),
+                text=True,
+                capture_output=True,
+            ).returncode
+
+        for blocked in (
+            "git reset --hard HEAD~1",
+            "git clean -fd",
+            "git checkout -- .",
+        ):
+            assert rc(blocked) == 2, f"should block: {blocked}"
+        for allowed in (
+            "git status",
+            "git clean -n",
+            "git checkout main",
+            "git reset HEAD f",
+        ):
+            assert rc(allowed) == 0, f"should allow: {allowed}"
+
+
 def test_security_skill_carries_optin_llm_section(tmp_path, payload):
     """security-and-hardening ships the opt-in, bypassable LLM/AI Feature Security section (standard+)."""
     lean = tmp_path / "lean"
@@ -479,3 +545,14 @@ def test_security_skill_carries_optin_llm_section(tmp_path, payload):
     assert "LLM / AI Feature Security" in skill, "LLM section missing"
     assert "Security implications of bypassing" in skill, "implications table missing"
     assert "risk acceptance" in skill.lower(), "bypass/risk-acceptance protocol missing"
+
+
+def test_testing_rule_carries_condition_based_waiting(tmp_path, payload):
+    """rules/testing.md teaches condition-based waiting for async tests (installs in every profile)."""
+    target = tmp_path / "lean"
+    install(payload, target, profile="lean")
+    testing = (target / ".claude" / "rules" / "testing.md").read_text(encoding="utf-8")
+    assert "Wait on conditions, never on the clock" in testing, (
+        "condition-based waiting missing"
+    )
+    assert "wait_for(condition" in testing, "wait_for helper guidance missing"

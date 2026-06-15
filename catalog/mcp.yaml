@@ -52,3 +52,14 @@ servers:
     config:
       type: http
       url: "https://mcp.context7.com/mcp"
+  # Repowise (github.com/repowise-dev/repowise) — optional codebase-intelligence engine exposing an
+  # MCP server: deterministic hotspots (churn × complexity), change-risk, co-change coupling, dead
+  # code, and a dependency graph. NOT bundled (claude-kit only references it): it is AGPL-3.0, so
+  # install it separately (`pip install repowise`) and index the repo once (`repowise init`) before
+  # first use. Point it at the repo via the env var below (e.g. `export REPOWISE_PROJECT_ROOT=$(pwd)`).
+  repowise:
+    label: "Repowise codebase intelligence (AGPL-3.0; needs `pip install repowise` + `repowise init`)"
+    config:
+      type: stdio
+      command: repowise
+      args: ["mcp", "${REPOWISE_PROJECT_ROOT}", "--transport", "stdio"]
