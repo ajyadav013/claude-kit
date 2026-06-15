@@ -195,6 +195,20 @@ def test_mcp_written_only_when_selected(tmp_path, payload):
     assert set(doc["mcpServers"]) == {"github"}
 
 
+def test_repowise_mcp_written_when_selected(tmp_path, payload):
+    """The opt-in repowise server lands in .mcp.json with its repo-path placeholder when selected."""
+    target = tmp_path / "rw"
+    install(payload, target, mcp=["repowise"])
+    doc = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert "repowise" in doc["mcpServers"]
+    assert doc["mcpServers"]["repowise"]["args"] == [
+        "mcp",
+        "${REPOWISE_PROJECT_ROOT}",
+        "--transport",
+        "stdio",
+    ]
+
+
 def test_gitignore_is_selective(tmp_path, payload):
     install(payload, tmp_path)
     gi = (tmp_path / ".gitignore").read_text(encoding="utf-8")

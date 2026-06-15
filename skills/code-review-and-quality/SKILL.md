@@ -80,6 +80,21 @@ For detailed profiling and optimization, see `performance-optimization`. Does th
 - Any missing pagination on list endpoints?
 - Any large objects created in hot paths?
 
+## Where to Focus: Change Hotspots & Coupling
+
+You can't give every line equal attention — on a large change or an unfamiliar codebase, spend the most scrutiny where defects actually cluster. The project's own git history surfaces this for free, no special tooling required:
+
+- **Hotspots (churn × complexity).** Files that change *often* **and** are *large/complex* carry the most risk. List the frequently-changed files and weight review toward the complex ones among them — a rarely-touched file is usually stable, while a hotspot edited in *this* change deserves extra correctness and test scrutiny.
+  ```bash
+  # Most-churned files over the last 6 months — pair the top hits with their size/complexity
+  git log --since="6 months ago" --name-only --pretty=format: | sort | uniq -c | sort -rn | head -20
+  ```
+  Use the project's own complexity tooling if it has one; file size is only a rough proxy for complexity.
+- **Co-change coupling (hidden dependencies).** Files historically committed together often share an implicit contract. If this change touches one side of a known pair but not the other, ask whether the coupled file also needs updating — `git log` on a changed file reveals what usually moves with it.
+- **Single-owner / bus-factor files.** Code with one dominant author has had fewer eyes. Treat changes there with extra care and prefer a second reviewer.
+
+These are deterministic signals an agent can derive from `git log` alone. If a codebase-intelligence MCP server is configured (e.g. the optional **repowise** server in the catalog), its `get_risk` / `get_health` tools surface the same hotspot, coupling, and change-risk signals precomputed — use them when available, but treat the output as **advisory input to your judgment, never a blocking gate**.
+
 ## Change Sizing
 
 Small, focused changes are easier to review, faster to merge, and safer to deploy. Target these sizes:
@@ -272,6 +287,7 @@ Part of code review is dependency review:
 
 ### Context
 - [ ] I understand what this change does and why
+- [ ] For a large/unfamiliar change, I focused review on the riskiest files (hotspots, coupled files)
 
 ### Correctness
 - [ ] Change matches spec/task requirements

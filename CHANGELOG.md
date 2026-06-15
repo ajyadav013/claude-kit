@@ -4,6 +4,42 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.11.0] — 2026-06-15
+
+Distils a field review of [repowise](https://github.com/repowise-dev/repowise) (a runtime
+codebase-intelligence engine: dependency graph, git analytics, LLM wiki, code-health biomarkers,
+change-risk, dead code). An adversarial map→verify pass over six candidates found that repowise is
+overwhelmingly a **runtime product** whose config-equivalents claude-kit already ships — so the
+honest, reuse-first result is small: one genuine kit-owned methodology gap and one sanctioned,
+opt-in external-tool reference. No application code, no Docker, nothing bundled.
+
+### Added
+- **`catalog/mcp.yaml`** gains an **opt-in** `repowise` MCP server (codebase intelligence: hotspots,
+  change-risk, co-change coupling, dead code). It is **only** written into `.mcp.json` when explicitly
+  selected at init — the kit *references* repowise, never bundles it. The label flags that it is
+  **AGPL-3.0** and requires installing it separately (`pip install repowise`) and indexing the repo
+  once (`repowise init`); the repo path is supplied via the `${REPOWISE_PROJECT_ROOT}` env placeholder
+  (same pattern as postgres's `${DATABASE_URL}`), so this is pure catalog data with no resolver change.
+
+### Changed
+- **`skills/code-review-and-quality`** gains a **"Where to Focus: Change Hotspots & Coupling"** section:
+  a tool-agnostic, `git log`-only technique for spending review attention where defects cluster —
+  churn × complexity hotspots, co-change coupling (hidden dependencies), and single-owner/bus-factor
+  files. It notes that a codebase-intelligence MCP (e.g. the optional repowise server) provides the
+  same signals precomputed via `get_risk`/`get_health`, but always as **advisory input, never a
+  blocking gate**. A matching checklist item was added.
+
+### Not done (deliberately, per the assessment)
+- repowise's engine itself — dependency graph, dashboard (`repowise serve`), deterministic PR bot,
+  LLM wiki/RAG, the 25 code-health biomarkers — is runtime and **cannot** be config. Its
+  config-equivalents already exist and were **not** duplicated: dead-code hygiene
+  (`over-engineering-review` / `code-simplification` / `code-review-and-quality` / `mandatory-workflow`),
+  noisy-output compression a.k.a. "distill" (`tool-design` rule + `context-engineering` skill),
+  read-an-overview-first (`context-engineering` / `source-driven-development`), ADRs
+  (`documentation-and-adrs`), commit provenance (`git-workflow-and-versioning`), and auto-generated
+  project instructions (`templates/CLAUDE.md`). No new rule/agent/skill/gate (the hotspot technique is
+  advisory, so it enriches a profile-gated skill rather than becoming a mandatory rule).
+
 ## [0.10.0] — 2026-06-15
 
 Adds **LLM / AI application-security** guidance distilled from a field review of

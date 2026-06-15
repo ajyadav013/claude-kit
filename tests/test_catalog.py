@@ -42,6 +42,23 @@ def test_resolve_worked_example(payload):
     assert plan.context["backend_test_cmd"] == "pytest"
 
 
+def test_repowise_mcp_is_opt_in_and_resolves(payload):
+    """repowise (repowise-inspired codebase intelligence) is an opt-in MCP server, never default."""
+    # Not installed unless explicitly selected.
+    assert (
+        "repowise" not in catalog.resolve(payload, make_selection(payload)).mcp_servers
+    )
+    # Resolves to its stdio launch config when chosen (path via the documented env placeholder).
+    plan = catalog.resolve(payload, make_selection(payload, mcp=["repowise"]))
+    cfg = plan.mcp_servers["repowise"]
+    assert cfg["command"] == "repowise"
+    assert cfg["args"] == ["mcp", "${REPOWISE_PROJECT_ROOT}", "--transport", "stdio"]
+    # Surfaced in list-options with the AGPL-3.0 licence flagged in its label.
+    labels = {m["id"]: m["label"] for m in catalog.list_options(payload)["mcp"]}
+    assert "repowise" in labels
+    assert "AGPL" in labels["repowise"]
+
+
 def test_mongo_selection_swaps_db_overlays(payload):
     plan = catalog.resolve(payload, make_selection(payload, database="mongodb"))
     assert "mongodb-patterns.md" in plan.overlay_rules
