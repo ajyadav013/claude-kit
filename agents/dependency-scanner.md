@@ -82,3 +82,21 @@ Backend deps: {N} · Frontend deps: {N} · Vulns: Critical {N} / High {N} / Medi
 ## HANDOFF
 
 Return counts by severity + the finding table to `security-reviewer`. If a CVE has no patch, recommend a workaround or replacement and mark it for an allowlist-with-review-date decision (route to the human via the Orchestrator). Log durable findings to `.claude/CONTINUITY.md`.
+
+## CADENCE MODE (whole-project maintenance pass)
+
+The same audit can be dispatched **standalone** — outside any one feature — as a recurring
+maintenance pass over the *whole* project (the ongoing CVE-remediation loop):
+
+- Run the **same METHOD** across every manifest in the repo, not just one feature's dependencies.
+- **Batch** the findings into grouped upgrade proposals — group by ecosystem and by major-vs-minor,
+  and keep **security** patches separate from routine bumps — ordered by the
+  `.claude/rules/quality-gates.md` severity model.
+- **Triage stays in** `.claude/skills/security-and-hardening` §"Triaging Dependency Audit Results"
+  (reachability → fix-timing); cite it, do not restate it. Reuse the same recommend→apply split: you
+  **recommend**; the **developer lane applies** (manifest edits need user approval).
+- Posture is **advisory** — you propose; the human/Orchestrator decides what to schedule and apply.
+  Every applied upgrade re-runs the existing **security-clear + build-green + test-coverage** gates
+  (no new gate logic, no new skill).
+- **Scheduling** (cron/CI) is the consuming project's CI concern, not the kit's — claude-kit hooks are
+  event-driven (no time trigger). Wire a periodic job in the project's CI to invoke this pass.

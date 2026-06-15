@@ -22,6 +22,12 @@ When a CONTINUITY entry under **Mistakes & Learnings** is durable (a correction,
 - **Seed:** `.claude/CONTINUITY.template.md` — committed. The `load-continuity.sh` SessionStart hook copies the template to the live file if the live file is missing, then prints it into context.
 - Never commit the live file. Never store secrets, tokens, or credentials in it.
 
+## Concurrency
+
+- There is exactly **one** live `.claude/CONTINUITY.md` per working directory. Two pipeline runs in the **same** checkout share it and will clobber each other's state — don't run concurrent `/sdlc` in one directory.
+- To run pipelines **concurrently** on one repo, give each its own **git worktree** (the isolation primitive already used for parallel lanes in `.claude/rules/mandatory-workflow.md`). Each worktree is a separate checkout, so the `load-continuity.sh` SessionStart hook seeds it an independent `CONTINUITY.md` (it copies the template to `$ROOT/.claude/CONTINUITY.md` when absent).
+- `agent-memory/` is the opposite by design: a single **shared, committed** store any session reads and contributes to (last-writer-wins on distinct kebab-case files; the `remember` skill dedups). It is intentionally **not** namespaced per branch — cross-run learnings pool on purpose.
+
 ## Protocol
 
 **At the start of every turn / session / after compaction:**

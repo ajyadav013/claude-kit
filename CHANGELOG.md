@@ -4,6 +4,91 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.12.0] — 2026-06-15
+
+An **improvement brief** (external self-review, no repo access) proposed ~15 changes — four P0, five
+P1, six P2. Run through the kit's own mandated **adversarial reuse-first mapping** (an 18-agent
+map→verify pass), **every substantive (P0/P1) item resolved to _extend an existing component_, not add
+a new one** — the brief, written without the repo, repeatedly proposed agents/gates/skills that already
+ship. The result is **one new quality gate, one new artifact template, one new slash command, and a set
+of surgical edits to existing files — zero new agents, skills, or rules** (counts unchanged: 28 core
+agents · 50 skills · 23 rules). Config-only, stack-agnostic, no Docker, no new `resolve()` branches.
+
+### Added
+- **`contract-clear` quality gate** (enterprise profile; API-exposing backend stacks only). A
+  pre-merge **API backward-compatibility** gate **owned by the existing `merge-reviewer`** (not a new
+  agent): it diffs the API contract against the base branch (`git show <base>:<contract>`), classifies
+  each delta by the kit's severity model (removed/renamed endpoint or field, narrowed type, new
+  required field, removed status code = **Critical/High**), and blocks a breaking change that lacks an
+  approved migration note + version bump. **Self-skips** when the stack has no contract surface, so it
+  is inert for non-API projects. Wired as **data** in `catalog/profiles.yaml` (enterprise gate list),
+  documented in `rules/quality-gates.md` §4, and sequenced as the mechanical counterpart to
+  `mandatory-workflow.md` §2d. Builds **on** §2d's existing manual breaking-change check rather than
+  replacing it.
+- **`templates/artifacts/api-change-report.md`** — the `contract-clear` gate's output artifact
+  (contract source · base ref · added/changed/removed tables with per-row severity · backward-compat
+  verdict · affected consumers). Installs with the other artifact templates.
+- **`/claude-kit:abort`** slash command (`commands/abort.md`) — a guided, **reversible** mid-pipeline
+  cleanup: confirm a run is in progress, remove **only the worktrees this run created**, mark
+  `CONTINUITY.md` aborted. Deliberately **not** a `claude-kit abort` CLI subcommand (a destructive
+  one-shot CLI for "remove worktrees" is exactly the kind of irreversible action the kit gates).
+
+### Changed (surgical extensions to existing components)
+- **`skills/ci-cd-and-automation`** — named **Blue/Green vs Canary** as an explicit deployment-strategy
+  subsection (blue/green was never named anywhere in the kit; cross-refs the existing Rollout Decision
+  Thresholds). *(P0-1 — the only real gap; see "Not adopted" for the rest of P0-1.)*
+- **`rules/devops-observability.md` + `agents/observability-engineer.md`** — Observability Ready now
+  requires, **for a hot / SLO-bearing backend path**, an empirical load run (drive the existing
+  `load-testing` skill) that meets its p95/p99 latency, error-rate, and throughput budgets; a budget
+  breach is **High**. Recorded in the `quality-gates.md` §4 row. No new gate, no new agent. *(P0-3)*
+- **`agents/dependency-scanner.md`** — added a **Cadence Mode** (a whole-project, scheduled
+  supply-chain maintenance pass: batch grouped upgrades, defer triage to `security-and-hardening`,
+  re-run the existing gates on applied upgrades). Scheduling is left to org CI (the kit has no
+  time-driven hook). No new skill. *(P0-4)*
+- **`rules/model-tiers.md`** — added a **profile cost expectations** subsection (relative, non-currency
+  ballpark: lean cheapest → enterprise heaviest, noting enterprise still runs only four opus agents).
+  *(P1-1)*
+- **`skills/sdlc` + `agents/orchestrator.md`** — `/sdlc` now **detects an in-progress run** from
+  `CONTINUITY.md` and offers **resume** (re-enter at the first gate after the last PASS, read from the
+  orchestrator's `PIPELINE:` state line) **vs restart**; the orchestrator's Stage-7 summary now reports
+  per-gate PASS/FAIL + severity + PR-or-ABORTED and **tears down this run's worktrees**. *(P1-2, P1-3)*
+- **`rules/mandatory-workflow.md`** — §2a now states the **worktree lifecycle** (one per lane → merge
+  after gates pass → remove after the PR is raised or the run is aborted); §2d gained a note pointing
+  at the mechanical `contract-clear` counterpart. *(P1-3)*
+- **`rules/continuity.md`** — added a **Concurrency** subsection (one live `CONTINUITY.md` per working
+  dir; use a worktree per concurrent `/sdlc`; `agent-memory` is intentionally shared, not namespaced).
+  *(P1-4)*
+- **`src/claude_kit/validator.py` + README** — `claude-kit doctor` now reports **platform visibility**:
+  on Windows without `jq` it WARNs (actionable: run under WSL/Git Bash; config + CLI work natively
+  regardless) and on Windows *with* `jq` it confirms a POSIX shell is providing the hooks — **never a
+  failure**. README gained a Windows prerequisites note + troubleshooting row. *(P1-5)*
+
+### Not adopted (deliberately — the kit already covers these)
+- **P0-1 `release-manager`/`release-ready`/`rollback-safety` (new agent + gate + rule).** Release &
+  rollback are **already owned by `devops-engineer`** (and the Pipeline Green gate already requires a
+  *verified* rollback + runbook); canary, feature flags, staged rollout, and rollback are already
+  covered in depth by the `shipping-and-launch` skill. Only "blue/green was never named" was a genuine
+  gap — fixed above as one subsection, no new components.
+- **P0-2 `contract-reviewer` agent in the _standard_ profile.** Reused `merge-reviewer` instead of a
+  new agent, and placed the gate in **enterprise** (heavyweight gates default to enterprise per the
+  profile policy), not standard. It also **builds on** `mandatory-workflow.md` §2d rather than
+  duplicating it.
+- **P0-3 `performance-engineer` agent + standalone performance gate.** Folded into the existing
+  Observability Ready gate + `observability-engineer` + `load-testing` skill.
+- **P0-4 `dependency-maintenance` skill.** Folded into the existing `dependency-scanner` agent as a
+  mode; no competing skill.
+- **P1-1 `cost-estimate` skill + a per-run cost hook.** A doc subsection in `model-tiers.md` conveys
+  the expectation without a runtime token-accounting surface the kit can't reliably measure.
+- **P1-3 a `run-report` subsystem / structured run trace.** Already covered by `CONTINUITY.md` working
+  memory + the orchestrator's Stage-7 summary; only the genuine gaps (worktree teardown + clean abort)
+  were added.
+- **P1-5 a PowerShell hook port.** The hooks stay POSIX `.sh`; `doctor` now tells Windows users to run
+  under WSL/Git Bash. Porting every guard to PowerShell would double the maintenance surface for a
+  shell most users already have via WSL/Git Bash.
+- **The P2 items** (repo metadata, PyPI publish, listing submissions) that require a human / `gh` are
+  left as follow-ups; the **E2E worked example**, **positioning section**, and **README on-ramp** were
+  partly addressed (a "How claude-kit compares" positioning block + the adoption row were added).
+
 ## [0.11.3] — 2026-06-15
 
 A field review of a **reference table of ecosystem repos** — official + community **MCP-server

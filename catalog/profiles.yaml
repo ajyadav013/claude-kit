@@ -95,5 +95,5 @@ profiles:
       - incident-responder
       - risk-classifier
     skills: all
-    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, pipeline-green, observability-ready, acceptance]
+    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, contract-clear, pipeline-green, observability-ready, acceptance]
     hooks: all

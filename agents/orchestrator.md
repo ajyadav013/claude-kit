@@ -392,7 +392,8 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
 
 ### Stage 7: Pipeline Complete
 - Report PR URL to the human.
-- Summarize: specs, dev docs, design, reviews (senior dev + tech architect + EM per lane), code reviewed, merge verified, testing validated + verified, Devil's Advocate (if unanimous), DevOps + Observability (where applicable), PR raised.
+- Summarize: specs, dev docs, design, reviews (senior dev + tech architect + EM per lane), code reviewed, merge verified, testing validated + verified, Devil's Advocate (if unanimous), DevOps + Observability (where applicable), PR raised. State the summary as **per-gate PASS/FAIL**, open findings by **Critical/High/Medium**, and **PR-or-ABORTED** status (`.claude/rules/quality-gates.md` severity model).
+- **Tear down this run's worktrees.** Once the PR is raised (or the run is abandoned), remove the per-lane worktrees this run created via the Agent tool's `isolation: "worktree"` — they auto-clean when unchanged; for merged lanes confirm removal with `git worktree remove`. **Only** remove worktrees this run created — never the user's other worktrees or the primary checkout. If a run must be cancelled mid-pipeline before this stage, use `/claude-kit:abort`.
 
 ---
 

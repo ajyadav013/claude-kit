@@ -489,6 +489,13 @@ def test_warn_llm_io_hook_in_standard_not_lean(tmp_path, payload):
     )
 
 
+def test_api_change_report_template_ships(tmp_path, payload):
+    """The api-change-report artifact (contract-clear gate output) installs with the templates."""
+    install(payload, tmp_path)
+    matches = list((tmp_path / ".claude").rglob("api-change-report.md"))
+    assert matches, "api-change-report.md artifact template not installed"
+
+
 def test_guard_destructive_git_hook_in_standard_not_lean(tmp_path, payload):
     """guard-destructive-git ships + wires into PreToolUse(Bash) in standard; absent in lean.
     Functionally blocks irreversible work-loss commands (exit 2) and allows safe git (exit 0)."""

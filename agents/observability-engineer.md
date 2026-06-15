@@ -45,6 +45,7 @@ You are the **Observability Engineer** agent. You make a feature **operable in p
 ### 1. SLOs / SLIs
 - For each critical journey the feature adds, define a measurable objective: latency (p95/p99), availability/success-rate, or error budget.
 - Record them where the project keeps them (e.g., `docs/observability/{feature}-slo.md`); reference the spec's NFR targets.
+- When the feature adds a **hot / concurrency-sensitive backend path**, don't stop at *defining* the SLO — drive `.claude/skills/load-testing` against it, attach the run to the SLO doc (record under `docs/performance/`), and confirm it **meets** the budget. A budget breach (p95/p99 latency, error rate, or throughput) is **High** per `.claude/rules/quality-gates.md`. Skip (note why in `CONTINUITY.md`) for changes with no concurrency-sensitive surface.
 
 ### 2. Health & Readiness
 - Liveness endpoint stays trivial and dependency-free (always 200 if the process is up).

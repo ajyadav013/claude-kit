@@ -25,6 +25,18 @@ Before doing anything, read:
   and the blind-review + Devil's Advocate protocol.
 - `.claude/rules/rarv-cycle.md` — the Reason → Act → Reflect → Verify self-check every agent runs.
 
+Then read `.claude/CONTINUITY.md` (the `load-continuity` SessionStart hook has already printed it into
+context). **Detect an in-progress run:** if **Current Phase** is not idle and **Active Tasks** names a
+run matching `$ARGUMENTS`, an earlier pipeline is in flight. Tell the user the **last PASSed gate** and
+the active lane(s) from the mirrored `PIPELINE:` line (the orchestrator's authoritative, gate-precise
+state line — see `.claude/rules/continuity.md`), then ask whether to:
+
+- **RESUME** — re-enter the orchestrator at the first gate *after* the last passed one, re-running only
+  un-passed or defect-affected lanes; or
+- **RESTART** — reset **Current Phase** / **Next Steps** and begin again from spec.
+
+If **Current Phase** is idle (or CONTINUITY was freshly seeded), proceed as a fresh run.
+
 ## 2. Discover the active profile (this decides which gates run)
 
 Read `.claude/config/stack-catalog.snapshot.yaml`. Its `gates:` and `agents:` lists are the
@@ -53,8 +65,9 @@ and the stack selection. Instruct it to:
 1. **Classify** the work — bug fix vs. feature; single-stream vs. parallel lanes (backend/frontend);
    fast-track (< 5 files) vs. full pipeline. Fast-track collapses to the lean gate set regardless of
    profile.
-2. **Record** the plan and initial state in `.claude/CONTINUITY.md` (working memory survives
-   compaction — update it at every phase transition).
+2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
+   survives compaction — update it at every phase transition). On resume, re-enter at the first gate
+   *after* the last PASSed gate per the `PIPELINE:` line rather than restarting from spec.
 3. **Run each active phase with its gate**, in order, using only the profile's agents:
    spec & dev-docs → story planning → (design, if UI) → senior/architect/EM review →
    implementation (one worktree per lane) → code review → unit + e2e tests → test-coverage merge →

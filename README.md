@@ -95,6 +95,11 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 > **Prerequisites:** [Claude Code](https://www.claude.com/product/claude-code); Python ≥ 3.9 for the
 > CLI; `jq` to enable the shell hooks (they no-op without it); Node / `npx` only if you enable an MCP
 > (Model Context Protocol) server.
+>
+> **Windows:** the config (agents · skills · rules) and the `claude-kit` CLI work natively. The shell
+> hooks (`guard-*`, `warn-*`) need a POSIX shell + `jq`, so run inside **WSL or Git Bash** to enable
+> them — `claude-kit doctor` detects Windows and tells you which case you're in. Without a POSIX shell
+> the hooks silently no-op (the kit still functions; you just lose the deterministic guards).
 
 <details>
 <summary><b>What the init flow asks &amp; what lands on disk</b></summary>
@@ -212,6 +217,7 @@ non-duplicative gaps**, minimally and catalog-wired.
 | **[ponytail](https://github.com/DietrichGebert/ponytail)** | YAGNI / anti-over-engineering as an explicit recurring pass; deferral-debt tracking; surfacing the active autonomy level | `over-engineering-review` & `simplification-debt` skills, the `load-autonomy` hook, median-of-N in `evals` | `0.8.0` |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec → tasks → **analyze** coverage gate; tasks → tracker issues; stable requirement IDs + assumptions in specs | Wired the (previously orphaned) `story-planner` as the **coverage gate (1f)**, a tracker-agnostic `task-tracker-sync` skill, and enriched the feature-spec template | `0.9.0` |
 | **[protectai/llm-guard](https://github.com/protectai/llm-guard)** | Input→model→output guardrails for LLM features — prompt injection, PII vault, treating model output as untrusted | **Opt-in** "LLM / AI Feature Security" guidance in `security-and-hardening` + the advisory `warn-llm-io` hook (warns, **never blocks**) | `0.10.0` |
+| **Improvement brief** (external self-review) | API backward-compat as a gate; load-against-SLO as a release criterion; supply-chain maintenance cadence; pipeline resumability, clean abort, and worktree lifecycle; pipeline cost/concurrency/cross-platform transparency | The enterprise **`contract-clear`** gate (owned by `merge-reviewer`) + `api-change-report` template; a load-vs-SLO criterion in Observability Ready; dependency **Cadence Mode**; `/sdlc` resume-vs-restart, `/claude-kit:abort`, worktree teardown; cost/concurrency/Windows notes — **9 surgical extensions, 0 new agents/skills/rules** | `0.12.0` |
 
 > Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
 > deliberately **did not** add because the kit already covered it.
@@ -243,6 +249,28 @@ bypassing**: an "LLM / AI Feature Security" section in `security-and-hardening` 
 guardrails, PII vault, untrusted-output handling, a security-implications-of-bypassing table) plus a
 non-blocking `warn-llm-io` hook. We deliberately did **not** add a new rule or fold it into the
 mandatory security gate — that would have made it mandatory.
+
+</details>
+
+<details>
+<summary><b>How claude-kit compares (positioning)</b></summary>
+
+<br>
+
+claude-kit is a **config-only, stack-agnostic SDLC scaffolder** — it installs a governed pipeline
+(agents · skills · rules · gates · hooks) into your project's `.claude/` and then gets out of the way.
+It is **not** a runtime, an orchestration engine, or a code library. That framing is the difference:
+
+| Project | What it is | How claude-kit differs |
+|---|---|---|
+| **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | claude-kit ships a **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
+| **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | claude-kit **absorbed spec-kit's coverage-gate idea** (the `story-planner` 1f gate + `task-tracker-sync`) into a **broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
+| **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | claude-kit produces **portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | claude-kit is a **catalog-driven generator**: it resolves your stack/profile/scope into the right subset of 23 rules, ~28 agents, ~50 skills, gates, and hooks, and keeps them **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
+
+**Choose claude-kit when** you want a consistent, reviewable, **gate-enforced** autonomous-SDLC setup
+that's the same across every repo and stack, installs in seconds, ships nothing you have to run, and
+**evolves reuse-first** rather than by piling on near-duplicate agents.
 
 </details>
 
@@ -397,6 +425,7 @@ hints.
 |---|---|---|
 | `/sdlc`, agents, or skills "not found" right after `init` | Claude Code hasn't loaded the new project config yet | **Restart Claude Code** — or use `/claude-kit:sdlc <task>` (works without a restart) |
 | Guard / quality hooks seem to do nothing | `jq` isn't installed (the hooks parse tool input with it) | Install `jq`; without it the hooks degrade to no-ops by design |
+| Hooks do nothing on **Windows** | No POSIX shell — `.sh` hooks can't run under `cmd`/PowerShell | Run claude-kit inside **WSL or Git Bash** (with `jq`); `claude-kit doctor` confirms. Config + CLI work natively regardless |
 | A selected MCP server won't start | `node` / `npx` missing (most MCP servers launch via `npx`) | Install Node.js, or remove the server from `.mcp.json` |
 | `pip install claude-code-kit` fails | Not yet published to PyPI | Use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
 | `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |

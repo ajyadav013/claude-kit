@@ -90,7 +90,8 @@ Where the agent is installed, a gate reached by unanimous PASS is not PASS until
 | Test coverage verified | 3 | All acceptance criteria covered across lanes | **Yes** — senior testers blind, Devil's Advocate on unanimous PASS |
 | Security clear | 5.4 | 0 Critical/High/Medium, no secrets, deps patched, policies enforced | No — `security-reviewer` + sub-scanners |
 | Pipeline green | DevOps | CI valid, container/build artifacts healthy, runbook complete | No — see `devops-observability.md` |
-| Observability ready | Observability | SLOs, health checks, alerts, structured logs | No — see `devops-observability.md` |
+| Observability ready | Observability | SLOs, health checks, alerts, structured logs + (for hot backend paths) a load run meets the SLO | No — see `devops-observability.md` |
+| Contract clear *(enterprise; API stacks)* | Pre-merge | API contract diff vs base branch: 0 backward-incompatible deltas without an approved migration note + version bump; self-skips when no contract surface | No — `merge-reviewer` |
 
 ---
 

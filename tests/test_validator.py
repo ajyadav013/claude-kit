@@ -33,3 +33,13 @@ def test_doctor_runs_environment_checks(tmp_path, payload):
     ok, messages = validator.doctor(tmp_path)
     assert ok, "\n".join(messages)
     assert any(".claude/state/ is gitignored" in m for m in messages)
+
+
+def test_doctor_warns_on_windows_without_jq(tmp_path, payload, monkeypatch):
+    """doctor: Windows + no jq → actionable WSL/Git Bash guidance, and never a failure."""
+    install(payload, tmp_path)
+    monkeypatch.setattr(validator.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(validator.shutil, "which", lambda _tool: None)
+    ok, messages = validator.doctor(tmp_path)
+    assert ok, "\n".join(messages)
+    assert any("Windows" in m and "WSL" in m for m in messages)
