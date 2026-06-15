@@ -171,9 +171,10 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagrams.
 ```mermaid
 flowchart TD
     REQ(["/sdlc request"]) --> CLS{"Classify"}
-    CLS -->|"feature"| SPEC["Spec & Dev Docs → Story Planner"]
+    CLS -->|"feature"| SPEC["Spec & Dev Docs"]
     SPEC --> EM{{"Gate: EM approved"}}
-    EM -->|"pass"| LANES["Parallel lanes:<br/>Senior Dev → Architect → Developer → Code Review"]
+    EM -->|"pass"| STORY["Story breakdown + coverage gate<br/>story-planner"]
+    STORY --> LANES["Parallel lanes:<br/>Senior Dev → Architect → Developer → Code Review"]
     LANES --> MR{{"Gate: Merge Reviewer"}}
     MR --> TEST["Unit · E2E · Integration + Senior verification"]
     TEST --> TCG{{"Gate: Test coverage<br/>+ Devil's Advocate"}}
@@ -204,7 +205,7 @@ your chosen DB, and **org persona agents** added only in organization scope. See
 |-------|------|
 | `orchestrator` | Pipeline controller — decomposes, delegates, runs lanes in parallel, gates progression (never writes code) |
 | `spec-doc-writer` | Turns requirements into a spec + developer documentation in one pass |
-| `story-planner` | Decomposes an approved spec into ordered, parallelizable stories |
+| `story-planner` | Decomposes an approved spec into ordered, parallelizable stories; verifies every acceptance criterion maps to a story (workflow gate 1f) |
 | `ui-designer` | Drafts and self-reviews UI/UX design specs |
 | `senior-backend-dev` · `senior-frontend-dev` | Senior review of a work stream's spec (the two-lane example) |
 | `technical-architect` | Cross-system architecture, scalability, integration review |

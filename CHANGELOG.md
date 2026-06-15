@@ -4,6 +4,41 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.9.0] — 2026-06-15
+
+Distils a field review of GitHub's [spec-kit](https://github.com/github/spec-kit) (Spec-Driven
+Development). An adversarial map→verify pass cross-checked spec-kit's seven distinctive features
+against claude-kit's existing spec-driven machinery; most were already covered (the `/constitution`
+artifact by `CLAUDE.md` "Project-specific rules" + the org `ai-working-agreement`; `/clarify` by
+`interview-me`; `/checklist` by `em-reviewer` + the spec-driven reframe + workflow §1b). Per golden
+rule #1 (reuse, don't duplicate), those were **not** re-implemented. The genuine gaps were a
+**built-but-unwired capability** and a **missing mechanism** — both addressed without new spec
+machinery, no application code, and no Docker.
+
+### Added
+- **`skills/task-tracker-sync`** (`standard`+): a thin, **tracker-agnostic** skill that mirrors an
+  existing task/story breakdown into the project's configured issue tracker (GitHub / Linear / Jira
+  via whichever MCP is set up), one issue per task, dependencies carried across, idempotent
+  (match-then-update, never blind-create). This implements spec-kit's `/taskstoissues` as the real
+  mechanism behind what was previously only a permission — `story-planner` said tasks *may* be
+  created, but nothing did it. It syncs a breakdown; it does not create one.
+
+### Changed
+- **Wired the orphaned `story-planner` agent into the pipeline as a coverage gate** — the headline
+  reuse. `story-planner` already decomposes an approved spec into ordered stories and verifies that
+  *every acceptance criterion maps to ≥1 story* (gaps and scope creep flagged), but it appeared in
+  neither `rules/mandatory-workflow.md` nor `agents/orchestrator.md`. It is now **stage 1f — Story
+  Breakdown & Coverage Gate**, between EM approval (1e) and the Developer (2a): implementation cannot
+  start until acceptance-criterion coverage is complete. This is spec-kit's tasks→analyze→implement
+  discipline, fulfilled with an existing component instead of a new one. Flow diagrams, the gating
+  table, and the orchestrator pipeline/spawn-reference/state-tracking were updated to match.
+- **`templates/artifacts/feature-spec.md`** now gives requirements stable ids (R1, R2 …) nesting
+  their Given/When/Then acceptance criteria, and adds an explicit **Assumptions** section — aligning
+  the artifact with the spec shape `mandatory-workflow.md` §1c already mandates and making the new
+  coverage gate concrete (stories and tests trace back to R-ids).
+- `agents/story-planner.md` and `skills/planning-and-task-breakdown` now point at `task-tracker-sync`
+  for pushing a plan to a tracker.
+
 ## [0.8.0] — 2026-06-15
 
 Adds a **minimalism / anti-over-engineering** layer distilled from a field review of the

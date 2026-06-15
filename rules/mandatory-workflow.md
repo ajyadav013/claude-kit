@@ -107,13 +107,13 @@ handled by a dedicated agent in `.claude/agents/`.
 ```
 Phase 1 — Planning (Stages 0-3)   ║  Phase 2 — Development (4-5)   ║  Phase 3 — Testing & Delivery (6-7)
 [0] Orchestrator receives request ║  [4] Developer writes code      ║  [6a] Unit Tester ─┐
-1a→1b→1c→1d→1e ───────────────────╬──► 2a→2b→2c→2d ────────────────╬──► [6b] E2E Tester ─┤ (parallel)
+1a→1b→1c→1d→1e→1f ─────────────────╬──► 2a→2b→2c→2d ────────────────╬──► [6b] E2E Tester ─┤ (parallel)
 Understand→Clarify→Spec→Dev docs  ║  Read→Implement→Quality gate    ║  3a→3b→3c→3d
-→ EM review                       ║  → Code review                  ║  → Security → DevOps/Obs → PR → Human
+→ EM review → Story breakdown      ║  → Code review                  ║  → Security → DevOps/Obs → PR → Human
 ```
 
 **Pipeline rules:**
-- No code is written until Phase 1 is complete (EM approval required).
+- No code is written until Phase 1 is complete (EM approval + story-coverage gate required).
 - No testing starts until Phase 2 code review passes.
 - No PR is created until all tests pass (unit + E2E).
 - No task is marked done until the user has reviewed and accepted.
@@ -151,7 +151,25 @@ table (each requirement → implementation approach → files).
 A skeptical Engineering Manager reviews the dev docs for completeness, quality (simplest
 approach, no over/under-engineering), non-functional concerns, and architecture fit.
 Feedback loops with the Dev Doc Writer, **max 3 iterations**, then escalate.
-**Gate:** EM signals `APPROVED`. Development CANNOT start without it.
+**Gate:** EM signals `APPROVED`. The story breakdown CANNOT start without it.
+
+## 1f — Story Breakdown & Coverage Gate `[Story Planner]`
+With the EM-approved spec, the **Story Planner** decomposes it into the smallest set of
+independently shippable stories, ordered by dependency, and identifies which can run in parallel
+(per lane). It builds a **traceability map**: every acceptance criterion → at least one story.
+
+This is the spec↔stories coverage check *before* any code is written — the gate that catches an
+acceptance criterion no story covers (a **gap**) and a story that maps to no criterion (**scope
+creep**), so both are fixed on paper rather than discovered mid-implementation. A gap or
+scope-creep finding routes back to the Spec Writer (fix the spec), never silently into the code.
+
+**Output:** a story breakdown (written where the spec lives, or to `.claude/state/`) with stable
+story ids, the criteria each satisfies, an acyclic `blockedBy`/`blocks` dependency graph, and the
+immediately-startable parallel set. When a task tracker is configured, the stories can be mirrored
+to it — see `.claude/skills/task-tracker-sync/SKILL.md`.
+**Gate:** every acceptance criterion is covered by ≥1 story (no gaps), no story lacks a criterion
+(no scope creep), the graph is acyclic, and the parallel set is genuinely unblocked. Implementation
+CANNOT start until coverage is complete.
 
 ---
 
@@ -270,6 +288,7 @@ B1 understand → B2 failing test → B3 root cause → B4 fix → B5 quality ga
 ```
 Phase 1: 1a Understand [Orchestrator] → 1b Clarify → 1c Spec [Spec Writer]
   → 1d Dev docs [Dev Doc Writer] → 1e EM review [EM Reviewer, max 3]
+  → 1f Story breakdown + coverage gate [Story Planner]
 Phase 2: 2a Read code [Developer] → 2b Implement → 2c Code review [Code Reviewer, max 5] → 2d Impact check
 Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
   → 3b.5 Test-coverage gate (blind review + Devil's Advocate)
@@ -282,7 +301,8 @@ Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
 |------|-----------------|
 | Requirements clarified (1b) | Spec Writer starts |
 | Spec approved by user (1c) | Dev Doc Writer starts |
-| EM `APPROVED` (1e) | Developer starts coding |
+| EM `APPROVED` (1e) | Story Planner starts |
+| Story coverage complete — every criterion mapped, no scope creep (1f) | Developer starts coding |
 | Code Reviewer `APPROVED` (2c) | Testing starts |
 | Both testers pass (3a+3b) | Test-coverage gate |
 | Test-coverage PASS/CONFIRMED (3b.5) | Security review |

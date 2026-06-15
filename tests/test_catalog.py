@@ -70,6 +70,16 @@ def test_minimalism_additions_resolve_in_standard(payload):
     assert "load-autonomy" not in lean.hooks
 
 
+def test_task_tracker_sync_resolves_in_standard(payload):
+    """task-tracker-sync (spec-kit /taskstoissues) resolves in standard, not lean; story-planner is wired in standard."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    assert "task-tracker-sync" in standard.skills
+    assert "task-tracker-sync" not in lean.skills
+    # story-planner ships in the standard agent set (now wired into the workflow as the 1f gate).
+    assert "story-planner" in standard.agents
+
+
 def test_every_profile_includes_sdlc_entrypoint(payload):
     for profile in ("lean", "standard", "enterprise"):
         plan = catalog.resolve(payload, make_selection(payload, profile=profile))
