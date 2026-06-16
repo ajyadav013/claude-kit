@@ -62,34 +62,20 @@ Rules of thumb:
 - **Small components.** If a component grows past one responsibility, split it; move shared logic
   into a hook.
 
-## Accessibility specifics (Tailwind + Radix)
+## Accessibility specifics
 
-The generic WCAG technique lives in `.claude/rules/responsive-and-accessibility.md` and the
-`accessibility-review` skill. These are the React/Tailwind/Radix specifics that overlay carries
-(assuming this overlay's Tailwind + Radix styling stack — see `design-system-compliance.md`):
+The concrete React/Tailwind/Radix accessibility rules — gray-scale text-contrast thresholds, the
+`p-3 -m-3` 44px touch-target technique, clickable-non-button keyboard requirements, focus rings, and
+icon-only-button labelling — live in **`ui-design-system.md`** (§Accessibility), with the generic WCAG
+technique in `.claude/rules/responsive-and-accessibility.md` and the `accessibility-review` skill. Two
+React-specific reminders that earn a review finding here:
 
-- **Text contrast.** WCAG AA needs **4.5:1** for normal text (3:1 for large/bold ≥18.66px). On a
-  white background, the muted Tailwind grays fall out roughly as:
-
-  | Class | ≈ ratio on white | Verdict for body text |
-  |---|---|---|
-  | `text-gray-400` | ~3.0:1 | **FAIL** — never for body copy |
-  | `text-gray-500` | ~4.6:1 | borderline pass — ok for secondary, not ideal |
-  | `text-gray-600`+ | ≥7:1 | safe |
-
-  Use `text-gray-600`/`700` for body, reserve `text-gray-500` for genuinely secondary text, and don't
-  use `text-gray-400` (or lighter) for anything a user must read.
-- **Touch targets without shrinking the visual.** A control's hit area should be ≥44px even when the
-  icon is small — expand the padding and pull it back with a negative margin so layout is unchanged:
-  `className="p-3 -m-3"` on the clickable element. Pad the hit area; never shrink it. (See the
-  touch-target guidance in `.claude/rules/responsive-and-accessibility.md`.)
-- **Clickable non-buttons.** Prefer a real `<button>`. If you must make a `<div>`/`<span>` clickable,
-  it needs all three: `role="button"`, `tabIndex={0}`, and an `onKeyDown` that fires on `Enter` and
-  `Space` — an `onClick` alone is unreachable by keyboard. Give it a dynamic `aria-label` when the
-  visible text isn't descriptive.
-- **Don't re-flag accessible primitives.** Components from `@/components/ui` (shadcn) and Radix
-  primitives already manage focus, keyboard, and ARIA — don't add redundant handlers or report them
-  as findings. *Do* flag raw `<div onClick>` and unlabeled icon-only buttons.
+- **Clickable non-buttons.** Prefer a real `<button>`. A clickable `<div>`/`<span>` needs all three —
+  `role="button"`, `tabIndex={0}`, and an `onKeyDown` firing on `Enter`/`Space` — plus a descriptive
+  `aria-label`; an `onClick` alone is unreachable by keyboard.
+- **Don't re-flag accessible primitives.** `@/components/ui` (shadcn) and Radix primitives already
+  manage focus, keyboard, and ARIA — don't add redundant handlers or report them as findings. *Do*
+  flag raw `<div onClick>` and unlabeled icon-only buttons.
 
 ## Which tests to run for a change
 

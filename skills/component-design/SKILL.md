@@ -9,7 +9,7 @@ Design and implement the component: $ARGUMENTS.
 
 ## Steps
 
-1. **Read the design system**: Read `docs/references/ui/ui-design-system.md` for visual rules and component standards (if available).
+1. **Read the design system**: Read `.claude/rules/ui-design-system.md` (installed as a React overlay rule) for visual rules and component standards — or a project's `docs/references/ui/ui-design-system.md` equivalent. Read whichever is present.
 
 2. **Check existing components**: Check the project's component directory for available UI primitives and established patterns. Search for similar components to follow the project's conventions.
 
@@ -95,8 +95,8 @@ Design and implement the component: $ARGUMENTS.
 ## References
 
 - UI primitives: Project's UI primitives directory/barrel export
-- Design system: `docs/references/ui/ui-design-system.md` (if available)
-- UX patterns: `docs/references/ui/ux-patterns.md` (if available)
+- Design system: `.claude/rules/ui-design-system.md` (React overlay) or `docs/references/ui/ui-design-system.md` (if present)
+- UX patterns: `.claude/rules/ux-patterns.md` (React overlay) or `docs/references/ui/ux-patterns.md` (if present)
 - Rules: `.claude/rules/frontend-best-practices.md`, `.claude/rules/responsive-and-accessibility.md`
 
 ## Examples
