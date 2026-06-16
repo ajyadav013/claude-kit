@@ -15,7 +15,7 @@ Archive the completed sprint for backlog item #$ARGUMENTS.
    - Read the sprint plan and verify tasks are complete
    - Verify the Sprint Report section is filled in (Results, Metrics, What went well/wrong, Learnings, Unresolved). If missing, tell the user to write the post-sprint report first — do not archive without it.
    - Check if any new learnings should be added to `docs/reference/post-sprint-learnings.md`. If the sprint report has learnings not already captured there, append them.
-   - Optionally run the project's build to confirm nothing is broken
+   - **Run the project's checks and confirm they actually pass** — the test suite, linter, and build, executed now (not assumed from the report). Do not archive on a red or unrun check; capture the real result. A "green" claim must cite the command + output (`.claude/rules/quality-gates.md` §2.5).
 
 3. **Move to archive**: Use `git mv` to move:
    - The scope doc → `docs/archive/plans/{slug}-scope.md`

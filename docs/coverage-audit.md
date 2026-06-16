@@ -51,6 +51,30 @@ The pattern matches the rest of the kit: a *discipline* is a RULE (always-on gui
 spec/EM gate exists at all. P0-2 is the exception that strengthens *every* gate by making a fabricated
 verdict auto-Critical, without adding a token.
 
+## Fynd adoption disciplines (as of 0.15.0)
+
+The Fynd persona/skill adoption (CHANGELOG 0.15.0) added capabilities reuse-first. Consistent with the
+posture above, it added **no new gate tokens** — the new capabilities are SKILLs, OVERLAY rules, or
+checklists that ride *inside existing* review gates. Enforcement class of each:
+
+| Discipline | Class | Evidence | Enforced where |
+|------------|-------|----------|----------------|
+| **Proactive bug hunt** | **SKILL — standard+** | `skills/bug-hunt` (profile-gated to standard, inherited by enterprise); invoked on demand | advisory (runs when invoked) |
+| **Test-plan review** | **SKILL — standard+** | `skills/test-plan-review` (standard profile) | advisory |
+| **Comprehension-layer generation** | **SKILL — standard+** | mode added to `skills/context-engineering` | advisory |
+| **Cross-service coordination · task-type/portable prompts** | **SKILL — standard+** | folded into `skills/planning-and-task-breakdown` | advisory |
+| **Pre-removal safety check** | **SKILL + OVERLAY** | section in `skills/deprecation-and-migration`; concrete grep recipe in `fastapi-patterns.md` overlay; ties to `agent-guardrails.md` §3 verify-the-target (RULE) | advisory (the §3 rule is always-on) |
+| **Agent capacity / live-sprint health** | **SKILL + AGENT-behaviour** | `skills/sprint` capacity planning; `agents/orchestrator` Monitor step; cross-ref `rules/agent-resilience.md` | advisory |
+| **Claim-audit (verify claims vs codebase)** | **rides the em-approved gate (standard+)** | checklist group in `agents/em-reviewer` (owner of the existing `em-approved` gate) — strengthens that gate, no new token | standard+ (within em-approved) |
+| **Eval / HITL / staged-rollout check** | **rides the review chain (standard+)** | thin checklist in `agents/technical-architect` (+ one `em-reviewer` line) pointing at `rules/evals.md`, `human-in-the-loop.md` | standard+ (within architecture/EM review) |
+| **Suite-architecture audit** | **AGENT mode — standard+** | `suite-audit` mode on `agents/senior-tester`; a verification *mode*, not a separate token | advisory (within testing) |
+| **Staff-PM product-lens review tier** | **SKILL/AGENT — organization scope only** | `staff-pm-reviewer` + `review-scope`/`review-sprint-plan`/`review-ux-flow`/`review-sprint` install only when `scope == organization` (`catalog/org.yaml`); read-only, advisory — no product gate token | org scope (advisory) |
+| **Design-system compliance · a11y/contract overlay enrichments** | **OVERLAY RULE** | `design-system-compliance.md` + enrichments in `react-patterns.md`/`fastapi-patterns.md`; install only when the matching stack is selected | when stack selected (advisory rule) |
+
+The two that reach *enforced* (claim-audit, eval/HITL) do so the same way P0-2 did — by strengthening
+an **existing** gate's owner-agent checklist, not by minting a token. Everything else is advisory by
+design, and the product-lens review tier is additionally **scope-gated** to organization installs.
+
 ## Why the posture is internally consistent
 
 - Gates come **only** from `prof["gates"] + org.extra_gates` (`src/claude_kit/catalog.py`); stacks

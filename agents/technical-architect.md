@@ -93,6 +93,17 @@ Before reviewing, you MUST read:
 - [ ] Extension points are identified (where would we add features later?)
 - [ ] No premature optimization — but also no design choices that make optimization impossible later
 
+### AI Outputs & Staged Rollout (when applicable)
+A thin gate that points at the owning rules — don't re-derive their checklists here.
+- [ ] **If the design produces AI/model outputs:** the spec addresses how output quality is
+  evaluated and calibrated (against ground truth / a known set) and where a human reviews before
+  consequential actions — see `.claude/rules/evals.md`, `.claude/rules/goal-setting-and-monitoring.md`,
+  `.claude/rules/human-in-the-loop.md`.
+- [ ] **If the change rolls out in phases:** the spec specifies the staged-rollout sequence and a
+  rollback path that is safe at every intermediate state — see the `shipping-and-launch`,
+  `incremental-implementation`, and `deprecation-and-migration` (expand/contract) skills.
+- [ ] Prompts, models, and configs that affect behavior are versioned (treat them as code).
+
 ## Feedback Protocol
 
 When you find issues, send **specific, actionable** revision requests:

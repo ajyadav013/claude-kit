@@ -209,6 +209,65 @@ Key files: validation.ts, errors.ts, db.ts
 
 Load only the relevant section when working on a specific area.
 
+## Generating a Project Comprehension Layer
+
+The Project Map above is the hand-written, minimal form. For a large or unfamiliar codebase it pays
+to **generate a persistent, cross-linked comprehension layer** — a small set of navigable docs an
+agent reads *before* doing any work, so it spends its attention budget on the task, not on
+rediscovering the codebase every session. This is the read-it-first counterpart to `refresh-docs`
+(which keeps it current) and the curation hierarchy above (which decides what to load).
+
+Put the layer in a project-chosen directory (e.g. `docs/context/` — the exact name is a project or
+org convention, not fixed by this kit) with a single root index and linked detail files.
+
+### What to produce
+
+```
+<context-dir>/
+  index.md            ← root navigation: overview, module map, features map, links to everything
+  patterns/<name>.md  ← one per recurring pattern (see the 3+-occurrences rule)
+  modules/<name>.md   ← one per module: purpose, key components, public surface, deps, gotchas
+  architecture/*.md   ← module interactions + data-flow / data-model
+  features/<name>.md  ← one per user-facing feature, linking the modules that implement it
+```
+
+### Pipeline (resumable — do one step per pass, then record progress)
+
+1. **Detect repo type & scope.** Decide what kind of codebase this is (service / UI / mobile /
+   full-stack / multi-service). The *signals* that identify a stack live in that stack's overlay
+   rule (`.claude/rules/<stack>-patterns.md`), not here — read them rather than hardcoding file
+   names. This keeps the technique stack-agnostic.
+2. **Discover patterns inductively.** Read broadly and surface recurring structures. Apply the
+   **3+-occurrences rule**: any structure that appears in three or more places is a *pattern* and
+   earns a `patterns/` doc. Don't pre-decide the list — let the code reveal it.
+3. **Map modules.** Enumerate every module (not just the obvious ones), grouped by role
+   (core / supporting / infrastructure / utility); write the module map into `index.md`.
+4. **Map features & architecture.** Group entry points into features; map dependencies, data flows,
+   and external integrations into `architecture/`.
+5. **Write per-module deep-dives** for each mapped module.
+6. **Cross-reference & verify.** Add "where used" / "implemented by" links both ways, then
+   **verify every link resolves** — a comprehension layer with dead links erodes trust fast.
+
+**Resumability:** before each pass, check which files already exist and resume from the next
+incomplete step rather than regenerating. This is the same reload-not-rerun discipline as
+`.claude/rules/continuity.md`.
+
+### Incremental updates & cross-service
+
+- **Incremental:** when code changes, update only the affected module/pattern/feature docs — skip
+  pure refactors, formatting, and comment-only changes. (This is `refresh-docs`'s job; this skill
+  just defines the artifact it maintains.)
+- **Cross-service:** for multi-repo work, load each service's `index.md`, then map the *shared*
+  resources (data stores, events, APIs) and the coordination points between them — see the
+  cross-service section in `planning-and-task-breakdown`.
+
+### Quality bar
+
+- Use **real** identifiers, paths, and code from the repo — never pseudocode or `[TODO]` stubs.
+- The **new-developer test:** could someone new understand what the system does, how to navigate it,
+  which patterns to follow, and what gotchas to avoid? If not, the doc needs more substance.
+- Explain *why*, not just *what* — the layer is comprehension, not an API dump.
+
 ## MCP Integrations
 
 For richer context, use Model Context Protocol servers:

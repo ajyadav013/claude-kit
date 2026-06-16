@@ -117,6 +117,38 @@ Only after all consumers have migrated:
 5. Celebrate — removing code is an achievement
 ```
 
+## Pre-Removal Safety Check (before deleting any symbol)
+
+Whenever you remove a symbol — an endpoint, a schema/type, a function, a class, a constant — run this
+check *first*, even outside a formal deprecation. Removing code without finding every consumer is one
+of the most common ways to ship a silent break. This is the concrete, per-symbol form of the
+"verify the target before a destructive change" rule in `.claude/rules/agent-guardrails.md` §3.
+
+**Sweep every consumer surface** (the categories are neutral; your stack's overlay rule carries the
+exact search commands for each — e.g. the pre-removal grep recipe in the backend overlay):
+
+1. **Callers / UI / clients** — anything that invokes the endpoint or imports the symbol.
+2. **Async workers, background jobs, scheduled/durable workflows** — these reference code by name and
+   fail at *runtime*, often long after deploy, not at build time.
+3. **Message consumers / producers** — async handlers that reference a schema or method; removing it
+   crashes a consumer in a way that's hard to trace back.
+4. **Tests — the most-missed surface.** Tests mock or patch symbols **by import path**. When the
+   symbol moves or disappears, the patch **silently targets nothing**: the test can keep passing
+   while testing nothing, or fail with a confusing error far from the cause. Search for patches,
+   fixtures, and direct imports of the symbol — not just production code.
+5. **Other modules in the same codebase** — sibling services/handlers that use it internally.
+6. **Data-layer / migrations** — schema or model references in migration history.
+
+**Then state a verdict:**
+
+- **SAFE TO REMOVE** — no references anywhere; the symbol is genuinely unused.
+- **REQUIRES MIGRATION** — references exist; list, *in order*, exactly what to update before the
+  removal (callers → workers → consumers → tests → then delete the symbol).
+- **DO NOT REMOVE** — the symbol is on a live critical path; explain why removal would be dangerous.
+
+**Remove one symbol at a time and run the affected tests after each** — do not batch removals across
+modules before testing, or you won't know which deletion broke what.
+
 ## Migration Patterns
 
 ### Strangler Pattern

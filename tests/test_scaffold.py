@@ -643,3 +643,93 @@ def test_brief3_disciplines_installed(tmp_path, payload):
         encoding="utf-8"
     )
     assert "Plan critique" in da, "P1-3 devils-advocate plan-critique mode missing"
+
+
+def test_fynd_core_skills_gated_by_profile(tmp_path, payload):
+    """Fynd adoption: bug-hunt + test-plan-review are new core skills — standard+, not lean."""
+    new_skills = {"bug-hunt", "test-plan-review"}
+    lean = tmp_path / "lean"
+    standard = tmp_path / "standard"
+    install(payload, lean, profile="lean")
+    install(payload, standard, profile="standard")
+
+    def skills(target):
+        return {p.name for p in (target / ".claude" / "skills").iterdir() if p.is_dir()}
+
+    assert not (new_skills & skills(lean)), (
+        "bug-hunt/test-plan-review must not ship in lean"
+    )
+    assert new_skills <= skills(standard), (
+        "bug-hunt/test-plan-review must ship in standard"
+    )
+
+
+def test_fynd_core_extends_installed(tmp_path, payload):
+    """Fynd adoption: the reuse-first deltas land in existing core skills/agents. Skill-file content is
+    asserted on an enterprise install (it has every skill, incl. enterprise-only deprecation-and-
+    migration); the agent deltas are present from standard up."""
+    target = tmp_path / "enterprise"
+    install(payload, target, profile="enterprise")
+    skills = target / ".claude" / "skills"
+    agents = target / ".claude" / "agents"
+
+    dep = (skills / "deprecation-and-migration" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Pre-Removal Safety Check" in dep, "pre-removal check missing"
+    ctx = (skills / "context-engineering" / "SKILL.md").read_text(encoding="utf-8")
+    assert "Comprehension Layer" in ctx or "comprehension layer" in ctx, (
+        "comprehension-layer generation mode missing"
+    )
+    plan = (skills / "planning-and-task-breakdown" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Cross-service" in plan and "Portable prompt" in plan, (
+        "cross-service / portable-prompt folds missing"
+    )
+    sr = (agents / "senior-tester.md").read_text(encoding="utf-8")
+    assert "suite-audit" in sr, "senior-tester suite-architecture audit mode missing"
+    em = (agents / "em-reviewer.md").read_text(encoding="utf-8")
+    assert "Verify Claims Against the Codebase" in em, "em-reviewer claim-audit missing"
+
+
+def test_fynd_react_design_system_overlay_installs(tmp_path, payload):
+    """The new design-system-compliance.md overlay rule installs with the React frontend (default)."""
+    target = tmp_path / "react"
+    install(payload, target, profile="standard")  # default frontend is React
+    rule = target / ".claude" / "rules" / "design-system-compliance.md"
+    assert rule.is_file(), (
+        "design-system-compliance.md overlay rule not installed for React"
+    )
+    react = (target / ".claude" / "rules" / "react-patterns.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Accessibility specifics" in react, "react a11y enrichment missing"
+
+
+def test_fynd_org_review_tier_is_scope_gated(tmp_path, payload):
+    """Staff-PM reviewer + the 4 product/EM review skills install ONLY at organization scope."""
+    review_skills = {
+        "review-scope",
+        "review-sprint-plan",
+        "review-ux-flow",
+        "review-sprint",
+    }
+
+    team = tmp_path / "team"
+    install(payload, team, profile="enterprise")  # scope defaults to team
+    assert not (team / ".claude" / "agents" / "staff-pm-reviewer.md").exists()
+    team_skills = {
+        p.name for p in (team / ".claude" / "skills").iterdir() if p.is_dir()
+    }
+    assert not (review_skills & team_skills), (
+        "org review skills must not ship in team scope"
+    )
+
+    org = tmp_path / "org"
+    install(payload, org, profile="enterprise", scope="organization")
+    assert (org / ".claude" / "agents" / "staff-pm-reviewer.md").is_file()
+    org_skills = {p.name for p in (org / ".claude" / "skills").iterdir() if p.is_dir()}
+    assert review_skills <= org_skills, (
+        f"missing org review skills: {review_skills - org_skills}"
+    )

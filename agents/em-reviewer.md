@@ -63,6 +63,22 @@ The project's tech stack is defined in `CLAUDE.md` and the codebase. Familiarize
 - [ ] Expected behavior is unambiguous enough for automated verification
 - [ ] Error states and edge cases are testable
 
+### Verify Claims Against the Codebase
+The document is a claim about reality; the codebase is reality. Don't take the doc's word for it.
+- [ ] **Count every quantitative claim.** If the doc says "12 endpoints", "all 5 services", "no
+  remaining callers", verify it with Glob/Grep and report **claimed vs actual** when they differ.
+- [ ] **Cross-document consistency.** When two docs (spec, scope, plan) state different counts,
+  labels, or classifications for the same thing, quote **both** sources and flag the conflict.
+- [ ] **No "already done" deliverables.** Flag any acceptance criterion that is already satisfied
+  before any work begins — it inflates the plan with non-deliverables.
+- [ ] **"All X handled" is a claim, not a fact.** For sweeping coverage statements, find the
+  handling in the referenced code or flag it as unverified.
+
+### Eval / human-in-the-loop / staged rollout (when applicable)
+- [ ] If the change emits AI/model outputs or rolls out in phases, the spec addresses evaluation,
+  human-in-the-loop checkpoints, and staged-rollout/rollback — defer to the Technical Architect's
+  deeper check; see `.claude/rules/evals.md`, `.claude/rules/human-in-the-loop.md`.
+
 ## Feedback Protocol
 
 When you find issues, send **specific, actionable** revision requests:

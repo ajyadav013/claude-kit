@@ -52,13 +52,36 @@ Generate a sprint plan for backlog item #$ARGUMENTS.
 - For design-sensitive changes, suggest running a design-review agent after implementation
 - For coordinated changes (e.g., new data model + new API endpoint + new UI component + new route), ensure all changes are in the same sprint
 
+## Agent Capacity & Replacement Planning
+
+Plan agent capacity *proactively*, not only reactively when one hits its context limit. An agent's
+output quality decays as its context fills (see `.claude/rules/context-engineering.md` and the
+context-budget guidance in `.claude/rules/agent-resilience.md`):
+
+- **Budget work per agent.** Estimate the tasks (and the test/verification load) each agent will
+  carry, and plan to **rotate in a fresh agent after a bounded number of tasks** rather than running
+  one agent until it degrades. Calibrate the number to your task sizes — don't hardcode a magic count.
+- **Reserve a fresh agent for final verification.** The end-of-sprint integration/verification pass
+  should run on an agent that has *not* been saturated by implementation, so its judgment is sharp.
+- **Hand off cleanly on replacement.** Before retiring an agent, capture its state to working memory
+  (`.claude/CONTINUITY.md`) and check `git status` so nothing in-flight is lost; the replacement
+  resumes from that snapshot (reload, don't re-run — see `.claude/rules/continuity.md`).
+- **Shut down once, don't block.** When an agent's work is done, retire it cleanly; don't leave idle
+  agents holding the lane or block the sprint waiting on one that has nothing left to do.
+
 ## Post-Sprint Report
 
 **When to write**: After the verification checklist passes and all tasks are complete (or explicitly descoped), the team lead must fill in the Sprint Report section of the sprint plan before archiving.
 
+**Run the checks — don't assume them.** "Verification passes" must mean the project's tests, linter,
+and build were **actually executed for this sprint** and their real results recorded — not inferred
+from the fact that tasks were marked done. Run them, capture the real pass/fail (and counts), and if
+anything failed, the sprint is not done. A reported verdict must cite the command and its output —
+see `.claude/rules/quality-gates.md` §2.5.
+
 **What to capture**:
-1. **Results table** — each deliverable with target vs actual vs status
-2. **Metrics** — tasks planned/completed, regressions found
+1. **Results table** — each deliverable with target vs actual vs status (actual = observed, not planned)
+2. **Metrics** — tasks planned/completed, regressions found, and the real test/lint/build outcome
 3. **What went well** — patterns that worked, velocity wins, risk catches
 4. **What went wrong** — regressions, scope errors, agent issues, blockers
 5. **Learnings** — actionable lessons for future sprints (check existing learnings in `docs/reference/post-sprint-learnings.md` to avoid duplicates)

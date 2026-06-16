@@ -464,6 +464,31 @@ spawn senior-backend-dev (Lane B)   ← starts immediately
 
 ---
 
+## Live-Sprint Health Monitoring
+
+While lanes run, monitor for these health signals (Core Behavior #9) and act on them *before* they
+become blockers — don't just wait at the next join:
+
+- **Idle agent → assign a buffer task.** When a lane finishes early, don't let the agent sit idle:
+  hand it a pre-planned buffer task (investigation, doc refresh, test hardening, design validation).
+  Keep a small buffer list ready when you spawn the lanes (see the sprint plan's extra-tasks list).
+- **Context exhaustion → rotate before degradation.** Watch each long-running agent's commit cadence
+  and output quality as a proxy for context budget. Rotate in a fresh agent *before* quality decays,
+  capturing state to working memory first — see the Agent Capacity & Replacement guidance in the
+  `sprint` skill and `.claude/rules/agent-resilience.md`. Don't run one agent until it falls over.
+- **Critical-path slippage → re-balance.** If the slowest lane *on the critical path* slips, pull a
+  parallelizable task forward onto a free agent, or flag the slip — don't silently absorb it into a
+  blown join.
+- **Emerging file-ownership conflicts → intervene early.** If two lanes begin touching the same
+  shared file/module, the merge conflict is already forming. Serialize those edits onto one lane or
+  route the shared change through the `merge-reviewer` *now*, not at the join. Lanes never coordinate
+  directly — the intervention is yours.
+
+These are *read-only* coordination signals — gather them from the task list, mailbox, and `git
+status`; never edit code yourself.
+
+---
+
 ## State Tracking
 
 ```

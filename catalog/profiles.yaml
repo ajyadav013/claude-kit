@@ -82,6 +82,8 @@ profiles:
       - over-engineering-review
       - simplification-debt
       - task-tracker-sync
+      - bug-hunt
+      - test-plan-review
     # contract-clear self-skips when the stack exposes no API contract surface, so it is inert for
     # non-API projects on standard while enforcing backward-compatibility for API-exposing backends
     # (e.g. FastAPI). Promoted from enterprise-only per brief #2 P0-1 — see CHANGELOG 0.13.0.

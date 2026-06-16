@@ -193,11 +193,67 @@ When multiple agents or sessions are available:
 - **Must be sequential:** Database migrations, shared state changes, dependency chains
 - **Needs coordination:** Features that share an API contract (define the contract first, then parallelize)
 
+### Cross-service / multi-repo coordination
+
+When a change spans two or more services or repositories, dependency-ordering inside one codebase is
+not enough — the failure modes live *between* the services. Plan these explicitly:
+
+- **Shared-resource ownership map.** List every resource touched across the service boundary (data
+  stores, events/topics, shared APIs, caches) and name the **one** service that owns each. Changes to
+  a shared resource are planned by its owner; everyone else is a consumer.
+- **Distributed-systems hazard checklist.** For each cross-service interaction, check:
+  - *Transaction safety* — there is no single transaction across services; what happens if step 2
+    fails after step 1 committed? Define the compensation / cleanup.
+  - *Cross-service TOCTOU* — a value checked in service A can change before service B acts on it.
+  - *Event ordering & duplication* — consumers must tolerate out-of-order and at-least-once delivery
+    (idempotency keys, not "it'll arrive once").
+  - *Partial failure* — one service up, another down; degrade, retry, or fail cleanly — never corrupt.
+- **Deployment / migration ordering.** Roll out in an order that is safe at every intermediate state:
+  consumers that tolerate both old and new first, then producers; **additive before required**
+  (add the new field/endpoint, deploy readers, *then* start writing it, *then* remove the old).
+  See `deprecation-and-migration` for the expand/contract sequence.
+- **Verification on both sides.** Each service gets its own acceptance checks *and* there is a
+  cross-service check that exercises the end-to-end path through the boundary.
+
+For mapping the services themselves before planning, see the comprehension-layer / cross-service
+section in `context-engineering`; the integration gate at the join point is the `merge-reviewer`'s,
+and the rollout sequencing is owned by `technical-architect` + `deprecation-and-migration`.
+
 ## Pushing the plan to a tracker
 
 Once the breakdown is approved and you want it tracked, the `task-tracker-sync` skill mirrors it into
 the project's configured issue tracker (GitHub / Linear / Jira) — one issue per task, dependencies
 preserved, idempotent. It syncs an existing breakdown; it does not create one.
+
+## Task-Type Prompt Templates
+
+Not every task is a feature. The deliverables and the checks differ by *type* — tailor the task
+write-up accordingly instead of using one generic shape:
+
+| Type | Lead with | Type-specific deliverables |
+|---|---|---|
+| **Feature** | the user-facing outcome + acceptance criteria | spec slice, tests for the new behavior, docs |
+| **Bug fix** | the reproduction + root cause (see `debugging-and-error-recovery`) | a regression test that fails without the fix, the minimal fix |
+| **Refactor** | the invariant that must NOT change | characterization tests green before *and* after, no behavior delta |
+| **Investigation** | the question to answer + what evidence settles it | a written finding with evidence, a recommendation, follow-up tasks |
+
+Pick the matching template when writing each task so reviewers know what "done" means for it.
+
+### Portable prompt (hand a task to another agent or LLM)
+
+When a task will be executed by a *different* agent, session, or tool, emit a **self-contained,
+copy-pasteable** prompt — assume the reader shares none of this conversation's context:
+
+```
+TASK: [one-line outcome]
+CONTEXT: [the 3-5 facts needed — repo area, relevant files with paths, the convention to follow]
+CONSTRAINTS: [what must hold — existing patterns, what not to touch, the boundary]
+ACCEPTANCE: [the testable conditions that mean it's done]
+VERIFY: [the exact commands to run + what a pass looks like]
+```
+
+A portable prompt that names its files, constraints, and verification turns a vague handoff into a
+task the receiver can finish without a round-trip.
 
 ## Common Rationalizations
 
