@@ -115,6 +115,13 @@ def interactive(payload_root: str | Path) -> Selection:
 
     db = _choose_one("Database", opts["database"], dflt.database)
     profile = _choose_one("SDLC profile", opts["profiles"], dflt.profile)
+
+    # Learning-capture mode (the token-cost knob). Lean defaults to off (intentionally minimal);
+    # every other profile defaults to the catalog recommendation (session-end + catch-up).
+    cap = catalog.capture_mode_options(payload_root)
+    capture_default = "off" if profile == "lean" else cap["default"]
+    capture_mode = _choose_one("Learning capture", cap["modes"], capture_default)
+
     mcp = _choose_many("Optional MCP integrations", opts["mcp"])
 
     # Usage scope — and, for organizations, the capability-layer questions.
@@ -139,6 +146,7 @@ def interactive(payload_root: str | Path) -> Selection:
         backend_framework=be_fw,
         database=db,
         profile=profile,
+        capture_mode=capture_mode,
         mcp=mcp,
         scope=scope,
         teams=teams,
@@ -176,6 +184,11 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     org = data.get("org", {})
     if not isinstance(org, dict):
         org = {}
+    # YAML 1.1 parses bare off/no -> False and on/yes -> True; map an unquoted `capture_mode: off`
+    # back to the "off" mode rather than letting `or dflt` silently restore the default.
+    cap_mode = data.get("capture_mode")
+    if isinstance(cap_mode, bool):
+        cap_mode = "off" if cap_mode is False else dflt.capture_mode
     flat = {
         "frontend_framework": data.get("frontend_framework")
         or (fe.get("framework") if isinstance(fe, dict) else fe)
@@ -191,6 +204,7 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
         or dflt.backend_framework,
         "database": data.get("database") or dflt.database,
         "profile": data.get("profile") or dflt.profile,
+        "capture_mode": cap_mode or dflt.capture_mode,
         "mcp": data.get("mcp") or [],
         "scope": data.get("scope") or org_defaults["scope"],
         "teams": data.get("teams") or org.get("teams") or [],

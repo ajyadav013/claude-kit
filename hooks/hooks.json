@@ -5,7 +5,8 @@
       "hooks": [
         { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-continuity.sh\"" },
         { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-learnings.sh\"" },
-        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-autonomy.sh\"" }
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-autonomy.sh\"" },
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/capture-learnings.sh\" catchup" }
       ]
     }
   ],
@@ -55,6 +56,14 @@
       "hooks": [
         { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/lint-fix.sh\"" },
         { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/type-check.sh\"" }
+      ]
+    }
+  ],
+  "SessionEnd": [
+    {
+      "matcher": "",
+      "hooks": [
+        { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/capture-learnings.sh\" end" }
       ]
     }
   ]

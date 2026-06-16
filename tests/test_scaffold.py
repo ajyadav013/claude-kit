@@ -514,6 +514,164 @@ def test_warn_llm_io_hook_in_standard_not_lean(tmp_path, payload):
     )
 
 
+def test_capture_mode_wiring(tmp_path, payload):
+    """The init-time `capture_mode` decides the agent-side capture wiring; the single
+    capture-learnings.sh is dispatched by an arg (end/stop/catchup). off installs nothing (script not
+    even copied); session-end -> SessionEnd `end`; session-end-catchup -> +SessionStart `catchup`;
+    per-task -> Stop `stop` (no SessionEnd). load-learnings (recall) is present whenever capture is on."""
+
+    def wiring(mode):
+        d = tmp_path / f"m-{mode}"
+        install(payload, d, capture_mode=mode)
+        s = json.loads((d / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        cmds = {
+            ev: [h["command"] for blk in s["hooks"].get(ev, []) for h in blk["hooks"]]
+            for ev in ("SessionStart", "Stop", "SessionEnd")
+        }
+        has_script = (d / ".claude" / "hooks" / "capture-learnings.sh").is_file()
+        return cmds, has_script
+
+    def fires(cmds, event, arg):
+        return any(
+            "capture-learnings.sh" in c and c.rstrip().endswith(arg)
+            for c in cmds[event]
+        )
+
+    # off: capture script not copied, no capture wiring anywhere.
+    c_off, has_off = wiring("off")
+    assert not has_off
+    assert not any("capture-learnings.sh" in c for ev in c_off for c in c_off[ev])
+
+    # session-end: SessionEnd `end`; nothing on SessionStart/Stop.
+    c_se, has_se = wiring("session-end")
+    assert has_se
+    assert fires(c_se, "SessionEnd", "end")
+    assert not any("capture-learnings.sh" in c for c in c_se["SessionStart"])
+
+    # session-end-catchup (default): SessionEnd `end` + SessionStart `catchup`.
+    c_sec, _ = wiring("session-end-catchup")
+    assert fires(c_sec, "SessionEnd", "end")
+    assert fires(c_sec, "SessionStart", "catchup")
+
+    # per-task: Stop `stop`; no SessionEnd capture.
+    c_pt, _ = wiring("per-task")
+    assert fires(c_pt, "Stop", "stop")
+    assert not any("capture-learnings.sh" in c for c in c_pt["SessionEnd"])
+
+
+def test_capture_learnings_spawn_behaviour(tmp_path, payload):
+    """Behaviour of the detached, NON-blocking background spawn (fire-and-forget). A FAKE `claude` on
+    PATH appends to a log so no real LLM runs; its growth proves a spawn fired. Covers `end` (spawn on
+    edits, silent on no-edits / opt-out / missing transcript) and `catchup` (spawn for a stale,
+    unmarked, edited prior session; idempotent via the done-marker). The hook always exits 0 and writes
+    nothing to stdout."""
+    import os
+    import shutil
+    import subprocess
+    import time
+    import uuid
+
+    if not shutil.which("jq"):
+        return
+
+    standard = tmp_path / "standard"
+    install(payload, standard, capture_mode="session-end-catchup")
+    script = standard / ".claude" / "hooks" / "capture-learnings.sh"
+    assert script.is_file(), "capture-learnings.sh not copied"
+
+    fakebin = tmp_path / "fakebin"
+    fakebin.mkdir()
+    fake = fakebin / "claude"
+    spawnlog = tmp_path / "spawns.log"
+    spawnlog.write_text("", encoding="utf-8")
+    fake.write_text(
+        '#!/usr/bin/env bash\nprintf "x\\n" >> "$CK_SPAWN_LOG"\n', encoding="utf-8"
+    )
+    fake.chmod(0o755)
+
+    cktmp = tmp_path / "cktmp"
+    cktmp.mkdir()
+    proj = tmp_path / "proj"
+    (proj / ".claude" / "agent-memory" / "gotchas").mkdir(parents=True)
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+
+    edit = (
+        '{"type":"assistant","message":{"role":"assistant","content":'
+        '[{"type":"tool_use","name":"Edit","input":{"file_path":"/x/y.py"}}]}}\n'
+    )
+    text = (
+        '{"type":"assistant","message":{"role":"assistant","content":'
+        '[{"type":"text","text":"hi"}]}}\n'
+    )
+
+    def count():
+        return len(spawnlog.read_text(encoding="utf-8").splitlines())
+
+    def run(mode, transcript, extra_env=None, timeout=2.5):
+        """Run the hook in `mode`; return True if a (fake) spawn appeared within `timeout`."""
+        env = dict(os.environ)
+        env["PATH"] = f"{fakebin}{os.pathsep}{env['PATH']}"
+        env["CK_SPAWN_LOG"] = str(spawnlog)
+        env["TMPDIR"] = str(cktmp)
+        if extra_env:
+            env.update(extra_env)
+        before = count()
+        proc = subprocess.run(
+            ["bash", str(script), mode],
+            input=json.dumps(
+                {
+                    "transcript_path": transcript,
+                    "session_id": uuid.uuid4().hex,
+                    "cwd": str(proj),
+                }
+            ),
+            text=True,
+            capture_output=True,
+            env=env,
+        )
+        assert proc.returncode == 0, "hook must always exit 0 (never block)"
+        assert proc.stdout.strip() == "", "hook must write nothing to stdout"
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if count() > before:
+                return True
+            time.sleep(0.2)
+        return count() > before
+
+    # --- end ---
+    edited = sessions / "s-edit.jsonl"
+    edited.write_text(edit, encoding="utf-8")
+    talk = sessions / "s-talk.jsonl"
+    talk.write_text(text, encoding="utf-8")
+    assert run("end", str(edited), timeout=10.0), (
+        "end must spawn when the session edited files"
+    )
+    assert not run("end", str(talk)), "end must not spawn with no edits"
+    assert not run("end", str(edited), {"CLAUDE_KIT_NO_AUTOCAPTURE": "1"}), (
+        "opt-out/recursion guard must suppress the spawn"
+    )
+    assert not run("end", str(sessions / "nope.jsonl")), (
+        "missing transcript degrades silently"
+    )
+
+    # --- catchup: a stale, unmarked, edited prior session is captured on next launch ---
+    abrupt = sessions / "s-abrupt.jsonl"
+    abrupt.write_text(edit, encoding="utf-8")
+    old = (
+        time.time() - 3600
+    )  # 1h ago: older than the 2-min freshness window, within 7 days
+    os.utime(abrupt, (old, old))
+    current = sessions / "s-current.jsonl"
+    current.write_text(text, encoding="utf-8")
+    assert run("catchup", str(current), timeout=10.0), (
+        "catchup must spawn for a stale, unmarked, edited prior session"
+    )
+    assert not run("catchup", str(current)), (
+        "catchup must be idempotent — the done-marker suppresses a re-capture"
+    )
+
+
 def test_api_change_report_template_ships(tmp_path, payload):
     """The api-change-report artifact (contract-clear gate output) installs with the templates."""
     install(payload, tmp_path)

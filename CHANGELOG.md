@@ -4,6 +4,69 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.17.0] — 2026-06-17
+
+**Make agent-side learning capture an init-time, cost-aware choice — and make it actually remember.**
+The kit can now reflect on what *Claude itself* changed during a session and record durable learnings
+into `.claude/agent-memory/` (recalled next session by `load-learnings.sh`), via a fully-detached
+background `claude` job that **never blocks your session or next prompt**. How often that runs is the
+token-cost knob, so it is now a question at `claude-kit init` (`capture_mode`) rather than a fixed
+behavior — "everyone has their own way to memorize." Four modes (see `catalog/capture.yaml`):
+
+- **`off`** — no auto-capture; record with `/remember` when you choose (zero background cost).
+- **`session-end`** — one background capture when a session ends (~1/session). Lost on abrupt close.
+- **`session-end-catchup`** *(default, recommended)* — adds a SessionStart **catch-up** that, on the
+  next launch, captures any prior session that ended *without* being captured — i.e. one closed
+  abruptly with Ctrl-C / a hard kill / a closed terminal, where `SessionEnd` never ran. ~1/session,
+  robust to abrupt close.
+- **`per-task`** — capture after each file-editing task (Stop), scoped to that task's edits via a
+  line-count sentinel. Most resilient, highest token cost.
+
+One script (`hooks/scripts/capture-learnings.sh`) backs all of it, dispatched by an argument
+(`end`/`stop`/`catchup`); a per-transcript "done" marker lets a clean exit tell catch-up "already
+handled," so a session is never captured twice.
+
+**Two correctness fixes folded in (the previous SessionEnd capture looked done but did not actually
+remember):**
+- **Recall now works.** The background agent wrote the learning file but could not index it in
+  `MEMORY.md`, which is the *only* file `load-learnings.sh` reads — so learnings were invisible to
+  future sessions. Root cause: `.claude/` is a Claude-Code-protected path that `--permission-mode
+  acceptEdits` cannot write from a detached, no-TTY background agent. The capture child now runs with
+  `--permission-mode bypassPermissions` (safe here: file tools only, no shell, prompt-confined to
+  `.claude/agent-memory/`), and the prompt makes indexing in `MEMORY.md` mandatory + self-verified.
+  Round-trip (write → index → recall) verified end-to-end.
+- **`load-learnings.sh` zero-entry crash** — `grep -c … || echo 0` emitted `"0\n0"` → `integer
+  expected`; fixed with `|| true` + `${ENTRIES:-0}`.
+
+Conservative + safe by construction (golden rule #1 — stack-agnostic, fail-safe): every mode degrades
+to a silent no-op without `jq`/`claude`/a transcript or when the project has no `agent-memory/`, and
+only spawns when there were actual file edits. The job inherits the user's logged-in auth, runs
+hook-free (`--settings '{"disableAllHooks":true}'`); recursion is broken by `CLAUDE_KIT_NO_AUTOCAPTURE=1`
+(passed to the child), which doubles as the user opt-out. `CLAUDE_KIT_CAPTURE_MODEL` optionally pins a
+model (default: inherit the user's).
+
+### Added
+- **`capture_mode` init choice** — new `catalog/capture.yaml` (the four modes → hook sets, default
+  `session-end-catchup`); a `Selection.capture_mode` field; an interactive prompt (profile-aware
+  default: **lean → off**, otherwise the recommended catch-up); `--config` / `--defaults` support;
+  `catalog.capture_mode_options()` + a branch-free `catalog._apply_capture_mode()` that swaps the
+  capture hooks for the chosen mode (golden rule #6 — pure data + set op).
+- **Three capture triggers** in `HOOK_REGISTRY`, all backed by the one `capture-learnings.sh`:
+  `capture-learnings` (SessionEnd, `end`), `capture-learnings-catchup` (SessionStart, `catchup`),
+  `capture-learnings-stop` (Stop, `stop`). The recommended default is wired into the plugin
+  (`hooks/hooks.json`) and the no-pip fallback (`templates/settings.json`).
+
+### Changed
+- `catalog/profiles.yaml` — the standard profile no longer hard-lists `capture-learnings`; capture is
+  installed by `capture_mode`, not profile membership (`load-learnings` recall stays profile-driven).
+- **Docs** — `README.md`, `rules/agent-memory.md`, `docs/agentic-patterns.md` (Ch. 9),
+  `docs/coverage-audit.md`, `skills/remember/SKILL.md`, and `CONTRIBUTING.md` describe the configurable,
+  abrupt-close-robust capture.
+
+### Fixed
+- Background capture now reliably **indexes** learnings in `MEMORY.md` (was write-only → unrecalled).
+- `load-learnings.sh` no longer errors on a zero-entry index.
+
 ## [0.16.0] — 2026-06-16
 
 **Adopt a full React/Tailwind/Radix design-system rule set as always-on React overlay rules.** Three

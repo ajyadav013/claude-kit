@@ -41,7 +41,10 @@ refuses to advance a phase until its **quality gate** passes. You drive it all w
 - 👥 **Scope to your team** — `individual` / `team` (default) / `organization`. Org scope adds a
   vibe-coding layer so PMs, designers, QA, support, and founders can drive work safely too.
 - 🧠 **Remembers across sessions** — working memory (`CONTINUITY.md`) survives context compaction, and a
-  learnings loop (`agent-memory/`) means the same mistake isn't made twice.
+  learnings loop (`agent-memory/`) means the same mistake isn't made twice. Learnings are captured
+  automatically — from your corrections *and*, in a non-blocking background job, from what Claude
+  changed. How aggressively to capture is a cost-aware choice at `init` (`capture_mode`: off · on
+  clean exit · + catch-up for sessions closed abruptly · per task).
 - 📦 **Two channels, one source** — a first-class Claude Code **plugin** *and* a **pip** scaffolder.
 
 > Inspired by the autonomous-SDLC idea, rebuilt from the ground up **for Claude Code**, and kept small

@@ -1,0 +1,37 @@
+# claude-kit learning-capture modes — the cost↔coverage choice surfaced at `claude-kit init`.
+#
+# The kit closes the self-improving loop two ways: RECALL (`load-learnings` SessionStart hook injects
+# `.claude/agent-memory/MEMORY.md`) and CAPTURE (a detached background `claude` job records what the
+# agent itself changed/learned). This file governs ONLY the agent-side CAPTURE trigger — how often /
+# when it fires — because that is where token cost accrues and preferences differ. RECALL and the
+# user-side `learning-detection` hook stay profile-driven.
+#
+# One script (`hooks/scripts/capture-learnings.sh`) backs every mode, dispatched by an argument
+# (`end` / `stop` / `catchup`); the registry in `src/claude_kit/hooks.py` maps each hook id below to
+# that script + event. `catalog._apply_capture_mode()` is the ONLY consumer: it strips the union of all
+# modes' hooks from the resolved set (so the profile / the enterprise `all` token never force a capture
+# trigger) and adds back exactly the chosen mode's hooks, ensuring `load-learnings` (recall) is present
+# whenever capture is on. Adding/retuning a mode is a pure data edit here — no code change (golden rule #6).
+
+version: 1
+
+# Used by `--defaults`, the plugin install, and shown as the recommended pick. The interactive prompt
+# overrides this to `off` for the lean profile (lean is intentionally minimal).
+default: session-end-catchup
+
+modes:
+  "off":
+    label: "Off — capture only when you run /remember (zero background cost)"
+    hooks: []
+
+  session-end:
+    label: "On clean exit — one background capture when a session ends (~1/session; skipped on abrupt close)"
+    hooks: [capture-learnings]
+
+  session-end-catchup:
+    label: "On clean exit + catch-up — also captures sessions closed abruptly (Ctrl-C/kill), on next launch (recommended; ~1/session)"
+    hooks: [capture-learnings, capture-learnings-catchup]
+
+  per-task:
+    label: "Per task — capture after each file-editing task; most resilient, highest token cost"
+    hooks: [capture-learnings-stop]
