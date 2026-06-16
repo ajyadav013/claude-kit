@@ -15,6 +15,10 @@ if [ ! -f "$TEMPLATE" ] && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$CLAUDE_PLU
   TEMPLATE="$CLAUDE_PLUGIN_ROOT/templates/CONTINUITY.template.md"
 fi
 
+# Ensure the gitignored runtime state dir exists (the pip installer also creates it; this covers
+# plugin context, where no scaffold step runs). The orchestrator writes pipeline-snapshot.json here.
+mkdir -p "$MEM_DIR/state" 2>/dev/null || true
+
 # Seed the live file from the template on first run (live file is gitignored).
 if [ ! -f "$LIVE" ] && [ -f "$TEMPLATE" ]; then
   mkdir -p "$MEM_DIR" 2>/dev/null || true

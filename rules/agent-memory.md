@@ -22,6 +22,14 @@ Working memory is the scratchpad (overwritten constantly); the rest is the noteb
 - **Before architectural decisions**: Check `architecture/` for prior decisions and reasoning
 - **Before working with APIs**: Check `api/` for integration notes
 
+## Memory hygiene — verify, scope, reconcile
+
+Recalled memory is a claim about how things *were when it was written*, not a guarantee about now. Apply three checks before you rely on one:
+
+- **Verify before trust.** When an entry names a concrete file, function, flag, command, or endpoint, confirm it still exists (a quick Read / Grep / Bash) before acting on it. If reality has moved — the file was renamed, the flag removed, the behavior changed — the entry is stale: correct it or remove it (see **Maintenance**), and don't propagate the outdated claim.
+- **Attach selectively, and cite the source.** Pull in only the entries whose `trigger` / `Apply when` matches the task at hand — not the whole store. When a learning shapes a decision, name the entry it came from (e.g. "per `agent-memory/gotchas/<file>.md`") so the reasoning is traceable and a wrong memory can be found and fixed.
+- **Committed instructions win.** When a memory conflicts with `CLAUDE.md` or a rule under `.claude/rules/`, the committed project instruction is authoritative — follow it, and flag or update the contradicting memory. Memory captures what was *learned*; the rules are what the project has *decided*.
+
 ## When to WRITE memory
 
 Save a memory when you learn something that:

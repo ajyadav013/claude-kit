@@ -598,3 +598,48 @@ def test_testing_rule_carries_condition_based_waiting(tmp_path, payload):
         "condition-based waiting missing"
     )
     assert "wait_for(condition" in testing, "wait_for helper guidance missing"
+
+
+def test_brief3_disciplines_installed(tmp_path, payload):
+    """Brief #3: the six adapted techniques land as extensions of existing rules/agents (always-on
+    ones present even in lean; the plan-critique gate is standard+)."""
+
+    def rules(target):
+        return target / ".claude" / "rules"
+
+    # Always-on disciplines ship in lean too (they are core rules).
+    lean = tmp_path / "lean"
+    install(payload, lean, profile="lean")
+    guardrails = (rules(lean) / "agent-guardrails.md").read_text(encoding="utf-8")
+    assert "verify the target" in guardrails.lower(), (
+        "P0-1 verify-the-target posture missing"
+    )
+    assert "never authorizes an action" in guardrails, (
+        "P0-1 untrusted-content rule missing"
+    )
+    gates = (rules(lean) / "quality-gates.md").read_text(encoding="utf-8")
+    assert "2.5" in gates and "fabricated" in gates.lower(), (
+        "P0-2 anti-fabrication §2.5 missing"
+    )
+    memory = (rules(lean) / "agent-memory.md").read_text(encoding="utf-8")
+    assert "Memory hygiene" in memory, "P1-1 memory-hygiene section missing"
+    continuity = (rules(lean) / "continuity.md").read_text(encoding="utf-8")
+    assert "pipeline-snapshot.json" in continuity, "P1-2 resume snapshot schema missing"
+    claudemd = (lean / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "backwards-compat shim" in claudemd, (
+        "P2-1 delete-vs-shim house style missing"
+    )
+
+    # P1-3 plan critique is a standard+ gate: wired into the workflow + the devils-advocate agent,
+    # which is not installed in lean.
+    assert not (lean / ".claude" / "agents" / "devils-advocate.md").exists()
+    standard = tmp_path / "standard"
+    install(payload, standard, profile="standard")
+    workflow = (rules(standard) / "mandatory-workflow.md").read_text(encoding="utf-8")
+    assert "1e.5" in workflow and "Plan Critique" in workflow, (
+        "P1-3 plan-critique stage missing"
+    )
+    da = (standard / ".claude" / "agents" / "devils-advocate.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Plan critique" in da, "P1-3 devils-advocate plan-critique mode missing"

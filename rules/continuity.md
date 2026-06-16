@@ -22,6 +22,29 @@ When a CONTINUITY entry under **Mistakes & Learnings** is durable (a correction,
 - **Seed:** `.claude/CONTINUITY.template.md` — committed. The `load-continuity.sh` SessionStart hook copies the template to the live file if the live file is missing, then prints it into context.
 - Never commit the live file. Never store secrets, tokens, or credentials in it.
 
+## Resume snapshot (`.claude/state/pipeline-snapshot.json`)
+
+`CONTINUITY.md` is the human-readable scratchpad; for a pipeline run it is paired with a small **structured snapshot** so a later session can re-enter precisely. The Orchestrator writes/updates it at every stage transition (alongside the `PIPELINE:` line it mirrors into **Current Phase**). It is gitignored runtime state under `.claude/state/` — created by the installer and ensured by the `load-continuity` SessionStart hook.
+
+Schema (keep it small and truthful — omit a field rather than guess it):
+
+```json
+{
+  "schema": 1,
+  "task": "<one-line description of the run>",
+  "profile": "lean | standard | enterprise",
+  "scope": "individual | team | organization",
+  "mode": "A | B | C | D",
+  "stage": "<current PIPELINE stage label>",
+  "lanes": { "<lane>": "not-started | in-progress | passed | failed" },
+  "last_gate_passed": "<gate token, e.g. code-review>",
+  "open_findings": { "critical": 0, "high": 0, "medium": 0 },
+  "next": "<the immediate next action>"
+}
+```
+
+**Resume by reloading, not by re-running.** On resume, read the snapshot as *context* to decide where to continue — then continue from there. Do **not** re-run setup that already ran, re-apply edits already committed, or re-open a gate already PASSed. Re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes. The snapshot records what was *true when written*, so the verify-before-trust check still applies (`.claude/rules/agent-memory.md`): if a "passed" gate's artifact is gone, treat it as not passed. If the snapshot is absent or unparseable, fall back to the freeform CONTINUITY state (back-compatible) and proceed.
+
 ## Concurrency
 
 - There is exactly **one** live `.claude/CONTINUITY.md` per working directory. Two pipeline runs in the **same** checkout share it and will clobber each other's state — don't run concurrent `/sdlc` in one directory.
@@ -34,6 +57,7 @@ When a CONTINUITY entry under **Mistakes & Learnings** is durable (a correction,
 1. Read `.claude/CONTINUITY.md`.
 2. Read **Mistakes & Learnings** first — do not repeat past errors this session.
 3. Check **Current Phase** and **Active Tasks**; resume from **Next Steps**.
+4. Treat every entry as *last-known* state, not current truth: before acting on a note that names a file, command, or gate result, confirm it still holds (the verify-before-trust checks in `.claude/rules/agent-memory.md`).
 
 **At the end of every turn, and at every pipeline stage transition:**
 1. Update **Current Phase** and **Active Tasks**.

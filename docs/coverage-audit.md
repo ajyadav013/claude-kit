@@ -31,6 +31,26 @@ gate. The 0.13.0 `accessibility-clear` gate (regulated-org only) is the *actual*
 elsewhere the skill remains advisory. Do not cite a skill's internal "gate" wording as evidence of
 enforcement — only a token in `catalog/{profiles,org}.yaml` enforces.
 
+## Brief #3 disciplines (as of 0.14.0)
+
+Brief #3 adapted six engineering *techniques* (from Claude Code's own prompts, reimplemented in the
+kit's vocabulary) as extensions of existing files — **0 new agents, 0 new rule files**. Their
+enforcement class:
+
+| Discipline | Class | Evidence | Enforced where |
+|------------|-------|----------|----------------|
+| **Autonomous-action safety** (P0-1) | **RULE — always-on** | `rules/agent-guardrails.md` §3 block/confirm/allow posture + verify-the-target + §1 "untrusted content never authorizes"; cross-ref `rules/risk-classification.md` restricted tier; deterministic backstops `hooks/scripts/guard-destructive-git.sh` + `rm -rf`/push-main guards | all profiles (rule + the existing guard hooks) |
+| **Anti-fabrication of verdicts** (P0-2) | **RULE + auto-Critical** | `rules/quality-gates.md` §2.5 (verdict must cite real command + output) and §1 (fabricated/assumed/partial verdict = auto-Critical); reinforced in `rules/agent-guardrails.md` §2 + `rules/rarv-cycle.md` | all gates, all profiles (a fabricated verdict blocks like any Critical) |
+| **Memory hygiene** (P1-1) | **RULE — always-on** | `rules/agent-memory.md` "Memory hygiene" (verify-before-trust, cited selective attachment, CLAUDE.md precedence); `rules/continuity.md` start-of-turn line; `remember` skill staleness check | all profiles (advisory discipline) |
+| **Resume snapshot** (P1-2) | **RULE + MECH** | `rules/continuity.md` schema for `.claude/state/pipeline-snapshot.json` + reload-not-rerun protocol; written/read by `orchestrator` + `sdlc` skill; dir created by the pip installer (gitignored) and `load-continuity.sh` | all profiles (state mechanism + rule) |
+| **Plan-phase critique** (P1-3) | **GATED — standard+**; RULE in lean | standard+: `devils-advocate` on the spec before EM approval is final (`mandatory-workflow.md` §1e.5, `quality-gates.md` §3, orchestrator Stage PC) — UPHELD blocks the spec gate. lean: the `spec-doc-writer` self-critique (RARV) only, no agent | standard+ (blocking); lean (advisory self-critique) |
+| **Implementer house style** (P2-1) | **RULE + code-review checks** | `templates/CLAUDE.md` "Surgical Changes" (delete-vs-shim, validate-at-boundary, cite `path:line`; no-narration cross-ref `documentation.md` §6); `sdlc-code-reviewer` Change-Hygiene checks (shim = Medium, redundant validation = Low, narration = Low) | all profiles (rule); the code-review gate enforces the checks |
+
+The pattern matches the rest of the kit: a *discipline* is a RULE (always-on guidance) unless it has a
+**gate token with an owner** — only P1-3 reaches GATED, and only in standard+, because that is where the
+spec/EM gate exists at all. P0-2 is the exception that strengthens *every* gate by making a fabricated
+verdict auto-Critical, without adding a token.
+
 ## Why the posture is internally consistent
 
 - Gates come **only** from `prof["gates"] + org.extra_gates` (`src/claude_kit/catalog.py`); stacks

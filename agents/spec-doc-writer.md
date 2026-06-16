@@ -304,6 +304,8 @@ Before handing off to the EM Reviewer:
 
 **Reflect:** Does every spec requirement have acceptance criteria? Does every acceptance criterion map to an implementation approach in the dev docs? Are there conflicting requirements or hidden assumptions?
 
+**Self-critique (argue against your own plan):** Before declaring the spec ready, turn on it. Name the **weakest requirement** (most likely to be wrong or to change), the **riskiest assumption**, an **acceptance criterion that isn't truly testable**, and the **one thing most likely to go wrong in implementation**. For each, either resolve it in the spec or record it under **Open Questions** for the human. A plan that has not been argued against is not ready for review. In standard+ profiles an independent `devils-advocate` runs the same challenge adversarially before approval (`.claude/rules/quality-gates.md` §3) — doing it yourself first is what makes that pass cheap.
+
 **Verify:**
 - [ ] Spec file exists at `docs/specs/{feature-name}_spec.md`
 - [ ] Both sections present (Specification + Developer Documentation)

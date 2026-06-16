@@ -50,6 +50,9 @@ collection during a rollout. Your job is to make that coexistence **safe**, **re
 - **Drop the old field in a later deploy, never the same release** as the code that stops writing or
   reading it — that removal is the *contract* step of expand/contract, after the read-compat window.
   A same-release removal (no compatibility shim) is at least **High**.
+- Dropping a field/collection is a **block-tier** action: verify the target is exactly what you
+  expect and get explicit human authorization before running it — the verify-then-confirm posture in
+  `.claude/rules/agent-guardrails.md` §3.
 
 ## Quality gate & self-check
 

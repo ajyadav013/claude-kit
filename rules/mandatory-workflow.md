@@ -153,6 +153,16 @@ approach, no over/under-engineering), non-functional concerns, and architecture 
 Feedback loops with the Dev Doc Writer, **max 3 iterations**, then escalate.
 **Gate:** EM signals `APPROVED`. The story breakdown CANNOT start without it.
 
+## 1e.5 — Plan Critique `[Devil's Advocate]` *(standard+)*
+Before EM approval is treated as final, the Orchestrator spawns the `devils-advocate` agent once on the
+spec + developer documentation. It argues the plan is wrong: the weakest or most-volatile requirement,
+an untestable acceptance criterion, a hidden dependency, a missing requirement, unjustified scope, the
+step most likely to fail. An **UPHELD** verdict (any Critical/High/Medium) routes back to the Spec /
+Dev Doc Writer and the gate stays open; **CONFIRMED** lets planning proceed. The **lean** fast track
+skips this pass (it does not install the agent); there, the Spec Writer's own self-critique in its RARV
+cycle is the safeguard.
+**Gate:** in standard+, EM `APPROVED` is not final until the plan critique returns CONFIRMED.
+
 ## 1f — Story Breakdown & Coverage Gate `[Story Planner]`
 With the EM-approved spec, the **Story Planner** decomposes it into the smallest set of
 independently shippable stories, ordered by dependency, and identifies which can run in parallel
@@ -298,7 +308,7 @@ B1 understand → B2 failing test → B3 root cause → B4 fix → B5 quality ga
 ```
 Phase 1: 1a Understand [Orchestrator] → 1b Clarify → 1c Spec [Spec Writer]
   → 1d Dev docs [Dev Doc Writer] → 1e EM review [EM Reviewer, max 3]
-  → 1f Story breakdown + coverage gate [Story Planner]
+  → 1e.5 Plan critique [Devil's Advocate, standard+] → 1f Story breakdown + coverage gate [Story Planner]
 Phase 2: 2a Read code [Developer] → 2b Implement → 2c Code review [Code Reviewer, max 5] → 2d Impact check
 Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
   → 3b.5 Test-coverage gate (blind review + Devil's Advocate)
@@ -311,7 +321,8 @@ Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
 |------|-----------------|
 | Requirements clarified (1b) | Spec Writer starts |
 | Spec approved by user (1c) | Dev Doc Writer starts |
-| EM `APPROVED` (1e) | Story Planner starts |
+| EM `APPROVED` (1e) | Plan critique (standard+) / Story Planner starts |
+| Plan critique CONFIRMED (1e.5, standard+) | Story breakdown is final |
 | Story coverage complete — every criterion mapped, no scope creep (1f) | Developer starts coding |
 | Code Reviewer `APPROVED` (2c) | Testing starts |
 | Both testers pass (3a+3b) | Test-coverage gate |

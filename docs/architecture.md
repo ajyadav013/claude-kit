@@ -90,7 +90,8 @@ flowchart TD
     CLS -->|"feature"| SPEC["1. Spec & Dev Docs<br/>spec-doc-writer (+ ui-designer if UI)"]
     SPEC --> EM{{"Gate: EM approved<br/>em-reviewer"}}
 
-    EM -->|"pass"| STORY["2. Story breakdown + coverage gate<br/>story-planner: every acceptance criterion → a story"]
+    EM -->|"pass"| PC{{"Gate: Plan critique<br/>standard+ · devils-advocate on the spec"}}
+    PC -->|"CONFIRMED"| STORY["2. Story breakdown + coverage gate<br/>story-planner: every acceptance criterion → a story"]
     STORY --> FORK["Fork independent work streams"]
     subgraph LANES["Parallel lanes (canonical example: backend + frontend)"]
         direction LR
@@ -113,14 +114,17 @@ flowchart TD
     FT --> HUMAN
 
     EM -->|"fail"| SPEC
+    PC -->|"UPHELD"| SPEC
     TCG -->|"fail"| LANES
     SEC -->|"fail"| LANES
 ```
 
 **Every gate uses the same rules:** the severity model (zero Critical/High/Medium to pass), the RARV
-self-check (Reason → Act → Reflect → Verify, with a green Verify before any handoff), and blind review
-(parallel reviewers judge independently; a unanimous PASS triggers the Devil's Advocate before the
-gate counts).
+self-check (Reason → Act → Reflect → Verify, with a green Verify backed by real captured output —
+a fabricated verdict is auto-Critical, `rules/quality-gates.md` §2.5), and blind review (parallel
+reviewers judge independently; a unanimous PASS triggers the Devil's Advocate before the gate counts).
+In standard+, the Devil's Advocate also critiques the **plan** before approval is final, so a flawed
+spec is caught on paper rather than after implementation.
 
 ---
 

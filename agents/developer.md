@@ -145,6 +145,14 @@ If this fails, report to the Orchestrator instead of proceeding.
 - Use the project's path alias (if configured) for cleaner imports
 - Follow naming conventions per the rules files
 - No dead code, unused imports, or debug artifacts
+- When you replace code, delete the superseded path — don't leave a backwards-compat shim unless
+  compatibility is a stated requirement (CLAUDE.md "Surgical Changes")
+- Validate inputs at the boundary, not redundantly in every internal layer that already received
+  validated data
+- Reference code as `path:line` in review responses and handoff notes
+- Before any irreversible or outward-facing action (deleting/overwriting a file you didn't create,
+  force-push, a destructive migration, publishing), follow the verify-then-confirm posture in
+  `.claude/rules/agent-guardrails.md` §3 — confirm the target is what you think it is, then ask.
 
 ## Handling Code Review Feedback
 

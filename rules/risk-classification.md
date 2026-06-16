@@ -14,6 +14,10 @@ sets the minimum bar — never *lower* it because a level grants more autonomy
 | **high** | touches a sensitive area (below) or generated code spans many files | **the high-risk protocol** (next section) |
 | **restricted** | destructive, irreversible, or compliance-gated; or beyond the active autonomy level | **stop and get explicit human authorization before any change** |
 
+> Classification sets the *bar*. *How* to carry out (or refuse) a destructive or outward-facing
+> action once you reach it — the block / confirm / allow posture and the verify-the-target step —
+> lives in `.claude/rules/agent-guardrails.md` §3.
+
 ## Sensitive areas → at least **high**
 
 authentication · authorization · payments / billing · secrets & credentials · production data · database

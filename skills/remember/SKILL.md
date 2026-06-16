@@ -43,7 +43,7 @@ If unsure, pick the closest fit; UX preferences go in `ux/`.
 
 ### 2. Check for an existing entry
 
-Read `.claude/agent-memory/MEMORY.md` and skim the relevant category folder. If a similar learning exists, **edit that file** (refine, add nuance, correct it) rather than creating a duplicate.
+Read `.claude/agent-memory/MEMORY.md` and skim the relevant category folder. If a similar learning exists, **edit that file** (refine, add nuance, correct it) rather than creating a duplicate. While you're there, sanity-check that the existing entry is still accurate against the current code — if it has gone stale (a renamed file, a changed flag, behavior that no longer holds), fix or remove it rather than stacking a contradicting entry beside it (the verify-before-trust checks in `.claude/rules/agent-memory.md`).
 
 ### 3. Write the learning file
 

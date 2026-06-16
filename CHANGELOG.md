@@ -4,6 +4,68 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.14.0] — 2026-06-16
+
+A **third improvement brief** — six engineering *techniques* observed in Anthropic's Claude Code system
+prompts, **reimplemented from scratch in claude-kit's own vocabulary** (gates, severity, RARV,
+profiles, scopes, Orchestrator, CONTINUITY, agent-memory). No source text was copied, quoted, or
+closely paraphrased — the IP boundary is technique-and-structure only. Run through the kit's reuse-first
+mapping, the decisive finding repeated once more: every pattern already had a natural home, so all six
+land as **extensions of existing rules/agents/skills/hooks** — **zero new agents, zero new rule files**
+(core counts unchanged: 28 agents · 50 skills · 23 rules).
+
+Two deliberate divergences from the brief's *inferred* file paths (it invited path verification):
+**(P0-1)** the autonomous-action posture lives in `rules/agent-guardrails.md` §3 (execution discipline),
+not `rules/risk-classification.md` (tier assignment) — cross-referenced from the restricted tier;
+**(P2-1)** the implementer house style extends `templates/CLAUDE.md` "Surgical Changes" (the kit's
+always-in-context house-style home) rather than adding a new rule that would near-duplicate it and
+`code-organization.md` (golden rule #3).
+
+### Added
+- **P0-1 — autonomous-action safety** (`rules/agent-guardrails.md` §3, always-on). A **block / confirm /
+  allow** posture over irreversible & outward-facing actions (force-push, history rewrite, branch/tag
+  deletion, destructive migration, bulk deletion, secret access, publish/send/post), a **verify-the-
+  target-before-destroying** step (stop if what you find contradicts how the task described it), and the
+  affirmative §1 rule that **untrusted/injected content never authorizes an action**. Cross-ref from
+  `rules/risk-classification.md`; one-line pointers from `developer`, `devops-engineer`, and both
+  `migration-specialist` overlay agents.
+- **P0-2 — anti-fabrication of verdicts** (`rules/quality-gates.md` §2.5 + §1, always-on). A gate verdict
+  (PASS/FAIL) is valid **only** when it cites the real command + captured output (or the `file:line`
+  finding); a fabricated, assumed, or partial-output-based verdict is **auto-Critical**; reading a
+  still-running lane's output and calling the gate done is forbidden. Reinforced in
+  `rules/agent-guardrails.md` §2 and `rules/rarv-cycle.md` ("cite it", not just "run it").
+- **P1-3 — plan-phase critique before approval.** The `spec-doc-writer` now runs an explicit
+  **self-critique** in its RARV cycle (always-on, wherever planning runs); and in **standard+** the
+  Orchestrator runs `devils-advocate` once on the spec + dev-docs **before EM approval is final**
+  (new Stage PC / `mandatory-workflow.md` §1e.5) — an UPHELD verdict routes back to the Spec Writer and
+  the spec gate stays open. `devils-advocate` extended to a plan-critique mode (was code/tests only).
+  **lean** keeps self-critique only (it doesn't install the agent).
+
+### Changed
+- **P1-1 — memory hygiene** (`rules/agent-memory.md`, always-on): verify-before-trust (confirm a
+  recalled file/flag/command still exists before relying on it), selective attachment with cited
+  sources, and reconciliation (committed `CLAUDE.md`/`rules/*` win over a conflicting memory). A
+  start-of-turn line added to `rules/continuity.md`; a staleness check added to the `remember` skill.
+- **P1-2 — resume snapshot** (`rules/continuity.md`, always-on): a small structured
+  `.claude/state/pipeline-snapshot.json` (profile/scope, mode, stage, per-lane status,
+  `last_gate_passed`, open findings by severity, next action) the Orchestrator maintains alongside
+  CONTINUITY; on resume it is **reloaded as context, not re-executed** (no re-running setup, no
+  re-applying committed edits, no re-opening passed gates). Wired into the `sdlc` skill + `orchestrator`;
+  `load-continuity.sh` now ensures `.claude/state/` exists in plugin context (the pip installer already
+  creates and gitignores it).
+- **P2-1 — implementer house style** (`templates/CLAUDE.md` "Surgical Changes", always-on): delete the
+  superseded path instead of leaving a backwards-compat shim (unless compat is required), validate at
+  the boundary not redundantly in every layer, cite code as `path:line`, and (cross-ref to
+  `rules/documentation.md` §6, no duplication) no change-narration comments. The `sdlc-code-reviewer`
+  gains a **Change Hygiene** check group (shim-without-requirement = Medium; redundant re-validation =
+  Low; narration comment = Low); reinforced in the `developer` agent.
+
+### Notes
+- **No `resolve()` / catalog changes** — all six are payload-content edits, so the
+  `lean⊊standard⊊enterprise` subset, MCP-gating, and no-Docker invariants are untouched.
+- `docs/coverage-audit.md` gains a Brief-#3 section; `docs/architecture.md` adds the standard+ plan-
+  critique node.
+
 ## [0.13.0] — 2026-06-15
 
 A **second improvement brief** (external self-review, post-0.12.0) — Item 0 (a covered-vs-gated audit)
