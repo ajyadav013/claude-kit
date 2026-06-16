@@ -18,8 +18,11 @@ skills:
   - { name: scope, existing: true }
   - { name: feature-from-idea, existing: false }
   - { name: prompt-to-safe-task, existing: false }
+  - { name: review-scope, existing: false }
+  - { name: review-sprint-plan, existing: false }
 agents:
   - { name: pm-copilot, existing: false }
+  - { name: staff-pm-reviewer, existing: false }
   - { name: spec-doc-writer, existing: true }
   - { name: story-planner, existing: true }
   - { name: ui-designer, existing: true }

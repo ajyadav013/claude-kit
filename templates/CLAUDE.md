@@ -50,6 +50,14 @@ When your changes create orphans:
 - Remove imports/variables/functions that YOUR changes made unused.
 - Don't remove pre-existing dead code unless asked.
 
+When you replace code:
+- Delete the path you superseded — don't leave a backwards-compat shim "just in case." Keep one only
+  when backward compatibility is an actual, stated requirement (and say why).
+- Validate inputs at the boundary (entry point / public function), not redundantly in every internal
+  layer that already received validated data.
+- Comments explain *why*, never narrate *what just changed* ("// added this") — see
+  `.claude/rules/documentation.md` §6. Reference code as `path:line` in notes and handoffs.
+
 The test: Every changed line should trace directly to the user's request.
 
 ### Goal-Driven Execution

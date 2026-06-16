@@ -27,6 +27,7 @@ def test_resolve_worked_example(payload):
     # Overlay rules from the three selected stacks (postgres carries a perf overlay too).
     assert set(plan.overlay_rules) == {
         "react-patterns.md",
+        "design-system-compliance.md",
         "fastapi-patterns.md",
         "postgres-patterns.md",
         "database-performance.md",
@@ -204,8 +205,10 @@ def test_org_scope_builds_orgplan(payload):
     )
     assert plan.org is not None
     assert len(plan.org.packs) == 7
-    assert len(plan.org.org_skills) == 5
-    assert len(plan.org.org_agents) == 5
+    assert (
+        len(plan.org.org_skills) == 9
+    )  # 5 vibe/non-engineer + 4 senior-review (0.15.0)
+    assert len(plan.org.org_agents) == 6  # 5 personas + staff-pm-reviewer (0.15.0)
     assert len(plan.org.org_rules) == 10
     # The persona agents are NOT folded into the profile agent set (they install via the org overlay).
     assert "pm-copilot" not in plan.agents

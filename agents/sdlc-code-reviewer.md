@@ -151,6 +151,12 @@ Review all code changes produced by the Developer (Agent 4). Check for correctne
 - [ ] Path aliases used correctly
 - [ ] Naming conventions match rules files
 
+### Change Hygiene (see CLAUDE.md "Surgical Changes" + `.claude/rules/documentation.md` §6)
+- [ ] No backwards-compat shim left for replaced code unless compatibility is a stated requirement — else **Medium**
+- [ ] Inputs validated at the boundary, not redundantly re-validated in internal layers — redundant re-validation is **Low**
+- [ ] No change-narration comments ("// added this") — comments explain *why*, not *what changed* — **Low**
+- [ ] Code locations in findings cited as `path:line`
+
 ## Feedback Protocol
 
 When you find issues, send **specific, actionable** fix requests to the Developer:

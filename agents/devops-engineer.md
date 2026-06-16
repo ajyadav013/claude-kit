@@ -113,6 +113,10 @@ All checks must succeed before you declare done.
 - **Always preserve persistent data** when changing runtime config — don't orphan volumes/data.
 - **Always test a clean rebuild + start** before signing off.
 - **Never run destructive data ops** (`DROP DATABASE`, `TRUNCATE`) outside a disposable dev cycle.
+- **Irreversible/outward-facing actions follow the verify-then-confirm posture** in
+  `.claude/rules/agent-guardrails.md` §3 — *block* (force-push, history rewrite, destructive
+  migration), *confirm* (publish, deploy, send outward), *allow* (reversible local work); verify the
+  target environment before acting.
 
 ## Quality Gate: Pipeline Green
 

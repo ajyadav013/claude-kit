@@ -16,9 +16,10 @@ Refresh stale documentation by scanning source code and updating docs that have 
 ## Steps
 
 1. **Identify what changed**:
+   - **If the project ships a deterministic doc-freshness checker** (a script that reports which docs are stale), run it first and use its output as the source of truth — don't re-derive by hand what a script already decides.
    - If `$ARGUMENTS` is a file path: skip the scan, just refresh that specific doc.
    - If `$ARGUMENTS` contains `--since`: run `git diff --name-only HEAD~N` to find changed source files in the last N commits.
-   - Otherwise: compare docs against source files to find stale documentation.
+   - Otherwise: compare each doc's last-modified / last-commit time against the source files it documents to find stale documentation.
 
 2. **Map changes to docs**: Determine which docs are affected by the changes:
    - Component changes → `docs/reports/DEVELOPER_HANDOFF.md` (component inventory), `CLAUDE.md` (architecture section)

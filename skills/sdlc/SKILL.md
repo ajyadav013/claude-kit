@@ -27,9 +27,11 @@ Before doing anything, read:
 
 Then read `.claude/CONTINUITY.md` (the `load-continuity` SessionStart hook has already printed it into
 context). **Detect an in-progress run:** if **Current Phase** is not idle and **Active Tasks** names a
-run matching `$ARGUMENTS`, an earlier pipeline is in flight. Tell the user the **last PASSed gate** and
-the active lane(s) from the mirrored `PIPELINE:` line (the orchestrator's authoritative, gate-precise
-state line — see `.claude/rules/continuity.md`), then ask whether to:
+run matching `$ARGUMENTS`, an earlier pipeline is in flight. Prefer the **structured resume snapshot**
+at `.claude/state/pipeline-snapshot.json` when present — its `last_gate_passed`, `lanes`, and `next`
+are the precise resume index (schema in `.claude/rules/continuity.md`); the freeform CONTINUITY state
+(the mirrored `PIPELINE:` line) is the back-compatible fallback. Tell the user the **last PASSed gate**
+and the active lane(s), then ask whether to:
 
 - **RESUME** — re-enter the orchestrator at the first gate *after* the last passed one, re-running only
   un-passed or defect-affected lanes; or
@@ -66,8 +68,10 @@ and the stack selection. Instruct it to:
    fast-track (< 5 files) vs. full pipeline. Fast-track collapses to the lean gate set regardless of
    profile.
 2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
-   survives compaction — update it at every phase transition). On resume, re-enter at the first gate
-   *after* the last PASSed gate per the `PIPELINE:` line rather than restarting from spec.
+   survives compaction — update it at every phase transition), and mirror the gate-precise state into
+   the structured snapshot `.claude/state/pipeline-snapshot.json`. On resume, reload the snapshot as
+   *context* and re-enter at the first gate *after* `last_gate_passed` — re-running only un-passed or
+   defect-affected lanes, never re-running setup or re-applying committed edits.
 3. **Run each active phase with its gate**, in order, using only the profile's agents:
    spec & dev-docs → story planning → (design, if UI) → senior/architect/EM review →
    implementation (one worktree per lane) → code review → unit + e2e tests → test-coverage merge →

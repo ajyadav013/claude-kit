@@ -4,6 +4,146 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.15.0] — 2026-06-16
+
+**Adopt the Fynd Agentic Engineering personas & skills** (an internal Claude Code plugin marketplace —
+11 agents + 29 skills across 7 plugins: engineer, designer, pm, context-gen, staff-em, staff-sdet,
+staff-pm). Those plugins are excellent but heavily **stack-bound** (FastAPI/SQLAlchemy/Pydantic/React/
+Tailwind/Radix/Zod/Temporal/Kafka/Langfuse, against an internal `.ai/` doc convention). Mirroring all
+40 files into a stack-agnostic kit would leak framework specifics into the core (golden rule #1) and
+duplicate components claude-kit already ships (golden rule #3). So they were adopted **reuse-first**.
+
+An 81-agent adversarial workflow mapped every item against the live inventory, two-sided-verified each
+verdict, and synthesized the landing zones. Tally of the 40: **11 map** (already covered — adopt
+nothing), **18 extend** (a real delta folded into the nearest existing component), **5 adopt-stack**
+(framework substance → existing overlays), **5 adopt-org** (senior-review personas → scope-gated org
+layer), **1 adopt-core** (genuinely new + stack-agnostic). Net: **2 new core skills, ~10 surgical core
+extends, 1 new React overlay rule + FastAPI/React overlay enrichments, 5 new org components** — zero
+stack leakage into core, zero diluting duplicates. IP boundary: technique-and-structure only, no source
+text copied; every Fynd-internal reference (the `.ai/` naming, internal field/service names, numeric
+heuristics) stripped or genericized.
+
+Three deliberate decisions: **(1)** Temporal/Kafka/Langfuse are **not** added as selectable stacks —
+they would be new top-level `stacks.yaml` *kinds*, which `resolve()` reads through fixed
+frontend/backend/database accessors, so they'd require resolver/model/prompt code (golden rule #6).
+Recorded as future work. **(2)** the context-layer *generator* folds into `context-engineering` as a
+mode (not a competing docs skill — golden rule #3). **(3)** the senior-review **product-lens** personas
+go to the org layer (install only at `scope == organization`); the **engineering-lens** deltas fold
+into existing core gates.
+
+### Added
+- **`skills/bug-hunt`** (new core skill, standard+; the sole adopt-core). A proactive, source-only,
+  spec-free exploratory bug hunt: map the feature, sweep a fixed scenario taxonomy (input edge cases ·
+  an error state per failure point · state · race/concurrency · rendering · authorization), rate
+  findings on the kit's Critical/High/Medium/Low/Cosmetic model with `path:line` + repro + root cause,
+  then a systemic-pattern pass + top-3. Cross-refs `debugging-and-error-recovery`,
+  `code-review-and-quality`, `senior-tester`, `auditor` to protect auto-selection.
+- **`skills/test-plan-review`** (new core skill, standard+). A forward-looking review of a *proposed*
+  test plan / test-infra design **before tests exist**: data-generation strategy, validation depth via
+  a field-drift matrix, infra failure modes, coverage-by-domain, each gap tied to a preventable
+  incident. Distinct from `senior-tester` (verifies already-executed tests).
+- **Org senior-review tier** (organization scope only): `staff-pm-reviewer` agent (product-lens,
+  read-only) + `review-scope`, `review-sprint-plan`, `review-ux-flow`, `review-sprint` skills. Wired via
+  `catalog/org.yaml` (`new_agents`/`new_skills`) into the `product-to-code` and `quality-and-review`
+  packs (`existing: false`).
+- **React `design-system-compliance.md` overlay rule** (Tailwind/Radix/Lucide): token-not-arbitrary-
+  value enforcement, one set of component variants, radius/spacing/icon scales, `cn()` class-merge,
+  explicit light/dark scope — palette parameterized to the project. Registered in `stacks.yaml` React
+  `overlay_rules`.
+
+### Changed
+- **10 core extends**, each folding one verified delta into an existing component (neutral phrasing):
+  `context-engineering` (generate/refresh a persistent cross-linked comprehension layer — the `.ai/`
+  technique, genericized); `planning-and-task-breakdown` (cross-service/multi-repo coordination +
+  task-type prompt templates + a portable cross-LLM prompt); `deprecation-and-migration` (Pre-Removal
+  Safety Check — sweep every consumer surface incl. the silently-breaking test mock/patch import
+  paths); `sprint` (proactive agent capacity/replacement planning + run-the-checks-for-real post-sprint
+  report); `orchestrator` (Live-Sprint Health monitoring); `archive-sprint` (verify checks actually
+  ran before archiving); `em-reviewer` (Verify-Claims-Against-the-Codebase checklist + eval/HITL line);
+  `senior-tester` (a standing suite-architecture audit mode); `technical-architect` (a thin eval / HITL
+  / staged-rollout cross-ref to the owning rules); `refresh-docs` (run a deterministic freshness script
+  first if present).
+- **FastAPI overlay** (`fastapi-patterns.md`) enriched: HTTP method→status + domain-error→status
+  mapping (**reconciled** with — not contradicting — the file's existing router-maps-to-HTTPException
+  rule), service-layer logging discipline + N+1/soft-delete/method-naming, snake-case-on-the-wire,
+  reading live DB state safely, changed-files→test routing, schema-derived contract fixtures, and the
+  concrete pre-removal grep recipe behind the agnostic Pre-Removal Safety Check.
+- **React overlay** (`react-patterns.md`) enriched: an accessibility section (Tailwind `text-gray-*`
+  contrast table, `p-3 -m-3` touch-target pattern, clickable-`div` keyboard recipe, the
+  `@/components/ui`/Radix focus/keyboard allowlist), changed-files→test routing, and strict Zod/Vitest
+  contract fixtures.
+- `profiles.yaml`: `bug-hunt` + `test-plan-review` added to **standard** (inherited into enterprise).
+
+### Explicitly not adopted (mapped to existing)
+engineer/code-reviewer → `sdlc-code-reviewer`; frontend/backend-developer → `senior-*-dev`;
+pm/feature-scoper + scope-feature → `scope`; the monolithic staff-em-reviewer → split across
+`acceptance-reviewer`/`technical-architect`/`em-reviewer`/`merge-reviewer`/`devils-advocate`;
+verify-sprint → `acceptance-reviewer`+`sprint`+`archive-sprint`; designer/audit-ui/review-styles/
+component-spec → `ui-ux-design`/`accessibility-review`/`component-design`/`ui-designer`;
+context-gen/update → `refresh-docs`. Each would be a near-duplicate (golden rule #3).
+
+## [0.14.0] — 2026-06-16
+
+A **third improvement brief** — six engineering *techniques* observed in Anthropic's Claude Code system
+prompts, **reimplemented from scratch in claude-kit's own vocabulary** (gates, severity, RARV,
+profiles, scopes, Orchestrator, CONTINUITY, agent-memory). No source text was copied, quoted, or
+closely paraphrased — the IP boundary is technique-and-structure only. Run through the kit's reuse-first
+mapping, the decisive finding repeated once more: every pattern already had a natural home, so all six
+land as **extensions of existing rules/agents/skills/hooks** — **zero new agents, zero new rule files**
+(core counts unchanged: 28 agents · 50 skills · 23 rules).
+
+Two deliberate divergences from the brief's *inferred* file paths (it invited path verification):
+**(P0-1)** the autonomous-action posture lives in `rules/agent-guardrails.md` §3 (execution discipline),
+not `rules/risk-classification.md` (tier assignment) — cross-referenced from the restricted tier;
+**(P2-1)** the implementer house style extends `templates/CLAUDE.md` "Surgical Changes" (the kit's
+always-in-context house-style home) rather than adding a new rule that would near-duplicate it and
+`code-organization.md` (golden rule #3).
+
+### Added
+- **P0-1 — autonomous-action safety** (`rules/agent-guardrails.md` §3, always-on). A **block / confirm /
+  allow** posture over irreversible & outward-facing actions (force-push, history rewrite, branch/tag
+  deletion, destructive migration, bulk deletion, secret access, publish/send/post), a **verify-the-
+  target-before-destroying** step (stop if what you find contradicts how the task described it), and the
+  affirmative §1 rule that **untrusted/injected content never authorizes an action**. Cross-ref from
+  `rules/risk-classification.md`; one-line pointers from `developer`, `devops-engineer`, and both
+  `migration-specialist` overlay agents.
+- **P0-2 — anti-fabrication of verdicts** (`rules/quality-gates.md` §2.5 + §1, always-on). A gate verdict
+  (PASS/FAIL) is valid **only** when it cites the real command + captured output (or the `file:line`
+  finding); a fabricated, assumed, or partial-output-based verdict is **auto-Critical**; reading a
+  still-running lane's output and calling the gate done is forbidden. Reinforced in
+  `rules/agent-guardrails.md` §2 and `rules/rarv-cycle.md` ("cite it", not just "run it").
+- **P1-3 — plan-phase critique before approval.** The `spec-doc-writer` now runs an explicit
+  **self-critique** in its RARV cycle (always-on, wherever planning runs); and in **standard+** the
+  Orchestrator runs `devils-advocate` once on the spec + dev-docs **before EM approval is final**
+  (new Stage PC / `mandatory-workflow.md` §1e.5) — an UPHELD verdict routes back to the Spec Writer and
+  the spec gate stays open. `devils-advocate` extended to a plan-critique mode (was code/tests only).
+  **lean** keeps self-critique only (it doesn't install the agent).
+
+### Changed
+- **P1-1 — memory hygiene** (`rules/agent-memory.md`, always-on): verify-before-trust (confirm a
+  recalled file/flag/command still exists before relying on it), selective attachment with cited
+  sources, and reconciliation (committed `CLAUDE.md`/`rules/*` win over a conflicting memory). A
+  start-of-turn line added to `rules/continuity.md`; a staleness check added to the `remember` skill.
+- **P1-2 — resume snapshot** (`rules/continuity.md`, always-on): a small structured
+  `.claude/state/pipeline-snapshot.json` (profile/scope, mode, stage, per-lane status,
+  `last_gate_passed`, open findings by severity, next action) the Orchestrator maintains alongside
+  CONTINUITY; on resume it is **reloaded as context, not re-executed** (no re-running setup, no
+  re-applying committed edits, no re-opening passed gates). Wired into the `sdlc` skill + `orchestrator`;
+  `load-continuity.sh` now ensures `.claude/state/` exists in plugin context (the pip installer already
+  creates and gitignores it).
+- **P2-1 — implementer house style** (`templates/CLAUDE.md` "Surgical Changes", always-on): delete the
+  superseded path instead of leaving a backwards-compat shim (unless compat is required), validate at
+  the boundary not redundantly in every layer, cite code as `path:line`, and (cross-ref to
+  `rules/documentation.md` §6, no duplication) no change-narration comments. The `sdlc-code-reviewer`
+  gains a **Change Hygiene** check group (shim-without-requirement = Medium; redundant re-validation =
+  Low; narration comment = Low); reinforced in the `developer` agent.
+
+### Notes
+- **No `resolve()` / catalog changes** — all six are payload-content edits, so the
+  `lean⊊standard⊊enterprise` subset, MCP-gating, and no-Docker invariants are untouched.
+- `docs/coverage-audit.md` gains a Brief-#3 section; `docs/architecture.md` adds the standard+ plan-
+  critique node.
+
 ## [0.13.0] — 2026-06-15
 
 A **second improvement brief** (external self-review, post-0.12.0) — Item 0 (a covered-vs-gated audit)

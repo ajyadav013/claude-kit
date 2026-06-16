@@ -47,6 +47,9 @@ data**, **reversible**, and **decoupled from the deploy** so it never causes dow
   `DROP TABLE`, a type narrowing, or a new `NOT NULL` / unique constraint on existing data is the
   *contract* step — it ships in a later deploy than the expand step, never both at once. A same-release
   destructive change (no expand/contract) is at least **High**.
+- A destructive step (`DROP` / `TRUNCATE` / column drop) is a **block-tier** action: verify the
+  target schema/table is exactly what you expect and get explicit human authorization before running
+  it — the verify-then-confirm posture in `.claude/rules/agent-guardrails.md` §3.
 
 ## Quality gate & self-check
 

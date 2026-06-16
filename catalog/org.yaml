@@ -96,12 +96,18 @@ new_skills:
   - customer-issue-to-fix
   - prompt-to-safe-task
   - repo-onboarding
+  # Senior-review tier (product + EM lens), scope-gated to organization. Read-only review skills.
+  - review-scope
+  - review-sprint-plan
+  - review-ux-flow
+  - review-sprint
 new_agents:
   - pm-copilot
   - founder-prototype-agent
   - support-ticket-engineer
   - data-workflow-agent
   - internal-tools-builder
+  - staff-pm-reviewer
 new_rules:
   - ai-working-agreement.md
   - prompt-to-task-conversion.md

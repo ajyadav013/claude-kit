@@ -28,4 +28,4 @@ RARV is lightweight by design — it is a habit, not a phase. For trivial work i
 2. **Reflect on your own work adversarially.** The cheapest defect to fix is the one you catch in Reflect, before the gate.
 3. **A failed Verify is a learning.** Log the miss to `CONTINUITY.md`; promote durable ones to `agent-memory/`.
 4. **Scale the rigor to the task.** Fast-track (Mode D) still does RARV — just lighter. Never skip Verify.
-5. **Verify means run it, not imagine it.** Never report a check as passing without executing it.
+5. **Verify means run it, not imagine it.** Never report a check as passing without executing it. A verdict you hand off must cite the command and its real output; an uncited PASS/FAIL is treated as fabricated (`.claude/rules/quality-gates.md` §2.5).

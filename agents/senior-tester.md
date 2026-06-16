@@ -22,6 +22,7 @@ You may be spawned by the Orchestrator in one of these modes:
 - **`ui`** — Verify the UI tester's report: spot-check screen states, find missed interactions, test additional viewports
 - **`integration`** — Verify the integration tester's report: spot-check flows, find missed journeys, test additional failure modes
 - **`full`** — Verify everything (used for small features or single-stack work)
+- **`suite-audit`** — A standing audit of the **whole test suite's architecture** (not one feature): enumerate every test file, map coverage by domain × layer, surface structural smells, grade assertion quality, and call out missing layers. Retrospective and codebase-wide, unlike the lane modes above.
 
 When spawned in a specific mode, **focus exclusively on verifying that testing lane**. The merge-reviewer will verify that all verification lanes together confirm complete coverage.
 
@@ -121,6 +122,45 @@ Re-run at least 2 of the tester's integration flows:
 ## Mode: Full Verification
 
 Run all three verification modes: API → UI → Integration.
+
+---
+
+## Mode: Suite-Architecture Audit
+
+A retrospective audit of the *test suite as a whole* — not "are this feature's tests adequate?" but
+"is the way we test structurally sound?" Use the project's test commands/layout for the mechanics
+(see your stack overlay rule); the technique below is stack-neutral.
+
+### 1. Enumerate & bucket
+Find every test file and bucket each by layer: **unit · contract/API · integration · end-to-end**.
+A suite that is 95% unit tests and 0% contract/e2e has a shape problem regardless of its count.
+
+### 2. Domain × layer matrix
+Build a matrix of the project's domains/modules (rows) against test layers (columns). Empty cells are
+the finding: a domain with no integration tests, a layer absent for a critical module. This exposes
+gaps a raw coverage percentage hides.
+
+### 3. Structural smells
+Flag suite-level structure problems, e.g.:
+- duplicate or ambiguous test directories / unclear where a new test belongs
+- a monolithic shared-setup/fixture file that every test depends on (change-amplifier)
+- wrong isolation/fixture scope (a "unit" test that hits the DB, network, or filesystem)
+- cross-layer coupling — tests that break for reasons unrelated to what they claim to test
+
+### 4. Grade assertions
+Sample assertions and grade their quality:
+- **behavioral** (asserts the actual result/effect) — good
+- **status-only** (asserts "no error"/"returns 200" but not the result) — weak
+- **tautological** (asserts something always true) or **over-mocked** (asserts the mock, not the code) — failing
+
+### 5. Missing layers & remediation
+Name any **entire layer** that is absent (e.g. no contract tests for an API project, no e2e for a
+user-facing app), and produce a **prioritized remediation plan** — the highest-leverage structural
+fixes first, not a flat list.
+
+Report findings on the project's standard severity model (`.claude/rules/quality-gates.md`). This mode
+complements `test-plan-review` (which reviews a *proposed* plan before tests exist); this audits the
+suite that *already* exists.
 
 ---
 

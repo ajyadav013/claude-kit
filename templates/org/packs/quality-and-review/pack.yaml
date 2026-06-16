@@ -21,6 +21,10 @@ skills:
   - { name: doubt-driven-development, existing: true }
   - { name: manual-test, existing: true }
   - { name: smoke-test, existing: true }
+  - { name: bug-hunt, existing: true }
+  - { name: test-plan-review, existing: true }
+  - { name: review-sprint, existing: false }
+  - { name: review-ux-flow, existing: false }
 agents:
   - { name: sdlc-code-reviewer, existing: true }
   - { name: senior-tester, existing: true }
@@ -30,6 +34,7 @@ agents:
   - { name: devils-advocate, existing: true }
   - { name: acceptance-reviewer, existing: true }
   - { name: merge-reviewer, existing: true }
+  - { name: staff-pm-reviewer, existing: false }
 rules:
   - { name: quality-gates.md, existing: true }
   - { name: testing.md, existing: true }

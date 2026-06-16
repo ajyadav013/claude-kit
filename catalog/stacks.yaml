@@ -24,7 +24,7 @@ frontend:
       languages:
         default: typescript
         options: [typescript, javascript]
-      overlay_rules: [react-patterns.md]
+      overlay_rules: [react-patterns.md, design-system-compliance.md]
       overlay_agents: []
       skills: [frontend-ui-engineering, component-design, ui-ux-design, unit-test]
       stack_dir: frontend/react
