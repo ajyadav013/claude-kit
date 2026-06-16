@@ -4,6 +4,57 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.16.0] — 2026-06-16
+
+**Adopt a full React/Tailwind/Radix design-system rule set as always-on React overlay rules.** Three
+manually-authored, production-grade design docs — `ui-design-system.md` (color/spacing/typography/
+radius scales, card & badge & icon standards, accessibility), `ux-patterns.md` (status expression,
+empty states, breadcrumbs, page archetypes/blueprints, button ordering, date formatting, data colors),
+and `mobile-design-guidelines.md` (responsive breakpoints, touch targets, Capacitor native patterns) —
+are now installed into `.claude/rules/` whenever the **React** frontend is selected. This closes a
+long-standing gap: the kit already shipped the *readers* (`ui-ux-design` + `component-design` skills,
+`ui-designer` agent) but not the *content* they pointed at, so a fresh install never created the design
+docs they read.
+
+Placement is **always-on React overlay rules** (wired purely through `catalog/stacks.yaml`
+`overlay_rules` — no new scaffold mechanism, `resolve()` untouched per golden rule #6). Accepted
+trade-off: ~3k lines of design rules load every session on React projects, in exchange for the design
+system being authoritative and always present. The three files live **only** in
+`templates/stacks/frontend/react/rules/` (golden rule #1 — stack content stays in overlays).
+
+IP boundary: the design **decisions** are preserved verbatim (radius, touch targets, status-via-Badge,
+button ordering, date formats, chart standards, the four page archetypes and their blueprints/compound
+tables), while every app-specific reference was neutralized — product/persona/route identity, concrete
+`src/...` module paths and named app components, the 52-page inventory, dated migration backlogs, the
+domain KPI glossary and INR locale specifics, project-specific lint-rule identifiers, and brand hex
+values (→ `#______` placeholders, matching the existing `design-system-compliance.md` style).
+
+### Added
+- **Three React overlay rules** under `templates/stacks/frontend/react/rules/`:
+  `ui-design-system.md`, `ux-patterns.md`, `mobile-design-guidelines.md` — registered in
+  `catalog/stacks.yaml` → `frontend.frameworks.react.overlay_rules`, installed into `.claude/rules/`
+  only when React is selected. Consumed by the React-gated `ui-ux-design` / `component-design` skills
+  and the `ui-designer` agent.
+
+### Changed
+- **Conflicts resolved in favor of the new files.** `design-system-compliance.md` — the placeholder
+  token table is replaced by a thin pointer naming `ui-design-system.md` (+ `ux-patterns.md` /
+  `mobile-design-guidelines.md`) as the source of truth ("if anything here conflicts, that file wins"),
+  keeping only the concise always-on enforcement hook. `react-patterns.md` — the "Accessibility
+  specifics (Tailwind + Radix)" rules (contrast table, `p-3 -m-3` touch target, clickable-non-button)
+  are trimmed to a cross-reference into `ui-design-system.md` §Accessibility, retaining two
+  React-specific review reminders.
+- **Reader paths repointed** from `docs/references/ui/...` → `.claude/rules/...` so the existing
+  reader-loop connects to the now-installed content: `skills/ui-ux-design` (steps 1–2 + References,
+  with the design-system rule marked authoritative over the inline quick-check table),
+  `skills/component-design` (read whichever of the overlay rule or `docs/references/ui/` is present),
+  and `agents/ui-designer` (overlay rule added to its candidate locations, defensive "if one exists"
+  framing kept — the agent is core/un-gated and must not assume the React overlay is present).
+
+### Notes
+- `docs/references/ui/sidebar-navigation.md` is **not** supplied by the kit; the skills reference it as
+  project-specific/optional.
+
 ## [0.15.0] — 2026-06-16
 
 **Adopt the Fynd Agentic Engineering personas & skills** (an internal Claude Code plugin marketplace —

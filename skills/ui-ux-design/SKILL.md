@@ -9,9 +9,9 @@ Verify UI/UX design compliance for $ARGUMENTS.
 
 ## Steps
 
-1. **Read the design system**: Read `docs/references/ui/ui-design-system.md` to load the full design rules — colors, typography, spacing, cards, icons, badges, components, and accessibility.
+1. **Read the design system**: Read `.claude/rules/ui-design-system.md` to load the full design rules — colors, typography, spacing, cards, icons, badges, components, and accessibility. (Installed as an overlay rule when the React stack is selected.) This file is **authoritative**: if the quick-check table below ever conflicts with it, follow the rule file.
 
-2. **Read the UX patterns doc**: Read `docs/references/ui/ux-patterns.md` for status expression rules, empty state guidelines, breadcrumb conventions, page blueprints, and data color rules.
+2. **Read the UX patterns doc**: Read `.claude/rules/ux-patterns.md` for status expression rules, empty state guidelines, breadcrumb conventions, page blueprints, and data color rules. For responsive/native specifics, also read `.claude/rules/mobile-design-guidelines.md`.
 
 3. **Identify the page archetype**: Determine if the target is a **List**, **Dashboard**, **Detail**, or **Config** page. Each archetype has specific compound components and hooks it should use.
 
@@ -64,8 +64,9 @@ Verify UI/UX design compliance for $ARGUMENTS.
 
 ## References
 
-- Design system: `docs/references/ui/ui-design-system.md`
-- UX patterns: `docs/references/ui/ux-patterns.md`
-- Sidebar navigation: `docs/references/ui/sidebar-navigation.md`
+- Design system: `.claude/rules/ui-design-system.md`
+- UX patterns: `.claude/rules/ux-patterns.md`
+- Mobile / responsive: `.claude/rules/mobile-design-guidelines.md`
+- Sidebar navigation: `docs/references/ui/sidebar-navigation.md` (project-specific, if present)
 - UI components: `src/components/ui/index.ts`
 - Existing pages: `src/pages/` (look at similar archetype)

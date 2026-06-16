@@ -33,7 +33,9 @@ refuses to advance a phase until its **quality gate** passes. You drive it all w
 
 - 🧱 **Stack-agnostic** — the pipeline assumes no language or framework. Pick a stack at `init` and it
   installs matching overlay rules (React · FastAPI · Go/net-http · PostgreSQL · MongoDB) and your exact
-  lint/test/build commands. It never writes your app code and never needs Docker.
+  lint/test/build commands. Picking React also installs a full design-system rule set (design tokens,
+  UX patterns, mobile/Capacitor guidelines) that the UI skills and `ui-designer` agent read. It never
+  writes your app code and never needs Docker.
 - 🎚️ **Dial the rigor with profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills,
   hooks, and gates are active, from "fast track" to "full audit".
 - 👥 **Scope to your team** — `individual` / `team` (default) / `organization`. Org scope adds a

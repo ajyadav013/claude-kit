@@ -25,9 +25,13 @@ def test_resolve_worked_example(payload):
     plan = catalog.resolve(payload, sel)
 
     # Overlay rules from the three selected stacks (postgres carries a perf overlay too).
+    # React also carries the design-system rule set (0.16.0): design tokens, UX patterns, mobile.
     assert set(plan.overlay_rules) == {
         "react-patterns.md",
         "design-system-compliance.md",
+        "ui-design-system.md",
+        "ux-patterns.md",
+        "mobile-design-guidelines.md",
         "fastapi-patterns.md",
         "postgres-patterns.md",
         "database-performance.md",

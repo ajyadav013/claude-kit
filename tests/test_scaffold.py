@@ -707,6 +707,50 @@ def test_fynd_react_design_system_overlay_installs(tmp_path, payload):
     assert "Accessibility specifics" in react, "react a11y enrichment missing"
 
 
+def test_react_design_system_rule_set_installs_and_is_neutralized(tmp_path, payload):
+    """The 0.16.0 design-system rule set (design tokens / UX patterns / mobile) installs into
+    .claude/rules/ with the React frontend, and the content is neutralized — no app/IP noise leaks
+    into the scaffolded project."""
+    target = tmp_path / "react-ds"
+    install(payload, target, profile="standard")  # default frontend is React
+    rules = target / ".claude" / "rules"
+
+    # The three design-system overlay rules install for React.
+    for name in (
+        "ui-design-system.md",
+        "ux-patterns.md",
+        "mobile-design-guidelines.md",
+    ):
+        assert (rules / name).is_file(), f"{name} not installed for React"
+
+    # design-system-compliance.md is now a thin pointer at ui-design-system.md (conflict resolution).
+    compliance = (rules / "design-system-compliance.md").read_text(encoding="utf-8")
+    assert "ui-design-system.md" in compliance, (
+        "design-system-compliance.md should point at ui-design-system.md as the source of truth"
+    )
+
+    # Neutralization: none of the installed design files leak the source app's identity, paths,
+    # named app components, domain glossary, or migration backlog stamps.
+    forbidden = (
+        "Impetus",
+        "src/modules",
+        "AskImpetusFAB",
+        "MobileSplitDrawer",
+        "WWHealthStrip",
+        "SPSF",
+        "GMROF",
+        "Locked 2026",
+    )
+    for name in (
+        "ui-design-system.md",
+        "ux-patterns.md",
+        "mobile-design-guidelines.md",
+    ):
+        text = (rules / name).read_text(encoding="utf-8")
+        for token in forbidden:
+            assert token not in text, f"app-specific token {token!r} leaked into {name}"
+
+
 def test_fynd_org_review_tier_is_scope_gated(tmp_path, payload):
     """Staff-PM reviewer + the 4 product/EM review skills install ONLY at organization scope."""
     review_skills = {

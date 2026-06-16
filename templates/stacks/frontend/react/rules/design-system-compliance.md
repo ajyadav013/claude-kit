@@ -6,22 +6,19 @@ the **React** frontend is selected; it complements `react-patterns.md`,
 design-review technique). This file is about **consistency**: make every screen look like it came from
 one system, by going through tokens and shared primitives instead of one-off styling.
 
-> Fill in the bracketed values with **your** project's design tokens once; after that the rules below
-> enforce them. The point is not the specific numbers — it's that there is exactly one source for each.
+> The full token / component / pattern catalog is **`ui-design-system.md`** (with `ux-patterns.md` for
+> usage rules and `mobile-design-guidelines.md` for responsive/native) — all installed alongside this
+> file in `.claude/rules/`. Those are the source of truth; this file is the short, always-on
+> **enforcement** hook. If anything here ever conflicts with `ui-design-system.md`, that file wins.
 
 ## Use tokens, never arbitrary values
 
 - Reference the configured theme/palette names (`bg-primary`, `text-muted-foreground`, …) — **do not**
   ship Tailwind arbitrary values like `bg-[#5347CD]`, `rounded-[7px]`, `p-[13px]`. An arbitrary value
   in a component is a design-system bypass and a review finding.
-- Pin the palette in the Tailwind theme config; components consume the names:
-
-  | Token | Project value (fill in) |
-  |---|---|
-  | primary | `[#______]` |
-  | accent | `[#______]` |
-  | background / surface | `[#______]` |
-  | foreground / muted-foreground | `[#______]` / `[#______]` |
+- Pin the palette once in the Tailwind theme config (`@theme`); components consume the names. The
+  actual token values and the full color / spacing / typography / radius scales are defined in
+  **`ui-design-system.md`** — set them there, then reference the names everywhere.
 
 ## One set of component variants
 
