@@ -4,6 +4,34 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.17.3] — 2026-06-17
+
+**Fix: remove the two `UserPromptSubmit` prompt hooks that errored on every prompt.** Once the plugin's
+hooks actually loaded (0.17.2), `skill-routing` and `learning-detection` — both `type: "prompt"` —
+failed on every user message with `Schema validation failed` / `JSON validation failed`. Root cause: a
+Claude Code **prompt hook may only return a yes/no decision** (`{ ok, reason?, impossible? }`); it
+cannot inject context. Those two hooks told the model to return `{"continue": true, "systemMessage":
+"<hint>"}` to *inject* a routing/learning hint — a shape the prompt-hook validator rejects, and a
+capability prompt hooks don't have (context injection on `UserPromptSubmit` belongs to **command**
+hooks via stdout / `hookSpecificOutput`). They had never worked — they didn't even load before 0.17.2.
+
+### Removed
+- **`skill-routing`** and **`learning-detection`** (`UserPromptSubmit` prompt hooks) from **both**
+  channels — the plugin `hooks/hooks.json`, the CLI `HOOK_REGISTRY` (`src/claude_kit/hooks.py`),
+  `templates/settings.json`, and the `standard` profile (`catalog/profiles.yaml`). Their function is
+  already covered: Claude auto-selects skills from their descriptions, and durable learnings are
+  recorded by the background `capture-learnings` job (verified working in 0.17.x) plus `/remember`.
+
+### Docs
+- Dropped the "two-sided capture" / learning-detection references from `docs/coverage-audit.md`,
+  `docs/agentic-patterns.md`, `rules/agent-memory.md`, `skills/remember/SKILL.md`, `catalog/capture.yaml`,
+  and `src/claude_kit/models.py`.
+
+### Not adopted (deliberately)
+- **Re-implementing them as deterministic command hooks** (keyword match → stdout hint) — skill
+  auto-selection + background capture already cover the need, and a per-prompt hint adds noise; kept
+  the kit simpler (reuse-first).
+
 ## [0.17.2] — 2026-06-17
 
 **Fix: the plugin's hooks load (for real this time).** 0.17.1 wrapped `hooks/hooks.json` under a

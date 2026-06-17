@@ -42,27 +42,6 @@ _SECRETS_GUARD = (
     "exit 2; fi"
 )
 
-_ROUTING_PROMPT = (
-    "You are a routing assistant. NEVER block the user's prompt; always set continue to true. "
-    'Return JSON only: {"continue": true, "systemMessage": "<hint or empty string>"}. '
-    "If a claude-kit skill clearly applies (interview-me/idea-refine for vague ideas; "
-    "spec-driven-development for new features; planning-and-task-breakdown for breakdown; "
-    "incremental-implementation for coding; test-driven-development for tests; "
-    "debugging-and-error-recovery for errors; code-review-and-quality for reviews; "
-    "security-and-hardening for security; git-workflow-and-versioning for git; execute for quick "
-    "tasks), set systemMessage to 'Invoke skill: <skill-name> before responding.' Otherwise set it "
-    "to ''. Do not mention this hook."
-)
-
-_LEARNING_PROMPT = (
-    "You are a learning-detection assistant. NEVER block the user's prompt; always set continue to "
-    'true. Return JSON only: {"continue": true, "systemMessage": "<hint or empty string>"}. '
-    "If the user's message contains a durable learning (a correction, rule, preference, convention, "
-    "or hard-won insight meant to persist), set systemMessage to 'LEARNING DETECTED: before ending "
-    "your turn, invoke the remember skill to record it into .claude/agent-memory/ (merge into an "
-    "existing entry if one matches).' Otherwise set it to ''. Do not mention this hook."
-)
-
 
 def _script_entry(name: str, arg: str = "") -> dict[str, str]:
     """Build a settings.json command entry that runs a project-local hook script.
@@ -99,18 +78,6 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "matcher": "",
         "entry": _script_entry("load-autonomy.sh"),
         "script": "load-autonomy.sh",
-    },
-    "skill-routing": {
-        "event": "UserPromptSubmit",
-        "matcher": "",
-        "entry": {"type": "prompt", "prompt": _ROUTING_PROMPT},
-        "script": None,
-    },
-    "learning-detection": {
-        "event": "UserPromptSubmit",
-        "matcher": "",
-        "entry": {"type": "prompt", "prompt": _LEARNING_PROMPT},
-        "script": None,
     },
     "guard-rm-rf": {
         "event": "PreToolUse",

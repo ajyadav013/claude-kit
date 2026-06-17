@@ -28,8 +28,8 @@ class Selection:
         profile: SDLC profile id (``"lean"``/``"standard"``/``"enterprise"``).
         capture_mode: Agent-side learning-capture trigger (``"off"``/``"session-end"``/
             ``"session-end-catchup"``/``"per-task"``; see ``catalog/capture.yaml``). Controls how
-            often / when the background capture job fires (the token-cost knob); recall and user-side
-            learning-detection stay profile-driven. Defaults to ``session-end-catchup``.
+            often / when the background capture job fires (the token-cost knob); recall stays
+            profile-driven. Defaults to ``session-end-catchup``.
         mcp: Selected MCP server ids (empty means no ``.mcp.json`` is written).
         scope: Usage scope (``"individual"``/``"team"``/``"organization"``). Only ``organization``
             installs the org capability layer (packs, persona agents, org rules, autonomy hooks).

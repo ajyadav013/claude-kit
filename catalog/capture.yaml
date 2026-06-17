@@ -3,8 +3,8 @@
 # The kit closes the self-improving loop two ways: RECALL (`load-learnings` SessionStart hook injects
 # `.claude/agent-memory/MEMORY.md`) and CAPTURE (a detached background `claude` job records what the
 # agent itself changed/learned). This file governs ONLY the agent-side CAPTURE trigger — how often /
-# when it fires — because that is where token cost accrues and preferences differ. RECALL and the
-# user-side `learning-detection` hook stay profile-driven.
+# when it fires — because that is where token cost accrues and preferences differ. RECALL stays
+# profile-driven.
 #
 # One script (`hooks/scripts/capture-learnings.sh`) backs every mode, dispatched by an argument
 # (`end` / `stop` / `catchup`); the registry in `src/claude_kit/hooks.py` maps each hook id below to
