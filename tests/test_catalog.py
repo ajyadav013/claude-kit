@@ -166,6 +166,49 @@ def test_guard_destructive_git_resolves_in_standard(payload):
     assert "guard-destructive-git" not in lean.hooks
 
 
+def test_capture_mode_swaps_hooks(payload):
+    """The init-time `capture_mode` (catalog/capture.yaml) — NOT the profile — decides which agent-side
+    capture hooks install. off -> none; session-end -> capture-learnings; session-end-catchup -> +the
+    SessionStart catch-up; per-task -> the Stop variant only. Any non-off mode ensures load-learnings
+    (recall) is present, even on lean. Enterprise's `hooks: all` never force-installs all three."""
+    CAP = {"capture-learnings", "capture-learnings-catchup", "capture-learnings-stop"}
+
+    def cap(profile, mode):
+        plan = catalog.resolve(
+            payload, make_selection(payload, profile=profile, capture_mode=mode)
+        )
+        return [h for h in plan.hooks if h in CAP], ("load-learnings" in plan.hooks)
+
+    # off: no capture hooks; recall only where the profile already provides it.
+    assert cap("standard", "off") == ([], True)
+    assert cap("lean", "off") == ([], False)
+
+    # exact hook sets per mode; recall always ensured when capture is on (added on lean).
+    assert cap("standard", "session-end") == (["capture-learnings"], True)
+    assert cap("lean", "session-end") == (["capture-learnings"], True)
+    assert set(cap("standard", "session-end-catchup")[0]) == {
+        "capture-learnings",
+        "capture-learnings-catchup",
+    }
+    assert cap("standard", "per-task") == (["capture-learnings-stop"], True)
+
+    # enterprise (hooks: all) must NOT install all three — only the chosen mode's set.
+    assert cap("enterprise", "session-end")[0] == ["capture-learnings"]
+
+    # unknown mode is rejected.
+    with pytest.raises(ValueError):
+        catalog.resolve(payload, make_selection(payload, capture_mode="bogus"))
+
+
+def test_capture_mode_options_and_default(payload):
+    """capture_mode_options surfaces the catalog modes for the prompt, with the recommended default."""
+    opts = catalog.capture_mode_options(payload)
+    ids = {m["id"] for m in opts["modes"]}
+    assert ids == {"off", "session-end", "session-end-catchup", "per-task"}
+    assert opts["default"] == "session-end-catchup"
+    assert catalog.defaults(payload).capture_mode == "session-end-catchup"
+
+
 def test_every_profile_includes_sdlc_entrypoint(payload):
     for profile in ("lean", "standard", "enterprise"):
         plan = catalog.resolve(payload, make_selection(payload, profile=profile))

@@ -26,6 +26,10 @@ class Selection:
         backend_framework: Backend framework id (e.g. ``"fastapi"``).
         database: Database id (``"postgres"`` or ``"mongodb"``).
         profile: SDLC profile id (``"lean"``/``"standard"``/``"enterprise"``).
+        capture_mode: Agent-side learning-capture trigger (``"off"``/``"session-end"``/
+            ``"session-end-catchup"``/``"per-task"``; see ``catalog/capture.yaml``). Controls how
+            often / when the background capture job fires (the token-cost knob); recall and user-side
+            learning-detection stay profile-driven. Defaults to ``session-end-catchup``.
         mcp: Selected MCP server ids (empty means no ``.mcp.json`` is written).
         scope: Usage scope (``"individual"``/``"team"``/``"organization"``). Only ``organization``
             installs the org capability layer (packs, persona agents, org rules, autonomy hooks).
@@ -44,6 +48,7 @@ class Selection:
     backend_framework: str
     database: str
     profile: str
+    capture_mode: str = "session-end-catchup"
     mcp: list[str] = field(default_factory=list)
     scope: str = "team"
     teams: list[str] = field(default_factory=list)

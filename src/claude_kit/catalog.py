@@ -278,6 +278,32 @@ def _resolve_org(
     )
 
 
+def _apply_capture_mode(
+    capture_cfg: dict[str, Any], hooks: list[str], mode: str
+) -> list[str]:
+    """Swap the agent-side capture hooks in ``hooks`` to match the chosen ``capture_mode``.
+
+    ``catalog/capture.yaml`` is the single source: every mode lists the capture hook ids it wants.
+    This strips the *union* of all modes' capture hooks from the resolved set (so neither a profile's
+    ``hooks:`` list nor the enterprise ``all`` token can force a capture trigger), then adds back
+    exactly the chosen mode's hooks. Any non-empty mode also ensures ``load-learnings`` (recall) is
+    present, so enabling capture always closes the loop — even on a lean profile that omits it.
+
+    Raises:
+        ValueError: If ``mode`` is not defined in ``capture.yaml``.
+    """
+    modes = capture_cfg.get("modes", {})
+    chosen = modes.get(mode)
+    if chosen is None:
+        raise ValueError(f"unknown capture_mode {mode!r} (choices: {', '.join(modes)})")
+    all_capture_hooks = {h for m in modes.values() for h in (m.get("hooks") or [])}
+    out = [h for h in hooks if h not in all_capture_hooks]
+    add = list(chosen.get("hooks") or [])
+    if add and "load-learnings" not in out and "load-learnings" not in add:
+        add = ["load-learnings", *add]
+    return _dedup(out + add)
+
+
 def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
     """Resolve a :class:`Selection` into a concrete :class:`ResolvedPlan`.
 
@@ -297,6 +323,7 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
     stacks = _load(payload_root, "stacks.yaml")
     profiles = _load(payload_root, "profiles.yaml")
     mcp = _load(payload_root, "mcp.yaml")
+    capture_cfg = _load(payload_root, "capture.yaml")
 
     frontend = _frontend(stacks, selection.frontend_framework)
     backend_lang, backend_fw = _backend(
@@ -342,6 +369,7 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
     org = _resolve_org(payload_root, selection, avail)
     agents = _dedup(prof["agents"] + (org.added_agents if org else []))
     hooks = _dedup(prof["hooks"] + (org.added_hooks if org else []))
+    hooks = _apply_capture_mode(capture_cfg, hooks, selection.capture_mode)
     gates = _dedup(prof["gates"] + (org.extra_gates if org else []))
 
     context = _build_context(
@@ -393,11 +421,28 @@ def org_options(payload_root: str | Path) -> dict[str, Any]:
     }
 
 
+def capture_mode_options(payload_root: str | Path) -> dict[str, Any]:
+    """Return the learning-capture modes for the prompt layer (from ``catalog/capture.yaml``).
+
+    Returns:
+        ``{"modes": [{"id", "label"}, ...], "default": <mode id>}``.
+    """
+    cfg = _load(Path(payload_root), "capture.yaml")
+    modes = cfg.get("modes", {})
+    return {
+        "modes": [
+            {"id": mid, "label": m.get("label", mid)} for mid, m in modes.items()
+        ],
+        "default": cfg.get("default", "session-end-catchup"),
+    }
+
+
 def defaults(payload_root: str | Path) -> Selection:
     """Return the default :class:`Selection` (every catalog default, no MCP)."""
     payload_root = Path(payload_root)
     stacks = _load(payload_root, "stacks.yaml")
     profiles = _load(payload_root, "profiles.yaml")
+    capture = _load(payload_root, "capture.yaml")
     fe_default = stacks["frontend"]["default"]
     be_lang_default = stacks["backend"]["default"]
     be_lang = stacks["backend"]["languages"][be_lang_default]
@@ -410,6 +455,7 @@ def defaults(payload_root: str | Path) -> Selection:
         backend_framework=be_fw_default,
         database=stacks["database"]["default"],
         profile=profiles.get("default", "standard"),
+        capture_mode=capture.get("default", "session-end-catchup"),
         mcp=[],
     )
 

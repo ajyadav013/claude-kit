@@ -11,7 +11,10 @@ INDEX="$MEM_DIR/MEMORY.md"
 [ -f "$INDEX" ] || exit 0
 
 # Number of real learning entries in the index (lines like "- [Title](...)").
-ENTRIES=$(grep -cE '^\s*- \[' "$INDEX" 2>/dev/null || echo 0)
+# grep -c prints "0" and exits 1 when there are no matches, so guard with `|| true` — NOT `|| echo 0`,
+# which would append a second line and make the integer test below fail with "integer expected".
+ENTRIES=$(grep -cE '^\s*- \[' "$INDEX" 2>/dev/null || true)
+ENTRIES=${ENTRIES:-0}
 
 # Nothing recorded yet -> stay silent.
 [ "$ENTRIES" -gt 0 ] || exit 0

@@ -64,12 +64,18 @@ _LEARNING_PROMPT = (
 )
 
 
-def _script_entry(name: str) -> dict[str, str]:
-    """Build a settings.json command entry that runs a project-local hook script."""
-    return {
-        "type": "command",
-        "command": f'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"',
-    }
+def _script_entry(name: str, arg: str = "") -> dict[str, str]:
+    """Build a settings.json command entry that runs a project-local hook script.
+
+    Args:
+        name: Script basename under ``.claude/hooks/``.
+        arg: Optional single positional argument appended to the command (e.g. a dispatch mode like
+            ``end``/``stop``/``catchup`` so several hook ids can share one script).
+    """
+    command = f'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"'
+    if arg:
+        command += f" {arg}"
+    return {"type": "command", "command": command}
 
 
 #: The canonical registry. Order here is the order hooks appear in assembled settings.json.
@@ -196,6 +202,27 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("type-check.sh"),
         "script": "type-check.sh",
     },
+    # --- learning capture: one script, three triggers, chosen by capture_mode (catalog/capture.yaml).
+    # Never put these in a profile's hooks: list or rely on the `all` token — catalog._apply_capture_mode
+    # is the sole installer (it strips all three, then adds back the chosen mode's set).
+    "capture-learnings": {
+        "event": "SessionEnd",
+        "matcher": "",
+        "entry": _script_entry("capture-learnings.sh", "end"),
+        "script": "capture-learnings.sh",
+    },
+    "capture-learnings-catchup": {
+        "event": "SessionStart",
+        "matcher": "",
+        "entry": _script_entry("capture-learnings.sh", "catchup"),
+        "script": "capture-learnings.sh",
+    },
+    "capture-learnings-stop": {
+        "event": "Stop",
+        "matcher": "",
+        "entry": _script_entry("capture-learnings.sh", "stop"),
+        "script": "capture-learnings.sh",
+    },
 }
 
 #: Event ordering for a stable, readable settings.json.
@@ -205,6 +232,7 @@ _EVENT_ORDER = (
     "PreToolUse",
     "PostToolUse",
     "Stop",
+    "SessionEnd",
 )
 
 

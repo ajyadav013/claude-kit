@@ -43,6 +43,38 @@ def test_init_config_mongo_enterprise(tmp_path):
     assert (target / ".claude" / "rules" / "mongodb-patterns.md").is_file()
 
 
+def test_init_capture_mode_config_and_default(tmp_path):
+    """`capture_mode` flows through --config and --defaults into settings.json hook wiring."""
+    import json
+
+    def events(target):
+        s = json.loads(
+            (target / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        return {
+            ev: " ".join(
+                h["command"] for blk in s["hooks"].get(ev, []) for h in blk["hooks"]
+            )
+            for ev in ("SessionStart", "Stop", "SessionEnd")
+        }
+
+    # --config: per-task wires the Stop trigger and no SessionEnd capture.
+    cfg = tmp_path / "init.yaml"
+    cfg.write_text("capture_mode: per-task\n", encoding="utf-8")
+    pt = tmp_path / "pt"
+    assert runner.invoke(app, ["init", str(pt), "--config", str(cfg)]).exit_code == 0
+    ev = events(pt)
+    assert "capture-learnings.sh" in ev["Stop"] and ev["Stop"].rstrip().endswith("stop")
+    assert "capture-learnings.sh" not in ev["SessionEnd"]
+
+    # --defaults: the recommended catch-up default (SessionEnd end + SessionStart catchup).
+    dflt = tmp_path / "dflt"
+    assert runner.invoke(app, ["init", str(dflt), "--defaults"]).exit_code == 0
+    ev = events(dflt)
+    assert "catchup" in ev["SessionStart"]
+    assert "capture-learnings.sh" in ev["SessionEnd"]
+
+
 def test_existing_claude_abort_changes_nothing(tmp_path, payload):
     target = tmp_path / "proj"
     install(payload, target)
