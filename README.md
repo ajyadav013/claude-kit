@@ -77,6 +77,15 @@ Then, inside any project you want the pipeline to manage:
 > `/sdlc` is a **project skill** installed by `init`, so it becomes available after the restart. The
 > plugin also exposes `/claude-kit:sdlc <task>`, which works immediately (no restart needed).
 
+**Updating the plugin** to a newer release later (the plugin is cached, so a plain `/reload-plugins`
+won't fetch new code — refresh the marketplace snapshot first):
+
+```text
+/plugin marketplace update claude-kit   # refresh the marketplace snapshot from the repo
+/plugin update claude-kit@claude-kit    # install the newer version into the cache
+/reload-plugins                         # load it into the running session
+```
+
 </details>
 
 <details>
