@@ -4,6 +4,38 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.17.2] — 2026-06-17
+
+**Fix: the plugin's hooks load (for real this time).** 0.17.1 wrapped `hooks/hooks.json` under a
+top-level `hooks` key — necessary, but it uncovered a second problem the flat file had masked. Claude
+Code **auto-discovers** `hooks/hooks.json` from the plugin root, yet `.claude-plugin/plugin.json` *also*
+pointed its `hooks` field at the same `./hooks/hooks.json`. The loader then read the file twice and
+failed with **`Hook load failed: Duplicate hooks file detected`** — so, again, none of the plugin's
+hooks loaded. The manifest `hooks` field is reserved for *additional* hook files; the standard one is
+loaded automatically and must not be re-declared. Every other Claude Code plugin (superpowers, hookify,
+vercel, …) relies purely on auto-discovery. This affected only the **plugin** channel; the pip CLI was
+always fine (it builds `.claude/settings.json` from `HOOK_REGISTRY`, `src/claude_kit/hooks.py`). After
+upgrading, run `/plugin marketplace update claude-kit` → `/plugin update claude-kit@claude-kit` →
+`/reload-plugins`, then `/doctor`, to confirm the error is gone.
+
+### Fixed
+- **`.claude-plugin/plugin.json`** no longer sets `hooks: "./hooks/hooks.json"`. The file is
+  auto-discovered from the plugin root (and stays wrapped, per 0.17.1), so it now loads exactly once.
+
+### Changed
+- **`tests/test_plugin.py`** now reads the auto-discovered `hooks/hooks.json` directly (not via the
+  manifest) and adds `test_manifest_does_not_redeclare_standard_hooks`, so the duplicate-load
+  regression can't come back.
+
+### Added
+- **README** — a "Updating the plugin" snippet (`/plugin marketplace update` → `/plugin update` →
+  `/reload-plugins`) in the plugin Quick-start section.
+
+### Not adopted (deliberately)
+- **Inlining the hooks into `plugin.json`** (the object form, which would also avoid the collision) —
+  still kept external; the `UserPromptSubmit` routing and learning-detection prompts read far better in
+  a dedicated file than inlined in the manifest.
+
 ## [0.17.1] — 2026-06-17
 
 **Fix: the plugin's hooks now load.** `.claude-plugin/plugin.json` points its `hooks` field at a file
