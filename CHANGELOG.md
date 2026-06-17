@@ -4,6 +4,33 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.17.1] — 2026-06-17
+
+**Fix: the plugin's hooks now load.** `.claude-plugin/plugin.json` points its `hooks` field at a file
+(`./hooks/hooks.json`), and Claude Code requires a *referenced* hooks file to be shaped like a
+settings fragment — a top-level `hooks` record mapping events to matcher groups. The kit had shipped
+that file as a **flat** event map since 0.7.0, so the plugin loader rejected it (`invalid_type … path:
+["hooks"] … expected record, received undefined`) and **none of the plugin's hooks loaded** (the
+destructive-command guards, context loaders, capture, and learning-detection). This affected only the
+**plugin** channel; the pip CLI was always fine because it builds `.claude/settings.json` from
+`HOOK_REGISTRY` (`src/claude_kit/hooks.py`), a separate source. Run `/reload-plugins` then `/doctor`
+after upgrading to confirm the error is gone.
+
+### Fixed
+- **`hooks/hooks.json`** is now wrapped under a top-level `hooks` key (inner content otherwise
+  byte-identical — every matcher group and prompt preserved). This matches every other Claude Code
+  plugin that references a hooks file (superpowers, hookify, vercel, …).
+
+### Added
+- **`tests/test_plugin.py`** — a regression guard asserting the plugin hooks file is wrapped and
+  well-formed (known events, non-empty `hooks` lists, `command`/`prompt` entry types), so a flat file
+  can't ship again. Suite now 99 passing.
+
+### Not adopted (deliberately)
+- **Inlining the hooks into `plugin.json`** (the other valid shape) — kept the external file because the
+  `UserPromptSubmit` routing and learning-detection prompts are long and read far better in a dedicated
+  file than inlined in the manifest.
+
 ## [0.17.0] — 2026-06-17
 
 **Make agent-side learning capture an init-time, cost-aware choice — and make it actually remember.**
