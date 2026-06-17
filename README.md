@@ -14,7 +14,7 @@ with a quality gate between every phase. **No application code. No Docker. Confi
 [![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
 [![Changelog](https://img.shields.io/badge/changelog-md-blue.svg)](CHANGELOG.md)
 
-🚀 [Quick start](#quick-start) · ✨ [Features](#features) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
+✨ [Features](#features) · 🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
 
 </div>
 
@@ -22,33 +22,42 @@ with a quality gate between every phase. **No application code. No Docker. Confi
 
 ## What is this?
 
-claude-kit installs a **complete software-delivery lifecycle** into Claude Code. Instead of one
-assistant doing everything in a single pass, your work flows through a pipeline of focused agents —
-a spec writer, a story planner, reviewers, a developer, code reviewers, testers, security scanners,
-and a PR raiser — coordinated by an **Orchestrator** that runs independent work in parallel and
-refuses to advance a phase until its **quality gate** passes. You drive it all with one command:
+Claude Code is brilliant at single tasks — but a real change is never just one task. It's a spec, a
+plan, code, review, tests, a security pass, a PR. **claude-kit turns that whole lifecycle into a
+pipeline of focused agents and installs it into Claude Code as configuration.**
+
+Instead of one assistant doing everything in a single pass, your request flows through specialists — a
+spec writer, a story planner, a developer, independent reviewers, testers, security scanners, a PR
+raiser — coordinated by an **Orchestrator** that runs independent work in parallel and **refuses to
+advance until each phase's quality gate passes**. You drive it all with one command:
 **`/sdlc <your task>`**.
 
-**At a glance:**
-
-- 🧱 **Stack-agnostic** — the pipeline assumes no language or framework. Pick a stack at `init` and it
-  installs matching overlay rules (React · FastAPI · Go/net-http · PostgreSQL · MongoDB) and your exact
-  lint/test/build commands. Picking React also installs a full design-system rule set (design tokens,
-  UX patterns, mobile/Capacitor guidelines) that the UI skills and `ui-designer` agent read. It never
-  writes your app code and never needs Docker.
-- 🎚️ **Dial the rigor with profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills,
-  hooks, and gates are active, from "fast track" to "full audit".
-- 👥 **Scope to your team** — `individual` / `team` (default) / `organization`. Org scope adds a
-  vibe-coding layer so PMs, designers, QA, support, and founders can drive work safely too.
-- 🧠 **Remembers across sessions** — working memory (`CONTINUITY.md`) survives context compaction, and a
-  learnings loop (`agent-memory/`) means the same mistake isn't made twice. Learnings are captured
-  automatically — from your corrections *and*, in a non-blocking background job, from what Claude
-  changed. How aggressively to capture is a cost-aware choice at `init` (`capture_mode`: off · on
-  clean exit · + catch-up for sessions closed abruptly · per task).
-- 📦 **Two channels, one source** — a first-class Claude Code **plugin** *and* a **pip** scaffolder.
+It ships **no application code and needs no Docker** — only the rules, agents, skills, and gates that
+govern *how* the work gets done. Choose your stack, rigor, and team scope at `init`; everything else
+adapts.
 
 > Inspired by the autonomous-SDLC idea, rebuilt from the ground up **for Claude Code**, and kept small
 > by a **reuse-first** policy — see [what we adopted](#influences--what-we-adopted) and from where.
+
+---
+
+## Features
+
+The whole product at a glance — one line each. Expand **[Feature details](#feature-details)** (below
+Quick start) for the full breakdown of any row.
+
+| Area | What you get |
+|------|--------------|
+| 🔁 **Pipeline & quality gates** | Gate-enforced progression (zero open Critical/High/Medium to advance), per-profile gate sets, a fast-track for small changes, and an anti-sycophancy `devils-advocate` pass |
+| 🤖 **Agent roster** | **28** tiered agents + per-database overlays + **6** org personas, led by an Orchestrator that never writes code |
+| 🔍 **Self-verification & review** | RARV green-Verify (real commands, not imagined), blind parallel review, and read-only risk classification |
+| 📐 **Rules & skills** | **23** stack-agnostic core rules (incl. 8 agent-operation rules) + **51** context-activated skills |
+| 🧱 **Stacks & overlays** | Stack-agnostic core + **10** overlay rule sets (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
+| 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
+| 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
+| 🛠️ **Hooks & guards** | **16** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
+| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **9** ready MCP fragments, and edit-preserving `upgrade` |
+| ♻️ **Reuse-first by design** | Adopt-only-the-new reviews, opt-in LLM/AI security (OWASP LLM Top 10), a worked example + self-test matrix |
 
 ---
 
@@ -143,12 +152,15 @@ README.claude-sdlc.md
 
 ---
 
-## Features
+## Feature details
 
-A complete, governed autonomous SDLC — installed as configuration, driven by `/sdlc`, and tunable to
-your stack, rigor, and team. The full surface, grouped by what it does:
+Each area from the [Features](#features) table, expanded — the README stays short; open only what you
+need.
 
-### 🔁 Pipeline & quality gates
+<details>
+<summary><b>🔁 Pipeline & quality gates</b></summary>
+
+<br>
 
 - **Gate-enforced progression** — every phase ends in a quality gate that passes *only* with zero open
   Critical/High/Medium findings; no silent advancement (see [the pipeline](#the-pipeline)).
@@ -159,7 +171,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
 - **Anti-sycophancy guard** — a *unanimous* PASS is treated as suspicious and triggers an adversarial
   `devils-advocate` pass before the gate may close.
 
-### 🤖 The agent roster
+</details>
+
+<details>
+<summary><b>🤖 The agent roster</b></summary>
+
+<br>
 
 - **28 specialized agents** in [`agents/`](agents/), each tagged with a `tier`
   (orchestrator · stage-lead · specialist · review) and installed per profile.
@@ -172,7 +189,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
   `data-workflow-agent` · `internal-tools-builder` · `staff-pm-reviewer`) unlock in org scope so
   non-engineers can drive work safely.
 
-### 🔍 Self-verification & review
+</details>
+
+<details>
+<summary><b>🔍 Self-verification & review</b></summary>
+
+<br>
 
 - **RARV self-check** — every agent runs Reason → Act → Reflect → Verify and must show a *green Verify*
   (real commands run, not imagined) before handing off.
@@ -181,7 +203,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
 - **Risk-classified work** — a read-only `risk-classifier` labels each task low/medium/high/restricted
   and names the gates it requires (enterprise + org).
 
-### 📐 Rules & skills
+</details>
+
+<details>
+<summary><b>📐 Rules & skills</b></summary>
+
+<br>
 
 - **23 stack-agnostic core rules** in [`rules/`](rules/) — `mandatory-workflow`, `quality-gates`,
   `rarv-cycle`, `continuity`, plus eight agent-operation rules and `autonomy-levels` +
@@ -191,7 +218,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
 - **Profile-subset install** — each profile installs a strict subset of agents, skills, hooks, and
   rules (`lean ⊂ standard ⊂ enterprise`), from fast track to full audit.
 
-### 🧱 Stacks & overlays
+</details>
+
+<details>
+<summary><b>🧱 Stacks & overlays</b></summary>
+
+<br>
 
 - **Stack-agnostic core** — the pipeline assumes no language or framework; it never writes your app
   code and never needs Docker.
@@ -200,7 +232,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
 - **A full React design system** — picking React installs design tokens, UX patterns, and
   mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
 
-### 🎚️ Profiles, scopes & the org layer
+</details>
+
+<details>
+<summary><b>🎚️ Profiles, scopes & the org layer</b></summary>
+
+<br>
 
 - **3 rigor profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills, hooks, and
   gates are active.
@@ -212,7 +249,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
   compliance, production-data) install only in organization scope (see
   [`docs/org-capabilities.md`](docs/org-capabilities.md)).
 
-### 🧠 Memory & continuous learning
+</details>
+
+<details>
+<summary><b>🧠 Memory & continuous learning</b></summary>
+
+<br>
 
 - **Working memory across sessions** — `CONTINUITY.md` survives context compaction so the pipeline
   never loses its place.
@@ -221,7 +263,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
 - **Cost-aware capture** — how aggressively learnings are captured (`capture_mode`: off · on clean
   exit · + catch-up · per task) is a choice at `init`.
 
-### 🛠️ Hooks & deterministic guards
+</details>
+
+<details>
+<summary><b>🛠️ Hooks & deterministic guards</b></summary>
+
+<br>
 
 - **16 event hook scripts** in [`hooks/`](hooks/) enforce the pipeline outside the model —
   `guard-secrets`, `guard-destructive-git`, `lint-fix`, `type-check`, and `validate-settings` run
@@ -231,7 +278,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
 - **Graceful degradation** — hooks need a POSIX shell + `jq` and silently no-op when absent, so the
   kit still functions everywhere.
 
-### 📦 Distribution & lifecycle
+</details>
+
+<details>
+<summary><b>📦 Distribution & lifecycle</b></summary>
+
+<br>
 
 - **Two channels, one source** — a first-class Claude Code **plugin** *and* a `pip` scaffolder
   (`claude-kit` / `ckit` / `claude-sdlc`) generate identical config.
@@ -241,7 +293,12 @@ your stack, rigor, and team. The full surface, grouped by what it does:
   checksum, never clobbers your edits, backs up changes, and restores deleted files (`diff` previews
   first).
 
-### ♻️ Reuse-first by design
+</details>
+
+<details>
+<summary><b>♻️ Reuse-first by design</b></summary>
+
+<br>
 
 - **Adopt only the genuinely-new** — each external review fetches the real source, adversarially maps
   it against existing files, and ships only the non-duplicative gaps (see
@@ -250,6 +307,8 @@ your stack, rigor, and team. The full surface, grouped by what it does:
   guardrails, PII vault) as bypassable guidance, distinct from the mandatory appsec gate.
 - **A worked example + self-test matrix** — [`examples/`](examples/) shows an end-to-end run, and a
   profile×stack×scope test matrix backs the stack-agnostic claim.
+
+</details>
 
 ---
 
