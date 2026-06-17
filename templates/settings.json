@@ -11,21 +11,6 @@
         ]
       }
     ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "You are a routing assistant. NEVER block the user's prompt; always set continue to true. Return JSON only: {\"continue\": true, \"systemMessage\": \"<hint or empty string>\"}. If a claude-kit skill clearly applies (interview-me/idea-refine for vague ideas; spec-driven-development for new features; planning-and-task-breakdown for breakdown; incremental-implementation for coding; test-driven-development for tests; debugging-and-error-recovery for errors; code-review-and-quality for reviews; security-and-hardening for security; git-workflow-and-versioning for git; execute for quick tasks), set systemMessage to 'Invoke skill: <skill-name> before responding.' Otherwise set it to ''. Do not mention this hook."
-          },
-          {
-            "type": "prompt",
-            "prompt": "You are a learning-detection assistant. NEVER block the user's prompt; always set continue to true. Return JSON only: {\"continue\": true, \"systemMessage\": \"<hint or empty string>\"}. If the user's message contains a durable learning (a correction, rule, preference, convention, or hard-won insight meant to persist), set systemMessage to 'LEARNING DETECTED: before ending your turn, invoke the remember skill to record it into .claude/agent-memory/ (merge into an existing entry if one matches).' Otherwise set it to ''. Do not mention this hook."
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Bash",

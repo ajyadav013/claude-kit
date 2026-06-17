@@ -13,7 +13,7 @@ Agents use four kinds of memory; this kit splits them across two systems — don
 | **Semantic** | Durable facts & decisions — conventions, architecture, API behavior | `agent-memory/architecture/`, `api/`, `patterns/`, `performance/` |
 | **Procedural** | How to do things — repeatable workflows and disciplines | the `.claude/rules/*` and `.claude/skills/*` themselves |
 
-Working memory is the scratchpad (overwritten constantly); the rest is the notebook (accumulates). Promote a durable CONTINUITY learning into the right `agent-memory/` category via the `remember` skill. Capture is automatic from two sides — the `learning-detection` hook records durable learnings in *your* messages, and the `capture-learnings` hook records (in a non-blocking background job) what Claude changed/learned from its own work. How often the latter fires is the init-time `capture_mode` choice (off · on clean exit · + a SessionStart catch-up for sessions closed abruptly · per task); both sides route through the `remember` skill.
+Working memory is the scratchpad (overwritten constantly); the rest is the notebook (accumulates). Promote a durable CONTINUITY learning into the right `agent-memory/` category via the `remember` skill. Capture is automatic — the `capture-learnings` hook records (in a non-blocking background job) what Claude changed/learned from its own work. How often it fires is the init-time `capture_mode` choice (off · on clean exit · + a SessionStart catch-up for sessions closed abruptly · per task); it routes through the `remember` skill.
 
 ## When to READ memory
 
