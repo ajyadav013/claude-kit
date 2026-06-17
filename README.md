@@ -14,7 +14,7 @@ with a quality gate between every phase. **No application code. No Docker. Confi
 [![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
 [![Changelog](https://img.shields.io/badge/changelog-md-blue.svg)](CHANGELOG.md)
 
-🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
+🚀 [Quick start](#quick-start) · ✨ [Features](#features) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
 
 </div>
 
@@ -140,6 +140,116 @@ README.claude-sdlc.md
 ```
 
 </details>
+
+---
+
+## Features
+
+A complete, governed autonomous SDLC — installed as configuration, driven by `/sdlc`, and tunable to
+your stack, rigor, and team. The full surface, grouped by what it does:
+
+### 🔁 Pipeline & quality gates
+
+- **Gate-enforced progression** — every phase ends in a quality gate that passes *only* with zero open
+  Critical/High/Medium findings; no silent advancement (see [the pipeline](#the-pipeline)).
+- **Profile-scoped gates** — `lean` runs `code-review · build-green`; `standard` adds spec / EM /
+  coverage / security / contract; `enterprise` adds `pipeline-green · observability-ready · acceptance`.
+- **Fast-track mode** — changes under 5 files collapse to Developer → Code Reviewer → Tester → PR,
+  skipping the heavyweight stages.
+- **Anti-sycophancy guard** — a *unanimous* PASS is treated as suspicious and triggers an adversarial
+  `devils-advocate` pass before the gate may close.
+
+### 🤖 The agent roster
+
+- **28 specialized agents** in [`agents/`](agents/), each tagged with a `tier`
+  (orchestrator · stage-lead · specialist · review) and installed per profile.
+- **An Orchestrator that never writes code** — it decomposes work, runs independent lanes in parallel,
+  and blocks each phase on its gate.
+- **Database overlay agents** layer in per database — PostgreSQL adds
+  `postgres-specialist · migration-specialist · db-performance-reviewer`; MongoDB adds
+  `mongodb-specialist · migration-specialist`.
+- **6 organization personas** (`pm-copilot` · `founder-prototype-agent` · `support-ticket-engineer` ·
+  `data-workflow-agent` · `internal-tools-builder` · `staff-pm-reviewer`) unlock in org scope so
+  non-engineers can drive work safely.
+
+### 🔍 Self-verification & review
+
+- **RARV self-check** — every agent runs Reason → Act → Reflect → Verify and must show a *green Verify*
+  (real commands run, not imagined) before handing off.
+- **Blind parallel review** — independent reviewers judge a work stream separately, and a
+  `merge-reviewer` reconciles parallel lanes at every join point.
+- **Risk-classified work** — a read-only `risk-classifier` labels each task low/medium/high/restricted
+  and names the gates it requires (enterprise + org).
+
+### 📐 Rules & skills
+
+- **23 stack-agnostic core rules** in [`rules/`](rules/) — `mandatory-workflow`, `quality-gates`,
+  `rarv-cycle`, `continuity`, plus eight agent-operation rules and `autonomy-levels` +
+  `risk-classification` (see [`docs/agentic-patterns.md`](docs/agentic-patterns.md)).
+- **51 on-demand skills** in [`skills/`](skills/) — spec-driven dev, planning, TDD, debugging, code
+  review, threat modeling, and more — activated by context and led by the `sdlc` entrypoint.
+- **Profile-subset install** — each profile installs a strict subset of agents, skills, hooks, and
+  rules (`lean ⊂ standard ⊂ enterprise`), from fast track to full audit.
+
+### 🧱 Stacks & overlays
+
+- **Stack-agnostic core** — the pipeline assumes no language or framework; it never writes your app
+  code and never needs Docker.
+- **10 stack overlay rules** layer matching guidance on top — React, FastAPI, Go/net-http, PostgreSQL,
+  MongoDB — wired to your exact lint/test/build commands.
+- **A full React design system** — picking React installs design tokens, UX patterns, and
+  mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
+
+### 🎚️ Profiles, scopes & the org layer
+
+- **3 rigor profiles** — `lean ⊊ standard ⊊ enterprise` decide how many agents, skills, hooks, and
+  gates are active.
+- **3 usage scopes** — `individual` / `team` (default) / `organization`, with a vibe-coding layer in
+  org scope.
+- **5 autonomy levels** — from Advisory (plan & review only) through Autonomous (PR) to
+  Enterprise-controlled, each adding deterministic guardrail hooks.
+- **7 capability packs + 10 org policy rules** under [`templates/org/`](templates/org/) (secrets, PII,
+  compliance, production-data) install only in organization scope (see
+  [`docs/org-capabilities.md`](docs/org-capabilities.md)).
+
+### 🧠 Memory & continuous learning
+
+- **Working memory across sessions** — `CONTINUITY.md` survives context compaction so the pipeline
+  never loses its place.
+- **A learnings loop** — `agent-memory/` captures fixes from your corrections *and*, in a non-blocking
+  background job, from what Claude changed, so the same mistake isn't made twice.
+- **Cost-aware capture** — how aggressively learnings are captured (`capture_mode`: off · on clean
+  exit · + catch-up · per task) is a choice at `init`.
+
+### 🛠️ Hooks & deterministic guards
+
+- **16 event hook scripts** in [`hooks/`](hooks/) enforce the pipeline outside the model —
+  `guard-secrets`, `guard-destructive-git`, `lint-fix`, `type-check`, and `validate-settings` run
+  deterministically.
+- **Advisory, never-blocking warnings** — `warn-llm-io`, `warn-large-edits`, `warn-missing-tests`, and
+  `warn-sensitive-files` flag risk without halting work.
+- **Graceful degradation** — hooks need a POSIX shell + `jq` and silently no-op when absent, so the
+  kit still functions everywhere.
+
+### 📦 Distribution & lifecycle
+
+- **Two channels, one source** — a first-class Claude Code **plugin** *and* a `pip` scaffolder
+  (`claude-kit` / `ckit` / `claude-sdlc`) generate identical config.
+- **Catalog-driven extensibility** — adding a stack, framework, database, profile, MCP server, or org
+  pack is a [`catalog/`](catalog/) YAML edit, never a code change; 9 MCP server fragments ship ready.
+- **Safe, edit-preserving upgrades** — `upgrade` refreshes kit/overlay files via per-file `owner` +
+  checksum, never clobbers your edits, backs up changes, and restores deleted files (`diff` previews
+  first).
+
+### ♻️ Reuse-first by design
+
+- **Adopt only the genuinely-new** — each external review fetches the real source, adversarially maps
+  it against existing files, and ships only the non-duplicative gaps (see
+  [what we adopted](#influences--what-we-adopted)).
+- **Opt-in LLM/AI security** — `security-and-hardening` covers the OWASP LLM Top 10 (input/output
+  guardrails, PII vault) as bypassable guidance, distinct from the mandatory appsec gate.
+- **A worked example + self-test matrix** — [`examples/`](examples/) shows an end-to-end run, and a
+  profile×stack×scope test matrix backs the stack-agnostic claim.
 
 ---
 
@@ -278,7 +388,7 @@ It is **not** a runtime, an orchestration engine, or a code library. That framin
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | claude-kit ships a **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | claude-kit **absorbed spec-kit's coverage-gate idea** (the `story-planner` 1f gate + `task-tracker-sync`) into a **broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | claude-kit produces **portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | claude-kit is a **catalog-driven generator**: it resolves your stack/profile/scope into the right subset of 23 rules, ~28 agents, ~52 skills, gates, and hooks, and keeps them **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | claude-kit is a **catalog-driven generator**: it resolves your stack/profile/scope into the right subset of 23 rules, 28 agents, 51 skills, gates, and hooks, and keeps them **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
 
 **Choose claude-kit when** you want a consistent, reviewable, **gate-enforced** autonomous-SDLC setup
 that's the same across every repo and stack, installs in seconds, ships nothing you have to run, and
@@ -325,7 +435,7 @@ that's the same across every repo and stack, installs in seconds, ships nothing 
 | `incident-responder` | Production-incident triage, mitigation, and postmortem (enterprise scope) |
 | `pr-raiser` | Final checks, commit hygiene, and PR creation |
 | **DB overlays** | installed for the selected database — PostgreSQL → `postgres-specialist` · `migration-specialist` · `db-performance-reviewer`; MongoDB → `mongodb-specialist` · `migration-specialist` |
-| **Org personas** | `pm-copilot` · `founder-prototype-agent` · `support-ticket-engineer` · `data-workflow-agent` · `internal-tools-builder` (organization scope only) |
+| **Org personas** | `pm-copilot` · `founder-prototype-agent` · `support-ticket-engineer` · `data-workflow-agent` · `internal-tools-builder` · `staff-pm-reviewer` (organization scope only) |
 
 </details>
 
