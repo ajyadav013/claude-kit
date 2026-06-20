@@ -6,7 +6,8 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [0.20.0] — 2026-06-20
 
-**Expand the stack-specific skill collection: 16 new skills + 7 fold-in enhancements (now 38 skills).**
+**Expand the stack-specific skill collection: 16 new skills + 7 fold-in enhancements, plus a BigQuery
+skill extend/trim (now 38 skills).**
 
 ### Added
 
@@ -39,6 +40,12 @@ stack-specific sets, these are intentionally stack-specific and not wired into t
   patterns), `temporal-config-driven` (idempotent schedule registration), `graphql-patterns` (advanced
   Apollo Client setup), `containerization-and-deployment` (Makefile dev workflow + Kerberos kinit
   bootstrap), `testing-conventions` (GitHub Actions test orchestration).
+- **Extended + trimmed `data-engineering-bigquery-gcs`** — added six grounded BigQuery patterns
+  (parameterized queries, streaming inserts, in-memory `load_table_from_dataframe`, dynamic schema
+  evolution via `update_table`, the `TimePartitioning` Python API, and a reusable `BigQueryUtils`
+  wrapper) in a new `references/bigquery-advanced-patterns.md`; removed the unobserved GCS-client and
+  pandas-ETL sections (now delegated to the new `gcs-file-storage-patterns` skill), dropping the stale
+  `references/pandas-pipelines.md`.
 
 ### Fixed
 
