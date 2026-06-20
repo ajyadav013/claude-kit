@@ -89,6 +89,141 @@ Docker containerization, multi-role dispatch, secrets handling, and local dev in
 
 **Path-based versioning**: Prefix all API routes with `/v1/`, `/v2/`; allows rolling deployments with backward compatibility (old clients hit `/v1/`, new clients hit `/v2/`). _(cross-referenced from backend-repo-architecture)_
 
+### Makefile developer workflow
+
+**Composite docker-compose commands**: Use `make up` and `make down` to wrap multi-file docker-compose invocations (base + override configs); reduces typos and standardizes local dev startup across team members.
+
+**Shell access shortcuts**: `make enter` and `make enter-worker` exec into server/worker containers with `/bin/bash`; no need to remember container names or lookup `docker ps` output.
+
+**Log tailing targets**: `make logs-server` and `make logs-worker` follow logs for specific containers; filter multi-container compose output to the service you're debugging.
+
+**Build and deploy targets**: `make build` wraps `docker build`, `make run` wraps `docker-compose up`, `make k8s-deploy` wraps `kubectl apply -f k8s/`; CI/CD scripts can reference these stable targets even if underlying commands evolve.
+
+**Why**: A Makefile consolidates project-specific docker-compose file paths, container names, and kubectl deployment configs into discoverable, self-documenting targets. New team members run `make help` or inspect the Makefile to learn the workflow; no need to hunt through README or CI YAML for the "right" docker-compose invocation.
+
+**Example pattern**:
+
+```makefile
+.PHONY: help up down restart enter enter-worker logs-server logs-worker build k8s-deploy
+
+help:
+	@echo "Available commands:"
+	@echo "  make up            - Start all services"
+	@echo "  make down          - Stop all services"
+	@echo "  make enter         - Shell into server container"
+	@echo "  make enter-worker  - Shell into worker container"
+	@echo "  make logs-server   - Follow server logs"
+	@echo "  make logs-worker   - Follow worker logs"
+	@echo "  make k8s-deploy    - Deploy to k8s"
+
+up:
+	docker-compose -f docker-compose.base.yml -f docker-compose.override.yml up --build -d
+	docker-compose -f docker-compose.base.yml -f docker-compose.override.yml logs -f server
+
+down:
+	docker-compose -f docker-compose.base.yml -f docker-compose.override.yml down
+
+restart: down up
+
+enter:
+	docker-compose -f docker-compose.base.yml -f docker-compose.override.yml exec server /bin/bash
+
+enter-worker:
+	docker-compose -f docker-compose.base.yml -f docker-compose.override.yml exec worker /bin/bash
+
+logs-server:
+	docker-compose -f docker-compose.base.yml -f docker-compose.override.yml logs -f server
+
+logs-worker:
+	docker-compose -f docker-compose.base.yml -f docker-compose.override.yml logs -f worker
+
+build:
+	docker build -t app:latest .
+
+k8s-deploy:
+	kubectl apply -f k8s/
+```
+
+### Kerberos runtime bootstrap (kinit)
+
+**krb5.conf patching**: At container startup, read the repo-bundled `krb5.conf`, strip `includedir` directives (unavailable in minimal container images), and rewrite the credential cache type from `KEYRING:persistent:%{uid}` to `FILE:/tmp/krb5cc_%{uid}` (KEYRING not supported in many container runtimes).
+
+**kinit with keytab**: After writing the patched `krb5.conf`, run `kinit -kt /path/to/service.keytab service-principal@EXAMPLE.COM` to authenticate the service principal; this populates the credential cache for GSSAPI-based Kafka SASL_SSL connections.
+
+**Env var pointing**: Set `KRB5_CONFIG=/tmp/krb5_patched.conf` before running `kinit`; ensures the Kerberos library uses the container-friendly config instead of system-wide `/etc/krb5.conf`.
+
+**Why**: Kerberos libraries expect `krb5.conf` with system-specific paths and KEYRING credential caches; containers (especially alpine-based or Cloud Run) lack those dependencies. This bootstrap pattern rewrites the config for container compatibility, authenticates via keytab (no interactive password prompt), and establishes a credential cache that Kafka clients (confluent-kafka-python, kafka-python with GSSAPI) can use.
+
+**Where to call**: In `entrypoint.py`, before starting the Kafka consumer or any service that connects to Kerberos-authenticated Kafka; alternatively, in a dedicated `bootstrap.sh` script sourced by the Dockerfile `ENTRYPOINT`.
+
+**Example pattern**:
+
+```python
+import os
+import subprocess
+from pathlib import Path
+
+CERT_DIR = Path("/tmp/kafka_certificates")
+KEYTAB_PATH = CERT_DIR / "service.keytab"
+KRB5_CONF_SRC = Path(__file__).resolve().parent / "config" / "krb5.conf"
+KRB5_CONF_PATCHED = Path("/tmp/krb5_patched.conf")
+KERBEROS_PRINCIPAL = "service-principal@EXAMPLE.COM"
+
+def setup_kerberos():
+    """Patch krb5.conf and authenticate via kinit."""
+    # Read repo-bundled krb5.conf
+    with KRB5_CONF_SRC.open("r") as f:
+        content = f.read()
+
+    # Strip includedir, replace KEYRING with FILE credential cache
+    lines = []
+    for line in content.splitlines():
+        if line.strip().startswith("includedir"):
+            continue
+        line = line.replace("KEYRING:persistent:%{uid}", "FILE:/tmp/krb5cc_%{uid}")
+        lines.append(line)
+
+    # Write patched config
+    KRB5_CONF_PATCHED.write_text("\n".join(lines) + "\n")
+    os.environ["KRB5_CONFIG"] = str(KRB5_CONF_PATCHED)
+    print(f"[setup_kerberos] KRB5_CONFIG={KRB5_CONF_PATCHED}", flush=True)
+
+    # Authenticate with keytab (use list args to avoid shell injection)
+    result = subprocess.run(
+        ["kinit", "-kt", str(KEYTAB_PATH), KERBEROS_PRINCIPAL],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode == 0:
+        print("[setup_kerberos] kinit succeeded.", flush=True)
+    else:
+        print(f"[setup_kerberos] kinit failed: {result.stderr.strip()}", flush=True)
+
+# In entrypoint.py, before starting Kafka consumer:
+def start_consumer():
+    setup_kerberos()  # Authenticate before connecting to Kafka
+    from services.kafka.consumer import main as consumer_main
+    consumer_main()
+```
+
+**Generic krb5.conf snippet** (what gets patched):
+
+```ini
+[libdefaults]
+    default_realm = EXAMPLE.COM
+    default_ccache_name = FILE:/tmp/krb5cc_%{uid}
+
+[realms]
+    EXAMPLE.COM = {
+        kdc = kdc.example.com:88
+        admin_server = kdc.example.com:749
+    }
+
+[domain_realm]
+    .example.com = EXAMPLE.COM
+    example.com = EXAMPLE.COM
+```
+
 ## Skeleton / example
 
 ```dockerfile
@@ -395,3 +530,5 @@ volumes:
 - [dockerfile-and-compose.md](./references/dockerfile-and-compose.md) — Multi-stage builds, docker-compose patterns, health checks
 - [entrypoint-and-modes.md](./references/entrypoint-and-modes.md) — MODE dispatch, worker/cron config, one-image-many-roles
 - [deployment-and-secrets.md](./references/deployment-and-secrets.md) — Cloud Run/k8s deployment, cert/keytab writing, secrets hygiene
+- [makefile-dev-workflow.md](./references/makefile-dev-workflow.md) — Makefile targets wrapping docker-compose, shell access, log tailing, k8s deploy
+- [kerberos-kinit-bootstrap.md](./references/kerberos-kinit-bootstrap.md) — Kerberos kinit runtime bootstrap, krb5.conf patching for containers, GSSAPI Kafka auth

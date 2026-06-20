@@ -4,6 +4,50 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.20.0] — 2026-06-20
+
+**Expand the stack-specific skill collection: 16 new skills + 7 fold-in enhancements (now 38 skills).**
+
+### Added
+
+16 new genericized engineering skills under `skills/`, surfaced by a cross-repo gap analysis and
+grounded in real production Python/FastAPI, Node/Express, and React services:
+
+- **Backend & infra** — `configargparse-yaml-env-layering` (3-layer YAML→configargparse→Pydantic config),
+  `redis-caching-patterns` (multi-tenant namespacing, TTL, graceful degradation, SCAN invalidation),
+  `gcs-file-storage-patterns` (uploads, signed URLs via impersonation, read CSV/Excel),
+  `file-export-and-reporting` (Excel/CSV generation + StreamingResponse downloads),
+  `api-pagination-filtering-sorting` (query conventions + response metadata),
+  `gcp-cloud-run-github-actions` (Cloud Run deploy via GitHub Actions),
+  `notifications-and-messaging` (multi-provider email/SMS with fallback).
+- **AI/LLM** — `anthropic-vertex-integration` (Claude on Vertex AI via AnthropicVertex SDK),
+  `langfuse-llm-tracing` (LLM tracing, Python + TypeScript).
+- **Node/Express** — `node-express-service` (app factory, MODE dispatch, convict, middleware),
+  `node-objection-knex` (Objection + Knex data layer + Joi validation).
+- **Frontend** — `zustand-state-patterns`, `tanstack-react-query-patterns`,
+  `react-hook-form-zod-patterns`, `radix-tailwind-component-patterns`, `vitest-rtl-msw-patterns`.
+
+Each ships `SKILL.md` + `README.md` + `references/`. All genericized (no internal service/registry/org
+names, paths, or secrets), verified by a scrub gate + per-skill scrub-verifier. Like the prior
+stack-specific sets, these are intentionally stack-specific and not wired into the catalog/scaffold, so
+`claude-kit init` output is unchanged. The `docs/stack-skills/` index is updated (38 skills).
+
+### Changed
+
+- **Extended 6 existing skills** with new sections + reference files: `fastapi-service-patterns`
+  (API versioning + conditional routes), `python-dao-and-database` (MongoDB aggregation/bulk-upsert/index
+  patterns), `temporal-config-driven` (idempotent schedule registration), `graphql-patterns` (advanced
+  Apollo Client setup), `containerization-and-deployment` (Makefile dev workflow + Kerberos kinit
+  bootstrap), `testing-conventions` (GitHub Actions test orchestration).
+
+### Fixed
+
+- **Genericized an internal reference that escaped the 0.18.0 scrub** — `temporal-config-driven`
+  reference files named an internal e-signature integration; replaced the example identifiers with
+  neutral `Esign*` ones.
+- **Removed a SQL-injection example** in `node-objection-knex` — replaced raw `whereRaw` string
+  interpolation with bound parameters and documented it as an anti-pattern.
+
 ## [0.19.0] — 2026-06-20
 
 **Add four granular Docker skills (backend/frontend Dockerfiles, shared building blocks, compose).**

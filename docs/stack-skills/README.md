@@ -1,6 +1,6 @@
 # Production Engineering Skills Collection
 
-These twenty-two Claude Code skills encode production-proven engineering conventions derived from real-world Python/FastAPI and React services. Each skill was extracted from analyzing patterns across multiple production backend and frontend services, capturing canonical patterns for FastAPI microservices, async Python, Kafka/Temporal integration, multi-tenancy, database access, React frontends, observability, authentication, containerization (with granular Dockerfile/compose deep-dives), testing, data pipelines, and modernization strategies. Use them to align new projects with established patterns, audit existing services, or onboard engineers to modern Python and React development practices.
+These thirty-eight Claude Code skills encode production-proven engineering conventions derived from real-world Python/FastAPI, Node/Express, and React services. Each skill was extracted from analyzing patterns across multiple production backend and frontend services, capturing canonical patterns for FastAPI microservices, async Python, Kafka/Temporal integration, multi-tenancy, database access, layered configuration, Redis caching, GCS file handling, LLM integration (Vertex AI / Langfuse), Node/Express services, React frontends (state, data-fetching, forms, design systems, testing), observability, authentication, containerization (with granular Dockerfile/compose deep-dives), testing, data pipelines, and modernization strategies. Use them to align new projects with established patterns, audit existing services, or onboard engineers to modern Python, Node, and React development practices.
 
 > **Where these live in this repo:** the skill folders are under [`skills/`](../../skills/) (auto-discovered by the claude-kit plugin). The links below point there.
 
@@ -30,6 +30,24 @@ These twenty-two Claude Code skills encode production-proven engineering convent
 | **data-engineering-bigquery-gcs** | BigQuery / GCS / pandas batch data pipelines, medallion (bronze/silver/gold) layering, ETL executed inside Temporal activities (not workflows), Vertex usage, schema/partitioning conventions | [SKILL.md](../../skills/data-engineering-bigquery-gcs/SKILL.md) |
 | **graphql-patterns** | Strawberry GraphQL resolvers on the backend and Apollo Client setup on the frontend — used in only a few apps, explicit about limited footprint | [SKILL.md](../../skills/graphql-patterns/SKILL.md) |
 | **modernization-and-migration** | Adapting the audit recommendations — migrate Pydantic v1 to v2 and SQLAlchemy 1.4 to 2.0 (Mapped style), extract copy-pasted BaseDao/ConnectionManager/CustomRequestRoute/connection.py into shared internal library, treat reference service as golden standard, retire divergences | [SKILL.md](../../skills/modernization-and-migration/SKILL.md) |
+| **configargparse-yaml-env-layering** | Three-layer service config — YAML defaults → configargparse CLI/env overrides → Pydantic BaseSettings singleton (`loaded_config`), coupled to MODE dispatch | [SKILL.md](../../skills/configargparse-yaml-env-layering/SKILL.md) |
+| **redis-caching-patterns** | Production Redis caching — multi-tenant key namespacing, TTL strategies, graceful degradation + in-memory fallback, SCAN-based invalidation, None-sentinel, pipelined bulk ops | [SKILL.md](../../skills/redis-caching-patterns/SKILL.md) |
+| **gcs-file-storage-patterns** | Google Cloud Storage blob ops — client + auth refresh, single/bulk upload (transfer_manager), signed URLs via impersonation, read CSV/Excel from GCS, gs:// path parsing | [SKILL.md](../../skills/gcs-file-storage-patterns/SKILL.md) |
+| **file-export-and-reporting** | Excel/CSV report generation + file downloads — pandas `to_excel` (multi-sheet, BytesIO), StreamingResponse CSV generators, base64 responses, Content-Disposition, presigned downloads | [SKILL.md](../../skills/file-export-and-reporting/SKILL.md) |
+| **api-pagination-filtering-sorting** | HTTP query conventions — page/page_size vs limit/offset, multi-value & hierarchical filters, sort_by/order_by, search, response metadata (total_pages/has_next), QueryBuilder layer | [SKILL.md](../../skills/api-pagination-filtering-sorting/SKILL.md) |
+| **gcp-cloud-run-github-actions** | Deploy to Cloud Run via GitHub Actions — auth@v2, manifest-inspect skip, build/push, `gcloud run deploy` flags (cloudsql/vpc-connector/MODE/min-max-instances), multi-job pipelines | [SKILL.md](../../skills/gcp-cloud-run-github-actions/SKILL.md) |
+| **notifications-and-messaging** | Multi-provider email/SMS delivery — provider abstraction + singletons, fallback chains, template-driven messages (OTP/verification/calendar), E.164 formatting, dev-mode logging | [SKILL.md](../../skills/notifications-and-messaging/SKILL.md) |
+| **anthropic-vertex-integration** | Claude on Vertex AI via AnthropicVertex SDK — project-ID fallback chain, ADC lazy client, async `generate_text`/`generate_json_text`, exponential-backoff retry, persona system prompts | [SKILL.md](../../skills/anthropic-vertex-integration/SKILL.md) |
+| **langfuse-llm-tracing** | LLM tracing with Langfuse (Python + TypeScript) — lazy env-gated singleton, `trace_completion()` context manager, latency/metadata capture, graceful no-op when disabled | [SKILL.md](../../skills/langfuse-llm-tracing/SKILL.md) |
+| **node-express-service** | Express backend architecture — app factory, MODE/server-type dispatch, convict config, module-alias, swagger-jsdoc, error middleware, ingress-header parser, request-ID logging, redis sessions | [SKILL.md](../../skills/node-express-service/SKILL.md) |
+| **node-objection-knex** | Objection.js + Knex data layer & Joi validation — BaseModel + AJV, lifecycle hooks, bindKnex, knexfile migrations, `validateReq` middleware, commonRules, standardized error envelope | [SKILL.md](../../skills/node-objection-knex/SKILL.md) |
+| **zustand-state-patterns** | Zustand client state — typed slices, selector exports, async actions, polling-in-store + cleanup, HMR persistence, immutable updates, optimistic updates | [SKILL.md](../../skills/zustand-state-patterns/SKILL.md) |
+| **tanstack-react-query-patterns** | TanStack Query (React Query) — query-key factories, typed hooks, staleTime + placeholderData pagination, invalidation, optimistic `onMutate`, computed selectors | [SKILL.md](../../skills/tanstack-react-query-patterns/SKILL.md) |
+| **react-hook-form-zod-patterns** | Type-safe forms — `useForm` + `zodResolver`, `z.object().strict()` + inferred types, multi-step forms, create/edit modes, schema-driven vs manual validation | [SKILL.md](../../skills/react-hook-form-zod-patterns/SKILL.md) |
+| **radix-tailwind-component-patterns** | Design-system components — Radix headless primitives + custom styling, Tailwind v4 `@theme` tokens, variant-driven API, `cn()` (twMerge+clsx), asChild/Slot, reduced-motion | [SKILL.md](../../skills/radix-tailwind-component-patterns/SKILL.md) |
+| **vitest-rtl-msw-patterns** | Frontend testing — Vitest + React Testing Library + MSW v2 mocking, Zod↔Pydantic contract tests with generated fixtures, jsdom setup | [SKILL.md](../../skills/vitest-rtl-msw-patterns/SKILL.md) |
+
+> **Existing skills extended (this release):** `fastapi-service-patterns` (API versioning + conditional routes), `python-dao-and-database` (MongoDB advanced — aggregation/bulk-upsert/indexes), `temporal-config-driven` (schedule registration), `graphql-patterns` (advanced Apollo Client setup), `containerization-and-deployment` (Makefile dev workflow + Kerberos kinit bootstrap), and `testing-conventions` (GitHub Actions test orchestration) each gained a new section + reference file.
 
 ## How to Use
 
@@ -57,11 +75,27 @@ These twenty-two Claude Code skills encode production-proven engineering convent
    - "build BigQuery ETL / GCS pipeline / medallion architecture" → **data-engineering-bigquery-gcs**
    - "add GraphQL resolvers / Apollo Client" → **graphql-patterns**
    - "migrate to SQLAlchemy 2.0 / extract shared library" → **modernization-and-migration**
+   - "layered config / configargparse / YAML + env + BaseSettings" → **configargparse-yaml-env-layering**
+   - "Redis cache / cache-aside / TTL / cache invalidation" → **redis-caching-patterns**
+   - "upload/download from GCS / signed URLs" → **gcs-file-storage-patterns**
+   - "generate an Excel/CSV report / stream a file download" → **file-export-and-reporting**
+   - "paginate / filter / sort an API endpoint" → **api-pagination-filtering-sorting**
+   - "deploy to Cloud Run with GitHub Actions" → **gcp-cloud-run-github-actions**
+   - "send email/SMS notifications / multi-provider fallback" → **notifications-and-messaging**
+   - "call Claude on Vertex AI / AnthropicVertex SDK" → **anthropic-vertex-integration**
+   - "trace LLM calls / Langfuse" → **langfuse-llm-tracing**
+   - "build an Express backend / Node service" → **node-express-service**
+   - "Objection/Knex models / Joi validation / Knex migrations" → **node-objection-knex**
+   - "Zustand store / client state" → **zustand-state-patterns**
+   - "React Query / TanStack Query data fetching" → **tanstack-react-query-patterns**
+   - "react-hook-form + Zod forms" → **react-hook-form-zod-patterns**
+   - "Radix + Tailwind component / design system" → **radix-tailwind-component-patterns**
+   - "Vitest + RTL + MSW tests / contract tests" → **vitest-rtl-msw-patterns**
 
 4. **References:** Each skill includes a `references/` subdirectory with detailed evidence files showing the exact file paths, snippets, and patterns from source repositories.
 
 ## Scope and Limitations
 
 - **Source:** These skills are derived from real-world production Python/FastAPI and React services as of June 2026. They reflect real-world conventions, including some anti-patterns that are documented for awareness.
-- **Stack coverage:** Python FastAPI + SQLAlchemy (1.4 and 2.0) + Kafka + Temporal + Redis; React + Vite + TypeScript; limited MongoDB (sync pymongo); BigQuery/GCS data pipelines; Strawberry GraphQL (backend) + Apollo Client (frontend); Docker + docker-compose + k8s; pytest + pytest-asyncio + Playwright; OpenTelemetry + Sentry + Prometheus + NewRelic; argon2 + JWT + pyotp; Alembic migrations.
-- **What's NOT covered:** SQLModel, Tortoise ORM, beanie/motor (async MongoDB), Django, Flask, non-Python backends. These were absent in the analyzed codebases and were deliberately not created.
+- **Stack coverage:** Python FastAPI + SQLAlchemy (1.4 and 2.0) + Kafka + Temporal + Redis (caching); layered configuration (configargparse + YAML + Pydantic); GCS file ops + Excel/CSV reporting; LLM integration (Claude on Vertex AI via AnthropicVertex + Langfuse tracing); Node/Express + Objection/Knex + Joi; React + Vite + TypeScript (Zustand, TanStack Query, react-hook-form + Zod, Radix + Tailwind, Vitest + RTL + MSW); limited MongoDB (sync pymongo + aggregation/bulk/index patterns); BigQuery/GCS data pipelines; Strawberry GraphQL (backend) + Apollo Client (frontend); Docker + docker-compose + k8s; Cloud Run + GitHub Actions CI/CD; pytest + pytest-asyncio + Playwright; OpenTelemetry + Sentry + Prometheus + NewRelic; argon2 + JWT + pyotp; Alembic migrations; multi-provider email/SMS notifications.
+- **What's NOT covered:** SQLModel, Tortoise ORM, beanie/motor (async MongoDB), Django, Flask, and non-Express Node frameworks (NestJS, Fastify). These were absent (or single-repo only) in the analyzed codebases and were deliberately not created.

@@ -131,7 +131,7 @@ workflow_id = f"{workflow['name']}-{uuid}-{int(datetime.now().timestamp())}"
 ```
 
 **Parts**:
-- `workflow['name']`: Human-readable workflow type (e.g., `"JioSignDownload"`)
+- `workflow['name']`: Human-readable workflow type (e.g., `"EsignDownload"`)
 - `uuid`: Request/entity correlation ID (e.g., audit_id, file_id)
 - `timestamp`: Uniqueness guarantee (seconds since epoch)
 

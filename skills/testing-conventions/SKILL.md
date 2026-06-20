@@ -110,6 +110,71 @@ async def dao(self, db_connection):
 
 **Reference frontend**: Vitest configured with aggressive thresholds; 31 test files found (14 hook tests, 11 component tests, 6 module/lib tests). **Strength**: Good coverage of hooks (useToast, usePagination, useFilters, etc.) and task module components. Coverage includes config, utils, permissions, API clients.
 
+### GitHub Actions test orchestration
+
+**Path-based triggers**: Limit workflow runs to relevant changes using `paths:` filters on backend/**, frontend/**, or schema-specific directories. Prevents unnecessary CI runs when unrelated modules change. _(path filtering pattern)_
+
+**Service containers with health checks**: Define postgres and redis as `services:` with health checks (`pg_isready`, `redis-cli ping`). CI waits for healthy state before running tests. Set `--health-interval 10s`, `--health-timeout 5s`, `--health-retries 5`. _(service health pattern)_
+
+**Job dependencies (needs:)**: Chain test jobs after lint/typecheck using `needs: [lint]` to fail fast on style/type errors. Run multiple test suites (unit, api, integration, e2e) in parallel after linting completes. _(job dependency pattern)_
+
+**Coverage enforcement**: Use `pytest --cov=src --cov-report=xml --cov-fail-under=<threshold>` to enforce minimum coverage percentage. Fails CI if coverage drops below threshold. _(coverage gating pattern)_
+
+**Artifact upload**: Upload test results (`--junitxml=test-results.xml`), coverage reports (`coverage.xml`), and E2E traces/screenshots with `actions/upload-artifact@v4`. Persist on `if: always()` or `if: failure()` for debugging. _(artifact pattern)_
+
+**Codecov integration**: Upload coverage XML to Codecov with flags (backend/frontend) using `codecov/codecov-action@v4`. Set `fail_ci_if_error: false` to avoid blocking on Codecov API issues. _(codecov pattern)_
+
+**Contract testing pipeline**: Generate JSON fixtures from Pydantic schemas, verify fixture validity (error count == 0), then run frontend Vitest contract tests against fixtures. Separate job ensures schema changes don't break frontend types. _(contract testing pattern)_
+
+**E2E with background services**: Start backend (uvicorn) and frontend (vite dev) in background (`&`), wait for health endpoints with `timeout 30 bash -c 'until curl -s http://localhost:8000/_healthz; do sleep 1; done'`, then run Playwright tests. Upload traces on failure. _(E2E orchestration pattern)_
+
+**Pytest markers for test categories**: Separate api-tests and integration-tests jobs using `pytest -m api` and `pytest -m integration`. Allows running subsets of tests with targeted service dependencies (api-tests skip redis). _(pytest marker pattern)_
+
+**Pattern**:
+```yaml
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend-tests.yml'
+
+jobs:
+  test:
+    needs: [lint]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - run: pytest --cov=src --cov-fail-under=70 --junitxml=test-results.xml --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: backend/test-results.xml
+      - uses: codecov/codecov-action@v4
+        with:
+          file: backend/coverage.xml
+          flags: backend
+
+  integration-tests:
+    needs: [lint]
+    services:
+      postgres: {...}
+      redis: {...}
+    steps:
+      - run: pytest -m integration -v
+```
+
 ## Skeleton / example
 
 ```python
@@ -308,3 +373,4 @@ When coverage is near-zero, establish this pragmatic baseline **before** adding 
 - [vitest-frontend-testing.md](./references/vitest-frontend-testing.md) — Vitest config, jsdom setup, hook/component/API testing patterns, coverage strategy
 - [coverage-gap-and-recommendations.md](./references/coverage-gap-and-recommendations.md) — Honest coverage audit, recommended baseline
 - [repo-evidence.md](./references/repo-evidence.md) — Real file paths and snippets from source repos
+- [github-actions-test-orchestration.md](./references/github-actions-test-orchestration.md) — GitHub Actions test workflows: path triggers, service health checks, needs:, coverage gating, artifacts, Codecov, contract + E2E jobs
