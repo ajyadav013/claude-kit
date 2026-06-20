@@ -4,6 +4,29 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.18.0] — 2026-06-20
+
+**Add a stack-specific skill collection (Python/FastAPI + React) and refine the secret guard.**
+
+### Added
+
+- **18 stack-specific engineering-convention skills** under `skills/` (auto-discovered by the plugin),
+  encoding house-style patterns for FastAPI services, async Python, SQLAlchemy/DAO, Pydantic, Kafka,
+  Temporal, multi-tenancy, React frontends, observability, auth/RBAC, containerization, testing,
+  Alembic, BigQuery/GCS data pipelines, GraphQL, and modernization. Each ships `SKILL.md` + `README.md`
+  + `references/`. A `docs/stack-skills/` index (catalog, technology-coverage matrix, gap analysis)
+  documents the set. These are **intentionally stack-specific** — a deliberate departure from the
+  stack-agnostic payload principle (golden rule #1) — and are **not** wired into the catalog/scaffold,
+  so `claude-kit init` output is unchanged. All content is genericized (no internal service/repo/org
+  names, paths, or secrets), verified by a scrub gate and an adversarial critic.
+
+### Changed
+
+- `hooks/scripts/guard-secrets.sh` now detects secret **values** (PEM private-key blocks, `AKIA…`,
+  `sk_live_…`, Slack/GitHub tokens) instead of variable **names** (`SECRET_KEY`/`API_KEY`/`*PASSWORD*`),
+  which false-positived on legitimate security/config documentation. Secret-file detection
+  (`.env`/`.pem`/`.key`/credentials) is unchanged.
+
 ## [0.17.3] — 2026-06-17
 
 **Fix: remove the two `UserPromptSubmit` prompt hooks that errored on every prompt.** Once the plugin's
