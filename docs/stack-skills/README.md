@@ -1,6 +1,6 @@
 # Production Engineering Skills Collection
 
-These eighteen Claude Code skills encode production-proven engineering conventions derived from real-world Python/FastAPI and React services. Each skill was extracted from analyzing patterns across multiple production backend and frontend services, capturing canonical patterns for FastAPI microservices, async Python, Kafka/Temporal integration, multi-tenancy, database access, React frontends, observability, authentication, containerization, testing, data pipelines, and modernization strategies. Use them to align new projects with established patterns, audit existing services, or onboard engineers to modern Python and React development practices.
+These twenty-two Claude Code skills encode production-proven engineering conventions derived from real-world Python/FastAPI and React services. Each skill was extracted from analyzing patterns across multiple production backend and frontend services, capturing canonical patterns for FastAPI microservices, async Python, Kafka/Temporal integration, multi-tenancy, database access, React frontends, observability, authentication, containerization (with granular Dockerfile/compose deep-dives), testing, data pipelines, and modernization strategies. Use them to align new projects with established patterns, audit existing services, or onboard engineers to modern Python and React development practices.
 
 > **Where these live in this repo:** the skill folders are under [`skills/`](../../skills/) (auto-discovered by the claude-kit plugin). The links below point there.
 
@@ -21,6 +21,10 @@ These eighteen Claude Code skills encode production-proven engineering conventio
 | **observability-and-logging** | Structured logging, OpenTelemetry tracing, Sentry error tracking, Prometheus metrics, NewRelic, request/correlation IDs, /health and /readiness endpoints | [SKILL.md](../../skills/observability-and-logging/SKILL.md) |
 | **auth-and-rbac** | Authentication dependency chain (get_current_client / x-user-data header), JWT verification, RBAC role/permission enforcement, password hashing (argon2), OTP (pyotp), tenant-scoped authorization | [SKILL.md](../../skills/auth-and-rbac/SKILL.md) |
 | **containerization-and-deployment** | Multi-stage Dockerfiles, docker-compose for local infra, one-image-many-roles pattern (entrypoint.py MODE dispatch), cert/keytab writing from env + kinit bootstrap, k8s health/readiness probes, CI pipelines, secrets/env hygiene | [SKILL.md](../../skills/containerization-and-deployment/SKILL.md) |
+| **dockerfile-backend** | Granular multi-stage Python/FastAPI Dockerfile deep-dive — builder/runtime split, slim vs alpine trade-offs, system deps (libpq/librdkafka/krb5), layer-cache ordering, venv copy, non-root user, gunicorn+uvicorn, HEALTHCHECK | [SKILL.md](../../skills/dockerfile-backend/SKILL.md) |
+| **dockerfile-frontend** | Granular React/Vite multi-stage Dockerfile deep-dive — node(alpine) build → nginx runtime, lockfile-first caching, `VITE_*`/`REACT_APP_*` build args, runtime `envsubst`, nginx SPA history fallback, security headers | [SKILL.md](../../skills/dockerfile-frontend/SKILL.md) |
+| **docker-shared** | Shared Docker building blocks — base images from a private registry (tag vs `@sha256` digest pinning), `.dockerignore` conventions, shared compose fragments (YAML anchors, `x-` fields, external networks/volumes), build-arg-secret anti-pattern + BuildKit `--mount=type=secret` | [SKILL.md](../../skills/docker-shared/SKILL.md) |
+| **docker-compose** | docker-compose for local dev + orchestration — postgres/redis/kafka/temporal healthchecks wired to `depends_on: condition: service_healthy`, one-image-many-roles (MODE), env-specific compose files (`.dev`/`.prod-test`/`.override`), profiles, migrator pattern | [SKILL.md](../../skills/docker-compose/SKILL.md) |
 | **testing-conventions** | pytest + pytest-asyncio + conftest fixtures, async test DB setup, mocking external services (Kafka/Temporal/HTTP), Playwright/allure E2E, honest account of coverage gaps with recommended baseline | [SKILL.md](../../skills/testing-conventions/SKILL.md) |
 | **alembic-migrations** | Alembic migration setup for async SQLAlchemy — alembic.ini, env.py (async engine + target_metadata), versions/ naming, autogenerate workflow, multi-tenant/multi-schema migrations | [SKILL.md](../../skills/alembic-migrations/SKILL.md) |
 | **data-engineering-bigquery-gcs** | BigQuery / GCS / pandas batch data pipelines, medallion (bronze/silver/gold) layering, ETL executed inside Temporal activities (not workflows), Vertex usage, schema/partitioning conventions | [SKILL.md](../../skills/data-engineering-bigquery-gcs/SKILL.md) |
@@ -44,6 +48,10 @@ These eighteen Claude Code skills encode production-proven engineering conventio
    - "add observability / structured logging / tracing" → **observability-and-logging**
    - "implement authentication / RBAC / JWT verification" → **auth-and-rbac**
    - "create Dockerfile / docker-compose / k8s probes" → **containerization-and-deployment**
+   - "write a Python/FastAPI backend Dockerfile / optimize image size / multi-stage build" → **dockerfile-backend**
+   - "write a React/Vite frontend Dockerfile / node build + nginx serve / VITE_* build args" → **dockerfile-frontend**
+   - "set up a shared base image / .dockerignore / private registry auth / compose YAML anchors" → **docker-shared**
+   - "write docker-compose for local dev / healthchecks / postgres+redis+kafka+temporal" → **docker-compose**
    - "set up pytest fixtures / test DB / E2E tests" → **testing-conventions**
    - "configure Alembic / autogenerate migrations" → **alembic-migrations**
    - "build BigQuery ETL / GCS pipeline / medallion architecture" → **data-engineering-bigquery-gcs**

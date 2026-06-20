@@ -4,6 +4,30 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.19.0] — 2026-06-20
+
+**Add four granular Docker skills (backend/frontend Dockerfiles, shared building blocks, compose).**
+
+### Added
+
+- **4 granular Docker skills** under `skills/`, complementing the broader `containerization-and-deployment`
+  skill with focused deep-dives derived from real production Python/FastAPI + React services:
+  - **`dockerfile-backend`** — multi-stage Python/FastAPI Dockerfiles: builder/runtime split, slim vs
+    alpine trade-offs, system deps (libpq/librdkafka/krb5), layer-cache ordering, venv copy, non-root
+    user, multi-mode entrypoint, gunicorn+uvicorn, `HEALTHCHECK`.
+  - **`dockerfile-frontend`** — React/Vite multi-stage builds: node(alpine) build → nginx runtime,
+    lockfile-first caching, `VITE_*`/`REACT_APP_*` build args, runtime `envsubst`, nginx SPA history fallback.
+  - **`docker-shared`** — shared base images from a private registry (tag vs `@sha256` digest pinning),
+    `.dockerignore` conventions, shared compose fragments (YAML anchors, `x-` fields, external
+    networks/volumes), and the build-arg-secret anti-pattern + BuildKit `--mount=type=secret` fix.
+  - **`docker-compose`** — local-dev/orchestration: postgres/redis/kafka/temporal healthchecks wired to
+    `depends_on: condition: service_healthy`, one-image-many-roles (MODE), env-specific compose files.
+  Each ships `SKILL.md` + `README.md` + `references/`, cross-links `containerization-and-deployment`,
+  and is fully genericized (no internal service/registry/org names, paths, or secrets) — verified by a
+  scrub gate + adversarial critic. Like the 0.18.0 set, these are intentionally stack-specific and not
+  wired into the catalog/scaffold, so `claude-kit init` output is unchanged. The `docs/stack-skills/`
+  index is updated (22 skills).
+
 ## [0.18.0] — 2026-06-20
 
 **Add a stack-specific skill collection (Python/FastAPI + React) and refine the secret guard.**
