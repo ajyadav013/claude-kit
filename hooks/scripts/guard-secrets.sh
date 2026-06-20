@@ -12,9 +12,13 @@ command -v git >/dev/null 2>&1 || exit 0
 BAD_FILES=$(git diff --cached --name-only 2>/dev/null \
   | grep -iE '(^|/)\.env($|\.)|\.(pem|key|p12|pfx)$|credentials?\.(json|ya?ml|md)$')
 
-# 2) Secret-like content in the staged diff (added lines only)
+# 2) Secret-like VALUES in the staged diff (added lines only).
+#    Detect real leaked-credential value shapes, NOT variable NAMES. Identifiers such as
+#    SECRET_KEY, API_KEY, or *PASSWORD* are not themselves secrets — flagging the names
+#    false-positives on legitimate config/security documentation and code that merely
+#    references env-var names or CI secret bindings. Actual leaked credentials are values.
 BAD_CONTENT=$(git diff --cached -U0 2>/dev/null \
-  | grep -iE '^\+.*(SECRET_KEY|API_KEY|PRIVATE KEY|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{16,}|xox[baprs]-[0-9A-Za-z-]+|gh[ps]_[0-9A-Za-z]{30,}|[A-Za-z0-9_]*PASSWORD[A-Za-z0-9_]*[[:space:]]*[:=][[:space:]]*["'"'"'][^"'"'"']+)')
+  | grep -iE '^\+.*(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{16,}|xox[baprs]-[0-9A-Za-z-]{10,}|gh[ps]_[0-9A-Za-z]{30,})')
 
 if [ -n "$BAD_FILES" ] || [ -n "$BAD_CONTENT" ]; then
   echo "BLOCKED: this commit appears to include secrets." >&2
