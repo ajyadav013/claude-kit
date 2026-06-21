@@ -6,14 +6,15 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [0.20.0] — 2026-06-20
 
-**Expand the stack-specific skill collection: 18 new skills + 7 fold-in enhancements, plus a BigQuery
-skill extend/trim (now 40 skills).**
+**Expand the stack-specific skill collection: 19 new skills + 7 fold-in enhancements, plus a BigQuery
+skill extend/trim (now 41 skills).**
 
 ### Added
 
-18 new genericized engineering skills under `skills/`, surfaced by a cross-repo gap analysis (one from a
-live production Grafana, one bundling an internal OWASP ZAP VAPT tool), grounded in real production
-Python/FastAPI, Node/Express, and React services:
+19 new skills under `skills/`. Eighteen are genericized engineering skills surfaced by a cross-repo gap
+analysis (one from a live production Grafana, one bundling an internal OWASP ZAP VAPT tool), grounded in
+real production Python/FastAPI, Node/Express, and React services; the nineteenth (`shannon-ai-pentest`)
+is documentation for an external third-party tool (see Security):
 
 - **Backend & infra** — `configargparse-yaml-env-layering` (3-layer YAML→configargparse→Pydantic config),
   `redis-caching-patterns` (multi-tenant namespacing, TTL, graceful degradation, SCAN invalidation),
@@ -42,13 +43,22 @@ Python/FastAPI, Node/Express, and React services:
   the Created By / Approved By sign-off names — is supplied at run time via CLI flags or prompts;
   nothing is hardcoded, and the `ReportMeta` defaults ship blank. `--selftest` runs 18 logic checks
   with no ZAP required. Genericized from an internal tool — passive default; `--active` is
-  deny-by-default for state-changing verbs and requires a typed `yes`).
+  deny-by-default for state-changing verbs and requires a typed `yes`). Also `shannon-ai-pentest` — a
+  documentation/operating skill for **Shannon** by Keygraph, an autonomous **white-box** AI pentester
+  that reads an app's source, runs **real proof-of-concept exploits** against the live app, and reports
+  only proven findings. Documents the external **AGPL-3.0** `npx @keygraph/shannon` CLI (commands +
+  flags), AI-provider/model-tier config (Anthropic/Bedrock/Vertex/proxy), the YAML engagement config
+  (auth + login-flows + TOTP, scope avoid/focus rules, report filters), the workspace/report layout,
+  and the safety rules. **Shannon is not vendored** — it is installed separately; this skill bundles no
+  AGPL code, only original documentation with full attribution (verified accurate against the upstream
+  docs).
 
-Each ships `SKILL.md` + `README.md` + `references/` (the security skill also bundles its runnable
-`scripts/`). All genericized (no internal service/registry/org names, paths, or secrets), verified by a
-scrub gate + per-skill scrub-verifier. Like the prior stack-specific sets, these are intentionally
-stack-specific and not wired into the catalog/scaffold, so `claude-kit init` output is unchanged. The
-`docs/stack-skills/` index is updated (40 skills).
+Each ships `SKILL.md` + `README.md` + `references/` (the `zap-vapt-scanning` skill also bundles runnable
+`scripts/`; `shannon-ai-pentest` is documentation-only for an external AGPL-3.0 tool). All are free of
+internal service/registry/org names, paths, and secrets, verified by a scrub gate + per-skill
+scrub-verifier. Like the prior stack-specific sets, these are intentionally stack-specific and not wired
+into the catalog/scaffold, so `claude-kit init` output is unchanged. The `docs/stack-skills/` index is
+updated (41 skills).
 
 ### Changed
 
