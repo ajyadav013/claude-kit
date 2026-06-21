@@ -78,6 +78,85 @@ Standard DAO patterns and database session lifecycle for async SQLAlchemy and Mo
 - Collections + index specs in constants module; indexes created on startup via `MongoDB.create_index(collection["name"], collection["indexes"])`
 - Pydantic absent; dict-based flow
 
+### MongoDB advanced patterns
+
+Beyond basic CRUD, production MongoDB DAOs implement aggregation pipelines, bulk upserts, index management, and batched pagination.
+
+**Aggregation pipelines**
+- Use `collection.aggregate(pipeline)` to return a **cursor** (must be consumed in a context manager)
+- Common stages: `$match` (filter), `$group` (aggregate), `$project` (shape output), `$sort`, `$limit`, `$unwind` (flatten arrays)
+- Pattern: `with collection.aggregate(query) as cursor: document_list = list(cursor)`
+- The DAO method returns `(success: bool, results: list[dict])` tuple (anti-pattern: boolean tuple returns; prefer Optional or exceptions)
+
+**Bulk upserts**
+- Build `UpdateOne` operations with `upsert=True`, call `bulk_write(operations, ordered=False)`
+- `ordered=False` continues on errors (doesn't stop at first failure)
+- Pattern: loop write requests, construct `match` dict from filter columns, build `{"$set": {k: v for k, v in doc.items() if k != "_id"}}` update dict
+- `UpdateOne(match, {"$set": update_dict}, upsert=True)` inserts if no match, updates if match
+- Append to `bulk_operations` list, then `collection.bulk_write(bulk_operations, ordered=False)`
+
+**Index creation**
+- Use `IndexModel` to specify fields and options, call `collection.create_indexes(index_models)`
+- Index spec formats: simple `[("field", ASCENDING)]`, compound `[("field1", ASCENDING), ("field2", DESCENDING)]`, with options `([("field", ASCENDING)], {"unique": True})`
+- Create indexes on **startup** by looping collection definitions and calling `MongoDB.create_index(collection_name, indexes)`
+- The method handles both plain field lists and `(fields, options)` tuples
+
+**Batched pagination**
+- Use `skip` and `limit` cursor methods for offset-based pagination
+- Pattern: `collection.find(query, skip=skip_count, limit=page_size)` where `skip_count = max(0, (page_number - 1) * page_size)`
+- Wrap cursor in context manager: `with collection.find(...) as cursor: documents = list(cursor)`
+- For large datasets, prefer cursor-based pagination (filtering by `_id` or timestamp) over offset-based (skip is slow for high offsets)
+
+**Example skeleton**
+
+```python
+from pymongo import MongoClient, UpdateOne, IndexModel, ASCENDING, DESCENDING
+
+# Aggregation pipeline
+pipeline = [
+    {"$match": {"status": "active"}},
+    {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+    {"$sort": {"count": -1}},
+    {"$limit": 10}
+]
+with collection.aggregate(pipeline) as cursor:
+    results = list(cursor)
+
+# Bulk upsert
+bulk_operations = []
+for document in write_requests:
+    match = {filter_col: document[filter_col] for filter_col in filter_columns}
+    update_op = UpdateOne(
+        match,
+        {"$set": {k: v for k, v in document.items() if k != "_id"}},
+        upsert=True,
+    )
+    bulk_operations.append(update_op)
+
+collection.bulk_write(bulk_operations, ordered=False)
+
+# Index creation
+index_models = []
+for index_spec in indexes:
+    if isinstance(index_spec, tuple) and len(index_spec) == 2:
+        fields, options = index_spec
+        index_models.append(IndexModel(fields, **options))
+    else:
+        index_models.append(IndexModel(index_spec))
+
+collection.create_indexes(index_models)
+
+# Batched pagination
+page_number = 1
+page_size = 100
+skip_count = max(0, (page_number - 1) * page_size)
+
+with collection.find(query, skip=skip_count, limit=page_size) as cursor:
+    documents = list(cursor)
+```
+
+See `mongodb-advanced.md` for full pipeline examples, bulk operation details, and index patterns.
+
 ## Skeleton / example
 
 ```python
@@ -237,3 +316,4 @@ class UserDao(BaseDao):
 - [sqlalchemy-1x-vs-2x.md](./references/sqlalchemy-1x-vs-2x.md) — side-by-side comparison of 1.4 vs 2.0 model and query idioms
 - [other-db-mongodb.md](./references/other-db-mongodb.md) — static-class MongoDB DAO pattern (sync pymongo)
 - [advanced-query-patterns.md](./references/advanced-query-patterns.md) — eager loading (selectinload, joinedload), query optimization, transaction isolation, row-level locking, alembic migrations, N+1 prevention
+- [mongodb-advanced.md](./references/mongodb-advanced.md) — aggregation pipelines, bulk upserts (UpdateOne + bulk_write), index creation (IndexModel), batched/cursor pagination

@@ -32,14 +32,14 @@ Each sub-map looks like:
 
 ```python
 AUDIT_WORKFLOW_CONFIG_MAP = {
-    "jio_sign_download": {
-        "task_queue": "jio-sign-download-queue",
-        "name": "JioSignDownload",
-        "workflows": [JioSignDownloadWorkflow],
+    "esign_download": {
+        "task_queue": "esign-download-queue",
+        "name": "EsignDownload",
+        "workflows": [EsignDownloadWorkflow],
         "activities": [
-            jio_sign_activities.document_status_check,
-            jio_sign_activities.download_signed_document,
-            jio_sign_activities.get_audit_trail,
+            esign_activities.document_status_check,
+            esign_activities.download_signed_document,
+            esign_activities.get_audit_trail,
         ],
     },
 }

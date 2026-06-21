@@ -4,6 +4,111 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.20.0] — 2026-06-20
+
+**Expand the stack-specific skill collection: 21 new skills + 7 fold-in enhancements + a security pass,
+plus a BigQuery skill extend/trim (now 43 skills).**
+
+### Added
+
+21 new skills under `skills/`. Twenty are genericized engineering skills surfaced by cross-repo gap
+analysis (one from a live production Grafana, one bundling an internal OWASP ZAP VAPT tool, and two
+security-architecture skills from a cross-repo security gap analysis), grounded in real production
+Python/FastAPI, Node/Express, and React services; the twenty-first (`shannon-ai-pentest`) is
+documentation for an external third-party tool (see Security):
+
+- **Backend & infra** — `configargparse-yaml-env-layering` (3-layer YAML→configargparse→Pydantic config),
+  `redis-caching-patterns` (multi-tenant namespacing, TTL, graceful degradation, SCAN invalidation),
+  `gcs-file-storage-patterns` (uploads, signed URLs via impersonation, read CSV/Excel),
+  `file-export-and-reporting` (Excel/CSV generation + StreamingResponse downloads),
+  `api-pagination-filtering-sorting` (query conventions + response metadata),
+  `gcp-cloud-run-github-actions` (Cloud Run deploy via GitHub Actions),
+  `notifications-and-messaging` (multi-provider email/SMS with fallback).
+- **AI/LLM** — `anthropic-vertex-integration` (Claude on Vertex AI via AnthropicVertex SDK),
+  `langfuse-llm-tracing` (LLM tracing, Python + TypeScript).
+- **Node/Express** — `node-express-service` (app factory, MODE dispatch, convict, middleware),
+  `node-objection-knex` (Objection + Knex data layer + Joi validation).
+- **Frontend** — `zustand-state-patterns`, `tanstack-react-query-patterns`,
+  `react-hook-form-zod-patterns`, `radix-tailwind-component-patterns`, `vitest-rtl-msw-patterns`.
+- **Observability** — `grafana-dashboards-and-alerts` (Grafana dashboard JSON model, `$datasource` +
+  cascading `label_values` template variables, RED-metric PromQL across NGINX ingress / OTel
+  span-metrics / pod utilization, multi-stage unified-alert rules with label-based routing
+  (slack_0/pagerduty_0/webhook_0) + dashboard/panel deep-link annotations, Tempo service graphs, and
+  dashboards-as-code provisioning). Grounded in a live production multi-cluster Grafana (~137
+  dashboards, 150 alert rules; Prometheus/Tempo/Pyroscope/managed-cloud datasources) and fully
+  genericized — pairs with `observability-and-logging` (which emits the metrics these dashboards plot).
+- **Security** — `zap-vapt-scanning` (a complete, self-contained OWASP ZAP **VAPT/DAST** setup: the
+  bundled single-file `zap_vapt.py` launches ZAP headless, replays endpoints from curl / simple lines /
+  a Postman collection, runs passive (and gated active) scans, joins alerts to the most-specific
+  endpoint, and renders a branded PDF VAPT report. All report identity — company, location, logo, and
+  the Created By / Approved By sign-off names — is supplied at run time via CLI flags or prompts;
+  nothing is hardcoded, and the `ReportMeta` defaults ship blank. `--selftest` runs 18 logic checks
+  with no ZAP required. Genericized from an internal tool — passive default; `--active` is
+  deny-by-default for state-changing verbs and requires a typed `yes`). Also `shannon-ai-pentest` — a
+  documentation/operating skill for **Shannon** by Keygraph, an autonomous **white-box** AI pentester
+  that reads an app's source, runs **real proof-of-concept exploits** against the live app, and reports
+  only proven findings. Documents the external **AGPL-3.0** `npx @keygraph/shannon` CLI (commands +
+  flags), AI-provider/model-tier config (Anthropic/Bedrock/Vertex/proxy), the YAML engagement config
+  (auth + login-flows + TOTP, scope avoid/focus rules, report filters), the workspace/report layout,
+  and the safety rules. **Shannon is not vendored** — it is installed separately; this skill bundles no
+  AGPL code, only original documentation with full attribution (verified accurate against the upstream
+  docs).
+- **Security architecture** — `edge-to-service-trust-boundary` (the HMAC-signed forwarded-identity
+  contract between an API gateway/edge and the services behind it: the edge signs identity/tenant headers
+  + a timestamp, downstream services verify with a constant-time compare and **fail closed**, reject
+  replayed/skewed requests, **detect conflicts** when identity is resolvable from multiple sources, and
+  still enforce their own authz; documents the `verify_signature=False`-then-trust, naked-header-trust,
+  and fail-open anti-patterns — complements `auth-and-rbac` + `multi-tenancy-patterns`) and
+  `kubernetes-workload-hardening` (runtime/manifest-layer hardening: pod/container `securityContext`,
+  default-deny `NetworkPolicy` + explicit allows, **digest-pinned** images, resource requests/limits,
+  **restricted PodSecurity** admission, least-privilege ServiceAccount/RBAC, and secrets via `secretRef`
+  — the runtime layer atop the `dockerfile-*`/`docker-shared` image-build skills). Both are grounded in
+  the cross-repo security gap analysis and fully genericized (no internal hosts, registries, namespaces,
+  project IDs, or secrets).
+
+Each ships `SKILL.md` + `README.md` + `references/` (the `zap-vapt-scanning` skill also bundles runnable
+`scripts/`; `shannon-ai-pentest` is documentation-only for an external AGPL-3.0 tool). All are free of
+internal service/registry/org names, paths, and secrets, verified by a scrub gate + per-skill
+scrub-verifier (the two security-architecture skills additionally went through an 18-agent adversarial
+verification — leak scrub + technical-accuracy + format — after which fixes were applied for recursive
+log redaction, DNS-over-TCP egress + an explicit `kube-system` selector, and cryptographically secure
+CSRF-token generation). Like the prior stack-specific sets, these are intentionally stack-specific and
+not wired into the catalog/scaffold, so `claude-kit init` output is unchanged. The `docs/stack-skills/`
+index is updated (43 skills).
+
+### Changed
+
+- **Extended 6 existing skills** with new sections + reference files: `fastapi-service-patterns`
+  (API versioning + conditional routes), `python-dao-and-database` (MongoDB aggregation/bulk-upsert/index
+  patterns), `temporal-config-driven` (idempotent schedule registration), `graphql-patterns` (advanced
+  Apollo Client setup), `containerization-and-deployment` (Makefile dev workflow + Kerberos kinit
+  bootstrap), `testing-conventions` (GitHub Actions test orchestration).
+- **Security pass on existing skills** — extended `observability-and-logging` with a PII/secret
+  **redaction structlog processor** (recursive sensitive-key denylist + content masking of emails, card
+  runs, bearer tokens, and DB-URL credentials, plus an audit-event field allowlist) in a new
+  `references/pii-redaction.md`; `testing-conventions` with a **security-regression** section (negative
+  authz, cross-tenant/RLS isolation, IDOR, login lockout, signed-header trust) wired to a dedicated
+  `pytest -m security` CI gate in a new `references/security-regression-tests.md`; `graphql-patterns`
+  with a clarification that Apollo's `apollo-require-preflight` protects the transport but cookie/session
+  auth still needs a CSRF token; and the **core** `security-and-hardening` skill with a CSRF
+  synchronizer/double-submit-token pattern and a ban on disabling outbound TLS verification
+  (`verify=False` / `rejectUnauthorized:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0` / `curl -k`), with
+  private-CA-bundle guidance.
+- **Extended + trimmed `data-engineering-bigquery-gcs`** — added six grounded BigQuery patterns
+  (parameterized queries, streaming inserts, in-memory `load_table_from_dataframe`, dynamic schema
+  evolution via `update_table`, the `TimePartitioning` Python API, and a reusable `BigQueryUtils`
+  wrapper) in a new `references/bigquery-advanced-patterns.md`; removed the unobserved GCS-client and
+  pandas-ETL sections (now delegated to the new `gcs-file-storage-patterns` skill), dropping the stale
+  `references/pandas-pipelines.md`.
+
+### Fixed
+
+- **Genericized an internal reference that escaped the 0.18.0 scrub** — `temporal-config-driven`
+  reference files named an internal e-signature integration; replaced the example identifiers with
+  neutral `Esign*` ones.
+- **Removed a SQL-injection example** in `node-objection-knex` — replaced raw `whereRaw` string
+  interpolation with bound parameters and documented it as an anti-pattern.
+
 ## [0.19.0] — 2026-06-20
 
 **Add four granular Docker skills (backend/frontend Dockerfiles, shared building blocks, compose).**

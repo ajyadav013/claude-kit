@@ -1,6 +1,6 @@
 ---
 name: observability-and-logging
-description: Structured logging with structlog, OpenTelemetry distributed tracing (OTLP export + FastAPI/asyncpg/Redis/Kafka instrumentation), Sentry error tracking, Prometheus RED metrics (inbound/outbound HTTP + middleware + file exporter), multi-mode service instrumentation (consumers/workers/cron), and liveness/readiness health probes across FastAPI backends. Use when adding observability to new services, instrumenting request/response pipelines, tracking external API calls, implementing health checks for Kubernetes deployments, setting up metrics for non-FastAPI processes (Kafka consumers, background workers, cron jobs), or configuring distributed tracing and metrics collection for production FastAPI applications.
+description: Structured logging with structlog, PII/secret redaction processors, OpenTelemetry distributed tracing (OTLP export + FastAPI/asyncpg/Redis/Kafka instrumentation), Sentry error tracking, Prometheus RED metrics (inbound/outbound HTTP + middleware + file exporter), multi-mode service instrumentation (consumers/workers/cron), and liveness/readiness health probes across FastAPI backends. Use when adding observability to new services, instrumenting request/response pipelines, tracking external API calls, redacting PII and secrets from structured logs, implementing audit-log field allowlists, implementing health checks for Kubernetes deployments, setting up metrics for non-FastAPI processes (Kafka consumers, background workers, cron jobs), or configuring distributed tracing and metrics collection for production FastAPI applications.
 ---
 
 # Observability and Logging
@@ -31,6 +31,38 @@ Production observability patterns for FastAPI backends: structured logging, dist
 **Propagate to stdlib loggers**: Clear handlers on `uvicorn`, `uvicorn.access`, `sqlalchemy.engine` and set `propagate = True` so they flow through the structlog pipeline. _(reference service pattern)_
 
 **Log level from settings**: Read `settings.LOG_LEVEL` (default `INFO`), convert to stdlib constant with `getattr(logging, level.upper(), logging.INFO)`. _(reference service pattern)_
+
+### PII and Secret Redaction (structlog processor)
+
+Structured logging makes it *easy* to log a whole request body, user object, or DB URL — which is
+exactly how PII and secrets leak into log aggregators. Redact in the pipeline, not at each call site, so
+it can't be forgotten.
+
+**Redaction processor in the pipeline**: Add a `redact_processor` to `structlog.configure(processors=[...])`
+**before** the renderer. It walks the event dict and (a) masks values whose **key** is sensitive and
+(b) pattern-masks PII inside string values. Because it runs in the pipeline, every log call is covered.
+_(reference service pattern)_
+
+**Sensitive-key denylist**: Mask any key matching `password`, `passwd`, `secret`, `token`,
+`authorization`, `api_key`/`apikey`, `set-cookie`/`cookie`, `private_key`, `client_secret`,
+`x-user-data`, `ssn`, `card`/`card_number`, `cvv`. Replace the value with `"***"` (don't drop the key —
+keep the shape for debugging). _(reference service pattern)_
+
+**Pattern masking inside strings**: Mask email local parts, long digit runs (cards/phones), and bearer
+tokens in free-text message values via regex (e.g. email → `j***@example.com`, 13–19 digit runs →
+`****`). Apply to the rendered `event` message and any string field. _(reference service pattern)_
+
+**Mask DB URLs / connection strings**: Never log a DSN with credentials; rewrite
+`postgresql://user:pass@host/db` → `postgresql://user:***@host/db` before logging connector config or
+errors. _(reference service pattern)_
+
+**Audit-event field allowlist**: For audit/access logs, **allowlist** the fields you emit
+(`user_id`, `user_role`, `tenant_id`, `action`, `resource_id`, `result`) rather than dumping the user
+object. Prefer opaque identifiers over `user_email` / `user_name`; if you must include a name/email,
+mask it. _(reference service pattern)_
+
+**Truncate large payloads**: Cap logged request/response bodies (e.g. 2 KB) — full bodies both leak data
+and blow up log volume. _(reference service pattern)_
 
 ### Centralized Request/Exception Logging
 
@@ -178,6 +210,45 @@ def setup_logging() -> None:
     for name in ("uvicorn", "uvicorn.access", "sqlalchemy.engine"):
         logging.getLogger(name).handlers.clear()
         logging.getLogger(name).propagate = True
+
+# config/redaction.py (reference service pattern) — add to the processors list BEFORE the renderer
+import re
+
+SENSITIVE_KEYS = {
+    "password", "passwd", "secret", "token", "access_token", "refresh_token", "session",
+    "authorization", "api_key", "apikey", "cookie", "set-cookie", "private_key",
+    "client_secret", "x-user-data", "ssn", "card", "card_number", "cvv",
+}
+_EMAIL = re.compile(r"([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*(@[A-Za-z0-9.-]+)")
+_DIGITS = re.compile(r"\b\d{13,19}\b")                       # card-like runs
+_BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._-]+")
+_DSN_CREDS = re.compile(r"(\w+://[^:/\s]*:)([^@/\s]+)(@)")   # creds in a DSN (incl. empty username)
+
+def _mask_str(value: str) -> str:
+    value = _EMAIL.sub(r"\1***\2", value)
+    value = _DIGITS.sub("****", value)
+    value = _BEARER.sub("Bearer ***", value)
+    value = _DSN_CREDS.sub(r"\1***\3", value)
+    return value
+
+def _redact(value):                              # recurse dicts + lists; mask by key and by content
+    if isinstance(value, dict):
+        return {k: ("***" if k.lower() in SENSITIVE_KEYS else _redact(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact(v) for v in value]
+    if isinstance(value, str):
+        return _mask_str(value)
+    return value
+
+def redact_processor(_logger, _method, event_dict):
+    return _redact(event_dict)                   # full-tree: nested objects & arrays are covered too
+
+# In setup_logging(): structlog.configure(processors=[..., redact_processor, <renderer>])
+
+# Audit log: allowlist fields, never dump the whole user object
+def audit_log(action: str, *, user_id: str, tenant_id: str, resource_id: str, result: str) -> None:
+    logger.info("audit", action=action, user_id=user_id, tenant_id=tenant_id,
+                resource_id=resource_id, result=result)   # no email/name/token
 
 # app/telemetry.py (reference service pattern)
 import structlog
@@ -373,7 +444,8 @@ api_router.add_api_route("/_readyz", readyz, methods=["GET"], tags=["health"])
 
 ## Anti-patterns to avoid
 
-- **Logging secrets or PII** — never log passwords, tokens, API keys, or personally identifiable information (email, phone, address). Redact or hash sensitive fields.
+- **Logging secrets or PII** — never log passwords, tokens, API keys, or personally identifiable information (email, phone, address). Redact in a **pipeline processor** (so it can't be forgotten at a call site), not ad hoc; mask DB-URL credentials; allowlist audit-event fields instead of dumping the user object.
+- **Logging full request/response bodies** — bodies carry PII and secrets and explode log volume; truncate (e.g. 2 KB) and run them through the redaction processor.
 - **Unbounded cardinality in metrics labels** — never use raw user IDs, tenant IDs, or request IDs as Prometheus labels; path normalization is mandatory for both inbound and outbound metrics.
 - **Conflating inbound and outbound metrics** — never use the same metric name for requests received and requests sent; use distinct `HTTP_REQUEST_RECEIVED` and `HTTP_REQUEST_SENT` histograms with appropriate labels.
 - **Including query params or hostnames in outbound path labels** — strip query strings and extract only the path component from outbound URLs to avoid cardinality explosion.
@@ -387,6 +459,7 @@ api_router.add_api_route("/_readyz", readyz, methods=["GET"], tags=["health"])
 ## References
 
 - [logging-and-structlog.md](./references/logging-and-structlog.md) — Structlog configuration, processor pipeline, stdlib integration
+- [pii-redaction.md](./references/pii-redaction.md) — PII/secret redaction processor, sensitive-key denylist, pattern masking, DB-URL credential masking, audit-event field allowlists
 - [tracing-and-metrics.md](./references/tracing-and-metrics.md) — OpenTelemetry SDK init, auto-instrumentation, Prometheus middleware, metrics export
 - [health-and-readiness.md](./references/health-and-readiness.md) — Liveness and readiness probe patterns, dependency checks
 - [outbound-metrics-and-multi-mode.md](./references/outbound-metrics-and-multi-mode.md) — Outbound HTTP metrics decorator, multi-mode service instrumentation (consumers/workers/cron)

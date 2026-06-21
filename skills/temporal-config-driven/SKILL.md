@@ -56,6 +56,62 @@ WORKER_MODE_CONFIG_MAP = {
 
 **Cron-based schedules**: Use `client.create_schedule` with `Schedule(action=ScheduleActionStartWorkflow(...), spec=ScheduleSpec(cron_expressions=[...]))` to trigger workflows on a recurring basis. Common for daily/hourly batch jobs. Schedule IDs must be unique across the namespace.
 
+### Schedule registration (cron workflows)
+
+Temporal schedules enable recurring workflows without external cron daemons. Production services typically encapsulate schedule registration in a dedicated module (e.g., `services/temporal/register_schedules.py`) that can be run once on deployment or idempotently on every deploy.
+
+**Registration pattern**: Define a list of schedule configurations (ID, cron expression, workflow input) and iterate through them, creating each schedule with `client.create_schedule`. Wrap each call in a try/catch that detects "already exists" errors and skips creation, ensuring idempotent re-runs.
+
+```python
+from temporalio.client import Schedule, ScheduleActionStartWorkflow, ScheduleSpec
+
+async def register_batch_schedules():
+    from app.workflows import DataProcessingWorkflow
+    
+    client = await get_temporal_client()
+    
+    schedules = [
+        {
+            "id": "daily-batch-processing",
+            "cron": "0 9 * * *",  # 9 AM daily
+            "workflow_id": "daily-batch-run",
+            "input": {"mode": "daily"},
+        },
+        {
+            "id": "monthly-report",
+            "cron": "0 6 1 * *",  # 6 AM on the 1st of each month
+            "workflow_id": "monthly-report-run",
+            "input": {"report_type": "monthly"},
+        },
+    ]
+    
+    for sched in schedules:
+        try:
+            await client.create_schedule(
+                sched["id"],
+                Schedule(
+                    action=ScheduleActionStartWorkflow(
+                        DataProcessingWorkflow.run,
+                        sched["input"],
+                        id=sched["workflow_id"],
+                        task_queue="batch-processing-queue",
+                    ),
+                    spec=ScheduleSpec(cron_expressions=[sched["cron"]]),
+                ),
+            )
+            logger.info(f"Schedule '{sched['id']}' created")
+        except Exception as e:
+            if "already" in str(e).lower():
+                logger.info(f"Schedule '{sched['id']}' already exists — skipping")
+            else:
+                logger.exception(f"Failed to create schedule '{sched['id']}'")
+                raise
+```
+
+**Relation to worker config**: Schedules are created by a one-time registration script or deployment hook, not by workers. Workers registered via `WORKER_MODE_CONFIG_MAP` consume the workflows triggered by these schedules. The task queue in `ScheduleActionStartWorkflow` must match a worker's `task_queue` from the config map.
+
+**CLI invocation**: `python -m services.temporal.register_schedules` (or wrapped in a deployment hook). Safe to run multiple times due to idempotency check.
+
 ## Skeleton / example
 
 ```python
@@ -190,3 +246,4 @@ async def setup_daily_schedule():
 - [config-and-retry-idempotency.md](references/config-and-retry-idempotency.md) — Retry policies, timeouts, idempotency helpers
 - [dag-dsl-interpreter.md](references/dag-dsl-interpreter.md) — DAG-based orchestration, node type dispatch
 - [schedules-and-cron.md](references/schedules-and-cron.md) — Cron-based workflow scheduling, lifecycle, anti-patterns
+- [schedule-registration.md](references/schedule-registration.md) — Idempotent Temporal schedule registration (create_schedule), cron specs, CLI entry point, deployment hook

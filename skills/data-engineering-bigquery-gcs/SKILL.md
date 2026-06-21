@@ -1,22 +1,24 @@
 ---
 name: data-engineering-bigquery-gcs
-description: BigQuery and GCS data pipeline patterns — medallion architecture (bronze/silver/gold), BigQuery client query/load operations with MERGE upserts, GCS blob read/write, temp table staging pattern, pandas transform pipelines, Datastream CDC deduplication, partitioning/clustering conventions, and Temporal activity-based I/O (not workflow). Use when building batch ETL pipelines, implementing medallion data layers, designing BigQuery schemas with partitioning, orchestrating data sync jobs with Temporal, performing atomic upserts with MERGE, or transforming data between GCS and BigQuery using pandas.
+description: BigQuery data pipeline patterns — medallion architecture (bronze/silver/gold), BigQuery client query/load operations with parameterized queries, streaming inserts, in-memory DataFrame loads, dynamic schema evolution, MERGE upserts, time partitioning, reusable BigQueryUtils wrappers, Datastream CDC deduplication, and Temporal activity-based orchestration. Use when building batch ETL pipelines, implementing medallion data layers, designing BigQuery schemas with partitioning, orchestrating data sync jobs with Temporal, performing atomic upserts with MERGE, loading in-memory data to BigQuery, or evolving table schemas dynamically.
 ---
 
 # Data Engineering: BigQuery & GCS Pipelines
 
-Stack-agnostic BigQuery and GCS batch data pipeline patterns with medallion layering, pandas transforms, and Temporal orchestration.
+Stack-agnostic BigQuery data pipeline patterns with medallion layering and Temporal orchestration.
 
 ## When to use
 
 - Implementing medallion architecture (bronze/silver/gold layers) for a data warehouse
-- Building ETL pipelines that read from GCS and write to BigQuery
+- Building ETL pipelines that load data to BigQuery
 - Designing BigQuery schemas with date partitioning and clustering
 - Orchestrating data sync jobs with Temporal workflows and activities
 - Implementing atomic upserts (MERGE) from staging tables to production tables
-- Transforming data with pandas DataFrames before loading to BigQuery
+- Loading in-memory pandas DataFrames directly to BigQuery (bypassing GCS staging)
 - Implementing CDC deduplication for Datastream-synced bronze tables
-- Loading data from GCS with schema flexibility and nested RECORD fields
+- Evolving table schemas dynamically by adding nullable columns
+- Executing parameterized BigQuery queries safely without SQL injection
+- Streaming small batches of rows into BigQuery tables
 - Generating table and column descriptions for data catalogs
 
 ## Core conventions
@@ -51,25 +53,53 @@ Stack-agnostic BigQuery and GCS batch data pipeline patterns with medallion laye
 
 **Schema building for nested fields**: For RECORD types, use recursive schema building with `bigquery.SchemaField(name, "RECORD", fields=[...])`. Each nested field is itself a SchemaField with name, type, and mode.
 
-### GCS Client Patterns
+> The six patterns below are summarized here; full runnable examples (with variants) live in `references/bigquery-advanced-patterns.md`.
 
-**Client initialization**: `from google.cloud import storage; storage_client = storage.Client()`. No project parameter needed if default credentials are set.
+### Parameterized Queries (Safe SQL Injection Prevention)
 
-**Upload blob from string**: `bucket = storage_client.bucket(bucket_name); blob = bucket.blob(blob_name); blob.upload_from_string(data=file_content, content_type=content_type)`. Use for small in-memory payloads.
+**Pattern**: Use `QueryJobConfig(query_parameters=[...])` with `@param_name` placeholders in SQL to safely pass user input without string interpolation. Supports scalar and array parameters. BigQuery validates types at execution time.
 
-**Download blob as bytes**: `blob = bucket.blob(blob_name); image_bytes = blob.download_as_bytes()`. For base64 encoding, wrap with `base64.b64encode(image_bytes).decode('utf-8')`.
+**ScalarQueryParameter**: For single values. `bigquery.ScalarQueryParameter("run_id", "STRING", run_id)` binds `@run_id` in the query. Common types: `"STRING"`, `"INT64"`, `"FLOAT64"`, `"DATE"`, `"TIMESTAMP"`.
 
-**Existence check**: `blob.exists()` returns `True` if blob is present, `False` otherwise. Always check before downloading to avoid exceptions.
+**ArrayQueryParameter**: For list values in `IN` clauses or `UNNEST`. `bigquery.ArrayQueryParameter("table_names", "STRING", ["table1", "table2"])` binds `@table_names`. Use with `WHERE column IN UNNEST(@table_names)`.
 
-**Wildcard patterns for bulk operations**: Use GCS URI patterns like `gs://{bucket}/{prefix}/*.json` with BigQuery load jobs to import multiple files.
+### Streaming Inserts (Small-Batch Row Insertion)
 
-### pandas Transform Pipelines
+**Pattern**: Use `client.insert_rows_json(table_ref, rows_batch)` to stream small batches of rows into BigQuery without load jobs. Ideal for near-real-time ingestion when batch size is <1000 rows. Batch inserts to avoid per-row overhead; use `BATCH_SIZE = 500` as a starting point. Always check for `errors` in the return value.
 
-**Typical flow**: Read from GCS (CSV/Parquet) → pandas DataFrame transforms (filter, join, aggregate, dtype casts) → write to BigQuery via `to_gbq()` or to GCS as Parquet. _(inferred pattern; standard for GCS↔BQ pipelines)_
+**Batching logic**: Accumulate rows in a list, flush when batch size is reached or processing is complete. Flush remaining rows at the end.
 
-**GCS Parquet read**: Use `pandas.read_parquet(f"gs://{bucket}/{path}")` if `gcsfs` is installed, or download blob to memory and `pandas.read_parquet(BytesIO(blob_content))`. _(common pattern, not directly observed in evidence)_
+**Error handling**: `insert_rows_json` returns a list of error dicts for failed rows. Log errors and either retry or skip failed rows. Non-empty errors indicate partial failure.
 
-**BigQuery write**: `df.to_gbq(destination_table=f"{dataset}.{table}", project_id=project_id, if_exists="append"|"replace", chunksize=10000)`. Always specify `chunksize` for large DataFrames to avoid memory exhaustion. _(common pattern, not directly observed in evidence)_
+### load_table_from_dataframe (In-Memory DataFrame Loads)
+
+**Pattern**: Use `client.load_table_from_dataframe(df, table_fqn, job_config=LoadJobConfig(...)).result()` to load pandas DataFrames directly into BigQuery without intermediate GCS staging. Replaces the old pattern of writing to GCS Parquet then loading. Always specify `write_disposition` (`WRITE_APPEND` or `WRITE_TRUNCATE`).
+
+**When to use**: In-memory data transformations (pandas, Excel uploads, API responses) that fit in memory. For >1GB datasets, prefer `load_table_from_uri` from GCS.
+
+**Schema inference**: BigQuery infers schema from DataFrame dtypes. For explicit schema control, pass `job_config.schema=[...]`.
+
+### Dynamic Schema Evolution (Adding NULLABLE Columns)
+
+**Pattern**: Compare incoming data columns against existing table schema, compute missing columns, append them as NULLABLE `SchemaField` objects, and update the table via `client.update_table(table, ["schema"])`. Only NULLABLE columns can be added; NOT NULL columns require a full table rebuild.
+
+**When to use**: Semi-structured data sources (JSON from APIs, evolving GCS exports) where new fields appear over time. Prevents load job failures when upstream schema changes.
+
+### TimePartitioning Python API (Programmatic Partitioning)
+
+**Pattern**: Set `table.time_partitioning = bigquery.TimePartitioning(type_=TimePartitioningType.DAY, field="timestamp_column")` before calling `client.create_table(table)`. For declarative SQLX/Dataform, use `PARTITION BY` in DDL; for programmatic table creation, use the Python API.
+
+**When to use**: Creating tables via Python code (not SQLX). Partitioning reduces query costs by pruning partitions based on date filters. Pair with `table.clustering_fields = [...]` and `expiration_ms` for rolling retention.
+
+### BigQueryUtils Wrapper Class (Reusable Client Pattern)
+
+**Pattern**: Encapsulate BigQuery client initialization and common operations (`query_data`, `load_dataframe`, `insert_rows`) in a reusable class. Centralizes error handling, logging, and project configuration. Each instance manages a single `bigquery.Client` — initialize once and reuse (clients are expensive to construct).
+
+**When to use**: Multiple modules need BigQuery access with consistent error handling and logging, and easier mocking for unit tests. Avoids repeating client initialization and try/except blocks.
+
+### GCS Client Patterns (See gcs-file-storage-patterns Skill)
+
+For GCS blob upload/download operations, refer to the `gcs-file-storage-patterns` skill. The `load_table_from_dataframe` pattern above replaces intermediate GCS Parquet staging for in-memory data; use GCS staging (`load_table_from_uri`) only for >1GB datasets or when data originates in GCS.
 
 ### Temporal Orchestration (Activity-Based I/O)
 
@@ -96,19 +126,24 @@ Stack-agnostic BigQuery and GCS batch data pipeline patterns with medallion laye
 ## Skeleton / example
 
 ```python
-# BigQuery client initialization and query
+# BigQuery client initialization and parameterized query
 from google.cloud import bigquery
 
 client = bigquery.Client(project="my-gcp-project")
 
-# Query with sync execution
 query = """
 SELECT org_id, metric_date, SUM(sales) as total_sales
 FROM `my-project.da_silver.slv_sales_clean`
 WHERE metric_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+  AND org_id = @org_id
 GROUP BY org_id, metric_date
 """
-rows = client.query(query).result()
+job_config = bigquery.QueryJobConfig(
+    query_parameters=[
+        bigquery.ScalarQueryParameter("org_id", "STRING", "org123")
+    ]
+)
+rows = client.query(query, job_config=job_config).result()
 for row in rows:
     print(f"{row.org_id}: {row.total_sales}")
 
@@ -117,40 +152,24 @@ table = client.get_table("my-project.da_bronze.br_orders")
 for field in table.schema:
     print(f"{field.name} ({field.field_type}): {field.description}")
 
-# GCS client for blob operations
-from google.cloud import storage
+# Load an in-memory DataFrame directly to BigQuery (replaces GCS staging)
+import pandas as pd
 
-storage_client = storage.Client()
-bucket = storage_client.bucket("my-data-bucket")
+df = pd.DataFrame({
+    "order_id": [1, 2, 3],
+    "total_amount": [100.0, 200.0, 150.0],
+    "order_date": pd.to_datetime(["2026-06-01", "2026-06-02", "2026-06-03"])
+})
 
-# Upload JSON blob
-blob = bucket.blob("exports/data_2026_06_20.json")
-blob.upload_from_string(data=json.dumps(data), content_type="application/json")
-
-# Download blob as bytes
-download_blob = bucket.blob("imports/source_file.csv")
-if download_blob.exists():
-    csv_bytes = download_blob.download_as_bytes()
-    # Process csv_bytes...
-
-# Load from GCS to BigQuery with configuration
-from google.cloud.bigquery import LoadJobConfig, SourceFormat
-
-job_config = LoadJobConfig(
-    source_format=SourceFormat.NEWLINE_DELIMITED_JSON,
-    schema=schema,
-    write_disposition="WRITE_TRUNCATE",
-    ignore_unknown_values=True,
+load_config = bigquery.LoadJobConfig(
+    write_disposition=bigquery.WriteDisposition.WRITE_APPEND
 )
-
-gcs_uri = "gs://my-bucket/exports/*.json"
-table_ref = "my-project.my_dataset.temp_table"
-load_job = client.load_table_from_uri(
-    gcs_uri, table_ref, job_config=job_config, job_id_prefix="sync_temp_"
+load_job = client.load_table_from_dataframe(
+    df, "my-project.my_dataset.temp_table", job_config=load_config
 )
 load_job.result()  # Wait for completion
 
-# MERGE temp table to main table (upsert pattern)
+# MERGE temp table to main table (atomic upsert)
 merge_sql = f"""
 MERGE `my-project.my_dataset.main_table` T
 USING `my-project.my_dataset.temp_table` S
@@ -158,7 +177,7 @@ ON T.order_id = S.order_id
 WHEN MATCHED AND S.updated_at > T.updated_at THEN
   UPDATE SET total_amount = S.total_amount, updated_at = S.updated_at
 WHEN NOT MATCHED THEN
-  INSERT (order_id, total_amount, updated_at) 
+  INSERT (order_id, total_amount, updated_at)
   VALUES (S.order_id, S.total_amount, S.updated_at)
 """
 client.query(merge_sql).result()
@@ -225,14 +244,14 @@ SELECT
 FROM ${ref("slv_sales_clean")}
 GROUP BY org_id, metric_date, site
 
-# Temporal activity for BigQuery query (Python)
+# Temporal activity for BigQuery query (Python) — heavy I/O lives here, not in the workflow
 from temporalio import activity
 from google.cloud import bigquery
 
 @activity.defn
 async def execute_bq_query_activity(query: str, project_id: str) -> list:
     """Execute BigQuery query and return results.
-    
+
     MUST be an activity, not workflow code (blocking I/O).
     """
     client = bigquery.Client(project=project_id)
@@ -248,23 +267,23 @@ class DataSyncWorkflow:
     async def run(self, params: dict) -> dict:
         # Heavy I/O delegated to activities
         raw_data = await workflow.execute_activity(
-            fetch_from_gcs_activity,
-            args=[params["bucket"], params["blob_path"]],
+            fetch_from_source_activity,
+            args=[params["source_uri"]],
             start_to_close_timeout=timedelta(minutes=10),
         )
-        
+
         transformed = await workflow.execute_activity(
             transform_data_activity,
             args=[raw_data],
             start_to_close_timeout=timedelta(minutes=5),
         )
-        
+
         await workflow.execute_activity(
             load_to_bigquery_activity,
             args=[transformed, params["target_table"]],
             start_to_close_timeout=timedelta(minutes=10),
         )
-        
+
         return {"status": "success"}
 
 # Parent workflow with child chaining and rollback
@@ -278,28 +297,24 @@ class SilverLayerOrchestrationWorkflow:
                 args=[usecase_id],
                 id=f"manual-query-{usecase_id}",
             )
-            
             await workflow.execute_child_workflow(
                 MaterializeSilverQueryWorkflow.run,
                 args=[usecase_id],
                 id=f"materialize-{usecase_id}",
             )
-            
             await workflow.execute_child_workflow(
                 SyncSilverDescriptionWorkflow.run,
                 args=[usecase_id],
                 id=f"sync-desc-{usecase_id}",
             )
-            
             await workflow.execute_child_workflow(
                 SilverDataSyncWorkflow.run,
                 args=[usecase_id],
                 id=f"data-sync-{usecase_id}",
             )
-            
             return {"status": "success"}
-        
-        except Exception as e:
+
+        except Exception:
             # Rollback on any child failure
             await workflow.execute_activity(
                 rollback_silver_by_usecase_activity,
@@ -317,15 +332,18 @@ class SilverLayerOrchestrationWorkflow:
 - **Forgetting org_id in Silver/Gold** — multi-org analytics require `org_id STRING NOT NULL` on every table for tenant scoping.
 - **Not deduplicating CDC bronze tables** — Datastream sends multiple events per row; use `QUALIFY ROW_NUMBER()` with `PARTITION BY {pk}` to keep only the latest.
 - **Hard-coding project IDs** — pass `project_id` as a parameter or environment variable for cross-environment portability.
-- **Loading entire GCS blob into memory for large files** — use streaming or BigQuery native load via `load_table_from_uri()` for files >1GB.
-- **Omitting `if_exists` in pandas `to_gbq()`** — always specify `"append"` or `"replace"` to avoid ambiguous behavior.
+- **Using f-string SQL interpolation for user input** — always use parameterized queries (`QueryJobConfig` + `ScalarQueryParameter`/`ArrayQueryParameter`) to prevent SQL injection.
+- **Using `insert_rows_json` for bulk loads** — streaming inserts are for small batches (<1000 rows); use load jobs (`load_table_from_uri` or `load_table_from_dataframe`) for bulk data.
+- **Adding NOT NULL columns in schema evolution** — BigQuery only allows adding NULLABLE columns via `update_table`; NOT NULL requires a full table rebuild.
+- **Loading entire GCS blob into memory for large files** — use BigQuery native load via `load_table_from_uri()` for files >1GB.
 - **Directly inserting/updating main tables without temp staging** — use temp table → MERGE → cleanup pattern for atomic upserts and easier rollback.
 - **Not setting `ignore_unknown_values=True` for evolving schemas** — schema changes in source systems can break load jobs; this option provides flexibility.
+- **Constructing a new `bigquery.Client()` in every function** — clients are expensive to initialize; reuse via a wrapper/singleton or dependency injection.
 
 ## References
 
 - [bigquery-gcs-io.md](./references/bigquery-gcs-io.md) — BigQuery client and GCS client operations
 - [temp-table-merge-pattern.md](./references/temp-table-merge-pattern.md) — Atomic upsert pattern with temp table staging
-- [pandas-pipelines.md](./references/pandas-pipelines.md) — Pandas transform patterns for GCS/BQ pipelines
 - [medallion-architecture.md](./references/medallion-architecture.md) — Bronze/Silver/Gold layer design and conventions
+- [bigquery-advanced-patterns.md](./references/bigquery-advanced-patterns.md) — Parameterized queries, streaming inserts, DataFrame loads, schema evolution, partitioning, BigQueryUtils wrapper
 - [repo-evidence.md](./references/repo-evidence.md) — Real file paths and snippets from source repos
