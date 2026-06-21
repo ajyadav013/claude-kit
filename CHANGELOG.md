@@ -6,14 +6,14 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [0.20.0] — 2026-06-20
 
-**Expand the stack-specific skill collection: 17 new skills + 7 fold-in enhancements, plus a BigQuery
-skill extend/trim (now 39 skills).**
+**Expand the stack-specific skill collection: 18 new skills + 7 fold-in enhancements, plus a BigQuery
+skill extend/trim (now 40 skills).**
 
 ### Added
 
-17 new genericized engineering skills under `skills/`, surfaced by a cross-repo gap analysis (and one
-from a live production Grafana), grounded in real production Python/FastAPI, Node/Express, and React
-services:
+18 new genericized engineering skills under `skills/`, surfaced by a cross-repo gap analysis (one from a
+live production Grafana, one bundling an internal OWASP ZAP VAPT tool), grounded in real production
+Python/FastAPI, Node/Express, and React services:
 
 - **Backend & infra** — `configargparse-yaml-env-layering` (3-layer YAML→configargparse→Pydantic config),
   `redis-caching-patterns` (multi-tenant namespacing, TTL, graceful degradation, SCAN invalidation),
@@ -35,11 +35,20 @@ services:
   dashboards-as-code provisioning). Grounded in a live production multi-cluster Grafana (~137
   dashboards, 150 alert rules; Prometheus/Tempo/Pyroscope/managed-cloud datasources) and fully
   genericized — pairs with `observability-and-logging` (which emits the metrics these dashboards plot).
+- **Security** — `zap-vapt-scanning` (a complete, self-contained OWASP ZAP **VAPT/DAST** setup: the
+  bundled single-file `zap_vapt.py` launches ZAP headless, replays endpoints from curl / simple lines /
+  a Postman collection, runs passive (and gated active) scans, joins alerts to the most-specific
+  endpoint, and renders a branded PDF VAPT report. All report identity — company, location, logo, and
+  the Created By / Approved By sign-off names — is supplied at run time via CLI flags or prompts;
+  nothing is hardcoded, and the `ReportMeta` defaults ship blank. `--selftest` runs 18 logic checks
+  with no ZAP required. Genericized from an internal tool — passive default; `--active` is
+  deny-by-default for state-changing verbs and requires a typed `yes`).
 
-Each ships `SKILL.md` + `README.md` + `references/`. All genericized (no internal service/registry/org
-names, paths, or secrets), verified by a scrub gate + per-skill scrub-verifier. Like the prior
-stack-specific sets, these are intentionally stack-specific and not wired into the catalog/scaffold, so
-`claude-kit init` output is unchanged. The `docs/stack-skills/` index is updated (39 skills).
+Each ships `SKILL.md` + `README.md` + `references/` (the security skill also bundles its runnable
+`scripts/`). All genericized (no internal service/registry/org names, paths, or secrets), verified by a
+scrub gate + per-skill scrub-verifier. Like the prior stack-specific sets, these are intentionally
+stack-specific and not wired into the catalog/scaffold, so `claude-kit init` output is unchanged. The
+`docs/stack-skills/` index is updated (40 skills).
 
 ### Changed
 

@@ -17,6 +17,11 @@ venv/
 # concepts were paraphrased into rules/, never its text). Keep the binary out of the repo.
 Agentic_Design_Patterns.pdf
 
+# Internal source archive for the zap-vapt-scanning skill — the skill ships only the genericized
+# script under skills/zap-vapt-scanning/scripts/; the original company tool (branding + logo) is
+# kept locally and must never be committed.
+zap-vapt-tool.zip
+
 # Local Claude Code working state (this repo's own; not part of the distributable kit).
 # This already covers the live working-memory file at .claude/CONTINUITY.md.
 # Do NOT add a bare `CONTINUITY.md` here: with no leading slash it matches at every
