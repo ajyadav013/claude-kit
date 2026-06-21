@@ -6,15 +6,16 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [0.20.0] — 2026-06-20
 
-**Expand the stack-specific skill collection: 19 new skills + 7 fold-in enhancements, plus a BigQuery
-skill extend/trim (now 41 skills).**
+**Expand the stack-specific skill collection: 21 new skills + 7 fold-in enhancements + a security pass,
+plus a BigQuery skill extend/trim (now 43 skills).**
 
 ### Added
 
-19 new skills under `skills/`. Eighteen are genericized engineering skills surfaced by a cross-repo gap
-analysis (one from a live production Grafana, one bundling an internal OWASP ZAP VAPT tool), grounded in
-real production Python/FastAPI, Node/Express, and React services; the nineteenth (`shannon-ai-pentest`)
-is documentation for an external third-party tool (see Security):
+21 new skills under `skills/`. Twenty are genericized engineering skills surfaced by cross-repo gap
+analysis (one from a live production Grafana, one bundling an internal OWASP ZAP VAPT tool, and two
+security-architecture skills from a cross-repo security gap analysis), grounded in real production
+Python/FastAPI, Node/Express, and React services; the twenty-first (`shannon-ai-pentest`) is
+documentation for an external third-party tool (see Security):
 
 - **Backend & infra** — `configargparse-yaml-env-layering` (3-layer YAML→configargparse→Pydantic config),
   `redis-caching-patterns` (multi-tenant namespacing, TTL, graceful degradation, SCAN invalidation),
@@ -52,13 +53,28 @@ is documentation for an external third-party tool (see Security):
   and the safety rules. **Shannon is not vendored** — it is installed separately; this skill bundles no
   AGPL code, only original documentation with full attribution (verified accurate against the upstream
   docs).
+- **Security architecture** — `edge-to-service-trust-boundary` (the HMAC-signed forwarded-identity
+  contract between an API gateway/edge and the services behind it: the edge signs identity/tenant headers
+  + a timestamp, downstream services verify with a constant-time compare and **fail closed**, reject
+  replayed/skewed requests, **detect conflicts** when identity is resolvable from multiple sources, and
+  still enforce their own authz; documents the `verify_signature=False`-then-trust, naked-header-trust,
+  and fail-open anti-patterns — complements `auth-and-rbac` + `multi-tenancy-patterns`) and
+  `kubernetes-workload-hardening` (runtime/manifest-layer hardening: pod/container `securityContext`,
+  default-deny `NetworkPolicy` + explicit allows, **digest-pinned** images, resource requests/limits,
+  **restricted PodSecurity** admission, least-privilege ServiceAccount/RBAC, and secrets via `secretRef`
+  — the runtime layer atop the `dockerfile-*`/`docker-shared` image-build skills). Both are grounded in
+  the cross-repo security gap analysis and fully genericized (no internal hosts, registries, namespaces,
+  project IDs, or secrets).
 
 Each ships `SKILL.md` + `README.md` + `references/` (the `zap-vapt-scanning` skill also bundles runnable
 `scripts/`; `shannon-ai-pentest` is documentation-only for an external AGPL-3.0 tool). All are free of
 internal service/registry/org names, paths, and secrets, verified by a scrub gate + per-skill
-scrub-verifier. Like the prior stack-specific sets, these are intentionally stack-specific and not wired
-into the catalog/scaffold, so `claude-kit init` output is unchanged. The `docs/stack-skills/` index is
-updated (41 skills).
+scrub-verifier (the two security-architecture skills additionally went through an 18-agent adversarial
+verification — leak scrub + technical-accuracy + format — after which fixes were applied for recursive
+log redaction, DNS-over-TCP egress + an explicit `kube-system` selector, and cryptographically secure
+CSRF-token generation). Like the prior stack-specific sets, these are intentionally stack-specific and
+not wired into the catalog/scaffold, so `claude-kit init` output is unchanged. The `docs/stack-skills/`
+index is updated (43 skills).
 
 ### Changed
 
@@ -67,6 +83,17 @@ updated (41 skills).
   patterns), `temporal-config-driven` (idempotent schedule registration), `graphql-patterns` (advanced
   Apollo Client setup), `containerization-and-deployment` (Makefile dev workflow + Kerberos kinit
   bootstrap), `testing-conventions` (GitHub Actions test orchestration).
+- **Security pass on existing skills** — extended `observability-and-logging` with a PII/secret
+  **redaction structlog processor** (recursive sensitive-key denylist + content masking of emails, card
+  runs, bearer tokens, and DB-URL credentials, plus an audit-event field allowlist) in a new
+  `references/pii-redaction.md`; `testing-conventions` with a **security-regression** section (negative
+  authz, cross-tenant/RLS isolation, IDOR, login lockout, signed-header trust) wired to a dedicated
+  `pytest -m security` CI gate in a new `references/security-regression-tests.md`; `graphql-patterns`
+  with a clarification that Apollo's `apollo-require-preflight` protects the transport but cookie/session
+  auth still needs a CSRF token; and the **core** `security-and-hardening` skill with a CSRF
+  synchronizer/double-submit-token pattern and a ban on disabling outbound TLS verification
+  (`verify=False` / `rejectUnauthorized:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0` / `curl -k`), with
+  private-CA-bundle guidance.
 - **Extended + trimmed `data-engineering-bigquery-gcs`** — added six grounded BigQuery patterns
   (parameterized queries, streaming inserts, in-memory `load_table_from_dataframe`, dynamic schema
   evolution via `update_table`, the `TimePartitioning` Python API, and a reusable `BigQueryUtils`

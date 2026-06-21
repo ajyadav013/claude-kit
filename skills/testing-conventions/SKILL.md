@@ -1,6 +1,6 @@
 ---
 name: testing-conventions
-description: Testing conventions from production Python/FastAPI and React services — pytest + pytest-asyncio, conftest.py fixtures (session event loop, async session, authenticated client, dependency overrides, cleanup), AsyncMock for Kafka/Temporal/HTTP, factory.Factory + factory.Faker patterns, Vitest + jsdom for frontend, and honest coverage gaps. Use when writing or reviewing tests, setting up pytest infrastructure, implementing async test fixtures, mocking external dependencies, establishing testing baselines for services with thin coverage, configuring Vitest for React/TypeScript, or auditing test quality.
+description: Testing conventions from production Python/FastAPI and React services — pytest + pytest-asyncio, conftest.py fixtures (session event loop, async session, authenticated client, dependency overrides, cleanup), AsyncMock for Kafka/Temporal/HTTP, factory.Factory + factory.Faker patterns, Vitest + jsdom for frontend, security-regression tests (negative authz, cross-tenant/RLS isolation, IDOR, login lockout, signed-header trust), and honest coverage gaps. Use when writing or reviewing tests, setting up pytest infrastructure, implementing async test fixtures, mocking external dependencies, writing security-regression tests for access control and tenant isolation, establishing testing baselines for services with thin coverage, configuring Vitest for React/TypeScript, or auditing test quality.
 ---
 
 # Testing Conventions
@@ -175,9 +175,88 @@ jobs:
       - run: pytest -m integration -v
 ```
 
+### Security-Regression Tests
+
+Functional tests prove a feature *works*; security-regression tests prove it *can't be abused*. They are
+the test class most often missing (see the coverage audit) and the cheapest insurance against a re-broken
+authz/tenant boundary. Treat each confirmed authz/isolation bug as a permanent test.
+
+**Negative authorization (per protected route)**: assert the chain rejects, not just that it accepts.
+For every role-gated endpoint, test: no auth → **401**; authenticated but insufficient role → **403**;
+correct role → 2xx. Don't test only the happy path. _(security-regression pattern)_
+
+**Cross-tenant isolation / RLS**: create two tenants A and B with data in each; with tenant A's
+credentials, attempt to read/update/delete tenant B's resource → expect **404** (prefer 404 over 403 so
+existence doesn't leak). For RLS, also assert the **DAO layer** returns nothing for the wrong tenant
+context (`SET LOCAL app.tenant_id`), so isolation holds even if a handler forgets to scope. _(see
+`multi-tenancy-patterns`)_
+
+**IDOR (object-reference)**: with a valid user, request another user's / another tenant's object by id
+(sequential, guessed, or captured) → expect 404/403, never the object. _(security-regression pattern)_
+
+**Login lockout & rate limit**: drive N failed logins → assert lockout/`429`/`locked_until`; assert a
+correct password during lockout still fails; assert the limiter keys by IP (unauthenticated) and user
+(authenticated). _(see `auth-and-rbac`)_
+
+**Signed-header / forwarded-identity trust**: send a request to a behind-the-gateway service with **no**
+`x-gateway-signature` → **401**; with a **forged** signature → **401**; with a valid signature but a role
+insufficient for the action → **403**. Prevents naked-header-trust regressions. _(see
+`edge-to-service-trust-boundary`)_
+
+**Input-boundary rejection**: oversized payloads, wrong content types, and injection-shaped strings
+(`' OR 1=1`, `../../etc/passwd`, `<script>`) are rejected at the schema boundary (422), not executed.
+_(security-regression pattern)_
+
+**Wire into CI as a dedicated gate**: mark these `@pytest.mark.security` and run a `security-tests` job
+(or `pytest -m security`) that **must pass** — separate from unit/integration so a security regression is
+an unmissable red signal, not buried in a large suite. _(security CI pattern)_
+
 ## Skeleton / example
 
 ```python
+# Security-regression tests (mark with @pytest.mark.security; run as a dedicated CI gate)
+import pytest
+
+@pytest.mark.security
+class TestAccessControl:
+    async def test_requires_auth(self, client):
+        resp = await client.get("/v1/admin/users")
+        assert resp.status_code == 401                      # no auth -> 401
+
+    async def test_member_forbidden_on_admin_route(self, member_client):
+        resp = await member_client.get("/v1/admin/users")
+        assert resp.status_code == 403                      # wrong role -> 403
+
+    async def test_admin_allowed(self, admin_client):
+        resp = await admin_client.get("/v1/admin/users")
+        assert resp.status_code == 200
+
+@pytest.mark.security
+class TestTenantIsolation:
+    async def test_cannot_read_other_tenant_resource(self, tenant_a_client, seed_tenant_b_order):
+        resp = await tenant_a_client.get(f"/v1/orders/{seed_tenant_b_order.id}")
+        assert resp.status_code == 404                      # cross-tenant -> 404 (no existence leak)
+
+    async def test_rls_blocks_at_dao_layer(self, db_connection, seed_tenant_b_order):
+        async with db_connection() as session:
+            await session.execute(text("SET LOCAL app.tenant_id = :tid"), {"tid": str(TENANT_A_ID)})
+            order = await OrderDAO(session).get_by_id(seed_tenant_b_order.id)
+            assert order is None                            # isolation holds even if handler forgets
+
+@pytest.mark.security
+class TestLoginLockout:
+    async def test_lockout_after_repeated_failures(self, client):
+        for _ in range(5):
+            await client.post("/v1/auth/login", json={"email": "u@example.com", "password": "wrong"})
+        resp = await client.post("/v1/auth/login", json={"email": "u@example.com", "password": "correct"})
+        assert resp.status_code in (423, 429)               # locked / rate-limited even with right password
+
+@pytest.mark.security
+class TestGatewayTrust:
+    async def test_missing_signature_rejected(self, raw_client):
+        resp = await raw_client.get("/v1/internal/profile", headers={"x-user-role": "admin"})
+        assert resp.status_code == 401                      # naked header, no signature -> 401
+
 # conftest.py (integration test setup)
 import os
 os.environ["DATABASE_URL"] = os.environ.get(
@@ -350,6 +429,8 @@ export default defineConfig({
 - **Not mocking external services** — never hit real Kafka/Temporal/Slack/HTTP in unit tests; use AsyncMock.
 - **Hardcoding test data instead of factories** — use factory.Factory for reusable, randomized test data.
 - **Trusting coverage metrics without inspecting tests** — thin coverage is worse than honest zero; measure what matters (DAO, service, route contracts).
+- **Testing only the happy path on protected endpoints** — without negative-authz (401/403), cross-tenant (404), and IDOR tests, a deleted scope/tenant check passes CI silently. Add a security-regression test for every authz/isolation boundary, and keep one for every such bug you fix.
+- **Burying security tests in the general suite** — mark them `@pytest.mark.security` and run a dedicated gate so a security regression is an unmissable red, not a single assertion lost among hundreds.
 - **Setting aggressive coverage thresholds on greenfield projects** — start with baseline coverage on critical paths, expand incrementally.
 - **Not closing async clients in finally blocks** — httpx.AsyncClient and other async resources must close even on test failure.
 
@@ -374,3 +455,4 @@ When coverage is near-zero, establish this pragmatic baseline **before** adding 
 - [coverage-gap-and-recommendations.md](./references/coverage-gap-and-recommendations.md) — Honest coverage audit, recommended baseline
 - [repo-evidence.md](./references/repo-evidence.md) — Real file paths and snippets from source repos
 - [github-actions-test-orchestration.md](./references/github-actions-test-orchestration.md) — GitHub Actions test workflows: path triggers, service health checks, needs:, coverage gating, artifacts, Codecov, contract + E2E jobs
+- [security-regression-tests.md](./references/security-regression-tests.md) — Negative authz, cross-tenant/RLS isolation, IDOR, login lockout, signed-header trust, input-boundary rejection; fixtures and a dedicated CI security gate

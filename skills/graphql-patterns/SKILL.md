@@ -65,7 +65,7 @@ Tactical GraphQL patterns for Strawberry (backend) and Apollo Client (frontend) 
 
 **Link composition with file upload support**: Use `createUploadLink` from `apollo-upload-client` (instead of `createHttpLink`) for GraphQL multipart request spec file upload support. Compose links in order: `from([errorLink, authLink, httpLink])` — error handling first, auth injection second, network transport last.
 
-**CSRF preflight header**: Include `'apollo-require-preflight': 'true'` in httpLink headers when the backend uses Apollo Server 4 CSRF protection (Strawberry doesn't require this, but it's harmless and future-proof).
+**CSRF preflight header**: Include `'apollo-require-preflight': 'true'` in httpLink headers when the backend uses Apollo Server 4 CSRF protection (Strawberry doesn't require this, but it's harmless and future-proof). Preflight protects the GraphQL transport by forcing a non-"simple" request; it is **not** a substitute for a CSRF token if the API authenticates via a **cookie/session** (rather than an `Authorization` header) — see the *Cross-Site Request Forgery (CSRF)* section of `security-and-hardening` for the token pattern.
 
 **Auth link via `setContext`**: Use `setContext` from `@apollo/client/link/context` to inject `Authorization: Bearer <token>` from localStorage and any tenant/org context headers (e.g., `x-org-id`) into every request. Spread existing headers to avoid clobbering operation-specific headers.
 

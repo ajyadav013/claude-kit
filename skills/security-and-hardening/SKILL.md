@@ -53,6 +53,8 @@ Companion rules: `.claude/rules/code-organization.md` (auth & dependency pattern
 - **Never run a query on a scoped model without the appropriate tenant filter** (multi-tenant systems)
 - **Never use debug print statements** in app code, or render user input as raw HTML without sanitization
 - **Never store auth tokens in browser localStorage** — sessions are cookie-based
+- **Never disable TLS certificate verification on outbound calls** — no `verify=False`, `rejectUnauthorized: false`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, or `curl -k` in app/CI code (see *Outbound TLS Verification*)
+- **Never accept cookie/session-authenticated state-changing requests without CSRF defense** (see *Cross-Site Request Forgery (CSRF)*)
 - **Never expose stack traces** or internal errors to clients
 
 ## OWASP Top 10 Prevention
@@ -189,6 +191,80 @@ class UserRead(UserBase):
 from config.settings import settings
 key = settings.SECRET_KEY   # never hardcoded
 ```
+
+### 7. Cross-Site Request Forgery (CSRF)
+
+CSRF applies to **cookie/session-authenticated** flows: the browser attaches the session cookie
+automatically, so a malicious page can trigger a state-changing request on the user's behalf. Token-auth
+APIs (Authorization header, read from JS) are not classically vulnerable — but anything that authenticates
+via a cookie is.
+
+`SameSite` cookies are a **partial** mitigation, not a complete one: `SameSite=Lax`/`Strict` helps, but
+`SameSite=None` (required for legitimate cross-site/embedded use) re-opens the door, and `Lax` still
+allows top-level GET navigations. For cookie/session flows, add an explicit anti-CSRF token.
+
+```python
+import secrets
+# Synchronizer-token / double-submit-cookie pattern
+# 1. Generate a cryptographically secure token (128+ bits), then expose it to the SPA in a
+#    readable (non-HttpOnly) cookie or via a bootstrap endpoint.
+token = secrets.token_hex(16)   # 32 hex chars = 128 bits, from a CSPRNG (never random/uuid4)
+response.set_cookie("csrf_token", token, samesite="lax", secure=not settings.DEBUG)  # readable by JS
+
+# 2. Require it back as a header on every state-changing request and compare (constant-time).
+import hmac
+async def require_csrf(request: Request) -> None:
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return                                            # safe methods are exempt
+    cookie_tok = request.cookies.get("csrf_token", "")
+    header_tok = request.headers.get("x-csrf-token", "")
+    if not cookie_tok or not hmac.compare_digest(cookie_tok, header_tok):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "CSRF token missing or invalid")
+```
+
+```tsx
+// Frontend: read the cookie and echo it as a header on mutations
+const csrf = document.cookie.split("; ").find(c => c.startsWith("csrf_token="))?.split("=")[1];
+const body = JSON.stringify({ /* ...your payload... */ });
+await fetch("/v1/orders", { method: "POST", credentials: "include",
+  headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf ?? "" }, body });
+```
+
+- Exempt only safe (read-only) methods; protect every cookie-authenticated POST/PUT/PATCH/DELETE.
+- Combine with `SameSite` cookies (defense in depth) — don't rely on either alone.
+- For GraphQL over cookies, a CSRF token (or an enforced preflight requirement) is still required —
+  see `graphql-patterns`.
+
+### 8. Outbound TLS Verification (don't disable it)
+
+Disabling certificate verification on an outbound call turns HTTPS into "encrypted but unauthenticated" —
+an active MITM can present any certificate and intercept or alter the traffic, including credentials and
+tokens. This is **never** acceptable in app or CI code.
+
+```python
+# BAD — verification disabled (silently accepts any cert / MITM)
+httpx.AsyncClient(verify=False)
+requests.get(url, verify=False)
+
+# GOOD — verify is on by default; for a private/internal CA, point at its bundle, don't disable
+httpx.AsyncClient(verify="/etc/ssl/certs/internal-ca.pem")   # or REQUESTS_CA_BUNDLE / SSL_CERT_FILE env
+httpx.AsyncClient()                                          # public CAs: defaults are correct
+```
+
+```javascript
+// BAD — disables verification process-wide or per-agent
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+new https.Agent({ rejectUnauthorized: false });
+
+// GOOD — keep verification on; supply the internal CA when needed
+new https.Agent({ ca: fs.readFileSync("/etc/ssl/certs/internal-ca.pem") });
+```
+
+- **Self-signed dev certs:** add the CA to the trust store (or pass its bundle), never flip verification off.
+- **Scripts/CI:** no `curl -k` / `wget --no-check-certificate` against endpoints you control — fix the cert.
+- If a third party genuinely forces it, isolate that one client, document a **risk acceptance** (what /
+  why / who / review date), and never make it the global default (`NODE_TLS_REJECT_UNAUTHORIZED=0` and
+  `_tls_no_verify`-style flags disable verification for the **whole process**).
 
 ## Input Validation Patterns
 
@@ -403,6 +479,8 @@ guardrail deliberately, record a one-line **risk acceptance** in the spec/PR —
 - [ ] Security headers set (X-Content-Type-Options, X-Frame-Options, HSTS, CSP)
 - [ ] Dependency audits clean of Critical/High
 - [ ] Error responses don't leak internals
+- [ ] Cookie/session state-changing requests protected by an anti-CSRF token (not SameSite alone)
+- [ ] No outbound TLS verification disabled (`verify=False` / `rejectUnauthorized:false` / `NODE_TLS_REJECT_UNAUTHORIZED=0` / `curl -k`); private CAs supplied via a CA bundle
 
 ### LLM / AI features (if any — see "LLM / AI Feature Security"; opt-in)
 - [ ] Input screened for prompt injection; retrieved/tool content treated as data, not instructions
@@ -432,6 +510,8 @@ See `.claude/skills/_references/security-checklist.md` for the full pre-commit c
 - Secrets in source, config files, or commit history
 - Endpoints missing authentication / authorization enforcement
 - CORS origins set to `*`, or no rate limiting on auth endpoints
+- Outbound TLS verification disabled (`verify=False`, `rejectUnauthorized: false`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, `curl -k`), or a TLS-no-verify flag wired into a config
+- Cookie/session-authenticated mutations with no CSRF token; `SameSite=None` cookies with no CSRF defense; a CSRF middleware that is defined but never enforced
 - Logs that include passwords, tokens, or PII
 - Blocking calls in async request paths (if async architecture)
 - Stack traces or internal errors returned to clients
@@ -450,3 +530,4 @@ After implementing security-relevant code:
 - [ ] Passwords hashed with strong algorithm; session cookies HttpOnly/SameSite/Secure
 - [ ] Logs contain no secrets/PII; error responses don't expose internals
 - [ ] Rate limiting active on auth endpoints
+- [ ] Cookie/session mutations carry an enforced anti-CSRF token; outbound TLS verification never disabled
