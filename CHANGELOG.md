@@ -6,13 +6,14 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [0.20.0] — 2026-06-20
 
-**Expand the stack-specific skill collection: 16 new skills + 7 fold-in enhancements, plus a BigQuery
-skill extend/trim (now 38 skills).**
+**Expand the stack-specific skill collection: 17 new skills + 7 fold-in enhancements, plus a BigQuery
+skill extend/trim (now 39 skills).**
 
 ### Added
 
-16 new genericized engineering skills under `skills/`, surfaced by a cross-repo gap analysis and
-grounded in real production Python/FastAPI, Node/Express, and React services:
+17 new genericized engineering skills under `skills/`, surfaced by a cross-repo gap analysis (and one
+from a live production Grafana), grounded in real production Python/FastAPI, Node/Express, and React
+services:
 
 - **Backend & infra** — `configargparse-yaml-env-layering` (3-layer YAML→configargparse→Pydantic config),
   `redis-caching-patterns` (multi-tenant namespacing, TTL, graceful degradation, SCAN invalidation),
@@ -27,11 +28,18 @@ grounded in real production Python/FastAPI, Node/Express, and React services:
   `node-objection-knex` (Objection + Knex data layer + Joi validation).
 - **Frontend** — `zustand-state-patterns`, `tanstack-react-query-patterns`,
   `react-hook-form-zod-patterns`, `radix-tailwind-component-patterns`, `vitest-rtl-msw-patterns`.
+- **Observability** — `grafana-dashboards-and-alerts` (Grafana dashboard JSON model, `$datasource` +
+  cascading `label_values` template variables, RED-metric PromQL across NGINX ingress / OTel
+  span-metrics / pod utilization, multi-stage unified-alert rules with label-based routing
+  (slack_0/pagerduty_0/webhook_0) + dashboard/panel deep-link annotations, Tempo service graphs, and
+  dashboards-as-code provisioning). Grounded in a live production multi-cluster Grafana (~137
+  dashboards, 150 alert rules; Prometheus/Tempo/Pyroscope/managed-cloud datasources) and fully
+  genericized — pairs with `observability-and-logging` (which emits the metrics these dashboards plot).
 
 Each ships `SKILL.md` + `README.md` + `references/`. All genericized (no internal service/registry/org
 names, paths, or secrets), verified by a scrub gate + per-skill scrub-verifier. Like the prior
 stack-specific sets, these are intentionally stack-specific and not wired into the catalog/scaffold, so
-`claude-kit init` output is unchanged. The `docs/stack-skills/` index is updated (38 skills).
+`claude-kit init` output is unchanged. The `docs/stack-skills/` index is updated (39 skills).
 
 ### Changed
 
