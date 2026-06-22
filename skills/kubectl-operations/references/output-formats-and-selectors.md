@@ -18,7 +18,7 @@ Most of kubectl's power for scripting and triage is in `-o` (how to print) and s
 | `wide --show-labels` | Append a labels column |
 
 ```bash
-kubectl get pods -o name | xargs -I{} kubectl delete {}        # name → pipe
+kubectl get pods -o name | xargs -I{} kubectl describe {}      # name → pipe into another command
 kubectl get deploy my-service -o yaml | less                    # full spec
 kubectl get pod my-pod -o json | jq '.status.containerStatuses' # pair with jq
 ```
@@ -89,7 +89,7 @@ kubectl get pods -l app=my-service                       # equality
 kubectl get pods -l 'env in (staging,prod)'              # set-based
 kubectl get pods -l 'app=my-service,tier!=cache'         # AND + not-equal
 kubectl get pods -l app                                  # has the label (any value)
-kubectl delete pods -l app=my-service                    # acts on the matched set
+kubectl label pods -l app=my-service reviewed=true --overwrite   # a write that acts on the whole matched set
 ```
 
 **Field selectors** (`--field-selector`) — match on object fields (limited set per kind):
@@ -120,6 +120,6 @@ kubectl get pods -o custom-columns=NAME:.metadata.name,RESTARTS:.status.containe
 # Images running in the namespace (dedup)
 kubectl get pods -o jsonpath='{.items[*].spec.containers[*].image}' | tr ' ' '\n' | sort -u
 
-# Delete all Failed pods
-kubectl delete pods --field-selector status.phase=Failed
+# List all Failed pods (cleanup is via the owning controller / GitOps — kubectl delete is guarded)
+kubectl get pods --field-selector status.phase=Failed
 ```

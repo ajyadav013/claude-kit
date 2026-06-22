@@ -34,7 +34,7 @@ kubectl --context=<ctx> -n <ns> get pods                        # fully explicit
 ```
 
 Habits that prevent accidents:
-- **Confirm `current-context` before every `apply`/`delete`/`scale`/`rollout`/`drain`.**
+- **Confirm `current-context` before every `apply`/`scale`/`rollout`/`drain`.**
 - Prefer **explicit `--context`/`-n`** in scripts and runbooks over relying on the active context.
 - Give prod a **visually distinct shell** (`kube-ps1`, a red prompt) so it's obvious.
 - Keep prod and non-prod in **separate kubeconfig files** and switch via `$KUBECONFIG` when you want hard
@@ -62,7 +62,7 @@ kubectl auth whoami                                          # who the API think
 kubectl auth can-i create deployments -n my-namespace        # yes / no
 kubectl auth can-i '*' '*'                                   # am I effectively admin?
 kubectl auth can-i --list -n my-namespace                    # full matrix of my permissions here
-kubectl auth can-i delete pods --as=jane@example.com         # impersonate a user
+kubectl auth can-i update deployments --as=jane@example.com   # impersonate a user
 kubectl auth can-i get secrets \
   --as=system:serviceaccount:my-namespace:my-sa              # impersonate a ServiceAccount
 ```
@@ -86,5 +86,6 @@ kubectl get sa -n my-namespace                               # ServiceAccounts
 - For exploration on an unfamiliar cluster, a **view-only context** (a user bound only to `view`) makes
   destructive commands impossible.
 - `--dry-run=server` lets you validate a write against the API **without** performing it.
-- Scope deletes with a **label selector you've first verified with `get`** — run the `get -l ...` first,
-  eyeball the list, then swap `get` for `delete`.
+- Scope every **write** to a set you've verified — run `get -l ...` first and eyeball the list before any
+  mutating command (`label`, `annotate`, `rollout restart`). `kubectl delete` is disabled by the
+  `guard-kubectl-delete` guardrail; remove resources via the Git/Helm source instead.

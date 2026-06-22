@@ -119,4 +119,4 @@ kubectl uncordon <node>
 ## General triage order (memorize)
 
 1. `get` (symptom) → 2. `describe` / `events` (cause) → 3. `logs --previous` (app's last words) →
-4. mitigate (`rollout undo` / `scale` / `delete pod` to respawn) → 5. fix the source and redeploy.
+4. mitigate (`rollout undo` / `scale` / `rollout restart` to respawn pods) → 5. fix the source and redeploy.

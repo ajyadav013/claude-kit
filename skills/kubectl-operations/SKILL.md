@@ -1,6 +1,6 @@
 ---
 name: kubectl-operations
-description: Operating Kubernetes workloads with kubectl — the full command surface (get/describe/explain, apply/create/edit/patch/delete, logs/exec/port-forward/cp/debug/events/top, rollout/scale/autoscale, config/contexts/namespaces, auth can-i, jobs & cronjobs, node cordon/drain) plus output formatting (-o jsonpath/custom-columns/go-template), label/field selectors, dry-run + diff, and day-2 debugging playbooks (CrashLoopBackOff, ImagePullBackOff, Pending, OOMKilled, a cron that didn't fire, a Service with no endpoints). Context/namespace safety first. Use when running kubectl against a cluster, inspecting or changing a Deployment/Job/CronJob/StatefulSet/pod, tailing logs, exec-ing into a container, port-forwarding, rolling out or rolling back, checking RBAC, formatting kubectl output, or debugging why a workload is unhealthy.
+description: Operating Kubernetes workloads with kubectl — the full command surface (get/describe/explain, apply/create/edit/patch, logs/exec/port-forward/cp/debug/events/top, rollout/scale/autoscale, config/contexts/namespaces, auth can-i, jobs & cronjobs, node cordon/drain) plus output formatting (-o jsonpath/custom-columns/go-template), label/field selectors, dry-run + diff, and day-2 debugging playbooks (CrashLoopBackOff, ImagePullBackOff, Pending, OOMKilled, a cron that didn't fire, a Service with no endpoints). Context/namespace safety first. Use when running kubectl against a cluster, inspecting or changing a Deployment/Job/CronJob/StatefulSet/pod, tailing logs, exec-ing into a container, port-forwarding, rolling out or rolling back, checking RBAC, formatting kubectl output, or debugging why a workload is unhealthy.
 ---
 
 # kubectl Operations
@@ -40,13 +40,18 @@ kubectl config set-context --current --namespace=<ns>   # pin a default namespac
 kubectl -n <ns> get pods                # or scope per-command with -n
 ```
 
-- **Read before you write.** `get`/`describe`/`logs` are safe; `apply`/`edit`/`patch`/`delete`/`scale`
+- **Read before you write.** `get`/`describe`/`logs` are safe; `apply`/`edit`/`patch`/`scale`
   change state. Confirm the context line before any write.
 - **Never hand-edit production resources** that a GitOps/Helm pipeline owns — `kubectl edit`/`patch` on a
   Helm-managed object is overwritten on the next deploy and causes drift. Change the source (values/
   manifests) and redeploy. Use `edit`/`patch` only for break-glass, and reconcile after.
 - **Dry-run + diff before apply** (see below). Prefer `--dry-run=server` (the API validates it).
 - Set a **distinct prompt/color per cluster** (e.g. via `kube-ps1`) so prod is visually obvious.
+- **`kubectl delete` is disabled here.** This kit ships a `guard-kubectl-delete` guardrail that blocks
+  `kubectl delete` from an agent session — a delete is far too easy to misfire against the wrong
+  namespace or cluster. To remove or replace a workload, change the Git/Helm source and let the pipeline
+  reconcile; to stop one now, `kubectl scale --replicas=0`; to undo a bad rollout, `kubectl rollout undo`.
+  Read-only checks like `kubectl auth can-i delete …` still work.
 
 ## Core conventions — command map by task
 
@@ -54,7 +59,7 @@ kubectl -n <ns> get pods                # or scope per-command with -n
 |---|---|
 | List / inspect | `get`, `describe`, `explain`, `api-resources` |
 | See full spec | `get <res> <name> -o yaml` |
-| Create / change | `apply -f`, `create`, `edit`, `patch`, `set`, `replace`, `delete` |
+| Create / change | `apply -f`, `create`, `edit`, `patch`, `set`, `replace` (delete is guarded — see Safety) |
 | Preview a change | `apply -f x.yaml --dry-run=server -o yaml`, `diff -f x.yaml` |
 | Logs | `logs`, `logs -f`, `logs --previous`, `logs -l app=x --all-containers` |
 | Get a shell / run a command | `exec -it <pod> -- sh`, `run`, `debug` |
@@ -82,6 +87,7 @@ kubectl describe pod my-pod                        # events + state + why (read 
 kubectl explain deployment.spec.template.spec      # schema/docs for any field
 kubectl api-resources                              # every resource kind + shortname + apiGroup
 kubectl get events --sort-by=.lastTimestamp        # recent cluster events
+kubectl get pods -A | grep -i crashloop            # quick text filter (prefer -l / --field-selector / jsonpath when you can)
 ```
 
 ### Applying & changing (with a preview)
@@ -94,7 +100,8 @@ kubectl apply -k ./overlays/prod                   # kustomize
 kubectl set image deploy/my-service app=registry.example.com/app:v2   # targeted image bump
 kubectl scale deploy/my-service --replicas=3
 kubectl patch deploy/my-service --type=merge -p '{"spec":{"replicas":3}}'
-kubectl delete -f deploy.yaml                       # or: delete deploy/my-service
+# To REMOVE a workload, change the Git/Helm source and reconcile, or stop it with `scale --replicas=0`.
+# `kubectl delete` is blocked by the guard-kubectl-delete guardrail (see "Safety first: context and namespace").
 ```
 
 Prefer **`apply`** (declarative) over imperative `create`/`replace` for anything you manage as files.
@@ -181,11 +188,13 @@ kubectl get pod <pod> -o jsonpath='{.spec.containers[0].env[*].name}{"\n"}'
 ## Anti-patterns to avoid
 
 - **Running a write command without checking the context/namespace first** — the classic "oops, that was
-  prod" incident. Always confirm `current-context` before `apply`/`delete`/`scale`/`rollout`.
+  prod" incident. Always confirm `current-context` before `apply`/`scale`/`rollout`.
 - **`kubectl edit`/`patch` on a Helm/GitOps-managed resource** — it's silently reverted on next deploy
   and creates drift. Change the source and redeploy; reserve live edits for break-glass.
-- **`delete` by guesswork** — `delete pod` on a Deployment-managed pod just respawns it; to stop a
-  workload, scale to 0 or delete the controller. `delete -f` the same manifest you applied.
+- **Reaching for `kubectl delete`** — it's intentionally excluded from this skill and blocked by the
+  `guard-kubectl-delete` guardrail (deletes from an agent session misfire too easily). To stop a
+  workload, `scale --replicas=0`; to roll back, `rollout undo`; to remove a resource, delete it from the
+  Git/Helm source and let the pipeline reconcile.
 - **`get` when you needed `describe`** — `get` shows status; the *reason* (failed mounts, scheduling,
   probe failures, image pull) is in `describe` Events and `kubectl events`.
 - **Forgetting `--previous`** on a crash-looping pod — the live container may be too young to have logs;

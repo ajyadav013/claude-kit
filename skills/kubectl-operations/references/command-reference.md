@@ -19,7 +19,7 @@ Discover anything: `kubectl <cmd> --help`, `kubectl api-resources`, `kubectl exp
 | `expose` | Make a Service from a workload | `expose deploy/my-service --port=80 --target-port=8080` |
 | `set` | Change a specific field | `set image deploy/d app=img:v2`, `set env deploy/d KEY=val`, `set resources`, `set serviceaccount deploy/d my-sa`, `set selector`, `set subject` |
 | `edit` | Open a live resource in `$EDITOR` | `edit deploy/d` (break-glass; avoid on GitOps-managed objects) |
-| `delete` | Remove resources | `delete -f x.yaml`, `delete pod <p>`, `--grace-period`, `--force` (last resort) |
+| `delete` | *(disabled)* | Blocked by the `guard-kubectl-delete` guardrail — remove resources via the Git/Helm source, or `scale --replicas=0` to stop a workload. Read-only `auth can-i delete …` still works. |
 
 `create` imperative generators are handy with `--dry-run=client -o yaml` to scaffold a manifest:
 
@@ -133,5 +133,5 @@ where it makes sense:
 kubectl logs deploy/my-service          # logs from a pod of the Deployment
 kubectl exec -it deploy/my-service -- sh
 kubectl get rs,po -l app=my-service     # multiple kinds at once
-kubectl delete deploy my-service        # delete the controller (and its pods)
+kubectl scale deploy my-service --replicas=0   # stop the controller's pods reversibly (kubectl delete is guarded)
 ```

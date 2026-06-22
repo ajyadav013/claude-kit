@@ -33,9 +33,11 @@ those workloads) — now 45 skills.**
 - **`kubectl-operations`** — a stack-derived, operations-first skill for running `kubectl` against this
   stack's workloads:
   - **Full command surface**, grouped by task — `get`/`describe`/`explain`/`api-resources`;
-    `apply`/`create`/`edit`/`patch`/`set`/`replace`/`delete`; `logs`/`exec`/`port-forward`/`cp`/`debug`/
+    `apply`/`create`/`edit`/`patch`/`set`/`replace`; `logs`/`exec`/`port-forward`/`cp`/`debug`/
     `attach`/`proxy`; `rollout`/`scale`/`autoscale`; `events`/`top`; `label`/`annotate`; `config`
     (contexts & namespaces); `auth can-i`; `wait`/`diff`/`kustomize`; node `cordon`/`drain`/`taint`.
+    (`kubectl delete` is intentionally omitted — see the guardrail below — in favour of reversible
+    alternatives: `scale --replicas=0`, `rollout undo`, or removing the object from the Git/Helm source.)
   - **Output formatting & selectors** — `-o wide/yaml/json/name/jsonpath/custom-columns/go-template`,
     `--sort-by`, label (`-l`) and field selectors, `--watch`, with copy-ready JSONPath recipes.
   - **Context/namespace/RBAC safety** (the #1 footgun) and **day-2 debugging playbooks** —
@@ -44,6 +46,16 @@ those workloads) — now 45 skills.**
   - Cross-links `cron-and-scheduled-jobs`, `kubernetes-workload-hardening`,
     `containerization-and-deployment`, `temporal-config-driven`, and `observability-and-logging`. Fully
     genericized; **not** wired into the catalog/scaffold. The collection index is updated (45 skills).
+
+- **Plugin guardrail `guard-kubectl-delete`** — a `PreToolUse(Bash)` hook that blocks `kubectl delete`
+  from the agent's Bash tool (exit 2), joining the `rm -rf` / `push main` / `guard-destructive-git` /
+  `guard-secrets` destructive-command family. It matches the `delete` **subcommand** as a whole word —
+  sparing the safe look-alikes `config delete-context`, `drain --delete-emptydir-data`,
+  `wait --for=delete`, and the read-only `auth can-i delete …` — and splits compound commands on
+  `;`/`|`/`&` so a chained `… | xargs kubectl delete` can't slip past. It refuses with the reversible
+  alternatives (`scale --replicas=0`, `rollout undo`, GitOps reconcile) and degrades to a no-op without
+  `jq`. Wired into the **plugin** (`hooks/hooks.json`) only; intentionally **not** added to the pip-CLI
+  scaffold registry, so `claude-kit init` output is unchanged.
 
 ## [0.20.0] — 2026-06-20
 

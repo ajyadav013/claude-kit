@@ -11,7 +11,7 @@ changing, debugging, rolling out, and rolling back.
 ## What this skill covers
 
 - **The full command surface**, grouped by task: `get`/`describe`/`explain`/`api-resources`;
-  `apply`/`create`/`edit`/`patch`/`set`/`replace`/`delete`; `logs`/`exec`/`port-forward`/`cp`/`debug`/
+  `apply`/`create`/`edit`/`patch`/`set`/`replace`; `logs`/`exec`/`port-forward`/`cp`/`debug`/
   `attach`/`proxy`; `rollout`/`scale`/`autoscale`; `events`/`top`; `label`/`annotate`; `config` (contexts
   & namespaces); `auth can-i`; `wait`/`diff`/`kustomize`; node `cordon`/`drain`/`uncordon`/`taint`.
 - **Output formatting & filtering** — `-o wide/yaml/json/name/jsonpath/custom-columns/go-template`,
@@ -38,3 +38,6 @@ context/namespace/RBAC hygiene.
 > Operations-focused and stack-agnostic in syntax (kubectl is universal); examples use generic
 > placeholders (`my-service`, `my-namespace`, `registry.example.com`). **Not** wired into `claude-kit
 > init`; install it deliberately. No internal cluster names, contexts, namespaces, or hosts.
+>
+> `kubectl delete` is intentionally omitted and blocked by the kit's `guard-kubectl-delete` guardrail;
+> the skill teaches reversible alternatives (`scale --replicas=0`, `rollout undo`, GitOps reconcile).

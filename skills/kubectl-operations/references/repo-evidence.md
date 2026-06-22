@@ -11,7 +11,7 @@ generically (no internal cluster, context, namespace, or host names).
 | API/server Deployment (`MODE=server`) | `rollout status`, `rollout restart`, `logs -f deploy/<svc>`, `scale`, `port-forward svc/<svc>` |
 | Consumer/worker Deployment (`MODE=consumer`/`worker`) | `logs -l app=<svc>,role=consumer`, `top pod`, `rollout restart` after a config change |
 | Temporal worker Deployment (`MODE=temporal_worker`) | `logs`, `rollout restart`; confirm it's up *before* running the schedule-registration Job |
-| Schedule-registration Job (`kind: Job`, runs `schedules ensure`) | `kubectl logs job/<job>`, `kubectl get job`, delete + re-apply to re-run |
+| Schedule-registration Job (`kind: Job`, runs `schedules ensure`) | `kubectl logs job/<job>`, `kubectl get job`; re-run by applying a fresh copy under a new name (Jobs are immutable once complete) |
 | CronJob (`Crons` block → `MODE=cron`) | `get cronjob`, `describe cronjob`, `create job --from=cronjob/<c>`, `patch ... suspend` |
 | ConfigMap / Secret | `get cm -o yaml`, `get secret -o jsonpath` (decode carefully), `rollout restart` to pick up changes |
 | Ingress / Service | `get ing`, `get endpoints`, `describe svc` when clients can't connect |
@@ -46,8 +46,8 @@ kubectl logs -l app=my-service --previous --tail=200
 - **Restart to reload config.** Changing a ConfigMap/Secret does not restart pods; `rollout restart` is
   the standard reload.
 - **Jobs vs CronJobs.** The schedule-registration step is a one-shot `Job`; the recurring app tasks are
-  `CronJob`s. Operate them differently (a Job is re-run by delete+re-apply; a CronJob by
-  `create job --from=cronjob` for an ad-hoc fire).
+  `CronJob`s. Operate them differently (a Job is re-run by applying a fresh copy under a new name — it's
+  immutable once complete; a CronJob by `create job --from=cronjob` for an ad-hoc fire).
 
 ## Cross-links
 
