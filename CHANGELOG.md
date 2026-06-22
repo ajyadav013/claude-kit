@@ -4,6 +4,59 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.21.0] — 2026-06-22
+
+**Add two stack-collection skills — `cron-and-scheduled-jobs` (scheduled/recurring jobs across Kubernetes
+CronJobs and Temporal Schedules) and `kubectl-operations` (the full kubectl command surface for operating
+those workloads) — now 45 skills.**
+
+### Added
+
+- **`cron-and-scheduled-jobs`** — a stack-derived skill documenting how scheduled/recurring jobs are
+  configured in system config and invoked, across the two mechanisms this stack uses:
+  - **Kubernetes CronJob route** — the schedule is declared in Helm `values.yaml` under a `Crons.<job>`
+    block (`Schedule`, `Envs: {MODE: cron, CRON_JOB: <name>}`, `ConcurrencyPolicy: Forbid`, `Suspend`,
+    `TtlSecondsAfterFinished`); the chart renders one `batch/v1` CronJob per entry (`restartPolicy:
+    Never`, history limits 3/1). The shared image boots one-shot in `MODE=cron` and dispatches a single
+    named job from a Python cron registry (simple `name→callable` or rich `name→{task, description,
+    schedule}`), instrumented via `record_cron_job_executed`. Documents the chart's missing
+    `timeZone`/`startingDeadlineSeconds` and how to compensate.
+  - **Temporal Schedule route** — `cron_expressions` vs `ScheduleIntervalSpec` (interval+offset to dodge
+    the UTC-cron timezone foot-gun), `ScheduleOverlapPolicy.SKIP` + `pause_on_failure`, and the one-shot
+    k8s `Job` (not a CronJob) that registers the schedule. Cross-links `temporal-config-driven` (which
+    owns workflow/activity/worker mechanics and the create-or-update registration loop) rather than
+    duplicating it.
+  - Plus a decision matrix for choosing k8s CronJob vs Temporal Schedule, and the cross-cutting concerns
+    (concurrency, timezone, history, missed runs, suspend vs pause, observability, idempotency).
+  - Fully genericized; **not** wired into the catalog/scaffold (`claude-kit init` output is unchanged).
+
+- **`kubectl-operations`** — a stack-derived, operations-first skill for running `kubectl` against this
+  stack's workloads:
+  - **Full command surface**, grouped by task — `get`/`describe`/`explain`/`api-resources`;
+    `apply`/`create`/`edit`/`patch`/`set`/`replace`; `logs`/`exec`/`port-forward`/`cp`/`debug`/
+    `attach`/`proxy`; `rollout`/`scale`/`autoscale`; `events`/`top`; `label`/`annotate`; `config`
+    (contexts & namespaces); `auth can-i`; `wait`/`diff`/`kustomize`; node `cordon`/`drain`/`taint`.
+    (`kubectl delete` is intentionally omitted — see the guardrail below — in favour of reversible
+    alternatives: `scale --replicas=0`, `rollout undo`, or removing the object from the Git/Helm source.)
+  - **Output formatting & selectors** — `-o wide/yaml/json/name/jsonpath/custom-columns/go-template`,
+    `--sort-by`, label (`-l`) and field selectors, `--watch`, with copy-ready JSONPath recipes.
+  - **Context/namespace/RBAC safety** (the #1 footgun) and **day-2 debugging playbooks** —
+    CrashLoopBackOff, ImagePullBackOff, Pending/unschedulable, OOMKilled, a cron that didn't fire, a
+    Service with no endpoints.
+  - Cross-links `cron-and-scheduled-jobs`, `kubernetes-workload-hardening`,
+    `containerization-and-deployment`, `temporal-config-driven`, and `observability-and-logging`. Fully
+    genericized; **not** wired into the catalog/scaffold. The collection index is updated (45 skills).
+
+- **Plugin guardrail `guard-kubectl-delete`** — a `PreToolUse(Bash)` hook that blocks `kubectl delete`
+  from the agent's Bash tool (exit 2), joining the `rm -rf` / `push main` / `guard-destructive-git` /
+  `guard-secrets` destructive-command family. It matches the `delete` **subcommand** as a whole word —
+  sparing the safe look-alikes `config delete-context`, `drain --delete-emptydir-data`,
+  `wait --for=delete`, and the read-only `auth can-i delete …` — and splits compound commands on
+  `;`/`|`/`&` so a chained `… | xargs kubectl delete` can't slip past. It refuses with the reversible
+  alternatives (`scale --replicas=0`, `rollout undo`, GitOps reconcile) and degrades to a no-op without
+  `jq`. Wired into the **plugin** (`hooks/hooks.json`) only; intentionally **not** added to the pip-CLI
+  scaffold registry, so `claude-kit init` output is unchanged.
+
 ## [0.20.0] — 2026-06-20
 
 **Expand the stack-specific skill collection: 21 new skills + 7 fold-in enhancements + a security pass,
