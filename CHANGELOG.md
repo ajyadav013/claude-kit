@@ -6,8 +6,9 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [0.21.0] — 2026-06-22
 
-**Add the `cron-and-scheduled-jobs` stack-collection skill — scheduled/recurring jobs across Kubernetes
-CronJobs and Temporal Schedules (now 44 skills).**
+**Add two stack-collection skills — `cron-and-scheduled-jobs` (scheduled/recurring jobs across Kubernetes
+CronJobs and Temporal Schedules) and `kubectl-operations` (the full kubectl command surface for operating
+those workloads) — now 45 skills.**
 
 ### Added
 
@@ -28,7 +29,21 @@ CronJobs and Temporal Schedules (now 44 skills).**
   - Plus a decision matrix for choosing k8s CronJob vs Temporal Schedule, and the cross-cutting concerns
     (concurrency, timezone, history, missed runs, suspend vs pause, observability, idempotency).
   - Fully genericized; **not** wired into the catalog/scaffold (`claude-kit init` output is unchanged).
-    The collection index is updated (44 skills).
+
+- **`kubectl-operations`** — a stack-derived, operations-first skill for running `kubectl` against this
+  stack's workloads:
+  - **Full command surface**, grouped by task — `get`/`describe`/`explain`/`api-resources`;
+    `apply`/`create`/`edit`/`patch`/`set`/`replace`/`delete`; `logs`/`exec`/`port-forward`/`cp`/`debug`/
+    `attach`/`proxy`; `rollout`/`scale`/`autoscale`; `events`/`top`; `label`/`annotate`; `config`
+    (contexts & namespaces); `auth can-i`; `wait`/`diff`/`kustomize`; node `cordon`/`drain`/`taint`.
+  - **Output formatting & selectors** — `-o wide/yaml/json/name/jsonpath/custom-columns/go-template`,
+    `--sort-by`, label (`-l`) and field selectors, `--watch`, with copy-ready JSONPath recipes.
+  - **Context/namespace/RBAC safety** (the #1 footgun) and **day-2 debugging playbooks** —
+    CrashLoopBackOff, ImagePullBackOff, Pending/unschedulable, OOMKilled, a cron that didn't fire, a
+    Service with no endpoints.
+  - Cross-links `cron-and-scheduled-jobs`, `kubernetes-workload-hardening`,
+    `containerization-and-deployment`, `temporal-config-driven`, and `observability-and-logging`. Fully
+    genericized; **not** wired into the catalog/scaffold. The collection index is updated (45 skills).
 
 ## [0.20.0] — 2026-06-20
 
