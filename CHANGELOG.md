@@ -4,6 +4,32 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.21.0] — 2026-06-22
+
+**Add the `cron-and-scheduled-jobs` stack-collection skill — scheduled/recurring jobs across Kubernetes
+CronJobs and Temporal Schedules (now 44 skills).**
+
+### Added
+
+- **`cron-and-scheduled-jobs`** — a stack-derived skill documenting how scheduled/recurring jobs are
+  configured in system config and invoked, across the two mechanisms this stack uses:
+  - **Kubernetes CronJob route** — the schedule is declared in Helm `values.yaml` under a `Crons.<job>`
+    block (`Schedule`, `Envs: {MODE: cron, CRON_JOB: <name>}`, `ConcurrencyPolicy: Forbid`, `Suspend`,
+    `TtlSecondsAfterFinished`); the chart renders one `batch/v1` CronJob per entry (`restartPolicy:
+    Never`, history limits 3/1). The shared image boots one-shot in `MODE=cron` and dispatches a single
+    named job from a Python cron registry (simple `name→callable` or rich `name→{task, description,
+    schedule}`), instrumented via `record_cron_job_executed`. Documents the chart's missing
+    `timeZone`/`startingDeadlineSeconds` and how to compensate.
+  - **Temporal Schedule route** — `cron_expressions` vs `ScheduleIntervalSpec` (interval+offset to dodge
+    the UTC-cron timezone foot-gun), `ScheduleOverlapPolicy.SKIP` + `pause_on_failure`, and the one-shot
+    k8s `Job` (not a CronJob) that registers the schedule. Cross-links `temporal-config-driven` (which
+    owns workflow/activity/worker mechanics and the create-or-update registration loop) rather than
+    duplicating it.
+  - Plus a decision matrix for choosing k8s CronJob vs Temporal Schedule, and the cross-cutting concerns
+    (concurrency, timezone, history, missed runs, suspend vs pause, observability, idempotency).
+  - Fully genericized; **not** wired into the catalog/scaffold (`claude-kit init` output is unchanged).
+    The collection index is updated (44 skills).
+
 ## [0.20.0] — 2026-06-20
 
 **Expand the stack-specific skill collection: 21 new skills + 7 fold-in enhancements + a security pass,
