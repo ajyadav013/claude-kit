@@ -4,6 +4,51 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.22.0] — 2026-06-23
+
+**Critical-correctness hardening (PR1 of a phased review): a non-destructive `init` merge that no longer
+deletes your files, a CI guard against doc/version/count drift, stricter config validation, pinned
+third-party MCP versions, and several P2 fixes.**
+
+### Fixed
+
+- **Data-loss bug in `init` merge mode.** Re-running `claude-kit init` over an existing `.claude/`
+  (the default `merge` mode) used to `shutil.rmtree` whole kit-managed directories (`rules/`,
+  `skills/<name>/`, `skills/_references/`), silently deleting any file you had added under them.
+  `init` now reconciles non-destructively via the new `upgrader.merge_install`, which reuses the
+  owner-aware upgrade logic: kit/overlay files are refreshed (user-modified ones backed up to
+  `.claude-kit.bak-N/` first), user-editable files are sidecar'd, kit/overlay orphans are pruned, and
+  **files the kit doesn't track are never touched**. An untracked hand-rolled `.claude/` is migrated
+  safely too (collisions are backed up). `--force` / `overwrite` remains the only destructive path.
+- **`README.claude-sdlc.md` is now user-editable.** `init` no longer hard-overwrites it; it honours
+  `--force` and otherwise writes a `.claude-kit` sidecar, and `upgrade` protects it like `CLAUDE.md`.
+- **Documentation/version drift.** `SECURITY.md` supported-version, the `/sdlc` skill's `standard`
+  gate row (added `contract-clear`), and the README hook count (16 → 17) corrected.
+
+### Added
+
+- **`scripts/check_docs_consistency.py`** — a fail-loud guard (run in tests + CI) that re-derives the
+  facts and asserts the docs agree: version parity across `pyproject.toml`, `__init__.py`, both plugin
+  manifests, the latest `CHANGELOG` heading and `SECURITY.md`; component counts (agents / rules / core
+  & collection skills / hook scripts / MCP servers) against every number the docs quote; and the
+  profile→gate tables in `README.md` + `skills/sdlc/SKILL.md` against `catalog/profiles.yaml`.
+- **Stricter `--config` / selection validation.** A bare `mcp: github` (or `teams: …`) string is
+  normalised to a one-element list instead of being iterated character-by-character; malformed shapes,
+  unknown config keys, an unknown `frontend_language` for the chosen framework, and an unknown `scope`
+  now fail loudly with a clear message (`Selection.from_dict(strict=True)` + `catalog.resolve` checks).
+
+### Changed
+
+- **Pinned MCP server package versions.** `catalog/mcp.yaml` replaces moving `@latest` / implicit-latest
+  `npx` tags with exact version pins (snapshot 2026-06-23) for reproducible, supply-chain-aware installs;
+  the deprecated official GitHub/Postgres reference servers are flagged. README notes that MCP servers
+  are third-party code.
+- **Planned CLI commands exit non-zero.** `package-org-pack`, `install-org-pack`, and
+  `research import-sources` now exit `2` (still announcing "planned") instead of a silent success-`0`.
+- **Inline guard hooks degrade without `jq`.** The `rm -rf` / push-to-main / secrets inline guards (in
+  both the plugin `hooks.json` and the CLI registry) now no-op when `jq` is absent, matching the
+  script-backed guards and the SECURITY.md promise.
+
 ## [0.21.0] — 2026-06-22
 
 **Add two stack-collection skills — `cron-and-scheduled-jobs` (scheduled/recurring jobs across Kubernetes

@@ -359,3 +359,17 @@ def test_selection_from_dict_tolerates_missing_org_fields(payload):
     assert sel.review_strictness == "standard"
     assert sel.org_packs is True
     assert sel.teams == []
+
+
+def test_resolve_rejects_unknown_frontend_language(payload):
+    """A frontend language outside the framework's option list fails loudly (not silently)."""
+    sel = make_selection(payload, frontend_language="cobol")
+    with pytest.raises(ValueError, match="frontend language"):
+        catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_unknown_scope(payload):
+    """An unknown scope is rejected rather than being treated as non-organization."""
+    sel = make_selection(payload, scope="galaxy")
+    with pytest.raises(ValueError, match="scope"):
+        catalog.resolve(payload, sel)
