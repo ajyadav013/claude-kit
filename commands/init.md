@@ -6,21 +6,35 @@ allowed-tools: Bash, Read, Glob
 
 Install the claude-kit autonomous-SDLC configuration into the current project.
 
-**Prefer the full Python CLI** (it runs the ordered prompts, resolves the stack/profile/MCP catalog,
+**The Python CLI is required.** It runs the ordered prompts, resolves the stack/profile/MCP catalog,
 installs overlay rules + agents, assembles `settings.json`, and records `init-options.json` for safe
-upgrades). Check whether it's on PATH and use it, passing through `$ARGUMENTS`:
+upgrades (`claude-kit upgrade` / `diff`). Check whether it's on PATH and use it, passing through
+`$ARGUMENTS`:
 
 ```
 command -v claude-kit >/dev/null 2>&1 && claude-kit init $ARGUMENTS \
-  || { command -v ckit >/dev/null 2>&1 && ckit init $ARGUMENTS; }
+  || { command -v ckit >/dev/null 2>&1 && ckit init $ARGUMENTS \
+  || echo "CKIT_CLI_MISSING"; }
 ```
 
-If neither `claude-kit` nor `ckit` is installed, fall back to the **thin** bundled scaffolder (it
-copies the full payload with no stack/profile resolution — a superset install; suggest the user
-`pip install claude-code-kit` afterwards for the catalog-driven experience):
+**If the output is `CKIT_CLI_MISSING`, STOP — do not scaffold anything.** Neither `claude-kit` nor
+`ckit` is installed. Tell the user the CLI is required and how to install it, then have them re-run
+`/claude-kit:init`. Do **not** silently fall back to a partial install:
+
+- Recommended: `pipx install claude-code-kit`
+- Or: `pip install claude-code-kit`
+
+**Escape hatch (advanced, opt-in only).** A thin shell scaffolder exists for locked-down environments
+where installing the CLI is impossible. It copies the full payload as a **superset** with **no**
+stack/profile/MCP resolution, and `claude-kit upgrade` / `diff` will **not** work against it. Use it
+**only** if the user has explicitly opted in by setting `CLAUDE_KIT_BASIC=1`:
 
 ```
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" $ARGUMENTS
+if [ "${CLAUDE_KIT_BASIC:-0}" = "1" ]; then
+  bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh" $ARGUMENTS
+else
+  echo "set CLAUDE_KIT_BASIC=1 to use the degraded no-CLI scaffolder (the CLI is the supported path)"
+fi
 ```
 
 If `${CLAUDE_PLUGIN_ROOT}` is not set (running from a source checkout), locate `scripts/init.sh` in

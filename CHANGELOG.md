@@ -4,6 +4,38 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.23.0] — 2026-06-23
+
+**PR2 of the phased hardening review: structural single-source-of-truth for hooks, and plugin/CLI
+parity that fails loud instead of silently degrading.**
+
+### Changed
+
+- **Hooks are now generated from one registry.** The two previously hand-maintained static hook files —
+  the plugin's `hooks/hooks.json` and the no-pip starter `templates/settings.json` — are now generated
+  from `src/claude_kit/hooks.py` (`HOOK_REGISTRY` + per-channel membership data) via
+  `scripts/gen_hooks.py`. They had already drifted (the starter was missing `load-autonomy`, the PR1
+  `jq`-degradation prefix, and used a slightly different block message). A drift test
+  (`gen_hooks.py --check`, run in the suite) fails the build if either file is hand-edited.
+  - The installed per-profile `.claude/settings.json` (built by `build_settings`) is **byte-identical**
+    to before — pure refactor, verified against `origin/main`.
+  - `hooks/hooks.json` is **semantically identical** to before (reflowed to canonical 2-space JSON; no
+    hook added, removed, or reordered).
+  - `templates/settings.json` changes only by refreshing its two inline Bash guards to the registry
+    versions (gaining the `command -v jq … || exit 0` no-jq degradation + aligned message); same hook
+    membership.
+- **`guard-kubectl-delete` is now declared data.** It moves into a `PLUGIN_ONLY_HOOKS` map (with a
+  `reason`) — the single documented exception to "the registry is the source of truth" — instead of
+  being a silent hand-edit in `hooks.json`.
+
+### Fixed
+
+- **Plugin/CLI parity: `/claude-kit:init` requires the CLI and fails loud.** The command no longer
+  silently falls back to the thin `scripts/init.sh` scaffolder when neither `claude-kit` nor `ckit` is
+  on PATH — it stops and instructs `pipx install claude-code-kit` (or `pip install …`). The shell
+  fallback is now opt-in only (`CLAUDE_KIT_BASIC=1`) and prints a loud "degraded, no-resolution
+  install; upgrade/diff won't work" warning. README onboarding documents the CLI requirement.
+
 ## [0.22.0] — 2026-06-23
 
 **Critical-correctness hardening (PR1 of a phased review): a non-destructive `init` merge that no longer

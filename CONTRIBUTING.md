@@ -38,11 +38,15 @@ locally, and how to release.
   *when* to use it. Add it to the relevant profile(s) in `catalog/profiles.yaml`.
 - **Rule** → add `rules/<name>.md`; cross-reference siblings as `.claude/rules/<name>.md`.
 - **Hook** → add a script to `hooks/scripts/`, register it in the `HOOK_REGISTRY` in
-  `src/claude_kit/hooks.py`, wire it in `hooks/hooks.json` (plugin), and list its id in the relevant
-  profile's `hooks:`. (Exception: the agent-side capture hooks `capture-learnings[-catchup|-stop]` are
-  **not** profile-listed — they're installed by the init-time `capture_mode` choice via
-  `catalog/capture.yaml` + `catalog._apply_capture_mode`. One script, three triggers, dispatched by an
-  arg.)
+  `src/claude_kit/hooks.py`, and list its id in the relevant profile's `hooks:`. To surface it in the
+  plugin and/or the no-pip starter, add its id to `PLUGIN_HOOK_IDS` / `STARTER_HOOK_IDS` (same module),
+  then **run `python scripts/gen_hooks.py`** to regenerate `hooks/hooks.json` and
+  `templates/settings.json` — **never hand-edit those two files** (a drift test, `gen_hooks.py --check`,
+  fails the build if they diverge from the registry). A plugin-only hook (no CLI scaffold equivalent,
+  e.g. `guard-kubectl-delete`) goes in `PLUGIN_ONLY_HOOKS` with a `reason` instead of the registry.
+  (Exception: the agent-side capture hooks `capture-learnings[-catchup|-stop]` are **not** profile-listed
+  — they're installed by the init-time `capture_mode` choice via `catalog/capture.yaml` +
+  `catalog._apply_capture_mode`. One script, three triggers, dispatched by an arg.)
 - **Stack** (framework / database) → a **data change**: add an entry to `catalog/stacks.yaml`
   (`label`, `overlay_rules`, optional `overlay_agents`, `skills`, `stack_dir`, `commands`) and create
   `templates/stacks/<stack_dir>/rules/<name>.md` (+ `agents/` for a database). Mark not-yet-ready

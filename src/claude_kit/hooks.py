@@ -60,6 +60,19 @@ def _script_entry(name: str, arg: str = "") -> dict[str, str]:
     return {"type": "command", "command": command}
 
 
+def _plugin_entry(name: str, arg: str = "") -> dict[str, str]:
+    """Build a settings.json command entry that runs a hook script from the plugin root.
+
+    The plugin variant of :func:`_script_entry` — Claude Code exposes the plugin's own directory via
+    ``${CLAUDE_PLUGIN_ROOT}``, so the auto-discovered ``hooks/hooks.json`` references scripts there
+    rather than in a scaffolded project's ``.claude/hooks/``.
+    """
+    command = f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/scripts/{name}"'
+    if arg:
+        command += f" {arg}"
+    return {"type": "command", "command": command}
+
+
 #: The canonical registry. Order here is the order hooks appear in assembled settings.json.
 #: Each value: ``event``, ``matcher``, ``entry`` (settings.json hook object), and ``script``
 #: (basename under payload ``hooks/scripts/`` to copy, or ``None`` for inline/prompt hooks).
@@ -180,20 +193,96 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "matcher": "",
         "entry": _script_entry("capture-learnings.sh", "end"),
         "script": "capture-learnings.sh",
+        "arg": "end",
     },
     "capture-learnings-catchup": {
         "event": "SessionStart",
         "matcher": "",
         "entry": _script_entry("capture-learnings.sh", "catchup"),
         "script": "capture-learnings.sh",
+        "arg": "catchup",
     },
     "capture-learnings-stop": {
         "event": "Stop",
         "matcher": "",
         "entry": _script_entry("capture-learnings.sh", "stop"),
         "script": "capture-learnings.sh",
+        "arg": "stop",
     },
 }
+
+#: Hooks the plugin ships but the pip CLI does NOT — the single declared exception to "the registry
+#: is the source of truth". These run from the auto-discovered ``hooks/hooks.json`` only; they are
+#: deliberately absent from ``HOOK_REGISTRY`` / ``catalog/profiles.yaml`` so ``claude-kit init`` output
+#: is unchanged. Each entry carries a ``reason`` so the divergence is documented data, not an accident.
+PLUGIN_ONLY_HOOKS: dict[str, dict[str, Any]] = {
+    "guard-kubectl-delete": {
+        "event": "PreToolUse",
+        "matcher": "Bash",
+        "script": "guard-kubectl-delete.sh",
+        "arg": "",
+        "reason": (
+            "Blocks destructive `kubectl delete` from the agent's Bash tool. Plugin-only by design: "
+            "intentionally not added to the CLI scaffold registry / profiles, so `claude-kit init` "
+            "output is unchanged (see PR #25)."
+        ),
+    },
+}
+
+#: Which registry hooks each *static* generated file ships (the dynamic per-profile installed
+#: settings.json comes from the profile's hook list instead). Declaring channel membership as data —
+#: rather than hand-editing two JSON files — is what keeps the plugin file and the no-pip starter from
+#: silently drifting apart; ``scripts/gen_hooks.py`` regenerates both and a drift test enforces it.
+#:
+#: The plugin file (hooks/hooks.json, always-on for any project using the plugin) carries the broad
+#: recommended set plus the plugin-only guards above.
+PLUGIN_HOOK_IDS: frozenset[str] = frozenset(
+    {
+        "load-continuity",
+        "load-learnings",
+        "load-autonomy",
+        "guard-rm-rf",
+        "guard-push-main",
+        "guard-destructive-git",
+        "guard-commit-secrets",
+        "warn-shared-modules",
+        "warn-llm-io",
+        "warn-sensitive-files",
+        "validate-settings",
+        "lint-fix",
+        "type-check",
+        "capture-learnings",
+        "capture-learnings-catchup",
+    }
+)
+
+#: The thin no-pip starter (templates/settings.json, copied by scripts/init.sh) ships a smaller subset
+#: — the degraded fallback path keeps a minimal, broadly-safe set rather than the full plugin roster.
+STARTER_HOOK_IDS: frozenset[str] = frozenset(
+    {
+        "load-continuity",
+        "load-learnings",
+        "guard-rm-rf",
+        "guard-push-main",
+        "warn-shared-modules",
+        "lint-fix",
+        "type-check",
+        "capture-learnings",
+        "capture-learnings-catchup",
+    }
+)
+
+#: $comment headers for the two channels (kept here so generation is the single source).
+_INSTALLED_COMMENT = (
+    "Claude Code settings installed by claude-kit. Hooks wire the SDLC working-memory, "
+    "learnings, guardrails, and quality checks to scripts in .claude/hooks/. Personal "
+    "overrides belong in .claude/settings.local.json (gitignored)."
+)
+_STARTER_COMMENT = (
+    "Recommended Claude Code settings installed by claude-kit. Hooks wire the SDLC working-memory, "
+    "learnings, guardrails, and quality checks to the scripts in .claude/hooks/. Merge with your "
+    "existing settings.json as needed."
+)
 
 #: Event ordering for a stable, readable settings.json.
 _EVENT_ORDER = (
@@ -221,42 +310,84 @@ def scripts_for(hook_ids: list[str]) -> list[str]:
     return sorted(set(out))
 
 
-def build_settings(hook_ids: list[str]) -> dict[str, Any]:
-    """Assemble a ``settings.json`` document from the selected hook ids.
+def _hooks_block(specs: list[tuple[str, str, dict[str, Any]]]) -> dict[str, Any]:
+    """Group ``(event, matcher, entry)`` specs into the ``{EVENT: [{matcher, hooks}]}`` schema.
+
+    Order is preserved from ``specs`` (callers pass them in registry order), with events sorted by
+    :data:`_EVENT_ORDER`. This is the one place the settings/hooks schema is assembled, shared by the
+    installed-settings, plugin, and starter generators so all three stay byte-identical in shape.
+    """
+    grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for event, matcher, entry in specs:
+        grouped.setdefault(event, {}).setdefault(matcher, []).append(entry)
+    ordered_events = [e for e in _EVENT_ORDER if e in grouped] + [
+        e for e in grouped if e not in _EVENT_ORDER
+    ]
+    return {
+        event: [
+            {"matcher": matcher, "hooks": entries}
+            for matcher, entries in grouped[event].items()
+        ]
+        for event in ordered_events
+    }
+
+
+def build_settings(
+    hook_ids: list[str], *, comment: str | None = None
+) -> dict[str, Any]:
+    """Assemble an installed ``.claude/settings.json`` document from the selected hook ids.
 
     Groups the selected hooks by event and matcher, preserving registry order, into the schema
-    Claude Code expects (``{"hooks": {EVENT: [{"matcher": …, "hooks": [entry, …]}]}}``).
+    Claude Code expects (``{"hooks": {EVENT: [{"matcher": …, "hooks": [entry, …]}]}}``). Uses the
+    project-relative script paths (``$CLAUDE_PROJECT_DIR/.claude/hooks/…``).
 
     Args:
         hook_ids: Hook ids to enable.
+        comment: Optional ``$comment`` header (defaults to the installed-settings blurb).
 
     Returns:
         A JSON-serialisable settings mapping (always includes an explanatory ``$comment``).
     """
-    selected = [hid for hid in HOOK_REGISTRY if hid in set(hook_ids)]
-    # event -> matcher -> [entries]
-    grouped: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    for hid in selected:
-        spec = HOOK_REGISTRY[hid]
-        grouped.setdefault(spec["event"], {}).setdefault(spec["matcher"], []).append(
-            spec["entry"]
+    specs = [
+        (
+            HOOK_REGISTRY[hid]["event"],
+            HOOK_REGISTRY[hid]["matcher"],
+            HOOK_REGISTRY[hid]["entry"],
         )
-
-    hooks_block: dict[str, list[dict[str, Any]]] = {}
-    ordered_events = [e for e in _EVENT_ORDER if e in grouped] + [
-        e for e in grouped if e not in _EVENT_ORDER
+        for hid in HOOK_REGISTRY
+        if hid in set(hook_ids)
     ]
-    for event in ordered_events:
-        hooks_block[event] = [
-            {"matcher": matcher, "hooks": entries}
-            for matcher, entries in grouped[event].items()
-        ]
-
     return {
-        "$comment": (
-            "Claude Code settings installed by claude-kit. Hooks wire the SDLC working-memory, "
-            "learnings, guardrails, and quality checks to scripts in .claude/hooks/. Personal "
-            "overrides belong in .claude/settings.local.json (gitignored)."
-        ),
-        "hooks": hooks_block,
+        "$comment": comment or _INSTALLED_COMMENT,
+        "hooks": _hooks_block(specs),
     }
+
+
+def generate_starter_settings() -> dict[str, Any]:
+    """Generate the thin no-pip starter ``templates/settings.json`` from :data:`STARTER_HOOK_IDS`."""
+    return build_settings(sorted(STARTER_HOOK_IDS), comment=_STARTER_COMMENT)
+
+
+def generate_plugin_hooks_json() -> dict[str, Any]:
+    """Generate the auto-discovered plugin ``hooks/hooks.json`` from the registry.
+
+    Ships :data:`PLUGIN_HOOK_IDS` (rebuilt with ``${CLAUDE_PLUGIN_ROOT}`` script paths; inline guard
+    commands are path-independent and reused verbatim) plus :data:`PLUGIN_ONLY_HOOKS`, which are
+    appended after the registry hooks within their event/matcher group. No ``$comment`` (the plugin
+    loader reads this as a hooks fragment).
+    """
+    specs: list[tuple[str, str, dict[str, Any]]] = []
+    for hid in HOOK_REGISTRY:
+        if hid not in PLUGIN_HOOK_IDS:
+            continue
+        spec = HOOK_REGISTRY[hid]
+        if spec["script"]:
+            entry = _plugin_entry(spec["script"], spec.get("arg", ""))
+        else:
+            entry = spec["entry"]  # inline command — no path to rewrite
+        specs.append((spec["event"], spec["matcher"], entry))
+    for po in PLUGIN_ONLY_HOOKS.values():
+        specs.append(
+            (po["event"], po["matcher"], _plugin_entry(po["script"], po.get("arg", "")))
+        )
+    return {"hooks": _hooks_block(specs)}
