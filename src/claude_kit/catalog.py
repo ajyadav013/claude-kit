@@ -326,10 +326,22 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
     capture_cfg = _load(payload_root, "capture.yaml")
 
     frontend = _frontend(stacks, selection.frontend_framework)
+    fe_langs = frontend.get("languages", {}).get("options", [])
+    if fe_langs and selection.frontend_language not in fe_langs:
+        raise ValueError(
+            f"unknown frontend language {selection.frontend_language!r} for "
+            f"{selection.frontend_framework!r} (choices: {', '.join(fe_langs)})"
+        )
     backend_lang, backend_fw = _backend(
         stacks, selection.backend_language, selection.backend_framework
     )
     database = _database(stacks, selection.database)
+
+    valid_scopes = {s["id"] for s in _load(payload_root, "org.yaml").get("scopes", [])}
+    if valid_scopes and selection.scope not in valid_scopes:
+        raise ValueError(
+            f"unknown scope {selection.scope!r} (choices: {', '.join(sorted(valid_scopes))})"
+        )
 
     avail = available(payload_root)
     prof = _resolve_profile(profiles, selection.profile, avail)

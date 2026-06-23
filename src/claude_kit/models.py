@@ -61,17 +61,42 @@ class Selection:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Selection:
-        """Build a :class:`Selection` from a mapping, ignoring unknown keys.
+    def from_dict(cls, data: dict[str, Any], *, strict: bool = False) -> Selection:
+        """Build a :class:`Selection` from a mapping.
 
         Args:
             data: A mapping with the selection fields (e.g. parsed from ``--config``). Org fields
                 may be absent in older documents; their dataclass defaults apply (back-compatible).
+            strict: When ``True`` (used for freshly-parsed user config), reject unknown keys and
+                wrong-typed values instead of silently ignoring/accepting them. The default stays
+                lenient so persisted ``init-options.json`` from older kits still round-trips.
 
         Returns:
             A populated :class:`Selection`.
+
+        Raises:
+            ValueError: In ``strict`` mode, if ``data`` has unknown keys or a field has the wrong
+                type (the list fields must be lists of strings; ``org_packs`` must be a bool).
         """
         known = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
+        if strict:
+            unknown = set(data) - known
+            if unknown:
+                raise ValueError(
+                    f"unknown selection field(s): {', '.join(sorted(unknown))} "
+                    f"(known: {', '.join(sorted(known))})"
+                )
+            for fname in ("mcp", "teams"):
+                val = data.get(fname)
+                if val is not None and (
+                    not isinstance(val, list)
+                    or any(not isinstance(x, str) for x in val)
+                ):
+                    raise ValueError(
+                        f"selection field {fname!r} must be a list of strings"
+                    )
+            if "org_packs" in data and not isinstance(data["org_packs"], bool):
+                raise ValueError("selection field 'org_packs' must be a boolean")
         kwargs = {k: v for k, v in data.items() if k in known}
         kwargs.setdefault("mcp", [])
         return cls(**kwargs)

@@ -323,10 +323,12 @@ def _write_readme(
     if not tmpl.is_file():
         return
     text = render_text(tmpl.read_text(encoding="utf-8"), plan.context)
+    # Honor `force` (don't hardcode True): README.claude-sdlc.md is a user-editable onboarding doc, so
+    # an existing one is preserved and the new render lands as a .claude-kit sidecar unless --force.
     _write_user_text(
         target / "README.claude-sdlc.md",
         text,
-        force=True,
+        force=force,
         log=log,
         label="README.claude-sdlc.md",
     )
@@ -371,6 +373,7 @@ def _classify_owner(rel: str, plan: ResolvedPlan) -> str:
     """Classify a relative path as kit / overlay / user-editable for upgrade policy."""
     user_editable = {
         "CLAUDE.md",
+        "README.claude-sdlc.md",
         ".mcp.json",
         ".claude/settings.json",
         ".claude/CONTINUITY.md",

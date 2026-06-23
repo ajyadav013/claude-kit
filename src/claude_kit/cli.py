@@ -103,6 +103,7 @@ def init(
             target.mkdir(parents=True, exist_ok=True)
 
         # 2) Existing .claude handling: merge / overwrite / backup / abort.
+        mode = "fresh"
         overwrite = force
         if (target / ".claude").exists():
             if force:
@@ -143,10 +144,21 @@ def init(
             typer.echo(f"error: {exc}", err=True)
             raise typer.Exit(2) from exc
 
-        # 4) Install.
-        typer.echo(f"\nclaude-kit: installing into {target}")
-        for line in scaffold.install_sdlc(src, target, plan, force=overwrite):
-            typer.echo(line)
+        # 4) Install. Merge mode reconciles non-destructively (preserving the user's own files);
+        # fresh / overwrite / backup all go through the destructive install spine.
+        if mode == "merge":
+            typer.echo(
+                f"\nclaude-kit: merging into {target} (your files are preserved)"
+            )
+            ok, messages = upgrader.merge_install(src, target, plan, force=force)
+            for line in messages:
+                typer.echo(line)
+            if not ok:
+                raise typer.Exit(1)
+        else:
+            typer.echo(f"\nclaude-kit: installing into {target}")
+            for line in scaffold.install_sdlc(src, target, plan, force=overwrite):
+                typer.echo(line)
 
     typer.echo(
         "\nDone. Open the project in Claude Code and run `/sdlc <your task>` to start the pipeline."
@@ -281,6 +293,7 @@ def package_org_pack(
         "a distributable plugin directory for an internal registry.\n"
         f"(given: pack={pack}, out={out or 'dist/org-packs/'})"
     )
+    raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
 @app.command("install-org-pack")
@@ -300,6 +313,7 @@ def install_org_pack(
         "safe upgrades.\n"
         f"(given: source={source}, target={'user (~/.claude)' if user else 'repo (.claude)'})"
     )
+    raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
 @research_app.command("import-sources")
@@ -316,6 +330,7 @@ def research_import_sources(
         "(never copying proprietary text), and require human approval before adding anything.\n"
         f"(given: {sources})"
     )
+    raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
 def main() -> None:

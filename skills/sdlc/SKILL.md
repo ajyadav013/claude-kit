@@ -53,7 +53,7 @@ Run **only** the gates present in the snapshot's `gates:` list. The three profil
 | Profile | Gates that run |
 |---|---|
 | **lean** | code-review · build-green |
-| **standard** | spec-complete · em-approved · code-review · build-green · test-coverage · security-clear |
+| **standard** | spec-complete · em-approved · code-review · build-green · test-coverage · security-clear · contract-clear |
 | **enterprise** | standard + pipeline-green · observability-ready · acceptance |
 
 Never run a gate (or spawn its agent) that isn't in the active set — that's what makes lean fast and

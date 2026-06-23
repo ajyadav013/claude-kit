@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claude_kit import catalog, scaffold
-from claude_kit.models import InitOptions
+from claude_kit.models import FileRecord, InitOptions
 from claude_kit.validator import _load_init_options
 
 #: Sidecar suffix for a new version of a user-modified, protected file.
@@ -50,8 +50,10 @@ class _Comparison:
     """The result of comparing a freshly-rendered reference tree against the live install."""
 
     target: Path
-    old: InitOptions
-    plan: object  # ResolvedPlan
+    old: (
+        InitOptions | None
+    )  # None when merging into an untracked tree (no init-options.json)
+    plan: ResolvedPlan
     ref_root: Path
     actions: list[_Action]
 
@@ -61,6 +63,59 @@ def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     h.update(path.read_bytes())
     return h.hexdigest()
+
+
+def _diff_actions(
+    ref: dict[str, "FileRecord"],
+    old_map: dict[str, "FileRecord"],
+    target: Path,
+    *,
+    backup_untracked: bool,
+) -> list[_Action]:
+    """Diff a rendered reference file-set (``ref``) against the live ``target`` tree.
+
+    Shared by :func:`_compare` (upgrade) and :func:`merge_install` (first/merge install). The only
+    difference between the two is the **unknown-collision policy**: when a reference file is also live
+    but was never recorded in ``old_map`` (``rel`` absent), upgrade treats it as a routine refresh
+    (``backup_untracked=False`` — the legacy behavior, since an upgrade always has init-options) while
+    a merge-install treats it as a user file to back up before overwriting (``backup_untracked=True``).
+
+    Returns the ordered list of :class:`_Action` (add / update / keep / remove) for :func:`_apply`.
+    """
+    actions: list[_Action] = []
+    for rel, rrec in sorted(ref.items()):
+        live = target / rel
+        if not live.is_file():
+            actions.append(_Action(rel, "add", rrec.owner))
+            continue
+        if _sha256(live) == rrec.sha256:
+            continue  # already identical to the new reference
+        if rel in old_map:
+            user_modified = _sha256(live) != old_map[rel].sha256
+        else:
+            # Live file the kit also ships but we never recorded: only a merge into an untracked
+            # tree should preserve it (back it up); an upgrade refreshes it silently as before.
+            user_modified = backup_untracked
+        if rrec.owner == "user-editable":
+            actions.append(
+                _Action(
+                    rel,
+                    "keep" if user_modified else "update",
+                    rrec.owner,
+                    user_modified,
+                )
+            )
+        else:
+            actions.append(_Action(rel, "update", rrec.owner, user_modified))
+
+    # Orphans: recorded kit/overlay files the current kit no longer ships for this selection.
+    for rel, orec in sorted(old_map.items()):
+        if rel in ref or orec.owner == "user-editable":
+            continue
+        if (target / rel).is_file():
+            actions.append(_Action(rel, "remove", orec.owner))
+
+    return actions
 
 
 def _compare(src: Path, target: Path) -> _Comparison | str:
@@ -88,34 +143,7 @@ def _compare(src: Path, target: Path) -> _Comparison | str:
     ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
     old_map = {r.path: r for r in old.files}
 
-    actions: list[_Action] = []
-    for rel, rrec in sorted(ref.items()):
-        live = target / rel
-        if not live.is_file():
-            actions.append(_Action(rel, "add", rrec.owner))
-            continue
-        if _sha256(live) == rrec.sha256:
-            continue  # already identical to the new reference
-        old_sha = old_map[rel].sha256 if rel in old_map else None
-        user_modified = old_sha is not None and _sha256(live) != old_sha
-        if rrec.owner == "user-editable":
-            actions.append(
-                _Action(
-                    rel,
-                    "keep" if user_modified else "update",
-                    rrec.owner,
-                    user_modified,
-                )
-            )
-        else:
-            actions.append(_Action(rel, "update", rrec.owner, user_modified))
-
-    # Orphans: recorded kit/overlay files the current kit no longer ships for this selection.
-    for rel, orec in sorted(old_map.items()):
-        if rel in ref or orec.owner == "user-editable":
-            continue
-        if (target / rel).is_file():
-            actions.append(_Action(rel, "remove", orec.owner))
+    actions = _diff_actions(ref, old_map, target, backup_untracked=False)
 
     return _Comparison(
         target=target, old=old, plan=plan, ref_root=ref_root, actions=actions
@@ -204,6 +232,44 @@ def upgrade(target: str | Path, *, force: bool = False) -> tuple[bool, list[str]
             return _apply(result, force=force)
         finally:
             _cleanup(result.ref_root)
+
+
+def merge_install(
+    src: Path, target: str | Path, plan: ResolvedPlan, *, force: bool = False
+) -> tuple[bool, list[str]]:
+    """Non-destructively merge a freshly-resolved ``plan`` into an existing ``target``.
+
+    This is the ``init`` **merge** path (chosen by default when ``.claude/`` already exists). Unlike
+    :func:`upgrade` — which re-renders the *recorded* selection — this renders the *new* ``plan`` the
+    user just chose, then reconciles it against the live tree with the same owner-aware logic:
+
+    * kit / overlay files are refreshed (a user-modified one is backed up to ``.claude-kit.bak-N/``);
+    * user-editable files keep the user's copy, with the new version dropped beside it as a sidecar;
+    * kit/overlay files the new plan no longer ships are backed up and removed;
+    * **any file the kit doesn't track is left untouched** — no directory is ever ``rmtree``-d.
+
+    Works whether or not the target was previously claude-kit-tracked: with no ``init-options.json``
+    the recorded set is empty, so every kit-path collision is treated as a user file and backed up
+    before overwrite. Returns the ``(ok, messages)`` contract shared by the other lifecycle commands.
+    """
+    src = Path(src)
+    target = Path(target).expanduser().resolve()
+    # Render the reference under the REAL project name so CLAUDE.md/README don't diff spuriously.
+    plan.context["project_name"] = target.name
+    ref_root = Path(tempfile.mkdtemp(prefix="claude-kit-merge-"))
+    try:
+        scaffold.install_sdlc(src, ref_root, plan, force=True, log=[])
+        ref_opts = _load_init_options(ref_root / ".claude")
+        ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
+        old = _load_init_options(target / ".claude")
+        old_map = {r.path: r for r in old.files} if old is not None else {}
+        actions = _diff_actions(ref, old_map, target, backup_untracked=True)
+        cmp = _Comparison(
+            target=target, old=old, plan=plan, ref_root=ref_root, actions=actions
+        )
+        return _apply(cmp, force=force)
+    finally:
+        _cleanup(ref_root)
 
 
 def _apply(cmp: _Comparison, *, force: bool) -> tuple[bool, list[str]]:

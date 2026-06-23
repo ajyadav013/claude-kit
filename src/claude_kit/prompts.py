@@ -19,6 +19,51 @@ import yaml
 from claude_kit import catalog
 from claude_kit.models import Selection
 
+#: Recognised top-level keys in a ``--config`` YAML — the friendly nested form plus the flat
+#: Selection-field form. Anything else is a typo we reject rather than silently ignore.
+_CONFIG_KEYS = {
+    "frontend",
+    "backend",
+    "database",
+    "profile",
+    "capture_mode",
+    "mcp",
+    "scope",
+    "teams",
+    "autonomy",
+    "review_strictness",
+    "org",
+    "org_packs",
+    "frontend_framework",
+    "frontend_language",
+    "backend_language",
+    "backend_framework",
+}
+
+
+def _as_str_list(value: Any, field_name: str) -> list[str]:
+    """Coerce a YAML scalar or sequence into a ``list[str]`` (a bare string becomes one element).
+
+    Raises :class:`ValueError` for any other shape, so a typo like ``mcp: github`` is normalised to
+    ``["github"]`` while ``mcp: {github: true}`` fails loudly instead of being iterated
+    character-by-character (or key-by-key) deep inside :func:`catalog.resolve`.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        bad = [x for x in value if not isinstance(x, str)]
+        if bad:
+            raise ValueError(
+                f"config {field_name!r} must be a list of strings; got {bad!r}"
+            )
+        return list(value)
+    raise ValueError(
+        f"config {field_name!r} must be a string or list of strings; "
+        f"got {type(value).__name__}"
+    )
+
 
 def _ask(prompt: str, default: str) -> str:
     """Prompt for a single value with a default, tolerant of EOF (non-interactive) input."""
@@ -176,6 +221,12 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     data = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
     if not isinstance(data, dict):
         raise ValueError("config file did not parse to a mapping")
+    unknown = set(data) - _CONFIG_KEYS
+    if unknown:
+        raise ValueError(
+            f"unknown config key(s): {', '.join(sorted(unknown))} "
+            f"(recognised: {', '.join(sorted(_CONFIG_KEYS))})"
+        )
     dflt = catalog.defaults(payload_root)
     org_defaults = catalog.org_options(payload_root)["defaults"]
 
@@ -189,6 +240,11 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     cap_mode = data.get("capture_mode")
     if isinstance(cap_mode, bool):
         cap_mode = "off" if cap_mode is False else dflt.capture_mode
+    # Normalise list-typed fields up front so a bare string (mcp: github) becomes ["github"] and a
+    # wrong shape fails loudly here rather than being char-iterated inside catalog.resolve().
+    mcp = _as_str_list(data.get("mcp"), "mcp")
+    teams_raw = data.get("teams") if data.get("teams") is not None else org.get("teams")
+    teams = _as_str_list(teams_raw, "teams")
     flat = {
         "frontend_framework": data.get("frontend_framework")
         or (fe.get("framework") if isinstance(fe, dict) else fe)
@@ -205,9 +261,9 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
         "database": data.get("database") or dflt.database,
         "profile": data.get("profile") or dflt.profile,
         "capture_mode": cap_mode or dflt.capture_mode,
-        "mcp": data.get("mcp") or [],
+        "mcp": mcp,
         "scope": data.get("scope") or org_defaults["scope"],
-        "teams": data.get("teams") or org.get("teams") or [],
+        "teams": teams,
         "autonomy": data.get("autonomy")
         or org.get("autonomy")
         or org_defaults["autonomy"],
@@ -220,4 +276,4 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     if packs is None:
         packs = org.get("packs")
     flat["org_packs"] = True if packs is None else bool(packs)
-    return Selection.from_dict(flat)
+    return Selection.from_dict(flat, strict=True)

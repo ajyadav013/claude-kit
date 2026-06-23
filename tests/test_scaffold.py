@@ -935,3 +935,15 @@ def test_fynd_org_review_tier_is_scope_gated(tmp_path, payload):
     assert review_skills <= org_skills, (
         f"missing org review skills: {review_skills - org_skills}"
     )
+
+
+def test_readme_is_user_editable_not_clobbered(tmp_path, payload):
+    """README.claude-sdlc.md is user-editable: a re-install preserves edits and sidecars the new one."""
+    target = tmp_path / "proj"
+    install(payload, target)
+    readme = target / "README.claude-sdlc.md"
+    readme.write_text("MY OWN README\n", encoding="utf-8")
+
+    install(payload, target)  # second pass, force=False
+    assert readme.read_text(encoding="utf-8") == "MY OWN README\n"
+    assert (target / "README.claude-sdlc.md.claude-kit").is_file()

@@ -108,6 +108,32 @@ def test_existing_claude_force_overwrites(tmp_path, payload):
     assert (target / ".claude").is_dir()
 
 
+def test_default_reinit_merges_and_preserves_user_files(tmp_path, payload):
+    """A default (non-interactive) re-init uses merge mode — it must NOT delete the user's files."""
+    target = tmp_path / "proj"
+    install(payload, target)
+    policy = target / ".claude" / "rules" / "company-policy.md"
+    policy.write_text("ours\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert result.exit_code == 0, result.stdout
+    assert policy.is_file()  # survived the merge
+    assert policy.read_text(encoding="utf-8") == "ours\n"
+    assert (target / ".claude" / "skills" / "sdlc" / "SKILL.md").is_file()
+
+
+def test_force_overwrite_is_the_only_destructive_path(tmp_path, payload):
+    """--force overwrites kit-managed dirs wholesale (the documented escape hatch), unlike default."""
+    target = tmp_path / "proj"
+    install(payload, target)
+    policy = target / ".claude" / "rules" / "company-policy.md"
+    policy.write_text("ours\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["init", str(target), "--defaults", "--force"])
+    assert result.exit_code == 0, result.stdout
+    assert not policy.exists()  # explicit --force is allowed to remove it
+
+
 def test_diff_and_upgrade_exit_codes(tmp_path, payload):
     target = tmp_path / "proj"
     install(payload, target)
@@ -158,14 +184,18 @@ def test_init_config_team_scope_has_no_org(tmp_path):
 
 
 def test_org_pack_stub_commands_are_planned(tmp_path):
-    """The package/install-org-pack commands are registered, exit 0, and announce 'planned'."""
+    """Planned commands announce 'planned' and exit non-zero (not a silent success)."""
     pkg = runner.invoke(app, ["package-org-pack", "engineering-core"])
-    assert pkg.exit_code == 0, pkg.stdout
+    assert pkg.exit_code == 2, pkg.stdout
     assert "planned" in pkg.stdout.lower()
 
     inst = runner.invoke(app, ["install-org-pack", "engineering-core"])
-    assert inst.exit_code == 0, inst.stdout
+    assert inst.exit_code == 2, inst.stdout
     assert "planned" in inst.stdout.lower()
+
+    res = runner.invoke(app, ["research", "import-sources", "sources.yaml"])
+    assert res.exit_code == 2, res.stdout
+    assert "planned" in res.stdout.lower()
 
 
 def test_payload_dir_resolves_from_checkout():

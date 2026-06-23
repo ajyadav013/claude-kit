@@ -1,16 +1,26 @@
 # claude-kit optional MCP integrations. Selected servers are written into a project-root `.mcp.json`
 # ONLY when chosen at init (default: none). Configs use ${ENV} placeholders — no credentials are ever
 # generated. Fill the referenced env vars (e.g. in your shell or .env) before using a server.
+#
+# SUPPLY CHAIN: every server below is THIRD-PARTY code (an npx package or a hosted HTTP endpoint) with
+# its own maintainers, trust, and licensing model — claude-kit only references it, never vendors or
+# audits it. The `npx -y <pkg>@<version>` commands are pinned to an exact version (snapshot 2026-06-23)
+# rather than a moving `@latest`, so an install is reproducible and a fresh upstream release can't
+# silently change what runs. Bump these deliberately (and review the changelog) — do not switch back
+# to `@latest`. See SECURITY.md and the README "MCP integrations" note.
 
 version: 1
 
 servers:
   github:
     label: "GitHub (issues, PRs, repos)"
+    # NOTE: the official @modelcontextprotocol/server-github npm package is archived/deprecated upstream
+    # (GitHub now ships a Go `github-mcp-server`). Pinned to its last published version for a stable
+    # install; switch to the maintained server in a future kit release if you need newer features.
     config:
       type: stdio
       command: npx
-      args: ["-y", "@modelcontextprotocol/server-github"]
+      args: ["-y", "@modelcontextprotocol/server-github@2025.4.8"]
       env:
         GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
   linear:
@@ -23,22 +33,25 @@ servers:
     config:
       type: stdio
       command: npx
-      args: ["-y", "mcp-atlassian"]
+      args: ["-y", "mcp-atlassian@2.1.0"]
       env:
         JIRA_URL: "${JIRA_URL}"
         JIRA_API_TOKEN: "${JIRA_API_TOKEN}"
   postgres:
     label: "PostgreSQL (query the database)"
+    # NOTE: @modelcontextprotocol/server-postgres is archived/deprecated upstream; pinned to its last
+    # published version for a stable install. Consider a maintained Postgres MCP server going forward.
     config:
       type: stdio
       command: npx
-      args: ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
+      args:
+        ["-y", "@modelcontextprotocol/server-postgres@0.6.2", "${DATABASE_URL}"]
   mongodb:
     label: "MongoDB (query the database)"
     config:
       type: stdio
       command: npx
-      args: ["-y", "mongodb-mcp-server"]
+      args: ["-y", "mongodb-mcp-server@1.13.0"]
       env:
         MDB_MCP_CONNECTION_STRING: "${MONGODB_URI}"
   playwright:
@@ -46,7 +59,7 @@ servers:
     config:
       type: stdio
       command: npx
-      args: ["-y", "@playwright/mcp@latest"]
+      args: ["-y", "@playwright/mcp@0.0.76"]
   docs:
     label: "Docs / Context7 (live library docs)"
     config:
@@ -61,7 +74,7 @@ servers:
   # source is FSL-1.1-Apache-2.0 (source-available; converts to Apache-2.0 two years after each
   # release) — flagged in the label like the repowise AGPL note; this entry references only the
   # OAuth-hosted service, not the source. Self-hosted/token alternative (instead of the http url):
-  #   command: npx, args: ["-y", "@sentry/mcp-server@latest"], env: SENTRY_ACCESS_TOKEN: "${SENTRY_ACCESS_TOKEN}".
+  #   command: npx, args: ["-y", "@sentry/mcp-server@0.36.0"], env: SENTRY_ACCESS_TOKEN: "${SENTRY_ACCESS_TOKEN}".
   sentry:
     label: "Sentry (error monitoring / issue triage; source-available FSL-1.1)"
     config:
