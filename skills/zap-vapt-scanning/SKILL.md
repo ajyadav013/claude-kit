@@ -9,7 +9,8 @@ description: >
   location, logo, and sign-off names are supplied at run time (never hardcoded). Use when asked to
   run a ZAP scan, perform a VAPT or DAST pass on an API, security-test endpoints, generate a
   vulnerability/penetration-test report, scan a Postman collection for security issues, or automate
-  OWASP ZAP from the command line. Only for systems the user is authorized to test.
+  OWASP ZAP from the command line. Only for systems the user is authorized to test. Do NOT use for
+  source-code-driven, exploit-by-proof white-box pentesting (use shannon-ai-pentest).
 ---
 
 # OWASP ZAP VAPT Scanning & Reporting
