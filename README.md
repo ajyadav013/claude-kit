@@ -4,8 +4,9 @@
 
 **A Cookiecutter-style scaffolder for an autonomous SDLC (software-delivery lifecycle) inside [Claude Code](https://www.claude.com/product/claude-code).**
 
-One command turns a one-line request into reviewed, tested, secured, shippable code —
-with a quality gate between every phase. **No application code. No Docker. Configuration only.**
+One command turns a one-line request into reviewed, tested, secured, shippable code — with a
+quality gate between every phase. Each gate passes only on *real, cited command output* — never an
+assumed or fabricated "it works." **No application code. No Docker. Configuration only.**
 
 [![PyPI](https://img.shields.io/pypi/v/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
@@ -351,14 +352,19 @@ flowchart LR
     PROJ --> RUN(["/sdlc — autonomous SDLC active"])
 ```
 
-Three ideas do the heavy lifting:
+Four ideas do the heavy lifting:
 
-1. **Quality gates with a shared severity model.** Every finding is classified
+1. **Evidence or it didn't happen.** Every gate verdict — PASS or FAIL — must cite the command that
+   ran and its captured output (or the `file:line` it rests on). A verdict that's invented, assumed,
+   or read off still-running work is an **auto-Critical finding** — the same severity as a hardcoded
+   secret — and it fails every downstream gate that trusted it
+   ([`quality-gates.md` §2.5](rules/quality-gates.md)).
+2. **Quality gates with a shared severity model.** Every finding is classified
    Critical / High / Medium / Low / Cosmetic. A gate passes **only** with zero Critical/High/Medium
    open. No silent advancement.
-2. **RARV self-check.** Every agent runs **R**eason → **A**ct → **R**eflect → **V**erify and must show
+3. **RARV self-check.** Every agent runs **R**eason → **A**ct → **R**eflect → **V**erify and must show
    a *green Verify* (real commands run, not imagined) before handing off.
-3. **Blind review + Devil's Advocate.** Parallel reviewers judge independently; a *unanimous* PASS is
+4. **Blind review + Devil's Advocate.** Parallel reviewers judge independently; a *unanimous* PASS is
    treated as suspicious and triggers an adversarial `devils-advocate` pass before the gate may close —
    an explicit guard against agents rubber-stamping each other.
 
@@ -398,7 +404,8 @@ is inert for non-API projects. Organization scope at `regulated` strictness adds
 Code Reviewer → Tester → PR.
 
 See [`examples/`](examples/) for a synthetic end-to-end walkthrough — request → spec → story breakdown
-→ gate verdicts (with one defect-loop cycle) → sample PR diff.
+→ gate verdicts (with one defect-loop cycle) → sample PR diff. To capture *your own* real run as a
+publishable, redaction-scrubbed bundle, see [`docs/capture-a-real-run.md`](docs/capture-a-real-run.md).
 
 ---
 
@@ -463,6 +470,7 @@ It is **not** a runtime, an orchestration engine, or a code library. That framin
 
 | Project | What it is | How claude-kit differs |
 |---|---|---|
+| **Native Claude Code subagents / Agent Teams** | Spawn parallel agents on demand; you define the workflow, gates, and verification yourself each time | claude-kit is the **opinionated layer on top** of exactly that capability: a fixed, sequenced pipeline with **owned quality gates** (block on any open Critical/High/Medium), an **evidence requirement** (no fabricated verdicts — `quality-gates.md` §2.5), a `devils-advocate` anti-rubber-stamp pass, and **structured resume** from `.claude/state/pipeline-snapshot.json`. Native gives you the agents; claude-kit gives you the governance. |
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | claude-kit ships a **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | claude-kit **absorbed spec-kit's coverage-gate idea** (the `story-planner` 1f gate + `task-tracker-sync`) into a **broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | claude-kit produces **portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
