@@ -46,3 +46,23 @@ def test_checker_detects_count_drift(monkeypatch):
     monkeypatch.setattr(mod, "_actuals", lambda: {**real_actuals(), "agents": 999})
     errors = mod.check_counts()
     assert any("agents" in e for e in errors)
+
+
+def test_checker_detects_duplicate_gate_tables(monkeypatch):
+    """A second (stale) gate table must be flagged, not silently shadowed by a later correct one."""
+    mod = _load()
+    real_read = mod._read
+    stale = (
+        "| **lean** | stale-gate |\n"
+        "| **standard** | stale-gate |\n"
+        "| **enterprise** | stale-gate |\n\n"
+    )
+
+    def fake_read(rel: str) -> str:
+        if rel == "README.md":
+            return stale + real_read(rel)  # a stale table ahead of the real one
+        return real_read(rel)
+
+    monkeypatch.setattr(mod, "_read", fake_read)
+    errors = mod.check_profile_gates()
+    assert any("duplicate gate table" in e for e in errors), errors

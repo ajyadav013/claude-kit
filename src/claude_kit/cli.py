@@ -381,9 +381,27 @@ def pipeline_close_gate(
         ..., "--evidence", help="path to the evidence artifact for this gate"
     ),
     path: str = typer.Argument(".", help="target project dir (default: .)"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="close the gate despite open critical/high/medium findings (requires --override-reason)",
+    ),
+    override_reason: Optional[str] = typer.Option(
+        None,
+        "--override-reason",
+        help="justification recorded when --force bypasses open blocking findings",
+    ),
 ) -> None:
-    """Record a quality gate as passed, with an evidence file, in the pipeline snapshot."""
-    _print_report(*pipeline.close_gate(path, gate, evidence))
+    """Record a quality gate as passed, with an evidence file, in the pipeline snapshot.
+
+    Refuses to pass a gate while critical/high/medium findings are open unless --force is given with
+    an --override-reason (recorded for human review).
+    """
+    _print_report(
+        *pipeline.close_gate(
+            path, gate, evidence, force=force, override_reason=override_reason
+        )
+    )
 
 
 @pipeline_app.command("abort")

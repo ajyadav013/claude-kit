@@ -19,7 +19,7 @@ from typing import Any
 
 _RM_RF_GUARD = (
     "command -v jq >/dev/null 2>&1 || exit 0; "
-    "CMD=$(jq -r '.tool_input.command'); "
+    "CMD=$(jq -r '.tool_input.command' 2>/dev/null || true); "
     "if echo \"$CMD\" | grep -qE 'rm[[:space:]]+-[^[:space:]]*r[^[:space:]]*f'; then "
     "echo 'BLOCKED: rm -rf is disabled by claude-kit. Move to trash or delete specific paths "
     "explicitly.' >&2; exit 2; fi"
@@ -30,7 +30,7 @@ _RM_RF_GUARD = (
 # (maintenance, mainframe-fix, remaster-ui, domain-model) are NOT blocked.
 _PUSH_GUARD = (
     "command -v jq >/dev/null 2>&1 || exit 0; "
-    "CMD=$(jq -r '.tool_input.command'); "
+    "CMD=$(jq -r '.tool_input.command' 2>/dev/null || true); "
     "if echo \"$CMD\" | grep -qE 'git[[:space:]]+push.*[[:space:]:](main|master)([[:space:]]|$)'; "
     "then echo 'BLOCKED: refusing to push to main/master — use a feature branch and a PR.' >&2; "
     "exit 2; fi"
@@ -38,7 +38,7 @@ _PUSH_GUARD = (
 
 _SECRETS_GUARD = (
     "command -v jq >/dev/null 2>&1 || exit 0; "
-    "FP=$(jq -r '.tool_input.file_path // empty'); "
+    "FP=$(jq -r '.tool_input.file_path // empty' 2>/dev/null || true); "
     'if echo "$FP" | grep -qE \'(^|/)\\.env$|\\.pem$|\\.key$|(^|/)id_rsa|(^|/)id_ed25519|'
     "(^|/)credentials(\\.json)?$|\\.p12$'; then "
     "echo 'BLOCKED: refusing to read a secrets file. Use .env.example or a secret manager.' >&2; "
@@ -244,6 +244,7 @@ PLUGIN_HOOK_IDS: frozenset[str] = frozenset(
         "guard-rm-rf",
         "guard-push-main",
         "guard-destructive-git",
+        "protect-secrets",
         "guard-commit-secrets",
         "warn-shared-modules",
         "warn-llm-io",

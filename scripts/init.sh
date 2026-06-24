@@ -5,13 +5,15 @@
 # project's .claude/ directory and drops a generic CLAUDE.md at the project root.
 #
 # Used by the /claude-kit:init slash command (plugin) and runnable directly from a checkout.
-# The pip CLI (`claude-kit init`) performs the same scaffolding in Python.
+# This is a degraded, no-resolution fallback: it copies the full payload as-is. The pip CLI
+# (`claude-kit init`) is the recommended installer — it is catalog-driven (stack/profile/MCP
+# resolution) and upgrade-safe (diff/upgrade), which this script does not do.
 #
 # Usage:  init.sh [TARGET_DIR] [--defaults] [--force] [--minimal] [--no-hooks]
 #   TARGET_DIR  project to scaffold into (default: $CLAUDE_PROJECT_DIR or current dir)
 #   --defaults  accepted for parity with the pip CLI (`claude-kit init --defaults`); a no-op here
 #               because this shell fallback is already non-interactive
-#   --force     overwrite existing CLAUDE.md / settings.json (otherwise written as *.example)
+#   --force     overwrite existing CLAUDE.md / settings.json (otherwise written as *.claude-kit sidecars)
 #   --minimal   only CLAUDE.md + rules/ (skip agents, skills, hooks, memory)
 #   --no-hooks  skip installing hook scripts and settings.json
 set -euo pipefail

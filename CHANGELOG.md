@@ -4,6 +4,41 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.26.0] — 2026-06-24
+
+**Post-hardening follow-up: two correctness/security fixes plus polish, all from a verified review
+punch list.**
+
+### Added
+- **Plugin now guards secret-file reads out of the box.** `protect-secrets` (PreToolUse/Read — blocks
+  reading `.env`/`.pem`/`.key`/`id_rsa`/credentials/…) was installed by the pip CLI (it's in the
+  `standard`/`all` profiles) but missing from the always-on plugin hook set, so plugin-only users had
+  no Read guard until they ran an init. It's now in `PLUGIN_HOOK_IDS`; `hooks/hooks.json` gains a
+  `PreToolUse`/`Read` group.
+- **`.github/dependabot.yml`** for the `github-actions` ecosystem (weekly, grouped) so CI/publish
+  actions are kept current and SHA-pinned by Dependabot's PRs, with auditable tag comments.
+  `pypa/gh-action-pypi-publish` stays on `release/v1` (required for Trusted Publishing + attestations).
+
+### Changed
+- **`pipeline close-gate` enforces the blocking-findings rule.** It now refuses to record a gate as
+  passed while any **critical/high/medium** findings are open (`rules/quality-gates.md`); low/cosmetic
+  still pass. A deliberate override requires `--force` **with** `--override-reason "<why>"`, recorded
+  under `gate_overrides[gate]` for human review.
+- **`pipeline validate` re-checks gate evidence.** When a gate is recorded passed and has a
+  `gate_evidence` path, validate now fails if that file no longer exists on disk, and surfaces any
+  force-closed gate. Lenient on the upgrade path (no evidence map → silent; partial map → warn).
+- **Inline hook guards quiet their `jq` calls** (`2>/dev/null || true`) so malformed/missing hook JSON
+  can't spam stderr — matching the script-backed guards; `guard-secrets.sh` aligned for consistency.
+
+### Fixed
+- **Docs consistency checker catches duplicate gate tables.** `check_docs_consistency.py` previously
+  keyed profile gate rows in a dict, so a second (possibly stale) table could silently overwrite an
+  earlier one; it now collects every occurrence, flags duplicates, and requires each to match
+  `profiles.yaml`.
+- **Stale comments in `scripts/init.sh`** corrected: it's described as the degraded, no-resolution
+  fallback (the pip CLI is the catalog-driven/upgrade-safe installer), and existing files are noted as
+  written to `*.claude-kit` sidecars (not `*.example`).
+
 ## [0.25.0] — 2026-06-24
 
 **PR4 of the phased hardening review: supply-chain provenance, an explicit trust model, and a full

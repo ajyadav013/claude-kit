@@ -27,6 +27,9 @@ SCOPES = frozenset({"individual", "team", "organization"})
 MODES = frozenset({"A", "B", "C", "D"})
 LANE_STATES = frozenset({"not-started", "in-progress", "passed", "failed"})
 FINDING_KEYS = frozenset({"critical", "high", "medium", "low"})
+#: Severities that block a gate (rules/quality-gates.md: a gate is PASS only with zero of these;
+#: low/cosmetic may pass with notes). Ordered for stable messages.
+BLOCKING_FINDINGS = ("critical", "high", "medium")
 
 
 def _snapshot_path(target: str | Path) -> Path:
@@ -71,6 +74,23 @@ def _selection(target: str | Path) -> dict[str, Any]:
         return {}
     sel = data.get("selection")
     return sel if isinstance(sel, dict) else {}
+
+
+def _blocking_findings(snap: dict[str, Any]) -> dict[str, int]:
+    """Return the ``{severity: count}`` of open findings that block a gate (count > 0).
+
+    Only :data:`BLOCKING_FINDINGS` severities count; malformed/absent counts are ignored (lenient
+    for older or partial snapshots).
+    """
+    raw = snap.get("open_findings")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, int] = {}
+    for sev in BLOCKING_FINDINGS:
+        count = raw.get(sev, 0)
+        if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+            out[sev] = count
+    return out
 
 
 def validate(target: str | Path) -> tuple[bool, list[str]]:
@@ -136,6 +156,31 @@ def validate(target: str | Path) -> tuple[bool, list[str]]:
     if gate is not None and gates and gate not in gates:
         fail(f"last_gate_passed {gate!r} is not a gate of this profile ({gates})")
 
+    overrides = snap.get("gate_overrides")
+    if overrides is not None and not isinstance(overrides, dict):
+        fail("gate_overrides must be an object of {gate: reason}")
+
+    # A recorded gate's evidence artifact must still exist on disk. Lenient on the upgrade path:
+    # a snapshot with no gate_evidence map at all simply doesn't track evidence (the norm for
+    # orchestrator-written snapshots) — stay silent; only flag a *partial* map that omits this gate.
+    if gate is not None:
+        evidence_map = snap.get("gate_evidence")
+        if isinstance(evidence_map, dict) and gate in evidence_map:
+            ev = evidence_map[gate]
+            if not (isinstance(ev, str) and Path(ev).expanduser().is_file()):
+                fail(
+                    f"last_gate_passed {gate!r} is recorded passed but its evidence file is "
+                    f"missing: {ev!r}"
+                )
+        elif isinstance(evidence_map, dict):
+            msgs.append(
+                f"WARN  last_gate_passed {gate!r} has no recorded gate_evidence path"
+            )
+        if isinstance(overrides, dict) and gate in overrides:
+            msgs.append(
+                f"WARN  gate {gate!r} was force-closed (override: {overrides[gate]!r}) — review"
+            )
+
     for field in ("task", "stage", "next"):
         if field not in snap or snap[field] is None:
             msgs.append(f"WARN  snapshot has no {field!r} (resume context is weaker)")
@@ -176,13 +221,23 @@ def status(target: str | Path) -> tuple[bool, list[str]]:
 
 
 def close_gate(
-    target: str | Path, gate: str, evidence: str | Path
+    target: str | Path,
+    gate: str,
+    evidence: str | Path,
+    *,
+    force: bool = False,
+    override_reason: str | None = None,
 ) -> tuple[bool, list[str]]:
     """Record ``gate`` as passed (with an evidence artifact) in the snapshot.
 
     Validates that the evidence file exists and that ``gate`` is a real gate for the installed
-    profile, then sets ``last_gate_passed`` and stores the evidence path. Seeds a minimal snapshot
-    (profile/scope from the install snapshot) if no run snapshot exists yet.
+    profile, **refuses to pass a gate while critical/high/medium findings are open** (per
+    ``rules/quality-gates.md``), then sets ``last_gate_passed`` and stores the evidence path. Seeds a
+    minimal snapshot (profile/scope from the install snapshot) if no run snapshot exists yet.
+
+    A forced close (``force=True`` with a non-empty ``override_reason``) bypasses the blocking-findings
+    rule but records the reason under ``gate_overrides[gate]`` so ``validate``/``status`` can surface it
+    for human review.
     """
     msgs: list[str] = []
     evidence_path = Path(evidence).expanduser().resolve()
@@ -211,6 +266,30 @@ def close_gate(
             "scope": sel.get("scope"),
             "stage": gate,
         }
+
+    blocking = _blocking_findings(snap)
+    if blocking:
+        rendered = ", ".join(f"{sev}={count}" for sev, count in blocking.items())
+        if not force:
+            return False, [
+                f"FAIL  cannot close {gate!r}: {rendered} open finding(s) must be resolved first "
+                "(critical/high/medium block a gate per quality-gates.md). "
+                "Re-run with --force --override-reason '<why>' to record a deliberate override."
+            ]
+        if not (override_reason and override_reason.strip()):
+            return False, [
+                "FAIL  --force requires --override-reason '<why>' explaining why the open "
+                f"finding(s) ({rendered}) are being bypassed"
+            ]
+        overrides = snap.get("gate_overrides")
+        if not isinstance(overrides, dict):
+            overrides = {}
+        overrides[gate] = override_reason.strip()
+        snap["gate_overrides"] = overrides
+        msgs.append(
+            f"WARN  gate {gate!r} force-closed with open findings ({rendered}): "
+            f"{override_reason.strip()}"
+        )
 
     snap["last_gate_passed"] = gate
     evidence_map = snap.get("gate_evidence")

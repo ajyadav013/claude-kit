@@ -154,6 +154,40 @@ def test_kubectl_guard_is_plugin_only() -> None:
     assert "guard-kubectl-delete" not in starter
 
 
+def test_plugin_hooks_include_protect_secrets_read() -> None:
+    """The always-on plugin must guard secret-file reads (PreToolUse/Read), not only via `init`.
+
+    protect-secrets is in HOOK_REGISTRY and the standard/all profiles, so the CLI installs it — but it
+    was missing from PLUGIN_HOOK_IDS, leaving plugin-only users unprotected until they ran an init.
+    """
+    groups = json.loads(HOOKS_FILE.read_text())["hooks"]["PreToolUse"]
+    read = [g for g in groups if g.get("matcher") == "Read"]
+    assert read, (
+        "plugin hooks.json must have a PreToolUse 'Read' matcher group (protect-secrets)"
+    )
+    cmds = [h.get("command", "") for g in read for h in g["hooks"]]
+    assert any("refusing to read a secrets file" in c for c in cmds), (
+        "the Read group must contain the protect-secrets guard"
+    )
+
+
+def test_inline_guards_suppress_jq_errors() -> None:
+    """Inline guard jq calls must use ``2>/dev/null || true`` so malformed hook JSON stays quiet.
+
+    The ``command -v jq`` prefix handles a *missing* jq; this guards the call itself against malformed
+    input spamming stderr or aborting the guard — matching the robust style in hooks/scripts/*.sh.
+    """
+    from claude_kit import hooks
+
+    for name in ("_RM_RF_GUARD", "_PUSH_GUARD", "_SECRETS_GUARD"):
+        guard = getattr(hooks, name)
+        for segment in guard.split("$(jq")[1:]:
+            call = segment.split(")")[0]
+            assert "2>/dev/null" in call and "|| true" in call, (
+                f"{name}: inline jq call must use '2>/dev/null || true'"
+            )
+
+
 INIT_COMMAND = REPO_ROOT / "commands" / "init.md"
 INIT_SH = REPO_ROOT / "scripts" / "init.sh"
 
