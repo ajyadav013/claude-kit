@@ -36,6 +36,9 @@ GITIGNORE_ENTRIES = (
     "CLAUDE.local.md",
     ".claude/state/",
     ".claude/tmp/",
+    # upgrade/merge artifacts written by `claude-kit upgrade` — never commit these
+    ".claude-kit.bak-*/",
+    "*.claude-kit",
 )
 
 

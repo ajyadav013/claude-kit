@@ -20,9 +20,11 @@ from typing import Any
 _RM_RF_GUARD = (
     "command -v jq >/dev/null 2>&1 || exit 0; "
     "CMD=$(jq -r '.tool_input.command' 2>/dev/null || true); "
-    "if echo \"$CMD\" | grep -qE 'rm[[:space:]]+-[^[:space:]]*r[^[:space:]]*f'; then "
-    "echo 'BLOCKED: rm -rf is disabled by claude-kit. Move to trash or delete specific paths "
-    "explicitly.' >&2; exit 2; fi"
+    "if printf '%s' \"$CMD\" | grep -qE '(^|[^[:alnum:]_])rm([[:space:]]|$)' "
+    "&& printf '%s' \"$CMD\" | grep -qE '(^|[[:space:]])-[a-zA-Z]*[rR]|--recursive' "
+    "&& printf '%s' \"$CMD\" | grep -qE '(^|[[:space:]])-[a-zA-Z]*f|--force'; then "
+    "echo 'BLOCKED: rm -rf (recursive+force, any flag order/spelling) is disabled by claude-kit. "
+    "Move to trash or delete specific paths explicitly.' >&2; exit 2; fi"
 )
 
 # Block pushes whose *target* ref is main/master. The branch token must be bounded by a space or

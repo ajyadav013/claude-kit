@@ -1,6 +1,6 @@
 ---
 name: repo-onboarding
-description: Use when someone new to the repo — a new engineer, support, or any newcomer — asks "how does this fit together and where do I start?" Maps the architecture, explains key modules and entry points, surfaces conventions, and produces an ordered onboarding path plus a "where things live" guide. Read-only: explores and explains, never changes code.
+description: 'Use when someone new to the repo — a new engineer, support, or any newcomer — asks "how does this fit together and where do I start?" Maps the architecture, explains key modules and entry points, surfaces conventions, and produces an ordered onboarding path plus a "where things live" guide. Read-only: explores and explains, never changes code.'
 ---
 
 # Repo Onboarding

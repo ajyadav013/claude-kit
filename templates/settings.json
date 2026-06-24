@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "command -v jq >/dev/null 2>&1 || exit 0; CMD=$(jq -r '.tool_input.command' 2>/dev/null || true); if echo \"$CMD\" | grep -qE 'rm[[:space:]]+-[^[:space:]]*r[^[:space:]]*f'; then echo 'BLOCKED: rm -rf is disabled by claude-kit. Move to trash or delete specific paths explicitly.' >&2; exit 2; fi"
+            "command": "command -v jq >/dev/null 2>&1 || exit 0; CMD=$(jq -r '.tool_input.command' 2>/dev/null || true); if printf '%s' \"$CMD\" | grep -qE '(^|[^[:alnum:]_])rm([[:space:]]|$)' && printf '%s' \"$CMD\" | grep -qE '(^|[[:space:]])-[a-zA-Z]*[rR]|--recursive' && printf '%s' \"$CMD\" | grep -qE '(^|[[:space:]])-[a-zA-Z]*f|--force'; then echo 'BLOCKED: rm -rf (recursive+force, any flag order/spelling) is disabled by claude-kit. Move to trash or delete specific paths explicitly.' >&2; exit 2; fi"
           },
           {
             "type": "command",
