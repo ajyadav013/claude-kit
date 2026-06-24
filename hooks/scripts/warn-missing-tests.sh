@@ -12,7 +12,7 @@ low="$(printf '%s' "$FILE_PATH" | tr '[:upper:]' '[:lower:]')"
 
 # Skip non-source: tests, docs, config, markdown, and the kit's own config.
 case "$low" in
-  *test*|*spec*|*__tests__*|*.md|*.markdown|*.json|*.ya?ml|*.toml|*.ini|*.cfg|*.txt|*.lock|*/.claude/*)
+  *test*|*spec*|*.md|*.markdown|*.json|*.ya?ml|*.toml|*.ini|*.cfg|*.txt|*.lock|*/.claude/*)
     exit 0 ;;
 esac
 

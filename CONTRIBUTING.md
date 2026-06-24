@@ -71,6 +71,13 @@ claude-kit diff /tmp/ck-demo
 # Tests:
 pytest
 
+# Lint / type / shell / drift checks (all run in CI — keep them green locally):
+ruff check src scripts tests && ruff format --check src scripts tests
+mypy
+shellcheck -S warning hooks/scripts/*.sh scripts/*.sh
+python scripts/gen_hooks.py --check
+python scripts/check_docs_consistency.py
+
 # Build + validate the package:
 python3 -m build
 python3 -m twine check dist/*
@@ -88,8 +95,9 @@ a specific stack — `pytest` enforces the no-Docker invariant on a scaffolded p
 
 ## Releasing
 
-1. Bump the version in **all four** places: `pyproject.toml`, `.claude-plugin/plugin.json`, the
-   `.claude-plugin/marketplace.json` entry, and `src/claude_kit/__init__.py`.
+1. Bump the version in **all five** places: `pyproject.toml`, `.claude-plugin/plugin.json`, the
+   `.claude-plugin/marketplace.json` entry, `src/claude_kit/__init__.py`, and `SECURITY.md`
+   (`check_docs_consistency.py` enforces parity across all of them + the latest `CHANGELOG.md` heading).
 2. Add a `CHANGELOG.md` entry, including a **"Not adopted (deliberately)"** block stating what you
    chose *not* to add and why — this is a marketed feature of the changelog (the README links to it),
    so keep it. If those blocks ever grow unwieldy they may later split into `docs/decision-log.md`,

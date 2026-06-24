@@ -586,10 +586,11 @@ everything available.
 | Command | Description |
 |---------|-------------|
 | `init [path] [--defaults] [--config FILE] [--force]` | Scaffold `CLAUDE.md` + `.claude/` (interactive or non-interactive) |
-| `validate [path]` | Structurally validate an installed config |
-| `doctor [path]` | Validate + environment/health checks with fix hints |
+| `validate [path] [--strict]` | Structurally validate an installed config; `--strict` adds hooks→script, `.mcp.json`-shape, snapshot, and catalog-integrity checks |
+| `doctor [path] [--mcp]` | Strict validate + environment/health checks; `--mcp` checks MCP commands, `${ENV}` vars, and lockfile drift |
 | `diff [path]` | Preview what an `upgrade` would change (no writes) |
 | `upgrade [path] [--force]` | Refresh kit/overlay files; protect your edits; prune orphans |
+| `pipeline validate · status · close-gate · abort` | Inspect/mutate the `/sdlc` state files (gate/lane/evidence coherence); **does not run** the pipeline |
 | `list-options` | List available frontend/backend/database/profile/MCP options |
 | `status [path]` | Show what's installed, the selection, and working memory |
 | `version` | Print the version |
@@ -597,6 +598,9 @@ everything available.
 
 Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`; and the
 `/sdlc` skill inside any scaffolded project.
+
+> When MCP servers are selected, `init` also writes a derived **`.mcp.lock.json`** pinning each
+> server's resolved package version — inspect it (or run `doctor --mcp`) to see exactly what would run.
 
 </details>
 

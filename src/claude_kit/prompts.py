@@ -132,7 +132,12 @@ def _choose_many(title: str, options: list[dict[str, Any]]) -> list[str]:
             print(f"  (ignoring unknown selection: {tok})")
     # de-dup, preserve order
     seen: set[str] = set()
-    return [c for c in chosen if not (c in seen or seen.add(c))]
+    deduped: list[str] = []
+    for c in chosen:
+        if c not in seen:
+            seen.add(c)
+            deduped.append(c)
+    return deduped
 
 
 def interactive(payload_root: str | Path) -> Selection:

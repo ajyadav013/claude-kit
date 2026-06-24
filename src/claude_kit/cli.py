@@ -14,7 +14,15 @@ from typing import Optional
 
 import typer
 
-from claude_kit import __version__, catalog, prompts, scaffold, upgrader, validator
+from claude_kit import (
+    __version__,
+    catalog,
+    pipeline,
+    prompts,
+    scaffold,
+    upgrader,
+    validator,
+)
 
 BANNER = r"""
   ___ _      _   _ ___  ___   _  _____ _____
@@ -32,6 +40,11 @@ research_app = typer.Typer(
     no_args_is_help=True, help="Research helpers (license-respecting)."
 )
 app.add_typer(research_app, name="research")
+pipeline_app = typer.Typer(
+    no_args_is_help=True,
+    help="Inspect/mutate the /sdlc pipeline state files (does not run the pipeline).",
+)
+app.add_typer(pipeline_app, name="pipeline")
 
 
 def _version_callback(value: bool) -> None:
@@ -168,17 +181,27 @@ def init(
 @app.command()
 def validate(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="deep checks: hooks→installed scripts, .mcp.json shape, snapshot + catalog integrity",
+    ),
 ) -> None:
     """Structurally validate a scaffolded .claude/ configuration."""
-    _print_report(*validator.validate(path))
+    _print_report(*validator.validate(path, strict=strict))
 
 
 @app.command()
 def doctor(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
+    mcp: bool = typer.Option(
+        False,
+        "--mcp",
+        help="also check MCP servers: command on PATH, ${ENV} vars set, lockfile in sync",
+    ),
 ) -> None:
-    """Run validation plus environment/health checks with fix hints."""
-    _print_report(*validator.doctor(path))
+    """Run strict validation plus environment/health checks with fix hints."""
+    _print_report(*validator.doctor(path, mcp=mcp))
 
 
 @app.command()
@@ -331,6 +354,44 @@ def research_import_sources(
         f"(given: {sources})"
     )
     raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
+
+
+@pipeline_app.command("validate")
+def pipeline_validate(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Check the pipeline snapshot's shape and gate/lane coherence (no writes)."""
+    _print_report(*pipeline.validate(path))
+
+
+@pipeline_app.command("status")
+def pipeline_status(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Print a summary of the current pipeline run (stage, lanes, gate, findings, next)."""
+    _print_report(*pipeline.status(path))
+
+
+@pipeline_app.command("close-gate")
+def pipeline_close_gate(
+    gate: str = typer.Argument(
+        ..., help="gate token to mark passed (e.g. code-review)"
+    ),
+    evidence: str = typer.Option(
+        ..., "--evidence", help="path to the evidence artifact for this gate"
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Record a quality gate as passed, with an evidence file, in the pipeline snapshot."""
+    _print_report(*pipeline.close_gate(path, gate, evidence))
+
+
+@pipeline_app.command("abort")
+def pipeline_abort(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Mark the current pipeline run aborted."""
+    _print_report(*pipeline.abort(path))
 
 
 def main() -> None:

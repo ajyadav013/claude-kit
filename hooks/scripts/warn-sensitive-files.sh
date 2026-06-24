@@ -11,7 +11,7 @@ FILE_PATH="$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_response.file
 low="$(printf '%s' "$FILE_PATH" | tr '[:upper:]' '[:lower:]')"
 
 case "$low" in
-  *auth*|*login*|*session*|*oauth*|*jwt*|*password*|*permission*|*rbac*|*authoriz*)
+  *auth*|*login*|*session*|*jwt*|*password*|*permission*|*rbac*)
     echo "WARN: editing an AUTH / authorization surface ($FILE_PATH). High-risk: get review + security check before completion (.claude/rules/risk-classification.md)." >&2 ;;
 esac
 case "$low" in

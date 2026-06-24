@@ -1,19 +1,49 @@
 """Validation and health checks for a scaffolded claude-kit configuration.
 
 ``validate`` performs structural checks (files present, JSON parses, frontmatter complete,
-referenced overlays installed). ``doctor`` adds environment checks (git/jq available, hook scripts
-executable, runtime dirs gitignored). Both return ``(ok, messages)`` so the CLI can print a report
-and choose an exit code.
+referenced overlays installed). Passing ``strict=True`` adds deep checks: settings.json hooks point
+at installed, executable scripts on valid events; ``.mcp.json`` has a sane shape; the resolved stack
+snapshot agrees with what's on disk; and the **bundled catalog** is referentially consistent
+(profiles → existing agents/skills/hooks, stack overlay files present). ``doctor`` runs the strict
+validate plus environment checks (git/jq available, hook scripts executable, runtime dirs gitignored)
+and, with ``--mcp``, MCP command/env-var health. All return ``(ok, messages)`` so the CLI can print a
+report and choose an exit code.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import platform
+import re
 import shutil
+from contextlib import ExitStack
 from pathlib import Path
+from typing import Callable
 
 from claude_kit.models import InitOptions
+
+#: Claude Code hook event names. A settings.json hooks block keyed on anything else is suspect —
+#: a typo'd event silently never fires — so strict validation flags unknown events.
+KNOWN_EVENTS = frozenset(
+    {
+        "SessionStart",
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "Stop",
+        "SubagentStop",
+        "PreCompact",
+        "Notification",
+        "SessionEnd",
+    }
+)
+
+#: Extracts the script basenames a hook command runs from ``.claude/hooks/`` (inline guards match none).
+_HOOK_SCRIPT_RE = re.compile(r"\.claude/hooks/([^\"'\s]+\.sh)")
+#: Extracts ``${VAR}`` placeholders from an .mcp.json fragment (valid shell identifiers only — a
+#: leading digit like ``${1}`` is a positional parameter, not an env var to warn about).
+_ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_]\w*)\}")
 
 
 def _parse_frontmatter(text: str) -> dict[str, str] | None:
@@ -53,8 +83,14 @@ def _load_init_options(claude_dir: Path) -> InitOptions | None:
         return None
 
 
-def validate(target: str | Path) -> tuple[bool, list[str]]:
+def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[str]]:
     """Structurally validate the claude-kit config at ``target``.
+
+    Args:
+        target: Project root containing the ``.claude/`` to validate.
+        strict: When True, add deep checks — settings.json hooks resolve to installed, executable
+            scripts on valid events; ``.mcp.json`` shape; the stack snapshot agrees with installed
+            files; and the bundled catalog is referentially consistent (see :func:`check_catalog`).
 
     Returns:
         ``(ok, messages)`` where each message is prefixed ``OK``/``WARN``/``FAIL`` and ``ok`` is
@@ -150,16 +186,301 @@ def validate(target: str | Path) -> tuple[bool, list[str]]:
     else:
         good(f"rules/ present ({sum(1 for _ in rules_dir.glob('*.md'))} rules)")
 
+    if strict:
+        _strict_checks(claude, fail, warn, good)
+        cat_ok, cat_msgs = check_catalog()
+        msgs.extend(cat_msgs)
+        if not cat_ok:
+            ok = False
+
     return ok, msgs
 
 
-def doctor(target: str | Path) -> tuple[bool, list[str]]:
-    """Run :func:`validate` plus environment/health checks.
+# --- strict installed-config checks ---------------------------------------------------------------
+
+
+def _strict_checks(
+    claude: Path,
+    fail: Callable[[str], None],
+    warn: Callable[[str], None],
+    good: Callable[[str], None],
+) -> None:
+    """Deep checks on a live install: hooks→scripts, .mcp.json shape, snapshot agreement."""
+    settings = claude / "settings.json"
+    if settings.is_file():
+        try:
+            doc = json.loads(settings.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            doc = None  # base checks already reported the parse error
+        if isinstance(doc, dict):
+            _strict_settings_hooks(claude, doc, fail, good)
+
+    mcp = claude.parent / ".mcp.json"
+    if mcp.is_file():
+        _strict_mcp_shape(mcp, fail, good)
+
+    snap = claude / "config" / "stack-catalog.snapshot.yaml"
+    if snap.is_file():
+        _strict_snapshot(claude, snap, fail, good)
+
+
+def _strict_settings_hooks(
+    claude: Path,
+    doc: dict,
+    fail: Callable[[str], None],
+    good: Callable[[str], None],
+) -> None:
+    """Every settings.json hook must fire on a known event and run an installed, executable script."""
+    clean = True
+    for event, groups in (doc.get("hooks") or {}).items():
+        if event not in KNOWN_EVENTS:
+            fail(f"settings.json hooks: unknown event {event!r} (it will never fire)")
+            clean = False
+        for grp in groups or []:
+            for entry in grp.get("hooks", []) or []:
+                for script in _HOOK_SCRIPT_RE.findall(entry.get("command", "")):
+                    sp = claude / "hooks" / script
+                    if not sp.is_file():
+                        fail(
+                            f"settings.json hook references a missing script: {script}"
+                        )
+                        clean = False
+                    elif not (sp.stat().st_mode & 0o111):
+                        fail(f"hook script not executable: .claude/hooks/{script}")
+                        clean = False
+    if clean:
+        good("settings.json hooks fire on known events and run installed scripts")
+
+
+def _strict_mcp_shape(
+    mcp: Path, fail: Callable[[str], None], good: Callable[[str], None]
+) -> None:
+    """.mcp.json must be a ``{mcpServers: {id: {command|url, ...}}}`` document."""
+    try:
+        doc = json.loads(mcp.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f".mcp.json is invalid JSON: {exc}")
+        return
+    servers = doc.get("mcpServers")
+    if not isinstance(servers, dict):
+        fail(".mcp.json has no valid 'mcpServers' object")
+        return
+    clean = True
+    for sid, cfg in servers.items():
+        if not isinstance(cfg, dict) or not (cfg.get("command") or cfg.get("url")):
+            fail(f".mcp.json server {sid!r} has neither a command nor a url")
+            clean = False
+    if clean:
+        good(f".mcp.json shape is valid ({len(servers)} server(s))")
+
+
+def _strict_snapshot(
+    claude: Path,
+    snap: Path,
+    fail: Callable[[str], None],
+    good: Callable[[str], None],
+) -> None:
+    """The resolved stack snapshot must not list agents/skills/overlays absent from the install."""
+    import yaml
+
+    try:
+        data = yaml.safe_load(snap.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        fail(f"stack snapshot is invalid YAML: {exc}")
+        return
+    missing: list[str] = []
+    for agent in list(data.get("agents") or []) + list(
+        data.get("overlay_agents") or []
+    ):
+        if not (claude / "agents" / f"{agent}.md").is_file():
+            missing.append(f"agents/{agent}.md")
+    for skill in data.get("skills") or []:
+        if not (claude / "skills" / skill / "SKILL.md").is_file():
+            missing.append(f"skills/{skill}/SKILL.md")
+    for rule in data.get("overlay_rules") or []:
+        if not (claude / "rules" / rule).is_file():
+            missing.append(f"rules/{rule}")
+    if missing:
+        fail("stack snapshot lists files not installed: " + ", ".join(sorted(missing)))
+    else:
+        good("stack snapshot agrees with installed agents/skills/overlay files")
+
+
+# --- catalog referential integrity (the kit's own data, checked against the payload) --------------
+
+
+def _iter_stack_entries(stacks: dict) -> list[tuple[dict, str]]:
+    """Yield ``(entry, stack_dir)`` for every non-planned frontend/backend/database stack entry."""
+    out: list[tuple[dict, str]] = []
+    for fw in (stacks.get("frontend", {}).get("frameworks", {}) or {}).values():
+        if fw.get("status") != "planned":
+            out.append((fw, str(fw.get("stack_dir", ""))))
+    for lang in (stacks.get("backend", {}).get("languages", {}) or {}).values():
+        if lang.get("status") == "planned":
+            continue
+        for fw in (lang.get("frameworks", {}) or {}).values():
+            if fw.get("status") != "planned":
+                out.append((fw, str(fw.get("stack_dir", ""))))
+    for db in (stacks.get("database", {}).get("options", {}) or {}).values():
+        if db.get("status") != "planned":
+            out.append((db, str(db.get("stack_dir", ""))))
+    return out
+
+
+def check_catalog(payload_root: str | Path | None = None) -> tuple[bool, list[str]]:
+    """Check the kit catalog is referentially consistent (used by ``validate --strict`` / CI).
+
+    Unlike :func:`claude_kit.catalog.resolve` (which validates *ids*), this confirms the referenced
+    files physically exist — the gap that today only surfaces as a soft "missing (skipped)" line at
+    install time. Verifies that every profile resolves to existing agents/skills/registered hooks,
+    every stack's overlay rule/agent file is present on disk, and (if ``org.yaml`` exists) the org
+    layer's new skills/agents/rules/packs and added core agents all exist.
+
+    Args:
+        payload_root: Payload root to check. Defaults to the bundled payload (the installed kit).
+
+    Returns:
+        ``(ok, messages)`` with each message prefixed ``OK``/``FAIL`` and tagged ``catalog:``.
+    """
+    from claude_kit import catalog
+
+    msgs: list[str] = []
+    ok = True
+
+    def cfail(m: str) -> None:
+        nonlocal ok
+        ok = False
+        msgs.append(f"FAIL  catalog: {m}")
+
+    def cgood(m: str) -> None:
+        msgs.append(f"OK    catalog: {m}")
+
+    with ExitStack() as stack:
+        if payload_root is None:
+            from claude_kit import scaffold
+
+            payload_root = scaffold.payload_dir(stack)
+        payload_root = Path(payload_root)
+
+        stacks = catalog._load(payload_root, "stacks.yaml")
+        profiles = catalog._load(payload_root, "profiles.yaml")
+        avail = catalog.available(payload_root)
+        agent_set = set(avail["agents"])
+        skill_set = set(avail["skills"])
+        hook_set = set(avail["hooks"])
+
+        prof_missing: set[str] = set()
+        for name in profiles.get("profiles", {}):
+            res = catalog._resolve_profile(profiles, name, avail)
+            prof_missing |= {
+                f"{name}: agent {a}" for a in res["agents"] if a not in agent_set
+            }
+            prof_missing |= {
+                f"{name}: skill {s}" for s in res["skills"] if s not in skill_set
+            }
+            prof_missing |= {
+                f"{name}: hook {h}" for h in res["hooks"] if h not in hook_set
+            }
+        if prof_missing:
+            cfail(
+                "profiles reference missing components: "
+                + "; ".join(sorted(prof_missing))
+            )
+        else:
+            cgood(
+                f"{len(profiles.get('profiles', {}))} profiles reference only existing "
+                "agents/skills/hooks"
+            )
+
+        overlay_missing: set[str] = set()
+        stack_skill_missing: set[str] = set()
+        templates = payload_root / "templates" / "stacks"
+        for entry, stack_dir in _iter_stack_entries(stacks):
+            for rule in entry.get("overlay_rules", []) or []:
+                if stack_dir and not (templates / stack_dir / "rules" / rule).is_file():
+                    overlay_missing.add(f"{stack_dir}/rules/{rule}")
+            for agent in entry.get("overlay_agents", []) or []:
+                if (
+                    stack_dir
+                    and not (templates / stack_dir / "agents" / f"{agent}.md").is_file()
+                ):
+                    overlay_missing.add(f"{stack_dir}/agents/{agent}.md")
+            for skill in entry.get("skills", []) or []:
+                if skill not in skill_set:
+                    stack_skill_missing.add(skill)
+        if overlay_missing:
+            cfail("stack overlay files missing: " + ", ".join(sorted(overlay_missing)))
+        else:
+            cgood("stack overlay rule/agent files all present")
+        if stack_skill_missing:
+            cfail(
+                "stacks suggest missing skills: "
+                + ", ".join(sorted(stack_skill_missing))
+            )
+
+        org_path = catalog.catalog_dir(payload_root) / "org.yaml"
+        if org_path.is_file():
+            _check_org_catalog(payload_root, catalog, agent_set, cfail, cgood)
+
+    return ok, msgs
+
+
+def _check_org_catalog(
+    payload_root: Path,
+    catalog,  # noqa: ANN001 - the module, imported lazily by the caller
+    agent_set: set[str],
+    cfail: Callable[[str], None],
+    cgood: Callable[[str], None],
+) -> None:
+    """Check the org overlay's new skills/agents/rules/packs and added core agents all exist."""
+    org = catalog._load(payload_root, "org.yaml")
+    org_root = payload_root / "templates" / "org"
+    missing: list[str] = []
+    for skill in org.get("new_skills", []) or []:
+        if not (org_root / "skills" / skill / "SKILL.md").is_file():
+            missing.append(f"skills/{skill}/SKILL.md")
+    for agent in org.get("new_agents", []) or []:
+        if not (org_root / "agents" / f"{agent}.md").is_file():
+            missing.append(f"agents/{agent}.md")
+    for rule in org.get("new_rules", []) or []:
+        if not (org_root / "rules" / rule).is_file():
+            missing.append(f"rules/{rule}")
+    for pack in org.get("packs", []) or []:
+        pid = pack.get("id") if isinstance(pack, dict) else pack
+        if pid and not (org_root / "packs" / pid / "pack.yaml").is_file():
+            missing.append(f"packs/{pid}/pack.yaml")
+    bad_agents = [
+        a for a in org.get("core_agents_added", []) or [] if a not in agent_set
+    ]
+    if missing:
+        cfail("org overlay files missing: " + ", ".join(sorted(missing)))
+    if bad_agents:
+        cfail(
+            "org core_agents_added not found in agents/: "
+            + ", ".join(sorted(bad_agents))
+        )
+    if not missing and not bad_agents:
+        cgood("org overlay skills/agents/rules/packs all present")
+
+
+# --- doctor (validate + environment) --------------------------------------------------------------
+
+
+def doctor(target: str | Path, *, mcp: bool = False) -> tuple[bool, list[str]]:
+    """Run a strict :func:`validate` plus environment/health checks.
+
+    Note: ``doctor`` runs validation in **strict** mode, so it can FAIL on a deliberately hand-edited
+    install (e.g. an agent/skill file removed by hand while the snapshot still records it). For a
+    lenient structural check of a customized ``.claude/``, use ``validate`` without ``--strict``.
+
+    Args:
+        target: Project root to check.
+        mcp: Also run MCP health checks (commands on PATH, ``${ENV}`` vars set, lockfile agreement).
 
     Returns:
         ``(ok, messages)``; environment issues are warnings (do not fail) unless they break config.
     """
-    ok, msgs = validate(target)
+    ok, msgs = validate(target, strict=True)
     target = Path(target).expanduser().resolve()
     claude = target / ".claude"
 
@@ -209,4 +530,45 @@ def doctor(target: str | Path) -> tuple[bool, list[str]]:
                 f"WARN  {entry} not gitignored (runtime artifacts may be committed)"
             )
 
+    if mcp:
+        _mcp_health(target, msgs)
+
     return ok, msgs
+
+
+def _mcp_health(target: Path, msgs: list[str]) -> None:
+    """Append MCP health lines: command on PATH, ``${ENV}`` vars set, lockfile agreement (warn-only)."""
+    mcp = target / ".mcp.json"
+    if not mcp.is_file():
+        msgs.append("OK    no .mcp.json (no MCP servers configured)")
+        return
+    try:
+        servers = json.loads(mcp.read_text(encoding="utf-8")).get("mcpServers", {})
+    except json.JSONDecodeError as exc:
+        msgs.append(f"WARN  .mcp.json unreadable for MCP health checks: {exc}")
+        return
+    for sid, cfg in servers.items():
+        command = cfg.get("command") if isinstance(cfg, dict) else None
+        if command and not shutil.which(command):
+            msgs.append(f"WARN  MCP {sid}: command {command!r} not on PATH")
+        elif command:
+            msgs.append(f"OK    MCP {sid}: command {command!r} found")
+        for var in sorted(set(_ENV_VAR_RE.findall(json.dumps(cfg)))):
+            if not os.environ.get(var):
+                msgs.append(f"WARN  MCP {sid}: env var ${{{var}}} is not set")
+
+    lock = target / ".mcp.lock.json"
+    if lock.is_file():
+        try:
+            locked = set(
+                json.loads(lock.read_text(encoding="utf-8")).get("servers", {})
+            )
+        except json.JSONDecodeError:
+            locked = set()
+        if locked != set(servers):
+            msgs.append(
+                "WARN  .mcp.lock.json is out of sync with .mcp.json "
+                "(run `claude-kit upgrade` to regenerate)"
+            )
+        else:
+            msgs.append("OK    .mcp.lock.json matches .mcp.json")

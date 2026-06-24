@@ -4,6 +4,49 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.24.0] — 2026-06-24
+
+**PR3 of the phased hardening review: deeper validation, a deterministic pipeline CLI, an MCP
+lockfile, and a CI matrix that brings every distribution channel and quality dimension under test.**
+
+### Added
+
+- **`claude-kit validate --strict`** — beyond the structural checks, strict mode verifies that every
+  `settings.json` hook fires on a known event and runs an **installed, executable** script; that
+  `.mcp.json` has a sane `{mcpServers: {id: {command|url}}}` shape; that the resolved
+  `stack-catalog.snapshot.yaml` agrees with the agents/skills/overlays actually on disk; and that the
+  **bundled catalog is referentially consistent** (`validator.check_catalog`: every profile resolves to
+  existing agents/skills/registered hooks, every stack overlay rule/agent file is present, and the org
+  overlay's new skills/agents/rules/packs exist). `doctor` now runs the strict validate by default.
+- **`claude-kit pipeline` command group** (`src/claude_kit/pipeline.py`) — deterministic,
+  **non-executing** operations on the `/sdlc` state files: `pipeline validate` (snapshot shape +
+  profile/scope/mode/lane/findings coherence, with `last_gate_passed` checked against the installed
+  gate set), `pipeline status` (human-readable run summary), `pipeline close-gate <gate> --evidence
+  <file>` (records a passed gate, requiring the evidence artifact and a gate name the profile defines),
+  and `pipeline abort`. These validate/mutate `.claude/state/pipeline-snapshot.json` — they do **not**
+  run the pipeline.
+- **`.mcp.lock.json`** — when `.mcp.json` is written, a deterministic lockfile captures the resolved
+  package + pinned version (parsed from the `npx -y <pkg>@<ver>` args) or hosted URL per server, so a
+  reviewer can see exactly what would run. It is a kit-owned, derived artifact (refreshed on upgrade,
+  never a user sidecar). **`claude-kit doctor --mcp`** checks each server's command is on PATH, warns on
+  unset `${ENV}` vars, and flags a lockfile that has drifted from `.mcp.json` (warnings only).
+- **Expanded CI** (`.github/workflows/ci.yml`) — new jobs alongside the test matrix: `lint`
+  (`ruff check` + `ruff format --check` + `mypy`), `shell` (`shellcheck -S warning` over all hook + repo
+  scripts), `static` (`gen_hooks.py --check`, the docs-consistency guard, catalog referential
+  integrity, and JSON validity of the plugin manifests + `hooks.json`), and `wheel-smoke` (build → install
+  into a clean venv → `init --defaults` → `validate --strict` → `doctor`). `ruff`/`mypy`/`shellcheck-py`
+  are added to the `dev` extra, with conservative `[tool.ruff.lint]` (no E501) and `[tool.mypy]` config.
+
+### Fixed
+
+- **Latent type/lint bugs surfaced by the new CI** — `upgrader.py` used `ResolvedPlan` in annotations
+  without importing it (harmless under `from __future__ import annotations`, but undefined) and passed
+  `str | Path` to a `Path`-typed `_compare`; `_format_preview` could dereference `None`;
+  `prompts._choose_many` and `__main__` used None-returning calls in value position. All fixed; the
+  codebase is now `ruff` + `mypy --ignore-missing-imports` clean. Two hook scripts had redundant,
+  shellcheck-flagged glob alternatives (`*__tests__*` under `*test*`; `*oauth*`/`*authoriz*` under
+  `*auth*`) — removed with no behavior change.
+
 ## [0.23.0] — 2026-06-23
 
 **PR2 of the phased hardening review: structural single-source-of-truth for hooks, and plugin/CLI

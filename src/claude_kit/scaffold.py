@@ -18,10 +18,12 @@ import shutil
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
+from typing import Any
 
 import yaml
 
-from claude_kit import __version__, hooks as hooks_mod
+from claude_kit import __version__
+from claude_kit import hooks as hooks_mod
 from claude_kit.models import FileRecord, InitOptions, ResolvedPlan
 from claude_kit.render import render_text
 
@@ -299,12 +301,72 @@ def _write_claude_md(
     _write_user_text(claude_md, base, force=force, log=log, label="CLAUDE.md")
 
 
+def _mcp_lock(mcp_servers: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Derive a deterministic ``.mcp.lock.json`` document from the resolved server configs.
+
+    Captures the *resolved* package + pinned version (parsed from the ``npx -y <pkg>@<ver>`` args) or
+    the hosted URL per server, so a reviewer / ``doctor --mcp`` can see exactly what would run. Purely
+    a function of the catalog config (no timestamps), so the same selection always locks identically.
+    """
+    locked: dict[str, dict[str, Any]] = {}
+    for sid in sorted(mcp_servers):
+        cfg = mcp_servers[sid]
+        url = cfg.get("url")
+        if url:
+            locked[sid] = {"type": str(cfg.get("type", "http")), "url": str(url)}
+            continue
+        command = str(cfg.get("command", ""))
+        entry: dict[str, Any] = {"type": str(cfg.get("type", "stdio"))}
+        spec = _mcp_package_spec(command, list(cfg.get("args", [])))
+        if spec:
+            package, version = spec
+            entry["package"] = package
+            if version:
+                entry["version"] = version
+        else:
+            entry["command"] = command
+        locked[sid] = entry
+    return {"schema": 1, "servers": locked}
+
+
+def _mcp_package_spec(command: str, args: list[Any]) -> tuple[str, str] | None:
+    """Return ``(package, version)`` for an ``npx`` server, or None if not npx-resolvable.
+
+    Picks the first non-flag, non-``${ENV}`` argument as the package spec and splits a trailing
+    ``@version`` (handling scoped ``@scope/name@version`` via the last ``@``). Version is ``""`` if
+    the spec is unpinned.
+    """
+    if command != "npx":
+        return None
+    for arg in args:
+        token = str(arg)
+        if not token or token.startswith("-") or token.startswith("${"):
+            continue
+        if token.startswith(("http://", "https://", "file://")):
+            return None  # a URL/path argument is not an npm package spec to pin
+        if token.startswith("@"):  # scoped: @scope/name[@version]
+            at = token.rfind("@")
+            if at > 0:
+                return token[:at], token[at + 1 :]
+            return token, ""
+        name, sep, version = token.partition("@")
+        return name, version if sep else ""
+    return None
+
+
 def _write_mcp(
     target: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
 ) -> None:
-    """Write a project-root ``.mcp.json`` only if MCP servers were selected."""
+    """Write a project-root ``.mcp.json`` (+ a derived ``.mcp.lock.json``) if MCP servers chosen."""
+    lock = target / ".mcp.lock.json"
     if not plan.mcp_servers:
+        # No servers selected: drop a now-orphaned lockfile, but only when there is no ``.mcp.json``
+        # beside it to describe — never delete a file from a user's own hand-written MCP config pair.
+        if lock.is_file() and not (target / ".mcp.json").is_file():
+            lock.unlink()
+            log.append("  • removed orphaned .mcp.lock.json (no MCP servers)")
         return
+    mcp_existed = (target / ".mcp.json").is_file()
     doc = {"mcpServers": plan.mcp_servers}
     _write_user_text(
         target / ".mcp.json",
@@ -313,6 +375,14 @@ def _write_mcp(
         log=log,
         label=".mcp.json",
     )
+    # The lockfile is derived from .mcp.json. Regenerate it only when we actually (over)wrote
+    # .mcp.json — a fresh write or --force. If the user's own .mcp.json was preserved (written as a
+    # sidecar), leave their lockfile untouched so the two never describe different server sets.
+    if force or not mcp_existed:
+        lock.write_text(
+            json.dumps(_mcp_lock(plan.mcp_servers), indent=2) + "\n", encoding="utf-8"
+        )
+        log.append("  • .mcp.lock.json (resolved MCP versions)")
 
 
 def _write_readme(
@@ -391,7 +461,7 @@ def _record_files(target: Path, plan: ResolvedPlan) -> list[FileRecord]:
     """Compute checksum + ownership records for every installed file (excluding runtime/self)."""
     records: list[FileRecord] = []
     candidates: list[Path] = []
-    for top in ("CLAUDE.md", "README.claude-sdlc.md", ".mcp.json"):
+    for top in ("CLAUDE.md", "README.claude-sdlc.md", ".mcp.json", ".mcp.lock.json"):
         p = target / top
         if p.is_file():
             candidates.append(p)

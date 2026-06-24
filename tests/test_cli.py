@@ -204,3 +204,64 @@ def test_payload_dir_resolves_from_checkout():
     assert (root / "catalog").is_dir()
     assert (root / "rules").is_dir()
     assert (root / "agents").is_dir()
+
+
+# --- new lifecycle surface (validate --strict / doctor --mcp / pipeline group) --------------------
+
+
+def test_validate_strict_flag_cli(tmp_path, payload):
+    install(payload, tmp_path)
+    result = runner.invoke(app, ["validate", "--strict", str(tmp_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "catalog:" in result.stdout
+
+
+def test_doctor_mcp_flag_cli(tmp_path, payload):
+    install(payload, tmp_path, mcp=["github"])
+    result = runner.invoke(app, ["doctor", "--mcp", str(tmp_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "MCP github" in result.stdout
+
+
+def test_pipeline_validate_and_status_cli(tmp_path, payload):
+    install(payload, tmp_path)
+    res = runner.invoke(app, ["pipeline", "validate", str(tmp_path)])
+    assert res.exit_code == 0, res.stdout
+    assert "no run in progress" in res.stdout
+    res = runner.invoke(app, ["pipeline", "status", str(tmp_path)])
+    assert res.exit_code == 0
+
+
+def test_pipeline_close_gate_and_abort_cli(tmp_path, payload):
+    """Exercises the close-gate positional+option signature end-to-end (and abort)."""
+    install(payload, tmp_path)
+    evidence = tmp_path / "evidence.txt"
+    evidence.write_text("done", encoding="utf-8")
+    res = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "close-gate",
+            "code-review",
+            "--evidence",
+            str(evidence),
+            str(tmp_path),
+        ],
+    )
+    assert res.exit_code == 0, res.stdout
+    assert "recorded passed" in res.stdout
+    # Unknown gate for the profile → non-zero with the gate list.
+    bad = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "close-gate",
+            "made-up",
+            "--evidence",
+            str(evidence),
+            str(tmp_path),
+        ],
+    )
+    assert bad.exit_code == 1
+    assert "is not a gate of this profile" in bad.stdout
+    assert runner.invoke(app, ["pipeline", "abort", str(tmp_path)]).exit_code == 0

@@ -28,7 +28,7 @@ distributed two ways from one source of truth:
 | `templates/stacks/<kind>/<id>/` | Per-stack **overlay** content: `rules/` (+ `agents/` for DB stacks). **No application code, no Docker** — the only place stack-specific content lives. |
 | `templates/org/` | **Org overlay** content (scope-gated, organization only): `skills/`, `agents/` (personas), `rules/` (policy/vibe), `packs/<pack>/{pack.yaml,README.md}`, `README.md`. Wired via `catalog/org.yaml`. The only place org-specific content lives. |
 | `scripts/init.sh` | Thin no-pip fallback scaffolder (copies the full payload; no catalog resolution) |
-| `src/claude_kit/` | The pip CLI (Typer): `cli.py`, `catalog.py` (resolver), `prompts.py`, `models.py`, `scaffold.py` (installer), `render.py` (Jinja2), `hooks.py`, `validator.py`, `upgrader.py` |
+| `src/claude_kit/` | The pip CLI (Typer): `cli.py`, `catalog.py` (resolver), `prompts.py`, `models.py`, `scaffold.py` (installer), `render.py` (Jinja2), `hooks.py`, `validator.py` (incl. `validate --strict` + `check_catalog`), `upgrader.py`, `pipeline.py` (deterministic `/sdlc` state-file ops) |
 | `tests/` | pytest suite (catalog, render, scaffold, validator, upgrader, CLI; incl. the profile×stack×scope self-test matrix) |
 | `examples/` | Synthetic end-to-end `/sdlc` worked example (repo reference; **not** bundled into the wheel) |
 | `docs/architecture.md` · `docs/agents.md` · `docs/coverage-audit.md` · `docs/eval-harness.md` | Architecture diagrams · agent guide · the GATED-vs-RULE-vs-SKILL enforcement audit · the with/without eval template |

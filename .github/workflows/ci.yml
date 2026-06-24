@@ -25,6 +25,63 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+  lint:
+    name: lint (ruff + mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install (editable + dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: ruff check
+        run: ruff check src scripts tests
+      - name: ruff format --check
+        run: ruff format --check src scripts tests
+      - name: mypy
+        # ruff lints src+scripts+tests; mypy type-checks only src/claude_kit (per [tool.mypy]) —
+        # the shipped library code. scripts/ + tests/ are intentionally style-checked, not typed.
+        run: mypy
+
+  shell:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install shellcheck (pip-vendored binary)
+        run: python -m pip install --upgrade pip shellcheck-py
+      - name: shellcheck hook + repo scripts (fail on warnings+)
+        run: shellcheck -S warning hooks/scripts/*.sh scripts/*.sh
+
+  static:
+    name: static (hooks + docs + catalog + manifests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install (editable, runtime deps)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Hook files in sync with the registry
+        run: python scripts/gen_hooks.py --check
+      - name: Docs / version / count consistency
+        run: python scripts/check_docs_consistency.py
+      - name: Catalog referential integrity
+        run: |
+          python -c "import sys; from claude_kit import validator; ok, msgs = validator.check_catalog('.'); [print(m) for m in msgs]; sys.exit(0 if ok else 1)"
+      - name: Plugin manifests + hooks.json are valid JSON
+        run: |
+          python -c "import json; [json.load(open(p)) for p in ('hooks/hooks.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json')]; print('manifests OK')"
+
   build:
     name: build + twine check
     runs-on: ubuntu-latest
@@ -38,3 +95,26 @@ jobs:
           python -m pip install --upgrade pip build twine
           python -m build
           python -m twine check dist/*
+
+  wheel-smoke:
+    name: wheel smoke (build → install → init → validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel
+      - name: Install into a clean venv and exercise the CLI
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/ckenv
+          /tmp/ckenv/bin/pip install --upgrade pip
+          /tmp/ckenv/bin/pip install dist/*.whl
+          /tmp/ckenv/bin/claude-kit --version
+          /tmp/ckenv/bin/claude-kit init /tmp/demo --defaults
+          /tmp/ckenv/bin/claude-kit validate --strict /tmp/demo
+          /tmp/ckenv/bin/claude-kit doctor /tmp/demo
