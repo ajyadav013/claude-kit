@@ -4,6 +4,29 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.28.0] — 2026-06-24
+
+**Positioning & onboarding pass (docs): surface the anti-fabrication moat, compare against native
+subagents, and ship a real-run capture harness. No behavior change.**
+
+### Added
+- **`scripts/capture-sdlc-run.sh` + [`docs/capture-a-real-run.md`](docs/capture-a-real-run.md).** A
+  read-only helper that bundles one completed `/sdlc` run — the spec (`docs/specs/`), the gitignored
+  gate state (`.claude/state/pipeline-snapshot.json`), the verdict log (`.claude/CONTINUITY.md`), and
+  the diff vs your base branch — into one publishable folder. It runs a generic secret scan (lists
+  matching **file names only**, never values) and writes a manual `REDACTION-CHECKLIST.md`, so a real
+  run can become a worked example without hand-collecting files.
+- **"Native Claude Code subagents / Agent Teams" comparison row** in the README — the alternative
+  every Claude Code user weighs first. Honest framing: native gives you the agents; claude-kit adds
+  the *governance* (sequenced pipeline, owned gates, evidence requirement, `devils-advocate`, resume).
+
+### Changed
+- **The anti-fabrication evidence requirement is now the headline trust idea.** "How it works" leads
+  with *"Evidence or it didn't happen"* — every gate verdict must cite the command + captured output
+  (or `file:line`), and an invented/assumed/partial-output verdict is an auto-Critical finding
+  (`rules/quality-gates.md` §2.5). The top-of-README tagline now states gates pass only on real,
+  cited output. (The rule itself is unchanged; it was previously only implied via RARV.)
+
 ## [0.27.0] — 2026-06-24
 
 **Objective fixes from a product review: honest skill counts (with a guard), drift-aware
