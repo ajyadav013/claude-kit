@@ -80,8 +80,10 @@ jobs:
           # exists at upload time, skip instead of failing the run (the version-check job already
           # gates this, but two merges in flight could both pass the check).
           skip-existing: true
-          # PEP 740 attestations are temporarily disabled: Sigstore's Rekor transparency log was
-          # returning HTTP 502s and blocking the upload (the OIDC trusted-publishing auth itself
-          # works). Re-enable by removing this line (the action defaults to attestations: true) once
-          # Sigstore is healthy again — e.g. for the next release.
-          attestations: false
+          # PEP 740 attestations are enabled (this is also the action's default; set explicitly to
+          # document intent). They were temporarily disabled in an earlier release while Sigstore's
+          # Rekor transparency log was returning HTTP 502s at upload time. Sigstore has since been
+          # healthy (status.sigstore.dev reported all services online with no incidents), so signed
+          # build attestations are re-enabled here for supply-chain provenance. If Rekor flakes again,
+          # flip this back to false to unblock a release, then re-enable once it recovers.
+          attestations: true

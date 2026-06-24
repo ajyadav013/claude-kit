@@ -361,7 +361,7 @@ alembic/ or migrations/
 
 **Example:**
 - `app/v1/common/`, `app/v1/file_operations/`, `services/kafka/`, `services/temporal/`, `config/`, `global_utils/`
-- `src/supplier/`, `src/webhook/`, `src/hsn/`, etc.
+- `src/supplier/`, `src/webhook/`, etc.
 
 **Benefits:**
 - High cohesion (all supplier code in one place)

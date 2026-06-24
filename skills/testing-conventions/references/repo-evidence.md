@@ -214,22 +214,22 @@ class UnittestConnectionManager(metaclass=Singleton):
 
 ### DAO Test Pattern
 
-**File**: `tests/brand/test_dao.py`
+**File**: `tests/tenant/test_dao.py`
 
 ```python
-class TestBrandDao:
+class TestTenantDao:
     @pytest.fixture
     async def dao(self, db_connection):
         async with db_connection() as session:
-            yield BrandDAO(session)
+            yield TenantDAO(session)
 
     async def test_get_records_by_id(self, dao, db_connection):
         records = await dao.get_record_by_id(1)
         assert records is None
         async with db_connection() as session:
-            brand = await populate_brand_by_size(session)
-            record = await dao.get_record_by_id(brand.id)
-            assert record.id == brand.id
+            tenant = await populate_tenant_by_size(session)
+            record = await dao.get_record_by_id(tenant.id)
+            assert record.id == tenant.id
 ```
 
 ### Factory Pattern (Webhook)
@@ -300,14 +300,14 @@ async def test_raise_slack_alert_success(mock_publish_event, valid_slack_alert_s
 
 ### Test Structure
 
-**Directory**: `tests/brand/`
+**Directory**: `tests/tenant/`
 
 **Files**:
 - `test_dao.py` — DAO layer tests (get_by_id, get_all, get_by_field, upload_from_csv)
 - `test_service.py` — Service layer tests
 - `test_route.py` — Route contract tests
-- `helpers.py` — Test data helpers (`populate_brand_by_size`)
-- `templates/brands.csv` — CSV fixture for bulk upload tests
+- `helpers.py` — Test data helpers (`populate_tenant_by_size`)
+- `templates/tenants.csv` — CSV fixture for bulk upload tests
 
 ## Service C (Minimal Coverage)
 
@@ -417,7 +417,7 @@ export default defineConfig({
         'src/test/**',
         'src/**/*.test.{ts,tsx}',
         'src/lib/api.ts',
-        'src/modules/store-view/components/InsightsSidebar.tsx',
+        'src/modules/analytics/components/AnalyticsPanel.tsx',
       ],
       thresholds: {
         lines: 90,

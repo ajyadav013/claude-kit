@@ -6,26 +6,26 @@ Real-world production patterns demonstrating each GraphQL convention.
 
 ### Schema-Per-Endpoint Pattern
 
-**File**: `app/v1/vendor/graphql/schema.py`
+**File**: `app/v1/catalog/graphql/schema.py`
 
 ```python
 import strawberry
-from app.v1.vendor.graphql.query import (
-    CategoryQuery, AllCategoryQuery, ClusterQuery, AllClusterQuery,
-    FormatQuery, AllFormatQuery, ...
+from app.v1.catalog.graphql.query import (
+    ProductQuery, AllProductQuery, CategoryQuery, AllCategoryQuery,
+    RegionQuery, AllRegionQuery, FormatQuery, AllFormatQuery, ...
 )
 
+product_schema = strawberry.Schema(query=ProductQuery)
+all_product_schema = strawberry.Schema(query=AllProductQuery)
 category_schema = strawberry.Schema(query=CategoryQuery)
 all_category_schema = strawberry.Schema(query=AllCategoryQuery)
-cluster_schema = strawberry.Schema(query=ClusterQuery)
-all_cluster_schema = strawberry.Schema(query=AllClusterQuery)
-all_sourcing_cluster_schema = strawberry.Schema(query=AllSourcingClusterQuery)
-all_commercial_cluster_schema = strawberry.Schema(query=AllCommercialClusterQuery)
-sourcing_cluster_schema = strawberry.Schema(query=SourcingClusterQuery)
-commercial_cluster_schema = strawberry.Schema(query=CommercialClusterQuery)
+region_schema = strawberry.Schema(query=RegionQuery)
+all_region_schema = strawberry.Schema(query=AllRegionQuery)
+supplier_region_schema = strawberry.Schema(query=SupplierRegionQuery)
+all_supplier_region_schema = strawberry.Schema(query=AllSupplierRegionQuery)
 format_schema = strawberry.Schema(query=FormatQuery)
 all_format_schema = strawberry.Schema(query=AllFormatQuery)
-profile_status_schema = strawberry.Schema(query=ProfileStatusQuery)
+approval_stage_schema = strawberry.Schema(query=ApprovalStageQuery)
 # ... 11 total schemas for different filter types
 ```
 
@@ -33,23 +33,23 @@ profile_status_schema = strawberry.Schema(query=ProfileStatusQuery)
 
 ### @strawberry.type Query Classes
 
-**File**: `app/v1/vendor/graphql/query.py`
+**File**: `app/v1/catalog/graphql/query.py`
 
 ```python
 @strawberry.type
-class CategoryQuery:
+class ProductQuery:
     @strawberry.field
-    async def list_categories(self, page: str='', internal_status: Optional[str]='') -> List[Optional[str]]:
+    async def list_products(self, page: str='', internal_status: Optional[str]='') -> List[Optional[str]]:
         async_gen = get_connection_handler_for_app()
         connection_handler = await async_gen.__anext__()
 
         try:
-            query = (select(distinct(Vendor.category))
-                    .where(Vendor.category != None)
-                    .order_by(asc(Vendor.category)))
+            query = (select(distinct(Product.name))
+                    .where(Product.name != None)
+                    .order_by(asc(Product.name)))
             result = await connection_handler.session.execute(query)
-            categories = result.scalars().all()
-            return sorted(list(set(categories)), key=str.lower)
+            products = result.scalars().all()
+            return sorted(list(set(products)), key=str.lower)
         finally:
             await connection_handler.close()
 ```
@@ -58,7 +58,7 @@ class CategoryQuery:
 
 ### Async Connection Handler Pattern
 
-**File**: `app/v1/vendor/graphql/query.py`
+**File**: `app/v1/catalog/graphql/query.py`
 
 ```python
 async_gen = get_connection_handler_for_app()  # Get async generator
@@ -71,42 +71,43 @@ finally:
     await connection_handler.close()  # CRITICAL: always close
 ```
 
-**Evidence**: All 11 query classes use this exact pattern: `CategoryQuery`, `AllCategoryQuery`, `ClusterQuery`, `AllClusterQuery`, `SourcingClusterQuery`, `AllSourcingClusterQuery`, `CommercialClusterQuery`, `AllCommercialClusterQuery`, `FormatQuery`, `AllFormatQuery`, `ProfileStatusQuery`.
+**Evidence**: All 11 query classes use this exact pattern: `ProductQuery`, `AllProductQuery`, `CategoryQuery`, `AllCategoryQuery`, `RegionQuery`, `AllRegionQuery`, `SupplierRegionQuery`, `AllSupplierRegionQuery`, `FormatQuery`, `AllFormatQuery`, `ApprovalStageQuery`.
 
 ### Mounting GraphQL Routers
 
-**File**: `app/v1/vendor/router.py`
+**File**: `app/v1/catalog/router.py`
 
 ```python
 from strawberry.fastapi import GraphQLRouter
-from app.v1.vendor.graphql.schema import (
-    category_schema, cluster_schema, format_schema, ...
+from app.v1.catalog.graphql.schema import (
+    product_schema, category_schema, region_schema, format_schema, ...
 )
 
 # Separate router for GraphQL filters
 filter_graphql_router = APIRouter(prefix="/filter-graphql", route_class=CustomRequestRoute)
 
-category_graphql_app = GraphQLRouter(category_schema)
+product_graphql_app = GraphQLRouter(product_schema)
 filter_graphql_router.include_router(
-    category_graphql_app,
-    prefix="/category",
+    product_graphql_app,
+    prefix="/products",
     tags=['admin', 'member']
 )
 
 # ... 10 more GraphQL routers mounted similarly (11 total)
 ```
 
-**Evidence**: GraphQL routers coexist with REST routes under `/vendor-info/filter-graphql/` prefix; each schema gets its own sub-path.
+**Evidence**: GraphQL routers coexist with REST routes under `/catalog/filter-graphql/` prefix; each schema gets its own sub-path.
 
 ### Scalar Types
 
-**File**: `app/v1/vendor/graphql/type.py`
+**File**: `app/v1/catalog/graphql/type.py`
 
 ```python
 import strawberry
 
-ClusterType = strawberry.scalar(str, name="ClusterType")
+ProductType = strawberry.scalar(str, name="ProductType")
 CategoryType = strawberry.scalar(str, name="CategoryType")
+RegionType = strawberry.scalar(str, name="RegionType")
 FormatType = strawberry.scalar(str, name="FormatType")
 # ... 6 scalar type declarations
 ```
@@ -342,7 +343,7 @@ const { refetch: refetchEnrichments } = useQuery(GET_CANDIDATE_ENRICHMENTS, {
 ## Pattern Summary
 
 **Backend services with Strawberry GraphQL**:
-- Vendor filter service — filter GraphQL endpoints
+- Filter API service — filter/dropdown GraphQL endpoints
 
 **Frontend applications with Apollo Client**:
 - Dashboard application — dashboard queries, enrichment mutations, file uploads

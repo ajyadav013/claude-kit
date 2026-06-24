@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-claude-kit is pre-1.0. Only the latest released version (currently **0.24.0**) receives security fixes.
+claude-kit is pre-1.0. Only the latest released version (currently **0.25.0**) receives security fixes.
 
 ## Reporting a vulnerability
 

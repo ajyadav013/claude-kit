@@ -1,7 +1,7 @@
 ---
 name: manual-test
 description: Manually test a developed feature using browser automation in headed mode. Navigates to the page, interacts with elements, and verifies behavior visually — like a QA tester sitting at the screen.
-argument-hint: [page route or feature name, e.g. "/store-view", "dashboard filters", "exception card"]
+argument-hint: [page route or feature name, e.g. "/analytics", "dashboard filters", "exception card"]
 disable-model-invocation: true
 ---
 
@@ -470,7 +470,7 @@ Always prefer accessible selectors:
 |----------|----------|---------|
 | 1 | `getByRole` | `page.getByRole('button', { name: 'Apply' })` |
 | 2 | `getByText` | `page.getByText('Total Revenue')` |
-| 3 | `getByLabel` | `page.getByLabel('Search stores')` |
+| 3 | `getByLabel` | `page.getByLabel('Search records')` |
 | 4 | `getByPlaceholder` | `page.getByPlaceholder('Filter by name')` |
 | 5 | `data-testid` | `page.locator('[data-testid="metric-card"]')` |
 | 6 | CSS selector | `page.locator('main')` (last resort) |

@@ -14,7 +14,7 @@ Example from a production service (`src/metrics/constant.py`):
 from prometheus_client import Histogram
 
 HTTP_REQUEST_SENT = Histogram(
-    "redm_http_request_sent",
+    "app_http_request_sent",
     "Duration of HTTP requests sent to external services",
     ["method", "path", "status_code", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,

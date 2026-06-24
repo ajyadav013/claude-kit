@@ -86,16 +86,16 @@ WHERE store_id = ANY($2)
 Legacy or client-constrained APIs:
 
 ```python
-articles: Optional[str] = Query(None, description="Comma-separated article codes")
+items: Optional[str] = Query(None, description="Comma-separated item codes")
 ```
 
 Split in service/repository:
 ```python
-article_list = articles.split(',') if articles else []
-# Then use in SQL: WHERE article_id = ANY($1)
+item_list = items.split(',') if items else []
+# Then use in SQL: WHERE item_id = ANY($1)
 ```
 
-Example: `?articles=SKU-001,SKU-002,SKU-003`
+Example: `?items=ITEM-001,ITEM-002,ITEM-003`
 
 ## Hierarchical filters
 
@@ -172,14 +172,14 @@ query = f"ORDER BY {column} {sort_order.upper()}"
 Single search param for multi-field substring matching:
 
 ```python
-search: Optional[str] = Query(None, description="Search text across article, description, store")
+search: Optional[str] = Query(None, description="Search text across item, description, store")
 ```
 
 Translate to case-insensitive SQL:
 ```sql
 WHERE (
-    LOWER(article_id) LIKE LOWER($1)
-    OR LOWER(article_description) LIKE LOWER($1)
+    LOWER(item_id) LIKE LOWER($1)
+    OR LOWER(item_description) LIKE LOWER($1)
     OR LOWER(store_id) LIKE LOWER($1)
 )
 ```
@@ -189,8 +189,8 @@ Param value: `f"%{search}%"`
 Some implementations use PostgreSQL `ILIKE`:
 ```sql
 WHERE (
-    article_id ILIKE $1
-    OR article_description ILIKE $1
+    item_id ILIKE $1
+    OR item_description ILIKE $1
 )
 ```
 

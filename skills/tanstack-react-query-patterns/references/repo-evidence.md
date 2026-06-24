@@ -100,15 +100,15 @@ export const resourceKeys = {
   lists: () => [...resourceKeys.all, 'list'] as const,
 
   /** Key for resource list with specific filters */
-  list: (brandId: string, filters?: ResourceFilters) =>
-    [...resourceKeys.lists(), brandId, filters] as const,
+  list: (tenantId: string, filters?: ResourceFilters) =>
+    [...resourceKeys.lists(), tenantId, filters] as const,
 
   /** Key for single resource queries */
   details: () => [...resourceKeys.all, 'detail'] as const,
 
   /** Key for single resource detail */
-  detail: (resourceId: string, brandId: string) =>
-    [...resourceKeys.details(), resourceId, brandId] as const,
+  detail: (resourceId: string, tenantId: string) =>
+    [...resourceKeys.details(), resourceId, tenantId] as const,
 
   /** Key for resource generation jobs */
   jobs: () => [...resourceKeys.all, 'jobs'] as const,
@@ -117,8 +117,8 @@ export const resourceKeys = {
   job: (jobId: string) => [...resourceKeys.jobs(), jobId] as const,
 
   /** Key for resource selection queries */
-  selection: (brandId: string, options?: Record<string, unknown>) =>
-    [...resourceKeys.all, 'selection', brandId, options] as const,
+  selection: (tenantId: string, options?: Record<string, unknown>) =>
+    [...resourceKeys.all, 'selection', tenantId, options] as const,
 };
 ```
 
@@ -130,17 +130,17 @@ From product catalog hook:
 export const productKeys = {
   all: ['products'] as const,
 
-  list: (brandId: string, filters?: ProductFilters) =>
-    [...productKeys.all, 'list', brandId, filters] as const,
+  list: (tenantId: string, filters?: ProductFilters) =>
+    [...productKeys.all, 'list', tenantId, filters] as const,
 
-  detail: (productId: string, brandId: string) =>
-    [...productKeys.all, 'detail', productId, brandId] as const,
+  detail: (productId: string, tenantId: string) =>
+    [...productKeys.all, 'detail', productId, tenantId] as const,
 
-  forSelection: (brandId: string, category?: ProductCategory) =>
-    [...productKeys.all, 'selection', brandId, category] as const,
+  forSelection: (tenantId: string, category?: ProductCategory) =>
+    [...productKeys.all, 'selection', tenantId, category] as const,
 
-  bulkUploadStatus: (jobId: string, brandId: string) =>
-    [...productKeys.all, 'bulk-upload', jobId, brandId] as const,
+  bulkUploadStatus: (jobId: string, tenantId: string) =>
+    [...productKeys.all, 'bulk-upload', jobId, tenantId] as const,
 };
 ```
 
@@ -163,16 +163,16 @@ export interface UseResourcesOptions {
  * Hook for listing resources with filtering and pagination.
  */
 export function useResources(
-  brandId: string | null,
+  tenantId: string | null,
   filters: ResourceFilters = {},
   options: UseResourcesOptions = {}
 ) {
   const { enabled = true, keepPreviousData = true } = options;
 
   const query = useQuery({
-    queryKey: resourceKeys.list(brandId ?? '', filters),
-    queryFn: () => resourceApi.list(brandId!, filters),
-    enabled: Boolean(brandId) && enabled,
+    queryKey: resourceKeys.list(tenantId ?? '', filters),
+    queryFn: () => resourceApi.list(tenantId!, filters),
+    enabled: Boolean(tenantId) && enabled,
     placeholderData: keepPreviousData ? (previousData) => previousData : undefined,
     staleTime: 30000, // 30 seconds
   });
@@ -196,14 +196,14 @@ From product list hook:
 // features/products/hooks/useProducts.ts
 
 export function useProducts(
-  brandId: string | null,
+  tenantId: string | null,
   filters: ProductFilters = {},
   options?: { enabled?: boolean }
 ) {
   return useQuery({
-    queryKey: productKeys.list(brandId ?? '', filters),
-    queryFn: () => productsService.listProducts(brandId!, filters),
-    enabled: Boolean(brandId) && (options?.enabled ?? true),
+    queryKey: productKeys.list(tenantId ?? '', filters),
+    queryFn: () => productsService.listProducts(tenantId!, filters),
+    enabled: Boolean(tenantId) && (options?.enabled ?? true),
   });
 }
 ```
@@ -217,10 +217,10 @@ export function usePrefetchResources() {
   const queryClient = useQueryClient();
 
   return useCallback(
-    async (brandId: string, filters: ResourceFilters = {}) => {
+    async (tenantId: string, filters: ResourceFilters = {}) => {
       await queryClient.prefetchQuery({
-        queryKey: resourceKeys.list(brandId, filters),
-        queryFn: () => resourceApi.list(brandId, filters),
+        queryKey: resourceKeys.list(tenantId, filters),
+        queryFn: () => resourceApi.list(tenantId, filters),
         staleTime: 30000,
       });
     },
@@ -248,20 +248,20 @@ export function useUpdateResource(options: UseUpdateResourceOptions = {}) {
   return useMutation({
     mutationFn: ({
       resourceId,
-      brandId,
+      tenantId,
       data,
     }: {
       resourceId: string;
-      brandId: string;
+      tenantId: string;
       data: ResourceUpdateRequest;
-    }) => resourceApi.update(resourceId, brandId, data),
+    }) => resourceApi.update(resourceId, tenantId, data),
     onSuccess: (resource, variables) => {
       // Invalidate related queries
       queryClient.invalidateQueries({
         queryKey: resourceKeys.lists(),
       });
       queryClient.invalidateQueries({
-        queryKey: resourceKeys.detail(variables.resourceId, variables.brandId),
+        queryKey: resourceKeys.detail(variables.resourceId, variables.tenantId),
       });
       onSuccess?.(resource);
     },
@@ -280,15 +280,15 @@ export function useDeleteResource(options: UseDeleteResourceOptions = {}) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ resourceId, brandId }: { resourceId: string; brandId: string }) =>
-      resourceApi.delete(resourceId, brandId),
+    mutationFn: ({ resourceId, tenantId }: { resourceId: string; tenantId: string }) =>
+      resourceApi.delete(resourceId, tenantId),
     onSuccess: (_, variables) => {
       // Invalidate list and remove detail from cache
       queryClient.invalidateQueries({
         queryKey: resourceKeys.lists(),
       });
       queryClient.removeQueries({
-        queryKey: resourceKeys.detail(variables.resourceId, variables.brandId),
+        queryKey: resourceKeys.detail(variables.resourceId, variables.tenantId),
       });
       onSuccess?.();
     },
@@ -311,12 +311,12 @@ export function useToggleResourceStatus(options: UseToggleResourceStatusOptions 
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ resourceId, brandId }: { resourceId: string; brandId: string }) =>
-      resourceApi.toggleStatus(resourceId, brandId),
+    mutationFn: ({ resourceId, tenantId }: { resourceId: string; tenantId: string }) =>
+      resourceApi.toggleStatus(resourceId, tenantId),
     onSuccess: (response, variables) => {
       // Update cache optimistically
       queryClient.setQueryData(
-        resourceKeys.detail(variables.resourceId, variables.brandId),
+        resourceKeys.detail(variables.resourceId, variables.tenantId),
         (old: Resource | undefined) =>
           old ? { ...old, is_active: response.is_active } : old
       );
@@ -344,26 +344,26 @@ export function useUpdateProduct() {
   return useMutation({
     mutationFn: ({
       productId,
-      brandId,
+      tenantId,
       request,
     }: {
       productId: string;
-      brandId: string;
+      tenantId: string;
       request: ProductUpdateRequest;
-    }) => productsService.updateProduct(productId, brandId, request),
+    }) => productsService.updateProduct(productId, tenantId, request),
     onSuccess: (product, variables) => {
       // Update the product in cache
       queryClient.setQueryData(
-        productKeys.detail(variables.productId, variables.brandId),
+        productKeys.detail(variables.productId, variables.tenantId),
         product
       );
       // Invalidate list queries
       queryClient.invalidateQueries({
-        queryKey: productKeys.list(variables.brandId),
+        queryKey: productKeys.list(variables.tenantId),
       });
       // Also invalidate selection queries
       queryClient.invalidateQueries({
-        queryKey: productKeys.forSelection(variables.brandId),
+        queryKey: productKeys.forSelection(variables.tenantId),
       });
     },
   });
@@ -380,12 +380,12 @@ export function useRefreshResourceSpec(options: UseRefreshResourceSpecOptions = 
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ resourceId, brandId }: { resourceId: string; brandId: string }) =>
-      resourceApi.refreshResourceSpec(resourceId, brandId),
+    mutationFn: ({ resourceId, tenantId }: { resourceId: string; tenantId: string }) =>
+      resourceApi.refreshResourceSpec(resourceId, tenantId),
     onSuccess: (response, variables) => {
       // Update the resource in cache with new spec
       queryClient.setQueryData(
-        resourceKeys.detail(variables.resourceId, variables.brandId),
+        resourceKeys.detail(variables.resourceId, variables.tenantId),
         (old: ResourceWithUsage | undefined) =>
           old
             ? {
@@ -416,14 +416,14 @@ From template application hook:
 ```typescript
 // features/templates/hooks/useCTATemplates.ts
 
-export function useApplyTemplate(brandId: string) {
+export function useApplyTemplate(tenantId: string) {
   const queryClient = useQueryClient();
 
   const apply = useCallback(
     (template: CTATemplate): CTAFrame => {
       // Optimistically update the cache to reflect incremented usage
       queryClient.setQueryData<CTATemplate[]>(
-        ctaTemplateKeys.list(brandId),
+        ctaTemplateKeys.list(tenantId),
         (old) =>
           old?.map((t) =>
             t.id === template.id
@@ -437,7 +437,7 @@ export function useApplyTemplate(brandId: string) {
       );
       return template.config;
     },
-    [brandId, queryClient]
+    [tenantId, queryClient]
   );
 
   return { apply };
@@ -453,7 +453,7 @@ From bulk upload status hook:
 
 export function useBulkUploadStatus(
   jobId: string | null,
-  brandId: string | null,
+  tenantId: string | null,
   options?: {
     enabled?: boolean;
     pollingInterval?: number;
@@ -489,9 +489,9 @@ export function useBulkUploadStatus(
   }, [jobId]);
 
   const query = useQuery({
-    queryKey: productKeys.bulkUploadStatus(jobId ?? '', brandId ?? ''),
-    queryFn: () => productsService.getBulkUploadStatus(jobId!, brandId!),
-    enabled: Boolean(jobId) && Boolean(brandId) && enabled,
+    queryKey: productKeys.bulkUploadStatus(jobId ?? '', tenantId ?? ''),
+    queryFn: () => productsService.getBulkUploadStatus(jobId!, tenantId!),
+    enabled: Boolean(jobId) && Boolean(tenantId) && enabled,
     refetchInterval: shouldPoll ? pollingInterval : false,
     staleTime: 0,
   });
@@ -512,12 +512,12 @@ export function useBulkUploadStatus(
           if (status === 'completed' && onCompleteRef.current) {
             onCompleteRef.current(query.data);
             // Invalidate product lists after successful upload
-            if (brandId) {
+            if (tenantId) {
               queryClient.invalidateQueries({
-                queryKey: productKeys.list(brandId),
+                queryKey: productKeys.list(tenantId),
               });
               queryClient.invalidateQueries({
-                queryKey: productKeys.forSelection(brandId),
+                queryKey: productKeys.forSelection(tenantId),
               });
             }
           } else if (status === 'failed' && onErrorRef.current) {
@@ -526,7 +526,7 @@ export function useBulkUploadStatus(
         }
       }
     }
-  }, [query.data, jobId, brandId, queryClient]);
+  }, [query.data, jobId, tenantId, queryClient]);
 
   const stopPolling = useCallback(() => {
     setShouldPoll(false);

@@ -803,8 +803,8 @@ def test_brief3_disciplines_installed(tmp_path, payload):
     assert "Plan critique" in da, "P1-3 devils-advocate plan-critique mode missing"
 
 
-def test_fynd_core_skills_gated_by_profile(tmp_path, payload):
-    """Fynd adoption: bug-hunt + test-plan-review are new core skills — standard+, not lean."""
+def test_adopted_core_skills_gated_by_profile(tmp_path, payload):
+    """Adopted toolkit: bug-hunt + test-plan-review are new core skills — standard+, not lean."""
     new_skills = {"bug-hunt", "test-plan-review"}
     lean = tmp_path / "lean"
     standard = tmp_path / "standard"
@@ -822,8 +822,8 @@ def test_fynd_core_skills_gated_by_profile(tmp_path, payload):
     )
 
 
-def test_fynd_core_extends_installed(tmp_path, payload):
-    """Fynd adoption: the reuse-first deltas land in existing core skills/agents. Skill-file content is
+def test_adopted_core_extends_installed(tmp_path, payload):
+    """Adopted toolkit: the reuse-first deltas land in existing core skills/agents. Skill-file content is
     asserted on an enterprise install (it has every skill, incl. enterprise-only deprecation-and-
     migration); the agent deltas are present from standard up."""
     target = tmp_path / "enterprise"
@@ -851,7 +851,7 @@ def test_fynd_core_extends_installed(tmp_path, payload):
     assert "Verify Claims Against the Codebase" in em, "em-reviewer claim-audit missing"
 
 
-def test_fynd_react_design_system_overlay_installs(tmp_path, payload):
+def test_adopted_react_design_system_overlay_installs(tmp_path, payload):
     """The new design-system-compliance.md overlay rule installs with the React frontend (default)."""
     target = tmp_path / "react"
     install(payload, target, profile="standard")  # default frontend is React
@@ -887,29 +887,28 @@ def test_react_design_system_rule_set_installs_and_is_neutralized(tmp_path, payl
         "design-system-compliance.md should point at ui-design-system.md as the source of truth"
     )
 
-    # Neutralization: none of the installed design files leak the source app's identity, paths,
-    # named app components, domain glossary, or migration backlog stamps.
-    forbidden = (
-        "Impetus",
-        "src/modules",
-        "AskImpetusFAB",
-        "MobileSplitDrawer",
-        "WWHealthStrip",
-        "SPSF",
-        "GMROF",
-        "Locked 2026",
-    )
-    for name in (
-        "ui-design-system.md",
-        "ux-patterns.md",
-        "mobile-design-guidelines.md",
-    ):
+    # Neutralization: the shipped design files are generic design-system guidance. The original import
+    # was scrubbed of the source application's identity (named components, internal source paths, and
+    # migration date-stamps) before shipping; rather than enumerate those now-removed internal tokens
+    # here (which would re-introduce them into this public repo), assert positively that what installs
+    # reads as generic design content, and negatively that no internal-looking source path slips back in.
+    expected_generic = {
+        "ui-design-system.md": ("token", "color"),
+        "ux-patterns.md": ("pattern",),
+        "mobile-design-guidelines.md": ("mobile", "touch"),
+    }
+    for name, terms in expected_generic.items():
         text = (rules / name).read_text(encoding="utf-8")
-        for token in forbidden:
-            assert token not in text, f"app-specific token {token!r} leaked into {name}"
+        lowered = text.lower()
+        assert all(t in lowered for t in terms), (
+            f"{name} does not read as generic design-system guidance"
+        )
+        assert "src/modules" not in text, (
+            f"internal-looking source path leaked into {name}"
+        )
 
 
-def test_fynd_org_review_tier_is_scope_gated(tmp_path, payload):
+def test_org_review_tier_is_scope_gated(tmp_path, payload):
     """Staff-PM reviewer + the 4 product/EM review skills install ONLY at organization scope."""
     review_skills = {
         "review-scope",

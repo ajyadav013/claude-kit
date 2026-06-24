@@ -7,20 +7,20 @@ Patterns for async test fixtures, mocking external services, and factory-based t
 **Function-scoped DAO fixture** (example pattern):
 
 ```python
-# app/tests/brand/test_dao.py
-class TestBrandDao:
+# app/tests/tenant/test_dao.py
+class TestTenantDao:
     @pytest.fixture
     async def dao(self, db_connection):
         async with db_connection() as session:
-            yield BrandDAO(session)
+            yield TenantDAO(session)
 
     async def test_get_records_by_id(self, dao, db_connection):
         records = await dao.get_record_by_id(1)
         assert records is None
         async with db_connection() as session:
-            brand = await populate_brand_by_size(session)
-            record = await dao.get_record_by_id(brand.id)
-            assert record.id == brand.id
+            tenant = await populate_tenant_by_size(session)
+            record = await dao.get_record_by_id(tenant.id)
+            assert record.id == tenant.id
 ```
 
 Wraps DAO instantiation in async context manager from `db_connection` session factory. Each test can create test data via a separate session.

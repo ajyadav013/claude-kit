@@ -175,23 +175,23 @@ document = json.loads(json_str, object_hook=json_util.object_hook)
 # constants/mongo_constant.py
 from pymongo import ASCENDING, DESCENDING
 
-STL_TREND = "stl_trend"
-STL_MEDIA = "stl_media"
+RECORDS = "records"
+MEDIA = "media_items"
 FASHION_EYE_IMAGES = "fashion_eye_images"
 
 collections = [
     {
-        "name": STL_TREND,
+        "name": RECORDS,
         "indexes": [
             [("id", ASCENDING)],
             [("category", ASCENDING), ("id", ASCENDING), ("gender", ASCENDING)],
         ],
     },
     {
-        "name": STL_MEDIA,
+        "name": MEDIA,
         "indexes": [
             [("imageUrl", ASCENDING), ("insertDate", DESCENDING)],
-            [("trendId", ASCENDING)],
+            [("recordId", ASCENDING)],
         ],
     },
     {
@@ -227,15 +227,15 @@ This ensures indexes exist before the application serves traffic.
 ```python
 # Controller
 document = {
-    "trendId": 12345,
+    "recordId": 12345,
     "mediaId": "abc",
     "noOfLikes": 0,
     "category": "fashion",
 }
-success = await MongoDB.insert_bulk("stl_media", [document], "trendId", "mediaId")
+success = await MongoDB.insert_bulk("media_items", [document], "recordId", "mediaId")
 
 # DAO
-success, result = MongoDB.fetch_one("stl_media", {"trendId": 12345})
+success, result = MongoDB.fetch_one("media_items", {"recordId": 12345})
 if success:
     print(result["mediaId"])  # dict access, no Pydantic
 ```
@@ -274,11 +274,11 @@ if success:
 ```python
 pipeline = [
     {"$match": {"category": "fashion"}},
-    {"$group": {"_id": "$trendId", "count": {"$sum": 1}}},
+    {"$group": {"_id": "$recordId", "count": {"$sum": 1}}},
     {"$sort": {"count": -1}},
     {"$limit": 10}
 ]
-success, results = MongoDB.aggregate_query("stl_media", pipeline)
+success, results = MongoDB.aggregate_query("media_items", pipeline)
 if success:
     for result in results:
         print(result["_id"], result["count"])

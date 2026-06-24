@@ -33,7 +33,7 @@ jobs:
           project_id: ${{ vars.GCP_PROJECT_ID }}
 
       - name: Configure Docker
-        run: gcloud auth configure-docker asia.gcr.io --quiet
+        run: gcloud auth configure-docker gcr.io --quiet
 
       - name: Check if image exists
         id: check-image

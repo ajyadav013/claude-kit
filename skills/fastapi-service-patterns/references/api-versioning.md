@@ -99,7 +99,7 @@ api_router_v1_prefix = APIRouter(prefix="/v1.0")
 if settings.DEPLOYMENT_NAME == "App":
     # Main app deployment
     api_router_v1_prefix.include_router(supplier_router, prefix="/supplier", tags=["supplier"])
-    api_router_v1_prefix.include_router(brand_router, prefix="/brand", tags=["brand"])
+    api_router_v1_prefix.include_router(order_router, prefix="/order", tags=["order"])
     api_router_v1_prefix.include_router(auth_router, prefix="/auth", tags=["auth"])
     # ... many feature routers
 

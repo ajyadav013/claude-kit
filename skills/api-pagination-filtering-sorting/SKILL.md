@@ -26,7 +26,7 @@ Standardize HTTP query parameter conventions and response metadata for paginated
 
 4. **Multi-value filters via FastAPI `Query`**: For filters that accept multiple values (e.g., `status`, `store_ids`, `segment_codes`), use `Optional[List[str]] = Query(None, description="...")`. The client sends `?status=pending&status=approved` or `?status[]=pending&status[]=approved` (FastAPI accepts both). In the query builder, translate to SQL `IN` clause or `ANY(ARRAY[...])`.
 
-5. **Comma-separated multi-value filters**: Some endpoints accept comma-separated values in a single param (e.g., `?articles=SKU-001,SKU-002,SKU-003`). Use `Optional[str] = Query(None)` and split by comma in the service or repository layer before building SQL. This pattern is common for legacy APIs or when the client cannot send array query params.
+5. **Comma-separated multi-value filters**: Some endpoints accept comma-separated values in a single param (e.g., `?items=ITEM-001,ITEM-002,ITEM-003`). Use `Optional[str] = Query(None)` and split by comma in the service or repository layer before building SQL. This pattern is common for legacy APIs or when the client cannot send array query params.
 
 6. **Hierarchical filters**: Product or location hierarchies (e.g., segment → family → class → brick; zone → format → state → region → city → store) use separate query params for each level. Each is optional; when provided, it narrows results to that level. Example: `?segment=BEVERAGES&family=SOFT_DRINKS&class=COLA`. Query builder applies `WHERE` clauses for each non-null filter. Some services support both singular and plural param names (`?store=...` and `?stores=...`); prefer plural for multi-value, singular for single value.
 
@@ -36,9 +36,9 @@ Standardize HTTP query parameter conventions and response metadata for paginated
 
 9. **Repository layer pagination**: The repository fetches two results in parallel—`(records_data, total_count)`—via `asyncio.gather` or sequential calls. It executes the count query to get `total_count`, then executes the data query with `LIMIT/OFFSET`. Service layer constructs the response object with data + pagination metadata. For download endpoints (no pagination), omit `LIMIT/OFFSET` from the query.
 
-10. **Search across multiple fields**: A single `search` query param applies a case-insensitive substring match across multiple columns. In SQL, use `WHERE (LOWER(field1) LIKE LOWER(:search) OR LOWER(field2) LIKE LOWER(:search) OR ...)` with param `%{search}%`. Some implementations use `ILIKE` (PostgreSQL) or full-text search. Common searchable fields: article codes, descriptions, store IDs, order IDs.
+10. **Search across multiple fields**: A single `search` query param applies a case-insensitive substring match across multiple columns. In SQL, use `WHERE (LOWER(field1) LIKE LOWER(:search) OR LOWER(field2) LIKE LOWER(:search) OR ...)` with param `%{search}%`. Some implementations use `ILIKE` (PostgreSQL) or full-text search. Common searchable fields: item codes, descriptions, store IDs, order IDs.
 
-11. **Pydantic models for query params**: Define a `QueryParams` Pydantic model (e.g., `ReplenishmentQueryParams`, `ForecastQuery`) to encapsulate all filters, pagination, sorting, and search params. This separates route handler param extraction from business logic. The model can provide helper methods like `@property def limit(self)` to derive limit from `page_size` or compute `offset` from `page` and `page_size`.
+11. **Pydantic models for query params**: Define a `QueryParams` Pydantic model (e.g., `InventoryQueryParams`, `ForecastQuery`) to encapsulate all filters, pagination, sorting, and search params. This separates route handler param extraction from business logic. The model can provide helper methods like `@property def limit(self)` to derive limit from `page_size` or compute `offset` from `page` and `page_size`.
 
 12. **FastAPI route handler**: Extract query params via `Query()` for primitive types or depend on Pydantic model. Calculate `offset = (page - 1) * page_size` if needed. Call service layer with `query_params` object or individual params. Return response via `ResponseData.ok(data=..., pagination=...)` or a typed response model wrapping data + metadata.
 
@@ -175,8 +175,8 @@ class ItemQueryBuilder:
         search_param = self._add_param(f"%{search}%")
         return f"""
             AND (
-                LOWER(article_id) LIKE LOWER({search_param})
-                OR LOWER(article_description) LIKE LOWER({search_param})
+                LOWER(item_id) LIKE LOWER({search_param})
+                OR LOWER(item_description) LIKE LOWER({search_param})
                 OR LOWER(store_id) LIKE LOWER({search_param})
             )
         """
@@ -186,7 +186,7 @@ class ItemQueryBuilder:
         sort_mapping = {
             "created_at": "created_at",
             "updated_at": "updated_at",
-            "article": "article_id",
+            "item": "item_id",
             "store": "store_id",
         }
         column = sort_mapping.get(sort_by, "created_at")
@@ -284,7 +284,7 @@ async def list_items(
     sort_by: str = Query("created_at", description="Field to sort by"),
     sort_order: str = Query("desc", regex="^(asc|desc)$", description="Sort direction"),
     # Search
-    search: Optional[str] = Query(None, description="Search across article, description, store"),
+    search: Optional[str] = Query(None, description="Search across item, description, store"),
     # Filters
     status: Optional[List[str]] = Query(None, description="Filter by status (multi-value)"),
     store_ids: Optional[List[str]] = Query(None, description="Filter by store IDs"),
@@ -301,7 +301,7 @@ async def list_items(
     - page_size: Records per page (1-100, default: 20)
     
     **Sorting:**
-    - sort_by: Field to sort by (created_at, updated_at, article, store)
+    - sort_by: Field to sort by (created_at, updated_at, item, store)
     - sort_order: asc or desc (default: desc)
     
     **Filters:**
@@ -311,7 +311,7 @@ async def list_items(
     - family: Product family (hierarchical, requires segment)
     
     **Search:**
-    - search: Substring match across article_id, article_description, store_id
+    - search: Substring match across item_id, item_description, store_id
     """
     query_params = QueryParams(
         page=page,
@@ -336,7 +336,7 @@ async def list_items(
 5. **Single-responsibility violation**: Query construction in route handlers; move SQL building to a dedicated QueryBuilder or repository method.
 6. **Zero-indexed `page` in user-facing APIs**: Users expect page 1 to be the first page; use 1-indexed `page` in API and convert to 0-indexed offset internally.
 7. **Hardcoding sort column names**: User sends `sort_by=doh` but SQL uses `days_on_hand`; maintain a sort mapping dict to translate user-facing names to column names.
-8. **Ignoring case-sensitivity in search**: `WHERE article_id LIKE :search` is case-sensitive on some DBs; use `LOWER(...)` or `ILIKE` for case-insensitive search.
+8. **Ignoring case-sensitivity in search**: `WHERE item_id LIKE :search` is case-sensitive on some DBs; use `LOWER(...)` or `ILIKE` for case-insensitive search.
 9. **Fetching full result set then paginating in Python**: Always push `LIMIT/OFFSET` to SQL; paginating in-memory defeats the purpose and exhausts memory on large datasets.
 10. **Not validating `sort_order`**: Accepting arbitrary `sort_order` can inject ASC/DESC into SQL unsafely; use `regex="^(asc|desc)$"` or enum validation.
 11. **Returning inconsistent metadata field names**: `total` vs `total_records`, `limit` vs `page_size`, `next` vs `has_next`; standardize on one naming convention per service.

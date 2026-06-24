@@ -13,9 +13,9 @@ This file shows example code structures and representative snippets derived from
 - `src/modules/auth/api/authApi.ts`
 - `src/modules/auth/stores/authStore.ts` (inferred, not present in scan; pattern exists in other modules)
 - `src/modules/auth/pages/LoginPage.tsx` (inferred)
-- `src/modules/store-view/stores/intelligence.store.ts`
-- `src/modules/store-view/stores/unified-planning.store.ts`
-- `src/modules/store-view/types/storeIntelligence.types.ts`
+- `src/modules/analytics/stores/analytics.store.ts`
+- `src/modules/analytics/stores/workflow.store.ts`
+- `src/modules/analytics/types/analytics.types.ts`
 - `src/routes.tsx`
 - `src/environment.ts`
 - `src/lib/api.ts`
@@ -146,31 +146,31 @@ function readString(value: unknown, fallback: string): string {
 
 const environment: EnvironmentConfig = {
   ENV: readString(browserConfig.ENV, 'development'),
-  API_BASE_URL: readString(browserConfig.API_BASE_URL, 'https://api.<REDACTED>.de'),
+  API_BASE_URL: readString(browserConfig.API_BASE_URL, 'https://api.example.com'),
   AUTH_API_BASE_URL: readString(browserConfig.AUTH_API_BASE_URL, /* ... */),
   // ...
 };
 ```
 
-**`src/modules/store-view/stores/intelligence.store.ts` (lines 1–60, zustand example):**
+**`src/modules/analytics/stores/analytics.store.ts` (lines 1–60, zustand example):**
 
 ```typescript
 import { create } from 'zustand';
-import type { IntelligenceRecommendation, HandoffState } from '../types/storeIntelligence.types';
+import type { DataRecommendation, HandoffState } from '../types/analytics.types';
 
-interface IntelligenceState {
-  recommendations: IntelligenceRecommendation[];
-  aopDecisions: Record<string, AopStoreDecision>;
-  spacePlanningHandoffs: SpacePlanningHandoff[];
+interface AnalyticsState {
+  recommendations: DataRecommendation[];
+  planningDecisions: Record<string, PlanningDecision>;
+  layoutHandoffs: LayoutHandoff[];
   updateRecommendationStatus: (id: string, newStatus: RecStatus) => void;
-  setAopDecision: (storeId: string, decision: AopStoreDecision) => void;
+  setPlanningDecision: (tenantId: string, decision: PlanningDecision) => void;
   // ...
 }
 
-export const useIntelligenceStore = create<IntelligenceState>((set) => ({
-  recommendations: [...intelligenceRecommendations],
-  aopDecisions: {},
-  spacePlanningHandoffs: [],
+export const useAnalyticsStore = create<AnalyticsState>((set) => ({
+  recommendations: [...analyticsRecommendations],
+  planningDecisions: {},
+  layoutHandoffs: [],
   updateRecommendationStatus: (id, newStatus) =>
     set((state) => ({
       recommendations: state.recommendations.map((r) => r.id === id ? { ...r, status: newStatus } : r),
@@ -189,12 +189,12 @@ export const useIntelligenceStore = create<IntelligenceState>((set) => ({
 
 - `src/features/auth/`
 - `src/features/analytics/`
-- `src/features/briefs/`
+- `src/features/documents/`
 - `src/pages/LoginPage.tsx` (inferred; lazy-loaded)
 - `src/lib/api.ts`
 - `src/lib/video.ts`
 - `src/stores/video.ts`
-- `src/stores/analytics.ts`
+- `src/stores/reports.ts`
 - `src/types/video.ts` (inferred)
 - `src/types/error-codes.ts` (inferred)
 - `src/components/ui/` (inferred)
@@ -346,7 +346,7 @@ interface VideoState {
   error: string | null;
   pollingInterval: ReturnType<typeof setInterval> | null;
   loadVideo: (videoId: string) => Promise<void>;
-  generateVideo: (briefId: string, options?: GenerateVideoRequest) => Promise<void>;
+  generateVideo: (documentId: string, options?: GenerateVideoRequest) => Promise<void>;
   // ...
 }
 
@@ -362,6 +362,7 @@ const initialState = {
 export const useVideoStore = create<VideoState>()((set, get) => ({
   ...initialState,
   loadVideo: async (videoId: string): Promise<void> => { /* ... */ },
+  generateVideo: async (documentId: string, options?: GenerateVideoRequest): Promise<void> => { /* ... */ },
   // ...
 }));
 ```

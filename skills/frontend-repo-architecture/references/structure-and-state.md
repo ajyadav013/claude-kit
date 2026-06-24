@@ -4,9 +4,9 @@ This file details the three folder structure models and their state-management a
 
 ---
 
-## Model A: Module-scoped (Reference Service A)
+## Model A: Module-scoped (Reference App A)
 
-**Use when**: Large multi-domain applications with parallel verticals (e.g., inventory + sourcing + store-view + planogram + AOP) that evolve independently. Each module is a mini-app with its own API, components, hooks, stores, types, pages, and routes.
+**Use when**: Large multi-domain applications with parallel verticals (e.g., inventory + purchasing + analytics + catalog + planning) that evolve independently. Each module is a mini-app with its own API, components, hooks, stores, types, pages, and routes.
 
 ### Folder structure
 
@@ -38,17 +38,17 @@ src/
       types/inventory.types.ts
       pages/InventoryPage.tsx
       route.tsx                 # exports inventoryRoutes
-    store-view/
-      api/storeViewApi.ts
+    analytics/
+      api/analyticsApi.ts
       components/...
       stores/
-        intelligence.store.ts   # zustand for client state (UI filters, handoff state)
-        unified-planning.store.ts
+        analytics.store.ts      # zustand for client state (UI filters, handoff state)
+        workflow.store.ts
       types/
-        storeIntelligence.types.ts
-      pages/StoreViewPage.tsx
+        analytics.types.ts
+      pages/AnalyticsPage.tsx
       route.tsx
-    # ... 17 more modules (otb, range, planogram, aop, agents, calendar, sourcing, ...)
+    # ... 17 more modules (purchasing, catalog, planning, agents, calendar, scheduling, ...)
   lib/
     api.ts                      # ApiService wrapper + apiFetch/apiPost helpers + API_HEADERS proxy
     utils.ts                    # cn() helper, getActiveTenantId, getActiveOrgUuid
@@ -72,7 +72,7 @@ src/
   - Example: `useInventoryQuery()` in `inventory/api/inventoryApi.ts` fetches inventory data via `apiFetch('/inventory', params)`
 - **Client state** → zustand stores in `modules/<feature>/stores/<x>.store.ts`
   - Example: `authStore.ts` might track biometric enrollment state (UI-only, not server-persisted)
-  - Example: `intelligence.store.ts` tracks AOP decisions, space planning handoffs, recommendation status (UI workflow state)
+  - Example: `analytics.store.ts` tracks planning decisions, layout handoffs, recommendation status (UI workflow state)
 - **Global API config** → `API_HEADERS` proxy in `lib/api.ts` dynamically reads `X-Tenant-ID` + `X-Org-ID` from session store at access time (solves multi-tenant header injection)
 
 ### Route aggregation pattern
@@ -97,14 +97,14 @@ Top-level `src/routes.tsx` aggregates:
 ```typescript
 import { dashboardRoutes } from '@/modules/dashboard/route';
 import { inventoryRoutes } from '@/modules/inventory/route';
-import { otbRoutes } from '@/modules/otb/route';
+import { purchasingRoutes } from '@/modules/purchasing/route';
 // ... 17 more imports
 
 export const appRoutes = (
   <>
     {dashboardRoutes}
     {inventoryRoutes}
-    {otbRoutes}
+    {purchasingRoutes}
     {/* ... 17 more fragments */}
     {placeholderRoutes}
   </>
@@ -128,9 +128,9 @@ export const appRoutes = (
 
 ---
 
-## Model B: Feature-sliced (Reference Service B)
+## Model B: Feature-sliced (Reference App B)
 
-**Use when**: Medium-sized apps (10–20 features) with cross-cutting concerns (e.g., analytics, briefs, templates, trends, grading) where features share UI components and state. Optimizes for code reuse and lazy-loading.
+**Use when**: Medium-sized apps (10–20 features) with cross-cutting concerns (e.g., analytics, documents, templates, reports, scoring) where features share UI components and state. Optimizes for code reuse and lazy-loading.
 
 ### Folder structure
 
@@ -143,35 +143,35 @@ src/
     analytics/
       useAnalytics.ts
       analyticsService.ts
-    briefs/
-      useBriefs.ts
-      briefsService.ts
+    documents/
+      useDocuments.ts
+      documentsService.ts
     templates/
       useTemplates.ts
-    trends/
-      useTrends.ts
+    reports/
+      useReports.ts
     # ... 10 more features
   pages/                        # route containers (lazy-loaded)
     LoginPage.tsx
     DashboardPage.tsx
-    BriefsPage.tsx
+    DocumentsPage.tsx
     TemplatesPage.tsx
     # ... 20 more pages
   lib/
     api.ts                      # fetch wrapper + refreshAccessToken race-guard + APIError class
     video.ts                    # service modules (domain-specific HTTP calls)
     analytics.ts
-    briefs.ts
+    documents.ts
     # ... 15+ service modules
   stores/
     video.ts                    # zustand with persist middleware
     analytics.ts
-    trends.ts
+    reports.ts
     # ... 10+ stores
   types/
     video.ts
     analytics.ts
-    briefs.ts
+    documents.ts
     error-codes.ts
     # ... 20+ type files
   components/
@@ -181,8 +181,8 @@ src/
       Card.tsx
     domain/                     # feature-specific composed components
       VideoPlayer.tsx
-      BriefCard.tsx
-      TrendChart.tsx
+      DocumentCard.tsx
+      ReportChart.tsx
   hooks/                        # shared hooks (useDebounce, useLocalStorage, useClipboard)
   assets/                       # images, icons
   __tests__/
@@ -195,14 +195,14 @@ src/
 
 ### State management
 
-- **Server state** → `lib/<domain>.ts` service modules call `api.get/post/put/delete` from `lib/api.ts`; features wrap these in custom hooks or call directly (anti-pattern: bypasses react-query cache; observed in reference service B)
-  - Example: `lib/video.ts` exports `videoService.generate(briefId)` → calls `api.post('/videos', { brief_id: briefId })`
-  - Example: `features/briefs/useBriefs.ts` might call `api.get('/briefs')` directly (bypasses cache)
+- **Server state** → `lib/<domain>.ts` service modules call `api.get/post/put/delete` from `lib/api.ts`; features wrap these in custom hooks or call directly (anti-pattern: bypasses react-query cache; observed in some apps)
+  - Example: `lib/video.ts` exports `videoService.generate(documentId)` → calls `api.post('/videos', { document_id: documentId })`
+  - Example: `features/documents/useDocuments.ts` might call `api.get('/documents')` directly (bypasses cache)
 - **Client state** → zustand stores in `stores/<domain>.ts` with persist middleware for UI workflow state
   - Example: `stores/video.ts` tracks `currentVideo`, `isLoading`, `isGenerating`, `isPolling`, polling interval
-  - Example: `stores/analytics.ts` tracks active filters, selected date range, chart type
+  - Example: `stores/reports.ts` tracks active filters, selected date range, chart type
 
-**Note**: reference service B has react-query installed but underuses it; many stores fetch directly from `lib/api`, which bypasses caching/deduplication. This is an anti-pattern; prefer wrapping `api.*` calls in react-query hooks for GET-equivalent requests.
+**Note**: some apps have react-query installed but underuse it; many stores fetch directly from `lib/api`, which bypasses caching/deduplication. This is an anti-pattern; prefer wrapping `api.*` calls in react-query hooks for GET-equivalent requests.
 
 ### Path aliases
 
@@ -231,14 +231,14 @@ Enables imports like `import { Button } from '@components/ui/Button';` instead o
 import { lazy, Suspense } from 'react';
 
 const DashboardPage = lazy(() => import('@pages/DashboardPage'));
-const BriefsPage = lazy(() => import('@pages/BriefsPage'));
+const DocumentsPage = lazy(() => import('@pages/DocumentsPage'));
 
 function App() {
   return (
     <Suspense fallback={<LoadingScreen />}>
       <Routes>
         <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/briefs" element={<BriefsPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
         {/* ... */}
       </Routes>
     </Suspense>
@@ -261,7 +261,7 @@ function App() {
 
 ---
 
-## Model C: GraphQL-SSR (Reference Service C)
+## Model C: GraphQL-SSR (Reference App C)
 
 **Use when**: Schema-driven apps with SSR requirements, file uploads, and complex multi-entity relationships (e.g., ATS with jobs, candidates, interviews, projects). GraphQL eliminates the API-layer boilerplate and Apollo cache handles server state automatically.
 
@@ -331,7 +331,7 @@ src/
   - Example: `OrgContext` provides `{ currentOrg, switchOrg, orgs }` for multi-tenancy
   - Example: `authStore.ts` (zustand) might track sidebar open/closed state, theme preference
 - **Apollo client setup**:
-  - `authLink` (setContext) injects `Bearer reference service C_token` + `x-org-id` header into every request
+  - `authLink` (setContext) injects `Bearer app_token` + `x-org-id` header into every request
   - `errorLink` (onError) catches `UNAUTHENTICATED` errors and redirects to `/login` (unless already on `/login`, `/register`, `/sso/*`)
   - `createUploadLink` (apollo-upload-client) enables file uploads via GraphQL multipart request spec
   - `InMemoryCache` with custom `typePolicies` to merge jobs/candidates arrays (prevents cache duplication)
@@ -352,8 +352,8 @@ const httpLink = createUploadLink({
 });
 
 const authLink = setContext((_, { headers }) => {
-  const token = localStorage.getItem('reference service C_token');
-  const orgId = localStorage.getItem('reference service C_org_id');
+  const token = localStorage.getItem('app_token');
+  const orgId = localStorage.getItem('app_org_id');
   return {
     headers: {
       ...headers,
@@ -368,7 +368,7 @@ const errorLink = onError(({ graphQLErrors }) => {
     if (extensions?.code === 'UNAUTHENTICATED') {
       const isAuthPage = ['/login', '/register'].includes(window.location.pathname) || window.location.pathname.startsWith('/sso');
       if (!isAuthPage) {
-        localStorage.removeItem('reference service C_token');
+        localStorage.removeItem('app_token');
         window.location.href = '/login';
       }
     }
@@ -437,11 +437,11 @@ function JobsPage() {
 | **Code reuse** | Shared components in top-level `components/` | Optimized (`components/ui`, shared hooks) | Moderate (flat structure limits reuse) |
 | **State management** | react-query + zustand | fetch + zustand (anti-pattern: bypasses cache) | Apollo cache + contexts + zustand |
 | **API layer** | Axios + manual wrappers | Fetch + token refresh race-guard | Apollo links (authLink + errorLink) |
-| **Route organization** | Aggregated fragments (route.tsx per module) | Lazy-loaded pages | Inline (anti-pattern in reference service C) |
+| **Route organization** | Aggregated fragments (route.tsx per module) | Lazy-loaded pages | Inline (anti-pattern in app) |
 | **SSR support** | No | No | Yes (entry-server.tsx / ssr-server.ts) |
 | **File uploads** | Manual FormData + axios | Manual FormData + fetch | GraphQL multipart (createUploadLink) |
-| **Multi-tenancy** | Dynamic headers (API_HEADERS proxy) | X-Brand-ID header | x-org-id header (authLink) |
-| **Best for** | Parallel domains (inventory, OTB, planogram) | Cross-cutting features (analytics, templates) | Schema-first apps (ATS, CMS, CRM) |
+| **Multi-tenancy** | Dynamic headers (API_HEADERS proxy) | X-Tenant-ID header | x-org-id header (authLink) |
+| **Best for** | Parallel domains (inventory, purchasing, catalog) | Cross-cutting features (analytics, templates) | Schema-first apps (ATS, CMS, CRM) |
 
 **Rule of thumb:**
 - **< 10 features, simple REST API** → Start with feature-sliced (B); it's the most conventional
@@ -464,7 +464,7 @@ function JobsPage() {
    - Export a custom hook: `export function useAuth() { const ctx = useContext(AuthContext); if (!ctx) throw new Error('useAuth must be used within AuthProvider'); return ctx; }`
    - Wrap the app in providers at the top level (App.tsx or main.tsx)
    - Use contexts for cross-cutting concerns (auth, org, theme, feature flags)
-5. **Avoid the anti-pattern**: Storing server data in zustand/context and fetching manually in stores. Example from reference service B: `stores/video.ts` calls `videoService.generate()` which calls `api.post()` directly. This bypasses react-query cache. Instead, wrap `api.post()` in a `useMutation` hook and call the mutation from the component.
+5. **Avoid the anti-pattern**: Storing server data in zustand/context and fetching manually in stores. Example: `stores/video.ts` calls `videoService.generate()` which calls `api.post()` directly. This bypasses react-query cache. Instead, wrap `api.post()` in a `useMutation` hook and call the mutation from the component.
 
 **Correct pattern (model A, react-query):**
 
@@ -476,7 +476,7 @@ import { apiPost } from '@/lib/api';
 export function useGenerateVideoMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (briefId: string) => apiPost<Video>('/videos/generate', { brief_id: briefId }),
+    mutationFn: (documentId: string) => apiPost<Video>('/videos/generate', { document_id: documentId }),
     onSuccess: () => queryClient.invalidateQueries(['videos']),
   });
 }
@@ -484,27 +484,27 @@ export function useGenerateVideoMutation() {
 // modules/video/components/GenerateButton.tsx
 import { useGenerateVideoMutation } from '../api/videoApi';
 
-function GenerateButton({ briefId }: { briefId: string }) {
+function GenerateButton({ documentId }: { documentId: string }) {
   const { mutate, isLoading } = useGenerateVideoMutation();
-  return <button onClick={() => mutate(briefId)} disabled={isLoading}>Generate Video</button>;
+  return <button onClick={() => mutate(documentId)} disabled={isLoading}>Generate Video</button>;
 }
 ```
 
-**Incorrect pattern (reference service B anti-pattern):**
+**Incorrect pattern (anti-pattern):**
 
 ```typescript
 // stores/video.ts
 export const useVideoStore = create<VideoState>((set) => ({
-  generateVideo: async (briefId: string) => {
+  generateVideo: async (documentId: string) => {
     set({ isGenerating: true });
-    const video = await videoService.generate(briefId); // bypasses cache
+    const video = await videoService.generate(documentId); // bypasses cache
     set({ currentVideo: video, isGenerating: false });
   },
 }));
 
 // lib/video.ts
 export const videoService = {
-  generate: (briefId: string) => api.post<Video>('/videos/generate', { brief_id: briefId }),
+  generate: (documentId: string) => api.post<Video>('/videos/generate', { document_id: documentId }),
 };
 ```
 

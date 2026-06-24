@@ -7,12 +7,12 @@ Decision matrix for choosing GraphQL vs REST in this codebase, based on observed
 ### Filter/Dropdown APIs
 **Pattern**: Distinct values from database tables for frontend filter dropdowns.
 
-**Example**: `/v1/vendor-info/filter-graphql/category` in a production service returns distinct vendor categories.
+**Example**: `/v1/catalog/filter-graphql/products` in a production service returns distinct product categories.
 
 **Why GraphQL**:
 - Frontend needs only the distinct values, not full records
-- Query shape is simple: `{ listCategories(page: "manage-vendor") }`
-- Multiple similar endpoints (category, cluster, format) benefit from shared schema pattern
+- Query shape is simple: `{ listProducts(page: "manage-products") }`
+- Multiple similar endpoints (product, category, region, format) benefit from shared schema pattern
 - Client can specify exactly which filter field it needs
 
 ### Dashboard/Analytics Queries
@@ -41,7 +41,7 @@ Decision matrix for choosing GraphQL vs REST in this codebase, based on observed
 ### CRUD Operations
 **Pattern**: Standard create/read/update/delete on a single resource type.
 
-**Example**: Standard REST endpoints like `POST /v1/vendor-info`, `GET /v1/vendor-info/{id}`, `PUT /v1/vendor-info/{id}`.
+**Example**: Standard REST endpoints like `POST /v1/catalog/products`, `GET /v1/catalog/products/{id}`, `PUT /v1/catalog/products/{id}`.
 
 **Why REST**:
 - Well-understood HTTP semantics (201 Created, 204 No Content, etc.)
@@ -52,7 +52,7 @@ Decision matrix for choosing GraphQL vs REST in this codebase, based on observed
 ### Batch Operations
 **Pattern**: Bulk create/update/delete on many records.
 
-**Example**: Bulk vendor import, batch status updates.
+**Example**: Bulk product import, batch status updates.
 
 **Why REST**:
 - REST POST with array body is clearer than GraphQL mutation with array input
@@ -82,14 +82,14 @@ Decision matrix for choosing GraphQL vs REST in this codebase, based on observed
 
 ## Observed Codebase Pattern
 
-**GraphQL footprint**: ~2 applications (vendor filter services, dashboard applications)
+**GraphQL footprint**: ~2 applications (filter API services, dashboard applications)
 
 **REST footprint**: 15+ services, hundreds of endpoints
 
-**House default**: REST
+**Organizational default**: REST
 
 **GraphQL use cases**:
-1. Vendor filter service: 11 filter dropdown schemas (category, cluster, format × "All*" variants)
+1. Filter API service: 11 filter dropdown schemas (product, category, region, format × "All*" variants)
 2. Dashboard application: Dashboard queries (metrics + lists), enrichment mutations
 
 **Key insight**: GraphQL is used **tactically** where it solves a specific problem (avoiding N+1, flexible filtering), not as a full API replacement strategy.
@@ -97,7 +97,7 @@ Decision matrix for choosing GraphQL vs REST in this codebase, based on observed
 ## Anti-Pattern: Don't Use GraphQL Just Because
 
 **Don't** introduce GraphQL just because:
-- "It's modern" — REST is the house default
+- "It's modern" — REST is the organizational default
 - "We might need flexibility later" — YAGNI
 - "One endpoint to rule them all" — adds cognitive overhead
 - "Avoid versioning" — GraphQL schemas still evolve and break clients
@@ -120,7 +120,7 @@ If a REST API grows complex enough to justify GraphQL:
 
 ## Evidence
 
-- **Vendor filter service GraphQL**: Only for vendor filters (`/v1/vendor-info/filter-graphql/*`), not the full vendor API
+- **Filter API service GraphQL**: Only for filters (`/v1/catalog/filter-graphql/*`), not the full catalog API
 - **Dashboard application GraphQL**: Only for dashboards and enrichment, not for core job/candidate CRUD
 - **All other services**: Pure REST
 

@@ -18,7 +18,7 @@ Each layer is a separate BigQuery dataset.
 
 **Purpose**: Ingest raw data with minimal transformation; preserve source fidelity.
 
-**Schema**: `da_bronze`  
+**Schema**: `bronze`  
 **Table prefix**: `br_`  
 **Tags**: `["bronze", "cdc"]`
 
@@ -33,8 +33,8 @@ Each layer is a separate BigQuery dataset.
 ```sql
 config {
   type: "table",
-  schema: "da_bronze",
-  name: "br_orders",
+  schema: "bronze",
+  name: "orders",
   tags: ["bronze", "cdc"],
   description: "Raw orders from Datastream CDC"
 }
@@ -68,7 +68,7 @@ AND datastream_metadata.change_type NOT LIKE '%DELETE%'"""
 
 **Purpose**: Cleaned, joined, business logic applied; single source of truth for analytics.
 
-**Schema**: `da_silver`  
+**Schema**: `silver`  
 **Table prefix**: `slv_`  
 **Tags**: `["silver", "daily"]`
 
@@ -84,10 +84,10 @@ AND datastream_metadata.change_type NOT LIKE '%DELETE%'"""
 ```sql
 config {
   type: "table",
-  schema: "da_silver",
-  name: "slv_sales_clean",
+  schema: "silver",
+  name: "sales_clean",
   tags: ["silver", "daily"],
-  dependencies: ["br_orders", "br_customers"],
+  dependencies: ["orders", "br_customers"],
   description: "Cleaned sales data with customer joins"
 }
 
@@ -97,7 +97,7 @@ SELECT
   o.order_date as metric_date,
   c.customer_name,
   o.total_amount
-FROM ${ref("br_orders")} o
+FROM ${ref("orders")} o
 JOIN ${ref("br_customers")} c ON o.customer_id = c.customer_id
 WHERE o.order_status = 'completed'
 ```
@@ -107,7 +107,7 @@ WHERE o.order_status = 'completed'
 ```python
 silver_sql = f"""config {{
   type: "table",
-  schema: "da_silver",
+  schema: "silver",
   name: "slv_{domain}_clean",
   tags: ["silver", "daily"],
   dependencies: [{deps_str}],
@@ -122,7 +122,7 @@ silver_sql = f"""config {{
 
 **Purpose**: Aggregated metrics and KPIs; optimized for BI tools and dashboards.
 
-**Schema**: `da_gold`  
+**Schema**: `gold`  
 **Table prefix**: `gld_`  
 **Tags**: `["gold", "daily"]`
 
@@ -137,10 +137,10 @@ silver_sql = f"""config {{
 ```sql
 config {
   type: "table",
-  schema: "da_gold",
+  schema: "gold",
   name: "gld_sales_metrics",
   tags: ["gold", "daily"],
-  dependencies: ["slv_sales_clean"],
+  dependencies: ["sales_clean"],
   description: "Daily sales metrics by org and site"
 }
 
@@ -151,7 +151,7 @@ SELECT
   COUNT(DISTINCT order_id) as order_count,
   SUM(total_amount) as total_sales,
   AVG(total_amount) as avg_order_value
-FROM ${ref("slv_sales_clean")}
+FROM ${ref("sales_clean")}
 GROUP BY org_id, metric_date, site
 ```
 
@@ -160,7 +160,7 @@ GROUP BY org_id, metric_date, site
 ```python
 gold_sql = f"""config {{
   type: "table",
-  schema: "da_gold",
+  schema: "gold",
   name: "gld_{domain}_metrics",
   tags: ["gold", "daily"],
   dependencies: ["slv_{domain}_clean"],
@@ -207,9 +207,9 @@ Every Silver and Gold table MUST include `org_id STRING NOT NULL` for multi-org 
 Silver layer materialization is orchestrated by a **parent workflow** that chains child workflows:
 
 1. **ManualQueryWorkflow** — register usecase, detect query type, insert query
-2. **MaterializeSilverQueryWorkflow** — create BQ table, insert silver layer metadata, generate descriptions
-3. **SyncSilverDescriptionWorkflow** — sync descriptions to BigQuery
-4. **SilverDataSyncWorkflow** — execute query and load data
+2. **MaterializeQueryWorkflow** — create BQ table, insert silver layer metadata, generate descriptions
+3. **SyncMetadataWorkflow** — sync descriptions to BigQuery
+4. **DataSyncWorkflow** — execute query and load data
 
 If any child fails, the parent triggers a **rollback activity** to clean up DB records and BQ resources by `usecase_id`.
 
@@ -221,11 +221,11 @@ If any child fails, the parent triggers a **rollback activity** to clean up DB r
 POST /create-query → ParentWorkflow
   try:
     ├── Child 1: ManualQueryWorkflow
-    ├── Child 2: MaterializeSilverQueryWorkflow
-    ├── Child 3: SyncSilverDescriptionWorkflow
-    └── Child 4: SilverDataSyncWorkflow
+    ├── Child 2: MaterializeQueryWorkflow
+    ├── Child 3: SyncMetadataWorkflow
+    └── Child 4: DataSyncWorkflow
   except:
-    → rollback_silver_by_usecase_activity (cleanup by usecase_id)
+    → rollback_by_usecase_activity (cleanup by usecase_id)
 ```
 
 **From Temporal workflow documentation:**

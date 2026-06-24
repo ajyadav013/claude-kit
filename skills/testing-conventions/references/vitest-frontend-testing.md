@@ -26,7 +26,7 @@ export default defineConfig({
         'src/test/**',
         'src/**/*.test.{ts,tsx}',
         'src/lib/api.ts',  // Exclude API clients (mocked in tests)
-        'src/modules/store-view/components/InsightsSidebar.tsx',  // Hard-to-test component
+        'src/modules/analytics/components/AnalyticsPanel.tsx',  // Hard-to-test component
       ],
       thresholds: {
         lines: 90,
@@ -238,7 +238,7 @@ describe('tasksApi', () => {
 4. **Components** — Variant rendering, prop passing (medium ROI)
 
 **Defer/Exclude**:
-1. **Complex UI components** — Layout-heavy, hard-to-mock (e.g., InsightsSidebar)
+1. **Complex UI components** — Layout-heavy, hard-to-mock (e.g., AnalyticsPanel)
 2. **Third-party integrations** — API clients that wrap external SDKs (mock at boundary)
 3. **Generated code** — Auto-generated types, configs
 

@@ -1,6 +1,6 @@
 ---
 name: graphql-patterns
-description: Tactical Strawberry GraphQL (backend) and Apollo Client (frontend) patterns from production FastAPI and React services. Use when implementing GraphQL filter/dropdown endpoints alongside REST in FastAPI, mounting Strawberry schemas with GraphQLRouter, setting up Apollo Client with JWT authentication and multi-tenancy headers, writing hand-typed gql queries/mutations without codegen, debugging Apollo link chains or InMemoryCache merge policies, or adding file upload support with apollo-upload-client. Note this is a limited-footprint pattern (used in ~2 apps) — not the house default.
+description: Tactical Strawberry GraphQL (backend) and Apollo Client (frontend) patterns from production FastAPI and React services. Use when implementing GraphQL filter/dropdown endpoints alongside REST in FastAPI, mounting Strawberry schemas with GraphQLRouter, setting up Apollo Client with JWT authentication and multi-tenancy headers, writing hand-typed gql queries/mutations without codegen, debugging Apollo link chains or InMemoryCache merge policies, or adding file upload support with apollo-upload-client. Note this is a limited-footprint pattern (used in ~2 apps) — not the organizational default.
 ---
 
 # GraphQL Patterns
@@ -13,25 +13,25 @@ Tactical GraphQL patterns for Strawberry (backend) and Apollo Client (frontend) 
 - Setting up Apollo Client with JWT auth, org context headers, and error handling
 - Writing hand-typed GraphQL queries/mutations without codegen
 - Mounting multiple narrow-scope GraphQL schemas for specific use cases (filters, dashboards)
-- Understanding where GraphQL is used in the codebase (limited footprint: vendor filter services, dashboard applications)
+- Understanding where GraphQL is used in the codebase (limited footprint: filter API services, dashboard applications)
 
-**NOTE**: This is a tactical pattern used in ~2 applications. It is **not** the house default — most services use pure REST. Use this skill when working on or extending these specific GraphQL-enabled apps.
+**NOTE**: This is a tactical pattern used in ~2 applications. It is **not** the organizational default — most services use pure REST. Use this skill when working on or extending these specific GraphQL-enabled apps.
 
 ## Core conventions
 
 ### Backend: Strawberry GraphQL with FastAPI
 
-**Schema-per-endpoint pattern**: Define one `strawberry.Schema` per query type (e.g., `category_schema`, `cluster_schema`, `format_schema`, `sourcing_cluster_schema`, `commercial_cluster_schema`), then mount each schema to its own GraphQL router under a shared prefix. The reference service has 11 schemas total for vendor filters: category, all_category, cluster, all_cluster, sourcing_cluster, all_sourcing_cluster, commercial_cluster, all_commercial_cluster, format, all_format, profile_status. _(vendor filter service)_
+**Schema-per-endpoint pattern**: Define one `strawberry.Schema` per query type (e.g., `product_schema`, `category_schema`, `region_schema`, `supplier_region_schema`, `format_schema`), then mount each schema to its own GraphQL router under a shared prefix. The reference service has 11 schemas total for filters: product, all_product, category, all_category, region, all_region, supplier_region, all_supplier_region, format, all_format, approval_stage. _(filter API service)_
 
-**Narrow query classes**: Use `@strawberry.type` decorated classes with single-purpose `@strawberry.field` methods. Each query returns `List[Optional[str]]` or scalar types — no complex nested resolvers. _(vendor filter service)_
+**Narrow query classes**: Use `@strawberry.type` decorated classes with single-purpose `@strawberry.field` methods. Each query returns `List[Optional[str]]` or scalar types — no complex nested resolvers. _(filter API service)_
 
-**Async DB access in resolvers**: Call `get_connection_handler_for_app()` async generator, `await async_gen.__anext__()` to get the connection, execute SQLAlchemy queries, and **always** `await connection_handler.close()` in a `try/finally` block. _(vendor filter service)_
+**Async DB access in resolvers**: Call `get_connection_handler_for_app()` async generator, `await async_gen.__anext__()` to get the connection, execute SQLAlchemy queries, and **always** `await connection_handler.close()` in a `try/finally` block. _(filter API service)_
 
-**Mount with `strawberry.fastapi.GraphQLRouter`**: Create a `GraphQLRouter(schema)`, then `include_router(graphql_app, prefix="/category", tags=[...])` under a shared `APIRouter(prefix="/filter-graphql")`. _(vendor filter router)_
+**Mount with `strawberry.fastapi.GraphQLRouter`**: Create a `GraphQLRouter(schema)`, then `include_router(graphql_app, prefix="/products", tags=[...])` under a shared `APIRouter(prefix="/filter-graphql")`. _(filter API router)_
 
-**Coexist with REST**: GraphQL endpoints live under a versioned API prefix (e.g., `/v1/vendor-info/filter-graphql/category`) alongside traditional REST routes. GraphQL is supplementary, not a replacement. _(vendor filter router)_
+**Coexist with REST**: GraphQL endpoints live under a versioned API prefix (e.g., `/v1/catalog/filter-graphql/products`) alongside traditional REST routes. GraphQL is supplementary, not a replacement. _(filter API router)_
 
-**Scalar types for simple enums**: Use `strawberry.scalar(str, name="CategoryType")` for typed scalars when you need nominal typing but the underlying type is a string. _(vendor filter types)_
+**Scalar types for simple enums**: Use `strawberry.scalar(str, name="ProductType")` for typed scalars when you need nominal typing but the underlying type is a string. _(filter API types)_
 
 ### Frontend: Apollo Client Setup
 
@@ -84,16 +84,16 @@ See [apollo-client-setup.md](./references/apollo-client-setup.md) for full setup
 ## Skeleton / example
 
 ```python
-# Backend: vendor filter pattern
+# Backend: filter API pattern
 import strawberry
 from typing import List, Optional
 from app.connection import get_connection_handler_for_app
 from sqlalchemy import select, distinct, asc
 
 @strawberry.type
-class CategoryQuery:
+class ProductQuery:
     @strawberry.field
-    async def list_categories(
+    async def list_products(
         self,
         page: str = '',
         internal_status: Optional[str] = ''
@@ -102,7 +102,7 @@ class CategoryQuery:
         connection_handler = await async_gen.__anext__()
 
         try:
-            query = select(distinct(Vendor.category)).where(Vendor.category != None)
+            query = select(distinct(Product.category)).where(Product.category != None)
             result = await connection_handler.session.execute(query)
             categories = result.scalars().all()
             return sorted(list(set(categories)), key=str.lower)
@@ -112,13 +112,13 @@ class CategoryQuery:
 # Schema and router
 from strawberry.fastapi import GraphQLRouter
 
-category_schema = strawberry.Schema(query=CategoryQuery)
+product_schema = strawberry.Schema(query=ProductQuery)
 filter_graphql_router = APIRouter(prefix="/filter-graphql")
 
-category_graphql_app = GraphQLRouter(category_schema)
+product_graphql_app = GraphQLRouter(product_schema)
 filter_graphql_router.include_router(
-    category_graphql_app,
-    prefix="/category",
+    product_graphql_app,
+    prefix="/products",
     tags=['admin', 'member']
 )
 ```
@@ -213,11 +213,11 @@ function Dashboard({ orgId }: { orgId: string }) {
 - **Forgetting to close the connection handler** — always wrap DB access in `try/finally` and `await connection_handler.close()`.
 - **Using GraphQL for everything** — this is a tactical pattern for filters/dashboards, not a full API replacement. Most routes should stay REST.
 - **Forgetting the auth-page check in errorLink** — redirect loops occur if you clear tokens and redirect from `/login` itself.
-- **Using codegen** — the house pattern is hand-typed queries/mutations; don't introduce a codegen step unless explicitly agreed.
+- **Using codegen** — the pattern is hand-typed queries/mutations; don't introduce a codegen step unless explicitly agreed.
 - **Nesting resolvers deeply** — Strawberry queries here are flat (scalars, lists of scalars). Keep them simple.
 - **Skipping multi-tenancy headers** — include `x-org-id` or equivalent tenant context header in authLink when the backend is multi-tenant.
 - **Mixing `@strawberry.type` with Pydantic** — Strawberry types are separate from FastAPI request/response models; don't conflate them.
-- **Not understanding "All*" vs regular schema variants** — the reference service has pairs like `category_schema` (joins Audit, filters by active records) and `all_category_schema` (no join, returns all). The "All*" variants skip the audit filter for admin/unfiltered views.
+- **Not understanding "All*" vs regular schema variants** — the reference service has pairs like `product_schema` (joins Audit, filters by active records) and `all_product_schema` (no join, returns all). The "All*" variants skip the audit filter for admin/unfiltered views.
 
 ## References
 

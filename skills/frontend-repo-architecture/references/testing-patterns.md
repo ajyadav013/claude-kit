@@ -108,7 +108,7 @@ describe('Video API contract', () => {
       http.post('/api/v1/videos/generate', async () => {
         return HttpResponse.json({
           id: 'video-123',
-          brief_id: 'brief-456',
+          document_id: 'document-456',
           status: 'pending',
           url: null,
           created_at: '2024-01-01T00:00:00Z',
@@ -117,11 +117,11 @@ describe('Video API contract', () => {
       })
     );
 
-    const result = await api.post('/videos/generate', { brief_id: 'brief-456' });
+    const result = await api.post('/videos/generate', { document_id: 'document-456' });
     
     expect(result).toMatchObject({
       id: 'video-123',
-      brief_id: 'brief-456',
+      document_id: 'document-456',
       status: 'pending',
     });
   });
@@ -137,7 +137,7 @@ describe('Video API contract', () => {
     );
 
     await expect(
-      api.post('/videos/generate', { brief_id: 'brief-456' })
+      api.post('/videos/generate', { document_id: 'document-456' })
     ).rejects.toThrow('Internal server error');
   });
 });

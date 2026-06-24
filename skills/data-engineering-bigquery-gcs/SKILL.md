@@ -27,11 +27,11 @@ Stack-agnostic BigQuery data pipeline patterns with medallion layering and Tempo
 
 **Three-layer pattern**: Bronze = raw ingestion (Datastream CDC, GCS exports); Silver = cleaned, joined, business logic; Gold = aggregated metrics and KPIs. Each layer is a separate BigQuery dataset.
 
-**Bronze table conventions**: Schema `da_bronze`, table prefix `br_`, tags `["bronze", "cdc"]`. Use `QUALIFY ROW_NUMBER() OVER (PARTITION BY {pk} ORDER BY created_at DESC, datastream_metadata.source_timestamp DESC) = 1` to deduplicate CDC events. Exclude deletes: `WHERE datastream_metadata.change_type NOT LIKE '%DELETE%'`.
+**Bronze table conventions**: Schema `bronze`, table prefix `br_`, tags `["bronze", "cdc"]`. Use `QUALIFY ROW_NUMBER() OVER (PARTITION BY {pk} ORDER BY created_at DESC, datastream_metadata.source_timestamp DESC) = 1` to deduplicate CDC events. Exclude deletes: `WHERE datastream_metadata.change_type NOT LIKE '%DELETE%'`.
 
-**Silver table conventions**: Schema `da_silver`, table prefix `slv_`, tags `["silver", "daily"]`. Reference bronze tables via `${ref("br_tablename")}` for Dataform lineage. Silver layer injects `org_id` for multi-tenant analytics.
+**Silver table conventions**: Schema `silver`, table prefix `slv_`, tags `["silver", "daily"]`. Reference bronze tables via `${ref("br_tablename")}` for Dataform lineage. Silver layer injects `org_id` for multi-tenant analytics.
 
-**Gold table conventions**: Schema `da_gold`, table prefix `gld_`, tags `["gold", "daily"]`. Reference silver via `${ref("slv_domain_clean")}`. Gold contains aggregations (COUNT, SUM, AVG) grouped by dimensions. If silver already has aggregations, gold passes through `SELECT *`.
+**Gold table conventions**: Schema `gold`, table prefix `gld_`, tags `["gold", "daily"]`. Reference silver via `${ref("slv_domain_clean")}`. Gold contains aggregations (COUNT, SUM, AVG) grouped by dimensions. If silver already has aggregations, gold passes through `SELECT *`.
 
 **Layer dependencies**: Track via `dependencies: ["br_table1", "br_table2"]` in SQLX config blocks. Each layer references the layer below; never skip layers (bronze → gold is an anti-pattern).
 
@@ -109,9 +109,9 @@ For GCS blob upload/download operations, refer to the `gcs-file-storage-patterns
 
 **Workflow pattern**: Workflow functions orchestrate by calling `await workflow.execute_activity(activity_fn, args, ...)`. Workflows maintain state and handle retries, but do not perform I/O.
 
-**Parent-child workflow chaining**: Use `workflow.execute_child_workflow()` to sequentially chain workflows (e.g., a parent workflow chains ManualQueryWorkflow → MaterializeSilverQueryWorkflow → SyncSilverDescriptionWorkflow → SilverDataSyncWorkflow). If a child fails, parent can trigger rollback activities.
+**Parent-child workflow chaining**: Use `workflow.execute_child_workflow()` to sequentially chain workflows (e.g., a parent workflow chains ManualQueryWorkflow → MaterializeQueryWorkflow → SyncMetadataWorkflow → DataSyncWorkflow). If a child fails, parent can trigger rollback activities.
 
-**Rollback on failure**: When a child workflow fails, parent workflow invokes a rollback activity (e.g., `rollback_silver_by_usecase_activity`) to clean up database records and BigQuery resources by identifier.
+**Rollback on failure**: When a child workflow fails, parent workflow invokes a rollback activity (e.g., `rollback_by_usecase_activity`) to clean up database records and BigQuery resources by identifier.
 
 ### Partitioning and Schema Conventions
 
@@ -133,7 +133,7 @@ client = bigquery.Client(project="my-gcp-project")
 
 query = """
 SELECT org_id, metric_date, SUM(sales) as total_sales
-FROM `my-project.da_silver.slv_sales_clean`
+FROM `my-project.silver.sales_clean`
 WHERE metric_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
   AND org_id = @org_id
 GROUP BY org_id, metric_date
@@ -148,7 +148,7 @@ for row in rows:
     print(f"{row.org_id}: {row.total_sales}")
 
 # Schema introspection
-table = client.get_table("my-project.da_bronze.br_orders")
+table = client.get_table("my-project.bronze.orders")
 for field in table.schema:
     print(f"{field.name} ({field.field_type}): {field.description}")
 
@@ -188,8 +188,8 @@ client.query("TRUNCATE TABLE `my-project.my_dataset.temp_table`").result()
 # Bronze table with CDC deduplication (SQLX)
 config {
   type: "table",
-  schema: "da_bronze",
-  name: "br_orders",
+  schema: "bronze",
+  name: "orders",
   tags: ["bronze", "cdc"],
   description: "Raw orders from Datastream CDC"
 }
@@ -207,10 +207,10 @@ AND datastream_metadata.change_type NOT LIKE '%DELETE%'
 # Silver table with bronze dependency (SQLX)
 config {
   type: "table",
-  schema: "da_silver",
-  name: "slv_sales_clean",
+  schema: "silver",
+  name: "sales_clean",
   tags: ["silver", "daily"],
-  dependencies: ["br_orders", "br_customers"],
+  dependencies: ["orders", "br_customers"],
   description: "Cleaned sales data with customer joins"
 }
 
@@ -220,17 +220,17 @@ SELECT
   o.order_date as metric_date,
   c.customer_name,
   o.total_amount
-FROM ${ref("br_orders")} o
+FROM ${ref("orders")} o
 JOIN ${ref("br_customers")} c ON o.customer_id = c.customer_id
 WHERE o.order_status = 'completed'
 
 # Gold table with aggregations (SQLX)
 config {
   type: "table",
-  schema: "da_gold",
+  schema: "gold",
   name: "gld_sales_metrics",
   tags: ["gold", "daily"],
-  dependencies: ["slv_sales_clean"],
+  dependencies: ["sales_clean"],
   description: "Daily sales metrics by org and site"
 }
 
@@ -241,7 +241,7 @@ SELECT
   COUNT(DISTINCT order_id) as order_count,
   SUM(total_amount) as total_sales,
   AVG(total_amount) as avg_order_value
-FROM ${ref("slv_sales_clean")}
+FROM ${ref("sales_clean")}
 GROUP BY org_id, metric_date, site
 
 # Temporal activity for BigQuery query (Python) — heavy I/O lives here, not in the workflow
@@ -298,17 +298,17 @@ class SilverLayerOrchestrationWorkflow:
                 id=f"manual-query-{usecase_id}",
             )
             await workflow.execute_child_workflow(
-                MaterializeSilverQueryWorkflow.run,
+                MaterializeQueryWorkflow.run,
                 args=[usecase_id],
                 id=f"materialize-{usecase_id}",
             )
             await workflow.execute_child_workflow(
-                SyncSilverDescriptionWorkflow.run,
+                SyncMetadataWorkflow.run,
                 args=[usecase_id],
                 id=f"sync-desc-{usecase_id}",
             )
             await workflow.execute_child_workflow(
-                SilverDataSyncWorkflow.run,
+                DataSyncWorkflow.run,
                 args=[usecase_id],
                 id=f"data-sync-{usecase_id}",
             )
@@ -317,7 +317,7 @@ class SilverLayerOrchestrationWorkflow:
         except Exception:
             # Rollback on any child failure
             await workflow.execute_activity(
-                rollback_silver_by_usecase_activity,
+                rollback_by_usecase_activity,
                 args=[usecase_id],
                 start_to_close_timeout=timedelta(minutes=5),
             )

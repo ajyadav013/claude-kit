@@ -156,7 +156,7 @@ async def insert_bulk(cls, collection_name, write_request, *filter_columns):
 - `UpdateOne(filter, update, upsert=True)` inserts if no match, updates if match
 - `ordered=False` continues on errors (doesn't stop at first failure); use for idempotent writes
 - `ordered=True` (default) stops at first error; use when order matters or to fail fast
-- `match` dict constructed from `*filter_columns` variadic args (e.g., `"trendId", "mediaId"`)
+- `match` dict constructed from `*filter_columns` variadic args (e.g., `"recordId", "mediaId"`)
 - `$set` replaces all fields except `_id` (MongoDB auto-generates `_id` on insert)
 
 **Usage example**

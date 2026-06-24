@@ -30,9 +30,9 @@ class ForecastQuery(BaseModel):
 ### Limit/offset style
 
 ```python
-# app/anr/models.py
-class ReplenishmentQueryParams(BaseModel):
-    """Query parameters for replenishment data list."""
+# app/inventory/models.py
+class InventoryQueryParams(BaseModel):
+    """Query parameters for inventory data list."""
     
     # Pagination
     limit: int = Field(default=100, ge=1, le=1000, description="Maximum records to return")
@@ -92,10 +92,10 @@ class ForecastResponse(BaseModel):
 ### Limit/offset response
 
 ```python
-# app/anr/models.py
-class ReplenishmentListData(BaseModel):
-    """Response data for replenishment list."""
-    data: List[ReplenishmentRecord] = Field(default_factory=list, description="List of records")
+# app/inventory/models.py
+class InventoryListData(BaseModel):
+    """Response data for inventory list."""
+    data: List[InventoryRecord] = Field(default_factory=list, description="List of records")
     total_records: int = Field(0, description="Total number of records")
     page: int = Field(1, description="Current page number")
     page_size: int = Field(100, description="Records per page")
@@ -108,8 +108,8 @@ class ReplenishmentListData(BaseModel):
 
 ```python
 # app/home/router.py
-@router.get("/detailed_sku_view")
-async def get_detailed_sku_view(
+@router.get("/detailed_item_view")
+async def get_detailed_item_view(
     # Pagination
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
@@ -117,7 +117,7 @@ async def get_detailed_sku_view(
     # Sorting
     sort_by: str = Query(
         "doh",
-        description="Column to sort by: site, category, subcategory, article, doh, stock, sales, cost"
+        description="Column to sort by: site, category, subcategory, item, doh, stock, sales, cost"
     ),
     sort_order: str = Query(
         "DESC",
@@ -130,22 +130,22 @@ async def get_detailed_sku_view(
     subcategory: Optional[str] = Query(None, description="Subcategory/Class ID"),
     
     # Search
-    search: Optional[str] = Query(None, description="Search text across site, category, article"),
+    search: Optional[str] = Query(None, description="Search text across site, category, item"),
     
     # Multi-value filters (comma-separated)
-    articles: Optional[str] = Query(None, description="Comma-separated article codes"),
+    items: Optional[str] = Query(None, description="Comma-separated item codes"),
     stores: Optional[str] = Query(None, description="Comma-separated store IDs"),
     
     service = Depends(get_service),
 ):
     """
-    Get detailed SKU view with pagination and sorting.
+    Get detailed item view with pagination and sorting.
     
     **Usage Examples:**
     ```
-    GET /detailed_sku_view?sort_by=stock&sort_order=DESC
-    GET /detailed_sku_view?articles=SKU-001,SKU-002,SKU-003
-    GET /detailed_sku_view?category=BEVERAGES&stores=6217,6220&sort_by=cost&sort_order=ASC
+    GET /detailed_item_view?sort_by=stock&sort_order=DESC
+    GET /detailed_item_view?items=ITEM-001,ITEM-002,ITEM-003
+    GET /detailed_item_view?category=BEVERAGES&stores=6217,6220&sort_by=cost&sort_order=ASC
     ```
     """
     # Service call omitted
@@ -155,15 +155,15 @@ async def get_detailed_sku_view(
 ### Limit/offset with multi-value filters
 
 ```python
-# app/anr/redistribution/router.py
+# app/inventory/distribution/router.py
 DEFAULT_PAGE = 1
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 1000
 
-@router.get("/redistribution")
-async def get_redistribution_data(
+@router.get("/distribution")
+async def get_distribution_data(
     # Search
-    search: Optional[str] = Query(None, description="Search text across order_id, location_id, article_id"),
+    search: Optional[str] = Query(None, description="Search text across order_id, location_id, item_id"),
     
     # Sorting
     sort_by: str = Query("created_at", description="Field to sort by"),
@@ -185,7 +185,7 @@ async def get_redistribution_data(
     service = Depends(get_service),
 ):
     """
-    Get redistribution data with filtering, search, sorting, and pagination.
+    Get distribution data with filtering, search, sorting, and pagination.
     
     **Pagination:**
     - page: Page number (1-indexed, default: 1)
@@ -263,13 +263,13 @@ class ForecastQueryBuilder:
 
 ```python
 # app/home/query_builder.py
-class SKUQueryBuilder:
+class ItemQueryBuilder:
     def _get_sort_column(self, sort_by: str) -> str:
         """Map sort_by parameter to actual column name."""
         sort_mapping = {
             "site": "store_name",
             "category": "category_description",
-            "article": "article_id",
+            "item": "item_id",
             "doh": "days_on_hand",
             "stock": "total_stock",
             "sales": "sales_90d",
@@ -282,7 +282,7 @@ class SKUQueryBuilder:
 ### Multi-value filter building
 
 ```python
-# app/anr/redistribution/query_builder.py
+# app/inventory/distribution/query_builder.py
 def _build_filters(self, query_params) -> str:
     """Build filter clauses."""
     clauses = []
@@ -310,8 +310,8 @@ def _build_search_filter(self, search: Optional[str]) -> str:
     search_param = self._add_param(f"%{search}%")
     return f"""
         AND (
-            LOWER(article_id) LIKE LOWER({search_param})
-            OR LOWER(article_description) LIKE LOWER({search_param})
+            LOWER(item_id) LIKE LOWER({search_param})
+            OR LOWER(item_description) LIKE LOWER({search_param})
             OR LOWER(order_id) LIKE LOWER({search_param})
             OR LOWER(store_id) LIKE LOWER({search_param})
         )
@@ -332,7 +332,7 @@ def build_count_query(self, filters: Dict[str, str]) -> Tuple[str, List[Any]]:
     search_where = self._build_search_filter(filters)
     
     query = f"""
-        SELECT COUNT(DISTINCT CONCAT(site_id, '-', article_id)) as total
+        SELECT COUNT(DISTINCT CONCAT(site_id, '-', item_id)) as total
         FROM {self.schema}.{self.table}
         WHERE 1=1
         {site_where}
@@ -347,8 +347,8 @@ def build_count_query(self, filters: Dict[str, str]) -> Tuple[str, List[Any]]:
 ### Fetch list with count
 
 ```python
-# app/anr/redistribution/repository.py
-class RedistributionRepository:
+# app/inventory/distribution/repository.py
+class DistributionRepository:
     async def fetch_list(
         self,
         query_params: QueryParams
@@ -415,23 +415,23 @@ class ForecastService:
 ### Limit/offset style
 
 ```python
-# app/anr/redistribution/service.py
-class RedistributionService:
-    async def get_redistribution_list(
+# app/inventory/distribution/service.py
+class DistributionService:
+    async def get_distribution_list(
         self,
         query_params: QueryParams
-    ) -> RedistributionListData:
-        """Get redistribution data list with pagination."""
+    ) -> DistributionListData:
+        """Get distribution data list with pagination."""
         records_data, total_count = await self.repository.fetch_list(query_params)
         
         # Convert to Pydantic models
-        records = [ReplenishmentRecord(**r) for r in records_data]
+        records = [InventoryRecord(**r) for r in records_data]
         
         # Calculate pagination metadata
         page = (query_params.offset // query_params.limit) + 1
         has_next = (query_params.offset + query_params.limit) < total_count
         
-        return RedistributionListData(
+        return DistributionListData(
             data=records,
             total_records=total_count,
             page=page,
@@ -445,9 +445,9 @@ class RedistributionService:
 ### Sort configuration
 
 ```python
-# app/anr/redistribution/config.py
-class RedistributionConfig:
-    """Configuration for redistribution module."""
+# app/inventory/distribution/config.py
+class DistributionConfig:
+    """Configuration for distribution module."""
     
     default_sort_by: str = "created_at"
     
@@ -456,7 +456,7 @@ class RedistributionConfig:
         "updated_at": "updated_at",
         "order_id": "order_id",
         "store_id": "store_id",
-        "article_id": "article_id",
+        "item_id": "item_id",
         "quantity": "quantity",
         "status": "status",
     }
@@ -483,10 +483,10 @@ DEFAULT_SORT_ORDER = "desc"
 These patterns appear across multiple services:
 
 - `app/models.py` — Pydantic query and response models
-- `app/<domain>/models.py` — Domain-specific models
-- `app/<domain>/router.py` — FastAPI route handlers with Query() params
-- `app/<domain>/service.py` — Service layer with pagination metadata construction
-- `app/<domain>/repository.py` — Repository layer with fetch_list returning (records, count)
-- `app/<domain>/query_builder.py` — QueryBuilder class with build_data_query and build_count_query
-- `app/<domain>/config.py` — Configuration for sort mappings and defaults
-- `app/<domain>/constants.py` — Constants for pagination defaults and limits
+- `app/inventory/models.py` — Domain-specific models
+- `app/inventory/router.py` — FastAPI route handlers with Query() params
+- `app/inventory/service.py` — Service layer with pagination metadata construction
+- `app/inventory/repository.py` — Repository layer with fetch_list returning (records, count)
+- `app/inventory/query_builder.py` — QueryBuilder class with build_data_query and build_count_query
+- `app/inventory/config.py` — Configuration for sort mappings and defaults
+- `app/inventory/constants.py` — Constants for pagination defaults and limits

@@ -13,7 +13,7 @@ This file compares the three models and provides guidance on when to use each, i
 | **API layer** | Axios + react-query hooks | Fetch wrapper + token refresh race-guard | Apollo links (authLink + errorLink) |
 | **Server state** | react-query cache | Manual (anti-pattern: bypasses cache) | Apollo cache |
 | **Client state** | zustand (module-scoped stores) | zustand with persist middleware | React Contexts + zustand |
-| **Multi-tenancy** | `DYNAMIC_HEADERS` proxy (dynamic X-Tenant-ID/X-Org-ID) | `X-Brand-ID` header | `x-org-id` header (authLink) |
+| **Multi-tenancy** | `DYNAMIC_HEADERS` proxy (dynamic X-Tenant-ID/X-Org-ID) | `X-Tenant-ID` header | `x-org-id` header (authLink) |
 | **Environment config** | Runtime (`window._conf` injected by Vite plugin or `/env-config`) | Build-time (`import.meta.env.VITE_*`) | Build-time (`import.meta.env.VITE_*`) |
 | **Error handling** | Axios interceptor (401 → logout, 403 → /unauthorized) | `APIError` class + Sentry 5xx filter | `errorLink` (UNAUTHENTICATED → /login) |
 | **Token refresh** | Automatic (axios interceptor) | Race-guard (single `refreshPromise`) | N/A (GraphQL errors) |
@@ -33,7 +33,7 @@ This file compares the three models and provides guidance on when to use each, i
 
 ### Use Module-scoped (A) when:
 
-- **App has 20+ domains** that evolve independently (e.g., inventory, OTB, planogram, sourcing, store-view, AOP, agents, calendar, tasks, exceptions, review, ...)
+- **App has 20+ domains** that evolve independently (e.g., inventory, purchasing, catalog, workflows, analytics, planning, agents, calendar, tasks, exceptions, review, ...)
 - **Domains are parallel** — minimal shared logic between them (each is a mini-app)
 - **Team is large** — multiple squads own different modules
 - **Future micro-frontend extraction** is likely (each module can become a standalone app)
@@ -52,7 +52,7 @@ This file compares the three models and provides guidance on when to use each, i
 
 ### Use Feature-sliced (B) when:
 
-- **App has 10–20 features** with cross-cutting concerns (e.g., analytics, briefs, templates, trends, grading)
+- **App has 10–20 features** with cross-cutting concerns (e.g., analytics, documents, templates, reports, scoring)
 - **Features share UI components** (generic primitives in `components/ui`, domain-specific in `components/domain`)
 - **Code splitting is important** (lazy-loaded pages reduce initial bundle size)
 - **Team is medium-sized** — 3–5 engineers, not enough to justify module boundaries
@@ -160,8 +160,8 @@ src/
       types/inventory.types.ts
       pages/InventoryPage.tsx
       route.tsx
-    otb/
-      api/otbApi.ts
+    purchasing/
+      api/purchasingApi.ts
       # ...
   components/
     ui/                      # shared primitives (Button, Input, Card)

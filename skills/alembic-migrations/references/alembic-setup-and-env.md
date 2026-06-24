@@ -151,7 +151,7 @@ from app.database import Base
 from config.settings import settings
 
 # Import all models (wildcard imports)
-from app.articles.models import *
+from app.items.models import *
 from app.units.models import *
 # ... (40+ wildcard imports)
 
@@ -183,8 +183,8 @@ from app.users.models import User
 from app.organizations.models import Organization
 
 # Wildcard imports (acceptable in env.py, used in multiple production services)
-from myapp.users.models import *
-from myapp.tenants.models import *
+from app.users.models import *
+from app.tenants.models import *
 ```
 
 **Critical**: If a model is not imported in `env.py`, Alembic won't detect it for autogenerate.

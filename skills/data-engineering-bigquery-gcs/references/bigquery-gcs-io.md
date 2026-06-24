@@ -80,7 +80,7 @@ Not directly observed in production examples, but referenced in workflow documen
 ## Table Creation with Partitioning and Clustering
 
 ```sql
-CREATE TABLE my_project.da_silver.slv_sales (
+CREATE TABLE my_project.silver.sales (
   org_id STRING NOT NULL,
   metric_date DATE NOT NULL,
   site STRING NOT NULL,

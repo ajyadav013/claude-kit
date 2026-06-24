@@ -68,8 +68,8 @@ src/
       types/auth.types.ts
       pages/LoginPage.tsx
       route.tsx               # exports authRoutes fragment
-    inventory/
-      api/inventoryApi.ts
+    purchasing/
+      api/purchasingApi.ts
       components/...
       route.tsx
   lib/
@@ -86,7 +86,7 @@ src/
   features/
     auth/                     # domain logic, service, hooks
     analytics/
-    briefs/
+    documents/
   pages/                      # lazy-loaded route containers
     LoginPage.tsx
     DashboardPage.tsx

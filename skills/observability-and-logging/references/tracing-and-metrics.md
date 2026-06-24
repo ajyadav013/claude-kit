@@ -166,7 +166,7 @@ _metrics_registry = CollectorRegistry()
 CUSTOM_HISTOGRAM_BUCKETS = [0.05, 0.1, 0.2, 0.4, 0.8, 1, 2, 5, 7, 10, float("inf")]
 
 HTTP_REQUEST_RECEIVED = Histogram(
-    "redm_http_request_received",
+    "app_http_request_received",
     "Duration of HTTP requests received",
     ["method", "path", "status_code", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,
@@ -174,7 +174,7 @@ HTTP_REQUEST_RECEIVED = Histogram(
 )
 
 KAFKA_MESSAGE_PROCESSED = Histogram(
-    "redm_consumer_kafka_message_processed",
+    "app_consumer_kafka_message_processed",
     "Duration to process a Kafka message",
     ["topic", "partition", "status", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,

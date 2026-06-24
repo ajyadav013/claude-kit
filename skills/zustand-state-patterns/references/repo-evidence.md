@@ -20,8 +20,8 @@ interface AuthState {
   isLoading: boolean;
 
   // Tenant state
-  currentBrand: Brand | null;
-  availableBrands: Brand[];
+  currentTenant: Tenant | null;
+  availableTenants: Tenant[];
   userRole: UserRole;
 
   // Actions
@@ -30,7 +30,7 @@ interface AuthState {
   sendOTP: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
-  switchBrand: (brandId: string) => Promise<void>;
+  switchTenant: (tenantId: string) => Promise<void>;
   updateProfile: (data: { first_name?: string; last_name?: string; phone?: string }) => Promise<User>;
 }
 
@@ -42,8 +42,8 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isInitializing: true,
       isLoading: false,
-      currentBrand: null,
-      availableBrands: [],
+      currentTenant: null,
+      availableTenants: [],
       userRole: 'viewer',
 
       // Actions implementation
@@ -51,22 +51,22 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           await authService.login(email, password);
-          const { user, brands } = await fetchUserAndBrands();
+          const { user, tenants } = await fetchUserAndTenants();
           
-          // Switch to first brand to get brand-scoped tokens
-          let currentBrand: Brand | null = null;
-          if (brands.length > 0 && brands[0]) {
-            const switchResponse = await authService.switchBrand(brands[0].id);
-            currentBrand = switchResponse.brand;
+          // Switch to first tenant to get tenant-scoped tokens
+          let currentTenant: Tenant | null = null;
+          if (tenants.length > 0 && tenants[0]) {
+            const switchResponse = await authService.switchTenant(tenants[0].id);
+            currentTenant = switchResponse.tenant;
           }
 
           set({
             user,
             isAuthenticated: true,
             isLoading: false,
-            availableBrands: brands,
-            currentBrand,
-            userRole: currentBrand?.role ?? 'viewer',
+            availableTenants: tenants,
+            currentTenant,
+            userRole: currentTenant?.role ?? 'viewer',
           });
         } catch (error) {
           set({ isLoading: false });
@@ -80,8 +80,8 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
-        currentBrand: state.currentBrand,
-        availableBrands: state.availableBrands,
+        currentTenant: state.currentTenant,
+        availableTenants: state.availableTenants,
         userRole: state.userRole,
       }),
     }
@@ -102,38 +102,38 @@ export const selectIsAuthenticated = (state: AuthState) => state.isAuthenticated
 export const selectIsInitializing = (state: AuthState) => state.isInitializing;
 export const selectIsLoading = (state: AuthState) => state.isLoading;
 
-/** Returns the currently active brand the user is scoped to for API calls. */
-export const selectCurrentBrand = (state: AuthState) => state.currentBrand;
+/** Returns the currently active tenant the user is scoped to for API calls. */
+export const selectCurrentTenant = (state: AuthState) => state.currentTenant;
 
-/** Returns all brands the authenticated user has access to across agencies. */
-export const selectAvailableBrands = (state: AuthState) => state.availableBrands;
+/** Returns all tenants the authenticated user has access to across organizations. */
+export const selectAvailableTenants = (state: AuthState) => state.availableTenants;
 
-/** Returns the user's role within the currently active brand (admin, editor, viewer). */
+/** Returns the user's role within the currently active tenant (admin, editor, viewer). */
 export const selectUserRole = (state: AuthState) => state.userRole;
 ```
 
-From `frontend/src/stores/trendsStore.ts`:
+From `frontend/src/stores/reportsStore.ts`:
 
 ```typescript
-/** Filters the loaded trends to only those matching the given trend type. */
-export const selectTrendsByType = (type: TrendType) => (state: TrendsState) =>
-  state.trends.filter((trend) => trend.type === type);
+/** Filters the loaded reports to only those matching the given report type. */
+export const selectReportsByType = (type: ReportType) => (state: ReportsState) =>
+  state.reports.filter((report) => report.type === type);
 
-/** Returns only trends with 'rising' status from the current loaded list. */
-export const selectRisingTrends = (state: TrendsState) =>
-  state.trends.filter((trend) => trend.status === 'rising');
+/** Returns only the most recent reports from the current loaded list. */
+export const selectRecentReports = (state: ReportsState) =>
+  state.reports.filter((report) => report.status === 'recent');
 
-/** Returns true if no reference brands are configured. */
-export const selectHasNoReferenceBrands = (state: TrendsState) =>
-  state.referenceBrands.length === 0;
+/** Returns true if no reference tenants are configured. */
+export const selectHasNoReferenceTenants = (state: ReportsState) =>
+  state.referenceTenants.length === 0;
 ```
 
 ## Async actions and error handling
 
-From `frontend/src/stores/trendsStore.ts`:
+From `frontend/src/stores/reportsStore.ts`:
 
 ```typescript
-loadTrends: async (filters?: TrendFilters): Promise<void> => {
+loadReports: async (filters?: ReportFilters): Promise<void> => {
   const currentFilters = filters ?? get().filters;
   set({ isLoading: true, error: null, filters: currentFilters });
 
@@ -153,15 +153,15 @@ loadTrends: async (filters?: TrendFilters): Promise<void> => {
       params['page'] = currentFilters.page;
     }
 
-    const response = await trendsService.listTrends(params);
+    const response = await reportsService.listReports(params);
     set({
-      trends: response.items,
+      reports: response.items,
       pagination: response.pagination,
       isLoading: false,
     });
   } catch (error) {
     const errorMessage =
-      error instanceof Error ? error.message : 'Failed to load trends';
+      error instanceof Error ? error.message : 'Failed to load reports';
     set({ error: errorMessage, isLoading: false });
     throw error;
   }
@@ -238,14 +238,14 @@ export const useVideoStore = create<VideoState>()((set, get) => ({
     set({ isPolling: false, pollingInterval: null });
   },
 
-  generateVideo: async (briefId: string, options?: GenerateVideoRequest): Promise<void> => {
+  generateVideo: async (documentId: string, options?: GenerateVideoRequest): Promise<void> => {
     set({ isGenerating: true, error: null });
 
     try {
-      const response = await videoService.generateVideo(briefId, options);
+      const response = await videoService.generateVideo(documentId, options);
       const video: Video = {
         id: response.id,
-        brief_id: briefId,
+        document_id: documentId,
         status: 'queued',
         progress_percent: 0,
         estimated_seconds: response.estimated_seconds,
@@ -295,6 +295,8 @@ sendMessage: async (message: string, attachments?: Attachment[]): Promise<void> 
     attachments: attachments ?? undefined,
     timestamp: new Date().toISOString(),
   };
+
+  const attachmentIds = attachments?.map((a) => a.id);
 
   set((state) => ({
     messages: [...state.messages, userMessage],
@@ -417,27 +419,27 @@ checkAuth: async () => {
   }
 
   try {
-    const { user, brands } = await fetchUserAndBrands();
+    const { user, tenants } = await fetchUserAndTenants();
 
-    // Check if we have a persisted brand selection
-    const { currentBrand: persistedBrand } = get();
-    let brandToSwitch: Brand | null = null;
+    // Check if we have a persisted tenant selection
+    const { currentTenant: persistedTenant } = get();
+    let tenantToSwitch: Tenant | null = null;
 
-    // Use persisted brand if it's still in the available list, otherwise use first brand
-    if (persistedBrand && brands.find((b) => b.id === persistedBrand.id)) {
-      brandToSwitch = persistedBrand;
-    } else if (brands.length > 0 && brands[0]) {
-      brandToSwitch = brands[0];
+    // Use persisted tenant if it's still in the available list, otherwise use first tenant
+    if (persistedTenant && tenants.find((t) => t.id === persistedTenant.id)) {
+      tenantToSwitch = persistedTenant;
+    } else if (tenants.length > 0 && tenants[0]) {
+      tenantToSwitch = tenants[0];
     }
 
-    // Switch to brand to get brand-scoped tokens
-    if (brandToSwitch) {
+    // Switch to tenant to get tenant-scoped tokens
+    if (tenantToSwitch) {
       try {
-        const switchResponse = await authService.switchBrand(brandToSwitch.id);
-        brandToSwitch = switchResponse.brand;
+        const switchResponse = await authService.switchTenant(tenantToSwitch.id);
+        tenantToSwitch = switchResponse.tenant;
       } catch (switchError) {
-        console.error('Failed to switch brand during initialization:', switchError);
-        // Continue with brand data we have, but API calls requiring brand context will fail
+        console.error('Failed to switch tenant during initialization:', switchError);
+        // Continue with tenant data we have, but API calls requiring tenant context will fail
       }
     }
 
@@ -445,9 +447,9 @@ checkAuth: async () => {
       user,
       isAuthenticated: true,
       isInitializing: false,
-      availableBrands: brands,
-      currentBrand: brandToSwitch,
-      userRole: brandToSwitch?.role ?? 'viewer',
+      availableTenants: tenants,
+      currentTenant: tenantToSwitch,
+      userRole: tenantToSwitch?.role ?? 'viewer',
     });
   } catch (error) {
     // Only clear tokens on actual auth errors (401)
@@ -460,19 +462,19 @@ checkAuth: async () => {
         user: null,
         isAuthenticated: false,
         isInitializing: false,
-        currentBrand: null,
-        availableBrands: [],
+        currentTenant: null,
+        availableTenants: [],
         userRole: 'viewer',
       });
     } else {
       // Keep persisted auth state on non-auth errors (network issues, server down, etc.)
-      const { user: persistedUser, currentBrand: persistedBrand, availableBrands, userRole } = get();
+      const { user: persistedUser, currentTenant: persistedTenant, availableTenants, userRole } = get();
       set({
         isInitializing: false,
         isAuthenticated: persistedUser !== null,
         user: persistedUser,
-        currentBrand: persistedBrand,
-        availableBrands,
+        currentTenant: persistedTenant,
+        availableTenants,
         userRole,
       });
     }
@@ -519,12 +521,12 @@ export const useAuthStore = create<AuthState>()(
 
 ## Pagination with filter state
 
-From `frontend/src/stores/trendsStore.ts`:
+From `frontend/src/stores/reportsStore.ts`:
 
 ```typescript
-interface TrendsState {
-  trends: Trend[];
-  filters: TrendFilters;
+interface ReportsState {
+  reports: Report[];
+  filters: ReportFilters;
   pagination: {
     page: number;
     page_size: number;
@@ -532,37 +534,37 @@ interface TrendsState {
     total_pages: number;
   } | null;
 
-  loadTrends: (filters?: TrendFilters) => Promise<void>;
-  setFilters: (filters: Partial<TrendFilters>) => void;
-  setTypeFilter: (type: TrendType | 'all') => void;
+  loadReports: (filters?: ReportFilters) => Promise<void>;
+  setFilters: (filters: Partial<ReportFilters>) => void;
+  setTypeFilter: (type: ReportType | 'all') => void;
 }
 
 const initialState = {
-  trends: [],
+  reports: [],
   filters: {
     type: 'all' as const,
     status: 'all' as const,
     region: 'all' as const,
-    brands: [] as string[],
+    tenants: [] as string[],
     page: 1,
     page_size: 20,
   },
   pagination: null,
 };
 
-export const useTrendsStore = create<TrendsState>()((set, get) => ({
+export const useReportsStore = create<ReportsState>()((set, get) => ({
   ...initialState,
 
-  setFilters: (filters: Partial<TrendFilters>): void => {
+  setFilters: (filters: Partial<ReportFilters>): void => {
     const currentFilters = get().filters;
     // If page is explicitly being set, use it; otherwise reset to 1
     const page = filters.page !== undefined ? filters.page : 1;
     const newFilters = { ...currentFilters, ...filters, page };
     set({ filters: newFilters });
-    void get().loadTrends(newFilters);
+    void get().loadReports(newFilters);
   },
 
-  setTypeFilter: (type: TrendType | 'all'): void => {
+  setTypeFilter: (type: ReportType | 'all'): void => {
     get().setFilters({ type });
   },
 }));
@@ -572,10 +574,10 @@ export const useTrendsStore = create<TrendsState>()((set, get) => ({
 
 These patterns were extracted from:
 
-- `frontend/src/stores/authStore.ts` — authentication, session restoration, brand/tenant switching
+- `frontend/src/stores/authStore.ts` — authentication, session restoration, tenant switching
 - `frontend/src/stores/videoStore.ts` — polling pattern for async job status
 - `frontend/src/stores/chatStore.ts` — optimistic updates, job progress tracking
-- `frontend/src/stores/trendsStore.ts` — pagination, filters, computed selectors
+- `frontend/src/stores/reportsStore.ts` — pagination, filters, computed selectors
 - `frontend/src/stores/analyticsStore.ts` — parallel data loading, dashboard state
 - `frontend/src/hooks/useInterviewStore.ts` — HMR persistence wrapper
 - `frontend/src/hooks/useAuthStore.ts` — custom sessionStorage persistence

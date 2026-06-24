@@ -36,7 +36,7 @@ Standardize TanStack Query data fetching, caching, and mutations following produ
 
 8. **Computed selectors with `useMemo`**: derive domain-specific arrays or flags from `query.data` using `useMemo(() => query.data?.items ?? [], [query.data])` to avoid recomputation on every render. Return these alongside the query result spread (`{ ...query, items, isEmpty }`). Common selectors: `items`, `pagination`, `isEmpty`, terminal state flags (`isCompleted`, `isFailed`, `isProcessing`).
 
-9. **Typed mutation hooks with callback options**: define `Use<Action>Options` interface with `onSuccess?: (data) => void` and `onError?: (error) => void`. Wrap `useMutation` and call user callbacks after internal cache logic. Accept mutation variables as typed object `{ id, brandId, data }` in `mutationFn` to support multi-arg mutations.
+9. **Typed mutation hooks with callback options**: define `Use<Action>Options` interface with `onSuccess?: (data) => void` and `onError?: (error) => void`. Wrap `useMutation` and call user callbacks after internal cache logic. Accept mutation variables as typed object `{ id, tenantId, data }` in `mutationFn` to support multi-arg mutations.
 
 10. **Prefetch hook with `queryClient.prefetchQuery`**: export a `usePrefetch<Domain>()` hook that returns a callback invoking `queryClient.prefetchQuery({ queryKey, queryFn, staleTime })`. Use for hover or navigation anticipation. The prefetched data populates the cache and will be used by subsequent `useQuery` calls.
 

@@ -214,7 +214,7 @@ _metrics_registry = CollectorRegistry()
 CUSTOM_HISTOGRAM_BUCKETS = [0.05, 0.1, 0.2, 0.4, 0.8, 1, 2, 5, 7, 10, float("inf")]
 
 HTTP_REQUEST_RECEIVED = Histogram(
-    "redm_http_request_received",
+    "app_http_request_received",
     "Duration of HTTP requests received",
     ["method", "path", "status_code", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,
@@ -222,7 +222,7 @@ HTTP_REQUEST_RECEIVED = Histogram(
 )
 
 KAFKA_MESSAGE_PROCESSED = Histogram(
-    "redm_consumer_kafka_message_processed",
+    "app_consumer_kafka_message_processed",
     "Duration to process a Kafka message",
     ["topic", "partition", "status", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,
@@ -230,7 +230,7 @@ KAFKA_MESSAGE_PROCESSED = Histogram(
 )
 
 WORKER_TASK_EXECUTED = Histogram(
-    "redm_worker_worker_task_executed",
+    "app_worker_worker_task_executed",
     "Duration to execute a background worker task",
     ["task_name", "status", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,
@@ -238,7 +238,7 @@ WORKER_TASK_EXECUTED = Histogram(
 )
 
 CRON_JOB_EXECUTED = Histogram(
-    "redm_cron_cron_job_executed",
+    "app_cron_cron_job_executed",
     "Duration to execute a cron job",
     ["job_name", "status", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,
@@ -246,7 +246,7 @@ CRON_JOB_EXECUTED = Histogram(
 )
 
 TEMPORAL_WORKFLOW_EXECUTED = Histogram(
-    "redm_worker_temporal_workflow_executed",
+    "app_worker_temporal_workflow_executed",
     "Duration to execute a temporal workflow or activity",
     ["workflow_name", "status", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,

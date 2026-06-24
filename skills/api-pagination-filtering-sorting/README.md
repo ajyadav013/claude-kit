@@ -18,7 +18,7 @@ This skill covers production-tested conventions for designing paginated, filtere
 
 ## Origin
 
-This skill derives from real production backend services handling inventory, forecasting, replenishment, and range planning data. It distills conventions observed across multiple services with large datasets (10k-1M+ records per tenant) requiring efficient pagination, multi-dimensional filtering, and flexible sorting.
+This skill derives from real production backend services handling inventory, forecasting, and order data. It distills conventions observed across multiple services with large datasets (10k-1M+ records per tenant) requiring efficient pagination, multi-dimensional filtering, and flexible sorting.
 
 ## Relation to other skills
 

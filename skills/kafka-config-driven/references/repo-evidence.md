@@ -298,7 +298,7 @@ KAFKA_CONSUMER_CONFIG = {
             "deserialization_format": KAFKA_SERIALIZATION_FORMAT,
             "consumer_config": CONSUMER_CONFIG,
             "topics_configurations": {
-                CONSUMER_TOPICS[0]: {"tasks": [process_planogram_data]}
+                CONSUMER_TOPICS[0]: {"tasks": [process_catalog_data]}
             },
             "custom_commit_offset": "pre",
         }

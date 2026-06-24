@@ -7,7 +7,7 @@ Tactical GraphQL patterns for Strawberry (backend) and Apollo Client (frontend) 
 - **Backend (Strawberry)**: Schema-per-endpoint pattern; async DB access in resolvers; mounting GraphQL routers alongside REST in FastAPI
 - **Frontend (Apollo Client)**: Link composition (error → auth → http); JWT + multi-tenancy headers; InMemoryCache merge policies; `cache-and-network` fetch policy
 - **Query/Mutation authoring**: Hand-typed `gql` documents; no codegen; flat queries; manual TypeScript types
-- **Use cases**: Filter/dropdown APIs (vendor filter services), dashboard queries (dashboard applications), file uploads (apollo-upload-client)
+- **Use cases**: Filter/dropdown APIs (filter API services), dashboard queries (dashboard applications), file uploads (apollo-upload-client)
 
 ## Provenance
 
@@ -27,6 +27,6 @@ Derived from real-world production Python/FastAPI and React services.
 
 ## Honesty caveats
 
-- **Limited footprint**: GraphQL is used in ~2 applications (vendor filter services, dashboard applications). This is **not** the house default — most services use pure REST.
-- **No codegen**: The house pattern is hand-typed queries/mutations. No graphql-codegen or similar tools are in use.
+- **Limited footprint**: GraphQL is used in ~2 applications (filter API services, dashboard applications). This is **not** the organizational default — most services use pure REST.
+- **No codegen**: The pattern is hand-typed queries/mutations. No graphql-codegen or similar tools are in use.
 - **Coexists with REST**: GraphQL endpoints are tactical supplements, not a full API layer. Most routes remain FastAPI REST.
