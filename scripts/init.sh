@@ -40,6 +40,16 @@ done
 
 DEST="$TARGET/.claude"
 mkdir -p "$DEST"
+
+# Loud warning: this is the degraded, no-pip path. The full experience is the Python CLI.
+echo "================================================================" >&2
+echo "claude-kit BASIC scaffolder (no Python CLI)" >&2
+echo "  SUPERSET install: NO stack / profile / MCP resolution." >&2
+echo "  'claude-kit upgrade' and 'diff' will NOT work against it." >&2
+echo "  For the full catalog-driven experience + safe upgrades:" >&2
+echo "    pipx install claude-code-kit   (then re-run /claude-kit:init)" >&2
+echo "================================================================" >&2
+
 echo "claude-kit: scaffolding into $TARGET"
 
 copy_root_file() {  # src, dest, label

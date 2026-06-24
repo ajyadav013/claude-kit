@@ -83,6 +83,12 @@ Then, inside any project you want the pipeline to manage:
 /sdlc Add a CSV export button to the reports page
 ```
 
+> **`/claude-kit:init` requires the Python CLI** (`pipx install claude-code-kit`, or `pip install
+> claude-code-kit`) — it's what resolves your stack/profile/MCP catalog and records `init-options.json`
+> for safe `upgrade`/`diff`. If the CLI isn't on PATH the command stops and tells you to install it
+> rather than doing a partial install. (A degraded, no-resolution shell scaffolder is available only by
+> explicitly setting `CLAUDE_KIT_BASIC=1`; `upgrade`/`diff` won't work against it.)
+
 > `/sdlc` is a **project skill** installed by `init`, so it becomes available after the restart. The
 > plugin also exposes `/claude-kit:sdlc <task>`, which works immediately (no restart needed).
 
