@@ -2,11 +2,13 @@
 
 # claude-kit
 
-**A Cookiecutter-style scaffolder for an autonomous SDLC (software-delivery lifecycle) inside [Claude Code](https://www.claude.com/product/claude-code).**
+**The autonomous SDLC for [Claude Code](https://www.claude.com/product/claude-code) that won't pass a gate on an unproven verdict.**
 
-One command turns a one-line request into reviewed, tested, secured, shippable code — with a
-quality gate between every phase. Each gate passes only on *real, cited command output* — never an
-assumed or fabricated "it works." **No application code. No Docker. Configuration only.**
+It turns a one-line request into reviewed, tested, secured, shippable code — but the moat is *trust*:
+every quality gate between phases passes **only** on real, cited command output. A fabricated,
+assumed, or partial-output "it works" is itself an auto-Critical finding — so a green result means the
+checks actually ran. A Cookiecutter-style scaffolder, installed as **configuration only — no
+application code, no Docker.**
 
 [![PyPI](https://img.shields.io/pypi/v/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
@@ -15,7 +17,7 @@ assumed or fabricated "it works." **No application code. No Docker. Configuratio
 [![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
 [![Changelog](https://img.shields.io/badge/changelog-md-blue.svg)](CHANGELOG.md)
 
-✨ [Features](#features) · 🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 🔒 [Security](#security--trust-model) · 📖 [Agent guide](docs/agents.md)
+✨ [Features](#features) · ⚡ [60-second start](#60-second-first-win) · 🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · ⚖️ [Compare](#how-claude-kit-compares) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 🔒 [Security](#security--trust-model)
 
 </div>
 
@@ -59,6 +61,26 @@ Quick start) for the full breakdown of any row.
 | 🛠️ **Hooks & guards** | **17** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
 | 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **9** ready MCP fragments, and edit-preserving `upgrade` |
 | ♻️ **Reuse-first by design** | Adopt-only-the-new reviews, opt-in LLM/AI security (OWASP LLM Top 10), a worked example + self-test matrix |
+
+---
+
+## 60-second first win
+
+The fastest path to a gated run — **no CLI install, no `init`, no restart:**
+
+```text
+/plugin marketplace add ajyadav013/claude-kit
+/plugin install claude-kit
+/claude-kit:sdlc Add a /health endpoint that returns the build version
+```
+
+The plugin loads the Orchestrator and its specialist agents on install, so `/claude-kit:sdlc` runs the
+**standard pipeline immediately** — spec → review → build → test, gate by gate — and drives Claude Code
+to produce the change with a verdict backed by real output. That's the whole loop in three lines.
+
+When you want it tuned to *your* repo, run `claude-kit init` (next section): it resolves your
+stack/profile, wires your exact build/test/lint commands, installs the safety hooks, and turns on
+edit-preserving `upgrade`. Pre-`init` runs just use the standard defaults.
 
 ---
 
@@ -372,6 +394,28 @@ See [`docs/architecture.md`](docs/architecture.md) for the full diagrams.
 
 ---
 
+## How claude-kit compares
+
+The closest alternative is just **using Claude Code's own subagents** — and that's the comparison that
+matters most. Native gives you the agents; claude-kit gives you the **governance**: a fixed pipeline,
+owned gates, and the rule that **no gate passes on an unproven verdict**.
+
+| Compared to… | What it is | What claude-kit adds |
+|---|---|---|
+| **Native Claude Code subagents / Agent Teams** | Spawn parallel agents on demand; you define the workflow, gates, and verification yourself each time | The **opinionated layer on top** of exactly that capability: a fixed, sequenced pipeline with **owned quality gates** (block on any open Critical/High/Medium), an **evidence requirement** (no fabricated verdicts — `quality-gates.md` §2.5), a `devils-advocate` anti-rubber-stamp pass, and **structured resume** from `.claude/state/pipeline-snapshot.json`. Native gives you the agents; claude-kit gives you the governance. |
+| **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | A **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
+| **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | The same coverage-gate idea (the `story-planner` 1f gate + `task-tracker-sync`) **absorbed into a broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
+| **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | **Portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 23 rules, 28 agents, 96 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
+
+**Choose claude-kit when** you want a consistent, reviewable, **gate-enforced** autonomous-SDLC setup
+that's the same across every repo and stack, installs in seconds, ships nothing you have to run, and
+**evolves reuse-first** rather than by piling on near-duplicate agents. It is **not** a runtime, an
+orchestration engine, or a code library — it's the configuration that makes Claude Code's agents
+behave like a disciplined team.
+
+---
+
 ## The pipeline
 
 `/sdlc` reads the profile you chose and runs **only that profile's gates**:
@@ -459,28 +503,9 @@ mandatory security gate — that would have made it mandatory.
 
 </details>
 
-<details>
-<summary><b>How claude-kit compares (positioning)</b></summary>
-
-<br>
-
-claude-kit is a **config-only, stack-agnostic SDLC scaffolder** — it installs a governed pipeline
-(agents · skills · rules · gates · hooks) into your project's `.claude/` and then gets out of the way.
-It is **not** a runtime, an orchestration engine, or a code library. That framing is the difference:
-
-| Project | What it is | How claude-kit differs |
-|---|---|---|
-| **Native Claude Code subagents / Agent Teams** | Spawn parallel agents on demand; you define the workflow, gates, and verification yourself each time | claude-kit is the **opinionated layer on top** of exactly that capability: a fixed, sequenced pipeline with **owned quality gates** (block on any open Critical/High/Medium), an **evidence requirement** (no fabricated verdicts — `quality-gates.md` §2.5), a `devils-advocate` anti-rubber-stamp pass, and **structured resume** from `.claude/state/pipeline-snapshot.json`. Native gives you the agents; claude-kit gives you the governance. |
-| **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | claude-kit ships a **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
-| **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | claude-kit **absorbed spec-kit's coverage-gate idea** (the `story-planner` 1f gate + `task-tracker-sync`) into a **broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
-| **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | claude-kit produces **portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | claude-kit is a **catalog-driven generator**: it resolves your stack/profile/scope into the right subset of 23 rules, 28 agents, 96 skills, gates, and hooks, and keeps them **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
-
-**Choose claude-kit when** you want a consistent, reviewable, **gate-enforced** autonomous-SDLC setup
-that's the same across every repo and stack, installs in seconds, ships nothing you have to run, and
-**evolves reuse-first** rather than by piling on near-duplicate agents.
-
-</details>
+> **Comparing claude-kit to native subagents / Agent Teams, agent collections, spec-kit, or
+> multi-agent runtimes?** That's now its own section near the top — see
+> [**How claude-kit compares**](#how-claude-kit-compares).
 
 ---
 

@@ -4,6 +4,27 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.29.0] — 2026-06-24
+
+**Positioning v2 (docs): lead with the trust moat, promote the comparison to a top-level block, and
+add a 60-second first-win path. No behavior change.**
+
+### Changed
+- **The hero now leads with the moat, not orchestration.** The tagline is *"the autonomous SDLC for
+  Claude Code that won't pass a gate on an unproven verdict"* — orchestration is table stakes; the
+  evidence requirement is the differentiator, so it's the first thing you read.
+- **"How claude-kit compares" is now a prominent top-level section** (was a collapsed block buried
+  under *Influences*), leading with **Native Claude Code subagents / Agent Teams** — the alternative
+  every user weighs first. Honest framing throughout: native gives you the agents, claude-kit adds the
+  governance.
+
+### Added
+- **"60-second first win" section.** A three-line fast path — `/plugin install` →
+  `/claude-kit:sdlc <task>` — with **no CLI install, no `init`, no restart**: the plugin loads the
+  Orchestrator + agents on install, and the `sdlc` skill/command fall back to the standard pipeline
+  when project config is absent. `init` is reframed as the *tune-it-to-your-repo* step (exact commands,
+  hooks, upgrade tracking), not a prerequisite to the first run.
+
 ## [0.28.0] — 2026-06-24
 
 **Positioning & onboarding pass (docs): surface the anti-fabrication moat, compare against native
