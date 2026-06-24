@@ -41,13 +41,13 @@ Standardize Zustand state management structure, async actions, polling patterns,
 
 10. **Immutable nested updates via spread**: always use spread operators to update nested objects/arrays immutably. Example: `set((state) => ({ items: [...state.items, newItem] }))` or `set((state) => ({ user: { ...state.user, name: newName } }))`. Never mutate state directly (`state.items.push(newItem)` is forbidden).
 
-11. **Action naming conventions**: use imperative verbs for actions (`login`, `logout`, `loadTrends`, `approveBrief`, `setFilters`) and `select*` prefix for selectors (`selectUser`, `selectCurrentBrand`, `selectIsLoading`). Boolean flags use `is*` or `has*` prefix (`isLoading`, `isAuthenticated`, `hasUnreadMessages`).
+11. **Action naming conventions**: use imperative verbs for actions (`login`, `logout`, `loadReports`, `approveDocument`, `setFilters`) and `select*` prefix for selectors (`selectUser`, `selectCurrentTenant`, `selectIsLoading`). Boolean flags use `is*` or `has*` prefix (`isLoading`, `isAuthenticated`, `hasUnreadMessages`).
 
 12. **Initial state constant**: define `const initialState = { ... }` for the default state shape and reuse it in the store and in reset actions. This ensures consistent state structure and simplifies reset logic.
 
 13. **Session restoration pattern**: for auth stores, implement a `checkAuth()` action that runs on app mount to restore the session from persisted tokens or storage. Handle network errors gracefully (don't log out on transient failures). Use `isInitializing` flag to distinguish "checking session" from "ready".
 
-14. **Brand/tenant/workspace switching**: for multi-tenant apps, store the active tenant/brand/workspace in state and provide a `switchBrand(id)` action that calls the backend to get new scoped tokens, then updates local state. Preserve the selected brand in persisted state so it survives page reloads.
+14. **Tenant/workspace switching**: for multi-tenant apps, store the active tenant/workspace in state and provide a `switchTenant(id)` action that calls the backend to get new scoped tokens, then updates local state. Preserve the selected tenant in persisted state so it survives page reloads.
 
 15. **Pagination state**: for paginated list stores, track `pagination: { page, page_size, total, total_pages } | null` and a `filters` object. When filters change, reset `page` to 1. Example: `setFilters(newFilters) => { set({ filters: { ...filters, ...newFilters, page: 1 } }); loadData(); }`.
 
@@ -57,7 +57,7 @@ Standardize Zustand state management structure, async actions, polling patterns,
 // stores/authStore.ts
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { User, Brand, UserRole } from '@/types';
+import type { User, Tenant, UserRole } from '@/types';
 import { authService } from '@/lib/auth';
 
 interface AuthState {
@@ -66,15 +66,15 @@ interface AuthState {
   isAuthenticated: boolean;
   isInitializing: boolean;
   isLoading: boolean;
-  currentBrand: Brand | null;
-  availableBrands: Brand[];
+  currentTenant: Tenant | null;
+  availableTenants: Tenant[];
   userRole: UserRole;
 
   // Actions
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
-  switchBrand: (brandId: string) => Promise<void>;
+  switchTenant: (tenantId: string) => Promise<void>;
   updateProfile: (data: { name?: string; phone?: string }) => Promise<User>;
 }
 
@@ -83,8 +83,8 @@ const initialState = {
   isAuthenticated: false,
   isInitializing: true,
   isLoading: false,
-  currentBrand: null,
-  availableBrands: [],
+  currentTenant: null,
+  availableTenants: [],
   userRole: 'viewer' as UserRole,
 };
 
@@ -97,22 +97,22 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           await authService.login(email, password);
-          const { user, brands } = await fetchUserAndBrands();
+          const { user, tenants } = await fetchUserAndTenants();
           
-          // Switch to first brand to get scoped tokens
-          let currentBrand: Brand | null = null;
-          if (brands.length > 0 && brands[0]) {
-            const response = await authService.switchBrand(brands[0].id);
-            currentBrand = response.brand;
+          // Switch to first tenant to get scoped tokens
+          let currentTenant: Tenant | null = null;
+          if (tenants.length > 0 && tenants[0]) {
+            const response = await authService.switchTenant(tenants[0].id);
+            currentTenant = response.tenant;
           }
 
           set({
             user,
             isAuthenticated: true,
             isLoading: false,
-            availableBrands: brands,
-            currentBrand,
-            userRole: currentBrand?.role ?? 'viewer',
+            availableTenants: tenants,
+            currentTenant,
+            userRole: currentTenant?.role ?? 'viewer',
           });
         } catch (error) {
           set({ isLoading: false });
@@ -127,8 +127,8 @@ export const useAuthStore = create<AuthState>()(
           set({
             user: null,
             isAuthenticated: false,
-            currentBrand: null,
-            availableBrands: [],
+            currentTenant: null,
+            availableTenants: [],
             userRole: 'viewer',
           });
         }
@@ -142,26 +142,26 @@ export const useAuthStore = create<AuthState>()(
         }
 
         try {
-          const { user, brands } = await fetchUserAndBrands();
-          const { currentBrand: persisted } = get();
+          const { user, tenants } = await fetchUserAndTenants();
+          const { currentTenant: persisted } = get();
           
-          // Use persisted brand if still valid, else first brand
-          let brandToSwitch = persisted && brands.find(b => b.id === persisted.id)
+          // Use persisted tenant if still valid, else first tenant
+          let tenantToSwitch = persisted && tenants.find(t => t.id === persisted.id)
             ? persisted
-            : brands[0] ?? null;
+            : tenants[0] ?? null;
 
-          if (brandToSwitch) {
-            const response = await authService.switchBrand(brandToSwitch.id);
-            brandToSwitch = response.brand;
+          if (tenantToSwitch) {
+            const response = await authService.switchTenant(tenantToSwitch.id);
+            tenantToSwitch = response.tenant;
           }
 
           set({
             user,
             isAuthenticated: true,
             isInitializing: false,
-            availableBrands: brands,
-            currentBrand: brandToSwitch,
-            userRole: brandToSwitch?.role ?? 'viewer',
+            availableTenants: tenants,
+            currentTenant: tenantToSwitch,
+            userRole: tenantToSwitch?.role ?? 'viewer',
           });
         } catch (error) {
           // Keep persisted state on network errors, clear on auth errors
@@ -174,21 +174,21 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      switchBrand: async (brandId: string) => {
-        const { availableBrands } = get();
-        const brand = availableBrands.find(b => b.id === brandId);
-        if (!brand) return;
+      switchTenant: async (tenantId: string) => {
+        const { availableTenants } = get();
+        const tenant = availableTenants.find(t => t.id === tenantId);
+        if (!tenant) return;
 
         try {
-          const response = await authService.switchBrand(brandId);
+          const response = await authService.switchTenant(tenantId);
           set({
-            currentBrand: response.brand,
-            userRole: response.brand.role,
+            currentTenant: response.tenant,
+            userRole: response.tenant.role,
           });
         } catch (error) {
-          console.error('Failed to switch brand:', error);
+          console.error('Failed to switch tenant:', error);
           // Fallback to local state even if API fails
-          set({ currentBrand: brand, userRole: brand.role });
+          set({ currentTenant: tenant, userRole: tenant.role });
         }
       },
 
@@ -203,8 +203,8 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
-        currentBrand: state.currentBrand,
-        availableBrands: state.availableBrands,
+        currentTenant: state.currentTenant,
+        availableTenants: state.availableTenants,
         userRole: state.userRole,
       }),
     }
@@ -215,7 +215,7 @@ export const useAuthStore = create<AuthState>()(
 export const selectUser = (state: AuthState) => state.user;
 export const selectIsAuthenticated = (state: AuthState) => state.isAuthenticated;
 export const selectIsInitializing = (state: AuthState) => state.isInitializing;
-export const selectCurrentBrand = (state: AuthState) => state.currentBrand;
+export const selectCurrentTenant = (state: AuthState) => state.currentTenant;
 export const selectUserRole = (state: AuthState) => state.userRole;
 
 export default useAuthStore;
@@ -236,7 +236,7 @@ interface VideoState {
   pollingInterval: ReturnType<typeof setInterval> | null;
 
   loadVideo: (videoId: string) => Promise<void>;
-  generateVideo: (briefId: string) => Promise<void>;
+  generateVideo: (documentId: string) => Promise<void>;
   startPolling: (videoId: string, onComplete?: () => void) => void;
   stopPolling: () => void;
   clearVideo: () => void;
@@ -266,13 +266,13 @@ export const useVideoStore = create<VideoState>()((set, get) => ({
     }
   },
 
-  generateVideo: async (briefId: string) => {
+  generateVideo: async (documentId: string) => {
     set({ isGenerating: true, error: null });
     try {
-      const response = await videoService.generateVideo(briefId);
+      const response = await videoService.generateVideo(documentId);
       const video: Video = {
         id: response.id,
-        brief_id: briefId,
+        document_id: documentId,
         status: 'queued',
         progress_percent: 0,
         // ... other fields

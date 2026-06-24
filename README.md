@@ -14,7 +14,7 @@ with a quality gate between every phase. **No application code. No Docker. Confi
 [![CI](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/ajyadav013/claude-kit/actions/workflows/ci.yml)
 [![Changelog](https://img.shields.io/badge/changelog-md-blue.svg)](CHANGELOG.md)
 
-✨ [Features](#features) · 🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 📖 [Agent guide](docs/agents.md)
+✨ [Features](#features) · 🚀 [Quick start](#quick-start) · 🧭 [How it works](#how-it-works) · 🔁 [The pipeline](#the-pipeline) · 🧪 [Example](examples/) · 🌱 [What we adopted](#influences--what-we-adopted) · 🤖 [Agents](#the-agents) · 🧩 [Catalog](#catalog--extensibility) · 🛠️ [CLI](#cli-reference) · 🔒 [Security](#security--trust-model) · 📖 [Agent guide](docs/agents.md)
 
 </div>
 
@@ -635,6 +635,30 @@ hints.
 | `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |
 
 </details>
+
+---
+
+## Security & trust model
+
+claude-kit installs **configuration only** — no application code, no Docker, nothing that runs as a
+service. It never executes your code; it lays down rules, agents, skills, gates, and hook scripts that
+**Claude Code** then follows. Three honest caveats are worth understanding before you rely on it:
+
+- **The guard hooks are convenience, not a hardened boundary.** Scripts like `guard-secrets`,
+  `guard-destructive-git`, and the `warn-*` advisories raise the cost of a mistake — they do **not**
+  sandbox the agent or guarantee prevention. They need a POSIX shell + `jq` and **silently no-op**
+  without them (e.g. on Windows outside WSL/Git Bash). Treat them as seatbelts, not walls.
+- **Most quality gates are agent protocols, not mechanical enforcement.** The pipeline's gates
+  (`spec-complete`, `code-review`, `security-clear`, …) are disciplines Claude is instructed to follow
+  and self-verify; only the hook scripts are deterministic, host-enforced checks. A capable model can
+  still be wrong or skip a step — keep a human in the loop for anything that matters.
+- **MCP servers are third-party code.** Each fragment runs an external package (pinned to an exact
+  version) or a hosted endpoint that claude-kit references but does **not** vendor or audit. Review a
+  server's source and license before enabling it.
+
+Releases are published to PyPI via OIDC **Trusted Publishing** (no long-lived API token) with **PEP 740
+build attestations** for supply-chain provenance. Report vulnerabilities privately — see
+[`SECURITY.md`](SECURITY.md) for the full scope and reporting process.
 
 ---
 

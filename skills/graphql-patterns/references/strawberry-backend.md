@@ -4,35 +4,35 @@ How to use Strawberry GraphQL with FastAPI in production backend services.
 
 ## Schema-Per-Endpoint Pattern
 
-From `app/v1/vendor/graphql/schema.py` in a production service:
+From `app/v1/catalog/graphql/schema.py` in a production service:
 
 ```python
 import strawberry
-from app.v1.vendor.graphql.query import (
-    CategoryQuery, AllCategoryQuery, ClusterQuery, AllClusterQuery,
-    FormatQuery, AllFormatQuery, AllSourcingClusterQuery, AllCommercialClusterQuery,
-    CommercialClusterQuery, SourcingClusterQuery, ProfileStatusQuery
+from app.v1.catalog.graphql.query import (
+    ProductQuery, AllProductQuery, CategoryQuery, AllCategoryQuery,
+    RegionQuery, AllRegionQuery, FormatQuery, AllFormatQuery,
+    SupplierRegionQuery, AllSupplierRegionQuery, ApprovalStageQuery
 )
 
 # One schema per query type (11 total)
+product_schema = strawberry.Schema(query=ProductQuery)
+all_product_schema = strawberry.Schema(query=AllProductQuery)
 category_schema = strawberry.Schema(query=CategoryQuery)
 all_category_schema = strawberry.Schema(query=AllCategoryQuery)
-cluster_schema = strawberry.Schema(query=ClusterQuery)
-all_cluster_schema = strawberry.Schema(query=AllClusterQuery)
-all_sourcing_cluster_schema = strawberry.Schema(query=AllSourcingClusterQuery)
-all_commercial_cluster_schema = strawberry.Schema(query=AllCommercialClusterQuery)
-sourcing_cluster_schema = strawberry.Schema(query=SourcingClusterQuery)
-commercial_cluster_schema = strawberry.Schema(query=CommercialClusterQuery)
+region_schema = strawberry.Schema(query=RegionQuery)
+all_region_schema = strawberry.Schema(query=AllRegionQuery)
+supplier_region_schema = strawberry.Schema(query=SupplierRegionQuery)
+all_supplier_region_schema = strawberry.Schema(query=AllSupplierRegionQuery)
 format_schema = strawberry.Schema(query=FormatQuery)
 all_format_schema = strawberry.Schema(query=AllFormatQuery)
-profile_status_schema = strawberry.Schema(query=ProfileStatusQuery)
+approval_stage_schema = strawberry.Schema(query=ApprovalStageQuery)
 ```
 
-**Why**: Each schema serves a specific dropdown/filter use case. Narrow scope, no nested resolvers. Note the pairing pattern: regular schemas (e.g., `category_schema`) join the Audit table to filter by active records, while "All*" variants (e.g., `all_category_schema`) skip that filter for admin/unfiltered dropdown views.
+**Why**: Each schema serves a specific dropdown/filter use case. Narrow scope, no nested resolvers. Note the pairing pattern: regular schemas (e.g., `product_schema`) join the Audit table to filter by active records, while "All*" variants (e.g., `all_product_schema`) skip that filter for admin/unfiltered dropdown views.
 
 ## Query Class Pattern
 
-From `app/v1/vendor/graphql/query.py`:
+From `app/v1/catalog/graphql/query.py`:
 
 ```python
 import strawberry
@@ -41,9 +41,9 @@ from sqlalchemy import select, distinct, asc
 from app.connection import get_connection_handler_for_app
 
 @strawberry.type
-class CategoryQuery:
+class ProductQuery:
     @strawberry.field
-    async def list_categories(
+    async def list_products(
         self,
         page: str = '',
         internal_status: Optional[str] = ''
@@ -56,17 +56,17 @@ class CategoryQuery:
                 [status.strip() for status in internal_status.split(",")]
                 if internal_status else []
             )
-            if page == 'manage-vendor':
-                query = select(distinct(Vendor.category)).where(Vendor.category != None)
+            if page == 'manage-products':
+                query = select(distinct(Product.name)).where(Product.name != None)
             else:
                 query = (
-                    select(distinct(Vendor.category))
-                    .join(Audit, Vendor.id == Audit.vendor_id)
-                    .where(Audit.is_active == True, Vendor.category != None)
+                    select(distinct(Product.name))
+                    .join(Audit, Product.id == Audit.product_id)
+                    .where(Audit.is_active == True, Product.name != None)
                 )
             result = await connection_handler.session.execute(query)
-            categories = result.scalars().all()
-            return sorted(list(set(categories)), key=str.lower)
+            products = result.scalars().all()
+            return sorted(list(set(products)), key=str.lower)
         finally:
             await connection_handler.close()
 ```
@@ -80,7 +80,7 @@ class CategoryQuery:
 
 ## Async Connection Handler
 
-From `app/v1/vendor/graphql/query.py`:
+From `app/v1/catalog/graphql/query.py`:
 
 ```python
 async_gen = get_connection_handler_for_app()
@@ -97,55 +97,57 @@ finally:
 
 ## Mounting GraphQL Routers
 
-From `app/v1/vendor/router.py`:
+From `app/v1/catalog/router.py`:
 
 ```python
 from fastapi import APIRouter
 from strawberry.fastapi import GraphQLRouter
-from app.v1.vendor.graphql.schema import (
-    category_schema, cluster_schema, format_schema,
-    all_category_schema, all_cluster_schema, all_format_schema,
-    profile_status_schema
+from app.v1.catalog.graphql.schema import (
+    product_schema, category_schema, region_schema, format_schema,
+    all_product_schema, all_category_schema, all_region_schema, all_format_schema,
+    approval_stage_schema
 )
 
-vendor_router = APIRouter(prefix="/vendor-info", route_class=CustomRequestRoute)
+catalog_router = APIRouter(prefix="/catalog", route_class=CustomRequestRoute)
 
 # REST routes
-vendor_router.add_api_route("/{vendor_id}", methods=["GET"], endpoint=get_vendor_info_by_id, ...)
+catalog_router.add_api_route("/{product_id}", methods=["GET"], endpoint=get_product_info_by_id, ...)
 
 # GraphQL filter routes (separate router)
 filter_graphql_router = APIRouter(prefix="/filter-graphql", route_class=CustomRequestRoute)
 
-category_graphql_app = GraphQLRouter(category_schema)
+product_graphql_app = GraphQLRouter(product_schema)
 filter_graphql_router.include_router(
-    category_graphql_app,
-    prefix="/category",
+    product_graphql_app,
+    prefix="/products",
     tags=['admin', 'member']
 )
 
-all_category_graphql_app = GraphQLRouter(all_category_schema)
+all_product_graphql_app = GraphQLRouter(all_product_schema)
 filter_graphql_router.include_router(
-    all_category_graphql_app,
-    prefix="/all-category",
+    all_product_graphql_app,
+    prefix="/all-products",
     tags=['admin', 'member']
 )
 
-# ... (repeat for cluster, format, profile_status)
+# ... (repeat for category, region, format, approval_stage)
 ```
 
-**Result**: GraphQL endpoints live at `/v1/vendor-info/filter-graphql/category`, `/v1/vendor-info/filter-graphql/cluster`, etc. alongside REST routes.
+**Result**: GraphQL endpoints live at `/v1/catalog/filter-graphql/products`, `/v1/catalog/filter-graphql/category`, etc. alongside REST routes.
 
 ## Scalar Types
 
-From `app/v1/vendor/graphql/type.py`:
+From `app/v1/catalog/graphql/type.py`:
 
 ```python
 import strawberry
 
-ClusterType = strawberry.scalar(str, name="ClusterType")
-AllClusterType = strawberry.scalar(str, name="AllClusterType")
+ProductType = strawberry.scalar(str, name="ProductType")
+AllProductType = strawberry.scalar(str, name="AllProductType")
 CategoryType = strawberry.scalar(str, name="CategoryType")
 AllCategoryType = strawberry.scalar(str, name="AllCategoryType")
+RegionType = strawberry.scalar(str, name="RegionType")
+AllRegionType = strawberry.scalar(str, name="AllRegionType")
 FormatType = strawberry.scalar(str, name="FormatType")
 AllFormatType = strawberry.scalar(str, name="AllFormatType")
 ```
@@ -154,14 +156,14 @@ AllFormatType = strawberry.scalar(str, name="AllFormatType")
 
 ## When to Use This Pattern
 
-- **Filter/dropdown APIs**: Need distinct values from a database table for frontend filters (categories, clusters, formats, statuses)
+- **Filter/dropdown APIs**: Need distinct values from a database table for frontend filters (categories, regions, formats, statuses)
 - **Async DB access**: Using SQLAlchemy async sessions with `get_connection_handler_for_app`
 - **Coexist with REST**: GraphQL is a supplement for specific use cases, not a full replacement
 - **No nested resolvers**: Queries return flat lists or scalars — no complex object graphs
 
 ## File Locations
 
-- `app/v1/vendor/graphql/schema.py` — Schema definitions
-- `app/v1/vendor/graphql/query.py` — Query classes with `@strawberry.field` resolvers
-- `app/v1/vendor/graphql/type.py` — Scalar type declarations
-- `app/v1/vendor/router.py` — FastAPI router mounting (REST + GraphQL)
+- `app/v1/catalog/graphql/schema.py` — Schema definitions
+- `app/v1/catalog/graphql/query.py` — Query classes with `@strawberry.field` resolvers
+- `app/v1/catalog/graphql/type.py` — Scalar type declarations
+- `app/v1/catalog/router.py` — FastAPI router mounting (REST + GraphQL)

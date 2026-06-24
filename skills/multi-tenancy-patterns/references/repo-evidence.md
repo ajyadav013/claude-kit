@@ -281,7 +281,7 @@ async def invalidate_namespace(tenant_scope: str, ns: str) -> None:
 
 Example pattern:
 ```sql
-CREATE TABLE analytics_silver.silver_sales (
+CREATE TABLE analytics_silver.metrics_summary (
   -- Org isolation
   org_id              STRING NOT NULL,
 
@@ -289,42 +289,42 @@ CREATE TABLE analytics_silver.silver_sales (
   metric_date         DATE NOT NULL,
 
   -- Entity keys
-  site                STRING NOT NULL,
-  article             STRING NOT NULL,
+  region              STRING NOT NULL,
+  product_id          STRING NOT NULL,
   -- ... other dimensions and measures
 
   _ingested_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
 )
 PARTITION BY metric_date
-CLUSTER BY org_id, site, segment;
+CLUSTER BY org_id, region, category;
 ```
 
-**What to copy**: Mandatory `org_id STRING NOT NULL` on every Silver/Gold table; partition by time, cluster by `org_id, ...`.
+**What to copy**: Mandatory `org_id STRING NOT NULL` on every data warehouse table; partition by time, cluster by `org_id, ...`.
 
 ### Org Hierarchy
 
 Example pattern:
 ```sql
 CREATE TABLE analytics_silver.dim_org (
-  org_id          STRING NOT NULL,       -- PK: 'ACME_RETAIL', 'ACME_WHOLESALE', etc.
+  org_id          STRING NOT NULL,       -- PK: 'ACME_ANALYTICS', 'ACME_REPORTING', etc.
   org_name        STRING NOT NULL,
-  format_codes    ARRAY<STRING>,
+  region_codes    ARRAY<STRING>,
   parent_org_id   STRING,                -- NULL for top-level
   is_active       BOOL DEFAULT TRUE,
   ...
 );
 ```
 
-**What to copy**: `parent_org_id` for hierarchical rollup (company → business unit → pod → store).
+**What to copy**: `parent_org_id` for hierarchical rollup (company → business unit → team → project).
 
 ### BigQuery RLS
 
 Example pattern:
 ```sql
 CREATE ROW ACCESS POLICY org_filter
-  ON analytics_silver.silver_sales
+  ON analytics_silver.metrics_summary
   GRANT TO ('serviceAccount:<REDACTED>')
-  FILTER USING (org_id = 'ACME_RETAIL');
+  FILTER USING (org_id = 'ACME_ANALYTICS');
 ```
 
 **What to copy**: Row-level security on `org_id` column for BigQuery.

@@ -351,22 +351,22 @@ class MongoDB:
 ```python
 from pymongo import ASCENDING, DESCENDING
 
-STL_TREND = "stl_trend"
-STL_MEDIA = "stl_media"
+RECORDS = "records"
+MEDIA = "media_items"
 
 collections = [
     {
-        "name": STL_TREND,
+        "name": RECORDS,
         "indexes": [
             [("id", ASCENDING)],
             [("category", ASCENDING), ("id", ASCENDING), ("gender", ASCENDING)],
         ],
     },
     {
-        "name": STL_MEDIA,
+        "name": MEDIA,
         "indexes": [
             [("imageUrl", ASCENDING), ("insertDate", DESCENDING)],
-            [("trendId", ASCENDING)],
+            [("recordId", ASCENDING)],
         ],
     },
     {

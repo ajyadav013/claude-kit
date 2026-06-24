@@ -51,9 +51,9 @@ The pattern matches the rest of the kit: a *discipline* is a RULE (always-on gui
 spec/EM gate exists at all. P0-2 is the exception that strengthens *every* gate by making a fabricated
 verdict auto-Critical, without adding a token.
 
-## Fynd adoption disciplines (as of 0.15.0)
+## Internal-toolkit adoption disciplines (as of 0.15.0)
 
-The Fynd persona/skill adoption (CHANGELOG 0.15.0) added capabilities reuse-first. Consistent with the
+The internal persona/skill adoption (CHANGELOG 0.15.0) added capabilities reuse-first. Consistent with the
 posture above, it added **no new gate tokens** — the new capabilities are SKILLs, OVERLAY rules, or
 checklists that ride *inside existing* review gates. Enforcement class of each:
 

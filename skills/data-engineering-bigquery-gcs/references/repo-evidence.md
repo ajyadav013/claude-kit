@@ -23,7 +23,7 @@ AND datastream_metadata.change_type NOT LIKE '%DELETE%'"""
 ```python
 bronze_sql = f"""config {{
   type: "table",
-  schema: "da_bronze",
+  schema: "bronze",
   name: "br_{table_name}",
   tags: ["bronze", "cdc"],
   description: "{self._escape_sqlx_string(descriptions['table_description'])}",
@@ -39,7 +39,7 @@ bronze_sql = f"""config {{
 ```python
 silver_sql = f"""config {{
   type: "table",
-  schema: "da_silver",
+  schema: "silver",
   name: "slv_{domain}_clean",
   tags: ["silver", "daily"],
   dependencies: [{deps_str}],
@@ -73,7 +73,7 @@ for table in analysis["source_tables"]:
 ```python
 gold_sql = f"""config {{
   type: "table",
-  schema: "da_gold",
+  schema: "gold",
   name: "gld_{domain}_metrics",
   tags: ["gold", "daily"],
   dependencies: ["slv_{domain}_clean"],
@@ -224,10 +224,10 @@ for filename in filenames:
 ```
 - Orchestrates 4 child workflows sequentially using `workflow.execute_child_workflow()`:
   1. **ManualQueryWorkflow** — register usecase, detect query type, insert query
-  2. **MaterializeSilverQueryWorkflow** — create BQ table, insert silver layer metadata, generate descriptions
-  3. **SyncSilverDescriptionWorkflow** — sync descriptions to BigQuery
-  4. **SilverDataSyncWorkflow** — execute query and load data
-- **Rollback**: If any child workflow fails, `rollback_silver_by_usecase_activity` is triggered to clean up all DB records and BQ resources by `usecase_id`.
+  2. **MaterializeQueryWorkflow** — create BQ table, insert silver layer metadata, generate descriptions
+  3. **SyncMetadataWorkflow** — sync descriptions to BigQuery
+  4. **DataSyncWorkflow** — execute query and load data
+- **Rollback**: If any child workflow fails, `rollback_by_usecase_activity` is triggered to clean up all DB records and BQ resources by `usecase_id`.
 ```
 
 **Workflow architecture diagram:**
@@ -235,11 +235,11 @@ for filename in filenames:
 POST /create-query → ParentWorkflow
   try:
     ├── Child 1: ManualQueryWorkflow
-    ├── Child 2: MaterializeSilverQueryWorkflow
-    ├── Child 3: SyncSilverDescriptionWorkflow
-    └── Child 4: SilverDataSyncWorkflow
+    ├── Child 2: MaterializeQueryWorkflow
+    ├── Child 3: SyncMetadataWorkflow
+    └── Child 4: DataSyncWorkflow
   except:
-    → rollback_silver_by_usecase_activity (cleanup by usecase_id)
+    → rollback_by_usecase_activity (cleanup by usecase_id)
 ```
 
 ## BigQuery Load and MERGE Patterns

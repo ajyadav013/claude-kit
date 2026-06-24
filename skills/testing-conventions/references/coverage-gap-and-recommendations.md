@@ -39,7 +39,7 @@ Honest assessment of test coverage across repos, with pragmatic baseline recomme
 - `tests/<domain>/test_route.py`
 
 Example domains with tests:
-- `tests/brand/` (dao, service, route, helpers, templates)
+- `tests/tenant/` (dao, service, route, helpers, templates)
 - `tests/cluster/` (dao, service, route)
 - `tests/unit/webhook/` (conftest, factory fixtures)
 - `tests/unit/temporal/` (conftest, factory fixtures, parametrized fixtures)
@@ -97,7 +97,7 @@ Example domains with tests:
 - Include: `src/test/**/*.test.{ts,tsx}`
 - Coverage thresholds: 90% lines/functions/branches/statements
 - Coverage include: `src/lib/**`, `src/hooks/**`
-- Coverage exclude: test files, `src/lib/api.ts`, `src/modules/store-view/components/InsightsSidebar.tsx`
+- Coverage exclude: test files, `src/lib/api.ts`, `src/modules/analytics/components/AnalyticsPanel.tsx`
 
 **Strength**: Good coverage of hooks (state management, filters, pagination, search, etc.) and task module components/logic. Comprehensive test suite. Aggressive thresholds met with targeted exclusions for hard-to-test components.
 
@@ -119,27 +119,27 @@ When test coverage is near-zero or minimal, establish this pragmatic baseline **
 **Pattern** (example):
 
 ```python
-class TestBrandDao:
+class TestTenantDao:
     @pytest.fixture
     async def dao(self, db_connection):
         async with db_connection() as session:
-            yield BrandDAO(session)
+            yield TenantDAO(session)
 
     async def test_get_records_by_id(self, dao, db_connection):
         records = await dao.get_record_by_id(1)
         assert records is None  # Empty DB case
         async with db_connection() as session:
-            brand = await populate_brand_by_size(session)
-            record = await dao.get_record_by_id(brand.id)
-            assert record.id == brand.id
+            tenant = await populate_tenant_by_size(session)
+            record = await dao.get_record_by_id(tenant.id)
+            assert record.id == tenant.id
 
-    async def test_get_brand_by_field(self, dao, db_connection):
-        record = await dao.get_brand_by_field("name", "test")
+    async def test_get_tenant_by_field(self, dao, db_connection):
+        record = await dao.get_tenant_by_field("name", "test")
         assert record is None
         async with db_connection() as session:
-            brand = await populate_brand_by_size(session)
-            record = await dao.get_brand_by_field("name", brand.name)
-            assert record.id == brand.id
+            tenant = await populate_tenant_by_size(session)
+            record = await dao.get_tenant_by_field("name", tenant.name)
+            assert record.id == tenant.id
 ```
 
 **Do not**: Test every single DAO method; focus on the 5-6 core operations. Skip pagination helpers initially.
@@ -157,17 +157,17 @@ class TestBrandDao:
 
 ```python
 @pytest.mark.asyncio
-async def test_create_brand_success(mock_brand_dao, sample_brand_create):
-    mock_brand_dao.create.return_value = Brand(id=1, **sample_brand_create.dict())
-    service = BrandService(mock_brand_dao)
-    result = await service.create_brand(sample_brand_create)
+async def test_create_tenant_success(mock_tenant_dao, sample_tenant_create):
+    mock_tenant_dao.create.return_value = Tenant(id=1, **sample_tenant_create.dict())
+    service = TenantService(mock_tenant_dao)
+    result = await service.create_tenant(sample_tenant_create)
     assert result.id == 1
 
 @pytest.mark.asyncio
-async def test_get_brand_not_found(mock_brand_dao):
-    mock_brand_dao.get_by_id.return_value = None
-    service = BrandService(mock_brand_dao)
-    result = await service.get_brand(999)
+async def test_get_tenant_not_found(mock_tenant_dao):
+    mock_tenant_dao.get_by_id.return_value = None
+    service = TenantService(mock_tenant_dao)
+    result = await service.get_tenant(999)
     assert result is None
 ```
 
@@ -187,19 +187,19 @@ async def test_get_brand_not_found(mock_brand_dao):
 
 ```python
 @pytest.mark.asyncio
-async def test_create_brand_unauthenticated(client):
-    resp = await client.post("/v1/brands", json={...})
+async def test_create_tenant_unauthenticated(client):
+    resp = await client.post("/v1/tenants", json={...})
     assert resp.status_code == 401
 
 @pytest.mark.asyncio
-async def test_create_brand_success(authenticated_client):
-    resp = await authenticated_client.post("/v1/brands", json={
-        "name": "Test Brand",
-        "slug": "test-brand",
+async def test_create_tenant_success(authenticated_client):
+    resp = await authenticated_client.post("/v1/tenants", json={
+        "name": "Test Tenant",
+        "slug": "test-tenant",
         ...
     })
     assert resp.status_code == 201
-    assert resp.json()["name"] == "Test Brand"
+    assert resp.json()["name"] == "Test Tenant"
 ```
 
 **Do not**: Test full business logic in route tests; that's what service tests are for. Focus on HTTP contracts (status codes, schemas, auth).

@@ -146,9 +146,9 @@ from app.database import Base
 from config.settings import settings
 
 # Wildcard model imports
-from app.articles.models import *
+from app.items.models import *
 from app.units.models import *
-from app.bom.models import *
+from app.catalog.models import *
 # ... 40+ wildcard imports
 
 # target_metadata

@@ -21,8 +21,8 @@ This skill encodes patterns for:
 
 These conventions derive from production services handling:
 
-- Multi-tenant SaaS applications with brand/workspace context switching
-- Real-time async workflows (video generation, AI chat with job polling, trend discovery)
+- Multi-tenant SaaS applications with tenant/workspace context switching
+- Real-time async workflows (video generation, AI chat with job polling, live dashboards)
 - Authentication flows with token refresh and session restoration
 - Complex UI state (modals, filters, pagination, optimistic updates)
 - Developer experience optimizations (HMR persistence, devtools integration)

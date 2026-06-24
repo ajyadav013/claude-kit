@@ -65,7 +65,7 @@ def event_loop():
 @pytest.fixture
 async def dao(self, db_connection):
     async with db_connection() as session:
-        yield BrandDAO(session)
+        yield TenantDAO(session)
 ```
 
 **Parametrized fixtures**: Use `@pytest.fixture(params=[...])` for multiple test cases (e.g., template resolution, condition evaluation, HTTP methods). _(parametrized fixture pattern)_
@@ -376,19 +376,19 @@ async def mock_kafka_producer():
     return producer
 
 # Test example (DAO layer)
-class TestBrandDao:
+class TestTenantDao:
     @pytest.fixture
     async def dao(self, db_connection):
         async with db_connection() as session:
-            yield BrandDAO(session)
+            yield TenantDAO(session)
     
     async def test_get_records_by_id(self, dao, db_connection):
         records = await dao.get_record_by_id(1)
         assert records is None
         async with db_connection() as session:
-            brand = await populate_brand_by_size(session)
-            record = await dao.get_record_by_id(brand.id)
-            assert record.id == brand.id
+            tenant = await populate_tenant_by_size(session)
+            record = await dao.get_record_by_id(tenant.id)
+            assert record.id == tenant.id
 
 # Test example (async route with mocking)
 @patch("src.config.docker_config.loaded_config", MockConfig)

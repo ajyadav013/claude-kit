@@ -532,7 +532,7 @@ In a multi-org data platform, every Silver and Gold table includes `org_id STRIN
 ### Table Design
 
 ```sql
-CREATE TABLE analytics_silver.silver_sales (
+CREATE TABLE analytics_silver.metrics_summary (
   -- Org isolation
   org_id              STRING NOT NULL,
 
@@ -576,8 +576,8 @@ Example hierarchy:
 ```
 ACME (parent_org_id = NULL)
 ├── ACME_RETAIL (parent_org_id = 'ACME')
-│   ├── ACME_RETAIL_TRENDS
-│   └── ACME_RETAIL_FOOTWEAR
+│   ├── ACME_RETAIL_ANALYTICS
+│   └── ACME_RETAIL_APPAREL
 └── ACME_WHOLESALE (parent_org_id = 'ACME')
 ```
 
@@ -600,9 +600,9 @@ analytics_control  (shared: KPI definitions, thresholds, agent config)
 ### BigQuery RLS
 
 ```sql
-CREATE ROW ACCESS POLICY org_filter_silver_sales
-ON analytics_silver.silver_sales
-GRANT TO ('serviceAccount:<REDACTED>')
+CREATE ROW ACCESS POLICY org_filter_metrics_summary
+ON analytics_silver.metrics_summary
+GRANT TO ('serviceAccount:app@example.iam.gserviceaccount.com')
 FILTER USING (org_id = 'ACME_RETAIL');
 ```
 

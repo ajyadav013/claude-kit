@@ -108,7 +108,7 @@ and blow up log volume. _(reference service pattern)_
 
 **Histogram buckets**: Define `CUSTOM_HISTOGRAM_BUCKETS = [0.05, 0.1, 0.2, 0.4, 0.8, 1, 2, 5, 7, 10, float("inf")]` optimized for API latency. _(production service pattern)_
 
-**HTTP request received metric**: `Histogram("redm_http_request_received", "Duration of HTTP requests received", ["method", "path", "status_code", "service_name"], buckets=..., registry=_metrics_registry)`. _(production service pattern)_
+**HTTP request received metric**: `Histogram("app_http_request_received", "Duration of HTTP requests received", ["method", "path", "status_code", "service_name"], buckets=..., registry=_metrics_registry)`. _(production service pattern)_
 
 **Path normalization to reduce cardinality**: Replace UUIDs with `{uuid}` (regex `[0-9a-f]{8}-...`), numeric IDs with `{id}` (`/\d+`), collapse consecutive slashes, strip trailing slashes. _(production service pattern)_
 
@@ -132,19 +132,19 @@ and blow up log volume. _(reference service pattern)_
 
 ### Non-HTTP Metrics
 
-**Kafka consumer**: `KAFKA_MESSAGE_PROCESSED = Histogram("redm_consumer_kafka_message_processed", ..., ["topic", "partition", "status", "service_name"])`. _(production service pattern)_
+**Kafka consumer**: `KAFKA_MESSAGE_PROCESSED = Histogram("app_consumer_kafka_message_processed", ..., ["topic", "partition", "status", "service_name"])`. _(production service pattern)_
 
-**Background workers**: `WORKER_TASK_EXECUTED = Histogram("redm_worker_worker_task_executed", ..., ["task_name", "status", "service_name"])`. _(production service pattern)_
+**Background workers**: `WORKER_TASK_EXECUTED = Histogram("app_worker_worker_task_executed", ..., ["task_name", "status", "service_name"])`. _(production service pattern)_
 
-**Cron jobs**: `CRON_JOB_EXECUTED = Histogram("redm_cron_cron_job_executed", ..., ["job_name", "status", "service_name"])`. _(production service pattern)_
+**Cron jobs**: `CRON_JOB_EXECUTED = Histogram("app_cron_cron_job_executed", ..., ["job_name", "status", "service_name"])`. _(production service pattern)_
 
-**Temporal workflows**: `TEMPORAL_WORKFLOW_EXECUTED = Histogram("redm_worker_temporal_workflow_executed", ..., ["workflow_name", "status", "service_name"])`. _(production service pattern)_
+**Temporal workflows**: `TEMPORAL_WORKFLOW_EXECUTED = Histogram("app_worker_temporal_workflow_executed", ..., ["workflow_name", "status", "service_name"])`. _(production service pattern)_
 
 **Recording pattern**: Call helper `record_<metric_type>(name, status, duration)` which does `.labels(...).observe(duration)`. _(production service pattern)_
 
 ### Outbound HTTP Metrics
 
-**HTTP_REQUEST_SENT metric**: `Histogram("redm_http_request_sent", "Duration of HTTP requests sent to external services", ["method", "path", "status_code", "service_name"], buckets=..., registry=_metrics_registry)`. _(production service pattern)_
+**HTTP_REQUEST_SENT metric**: `Histogram("app_http_request_sent", "Duration of HTTP requests sent to external services", ["method", "path", "status_code", "service_name"], buckets=..., registry=_metrics_registry)`. _(production service pattern)_
 
 **Decorator pattern**: Use `@prometheus_http_outbound(method_key="method", url_key="raw_url")` on async HTTP client methods; extracts method/URL from `data` dict, measures duration, records metric with status from returned dict's `status_code` or `status` field. _(production service pattern)_
 
@@ -386,7 +386,7 @@ _metrics_registry = CollectorRegistry()
 CUSTOM_HISTOGRAM_BUCKETS = [0.05, 0.1, 0.2, 0.4, 0.8, 1, 2, 5, 7, 10, float("inf")]
 
 HTTP_REQUEST_RECEIVED = Histogram(
-    "redm_http_request_received",
+    "app_http_request_received",
     "Duration of HTTP requests received",
     ["method", "path", "status_code", "service_name"],
     buckets=CUSTOM_HISTOGRAM_BUCKETS,

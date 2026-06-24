@@ -34,10 +34,10 @@ alembic/versions/
 ```
 alembic/versions/
 ├── 202407301751-ad610b2bab70_add_event_log_table.py
-├── 202408011255-e848fe551d9b_add_coe_bom_mapping_tables.py
+├── 202408011255-e848fe551d9b_add_category_mapping_tables.py
 ├── 202408012159-c3f783a32f7c_add_username_to_event_log_table.py
-├── 202408052213-943a94fc4f73_add_is_active_to_mapping_tebles.py
-├── 202409031128-0fc8dde689fe_fabric_source_cluster.py
+├── 202408052213-943a94fc4f73_add_is_active_to_mapping_tables.py
+├── 202409031128-0fc8dde689fe_add_source_cluster.py
 └── ...
 ```
 
@@ -53,10 +53,10 @@ alembic/versions/
 
 ```
 migrations/versions/
-├── 554395de0772_added_planograph_models.py
+├── 554395de0772_added_data_models.py
 ├── 9d07416cb3d0_modified_generated_file_model.py
-├── cb876bd3ff47_added_watermakr_model.py
-└── d5885c4539c2_updated_watermark_table_to_include_.py
+├── cb876bd3ff47_added_watermark_model.py
+└── d5885c4539c2_updated_watermark_table.py
 ```
 
 **Format**: `{auto_hash}_{description}.py` (default Alembic behavior)

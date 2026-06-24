@@ -98,7 +98,7 @@ export const API_HEADERS: Record<string, string> = new Proxy({} as Record<string
 });
 ```
 
-Why a Proxy? Tenant ID changes when the user switches orgs. If `API_HEADERS` were a plain object, it would capture the tenant ID at module-load time and never update. The Proxy ensures every access reads the current tenant from session storage.
+Why a Proxy? Tenant ID changes when the user switches tenants. If `API_HEADERS` were a plain object, it would capture the tenant ID at module-load time and never update. The Proxy ensures every access reads the current tenant from session storage.
 
 **`lib/api.ts` (axios interceptor):**
 
@@ -164,7 +164,7 @@ export function useLoginMutation() {
 
 ## API Layer Strategy 2: Fetch wrapper + token refresh race-guard (Reference Service B)
 
-**Use when**: REST API with flat JSON responses (no envelope), JWT token refresh, custom error codes, multi-brand support.
+**Use when**: REST API with flat JSON responses (no envelope), JWT token refresh, custom error codes, multi-tenant support.
 
 ### Pattern
 
@@ -179,7 +179,7 @@ export function useLoginMutation() {
 2. **Service modules** (e.g., `lib/video.ts`, `lib/analytics.ts`) call `api.*`:
    ```typescript
    export const videoService = {
-     generate: (briefId: string) => api.post<Video>('/videos/generate', { brief_id: briefId }),
+     generate: (documentId: string) => api.post<Video>('/videos/generate', { document_id: documentId }),
      approve: (videoId: string, notes?: string) => api.post<void>(`/videos/${videoId}/approve`, { notes }),
    };
    ```
@@ -307,7 +307,7 @@ export class APIError extends Error {
 ```typescript
 async function fetchWithAuth<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   try {
-    const { body, params, brandId, skipAuth = false, ...fetchOptions } = options;
+    const { body, params, tenantId, skipAuth = false, ...fetchOptions } = options;
 
     // Proactively refresh token if it's about to expire
     if (!skipAuth) await ensureValidToken();
@@ -323,7 +323,7 @@ async function fetchWithAuth<T>(endpoint: string, options: RequestOptions = {}):
       if (token) (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }
 
-    if (brandId) (headers as Record<string, string>)['X-Brand-ID'] = brandId;
+    if (tenantId) (headers as Record<string, string>)['X-Tenant-ID'] = tenantId;
 
     const config: RequestInit = { ...fetchOptions, headers, body: body !== undefined ? JSON.stringify(body) : null };
     let response = await fetch(url, config);
@@ -389,7 +389,7 @@ export const api = {
 - Race-guard prevents duplicate refresh requests
 - `APIError` class provides semantic error handling (`.is(code)`, `.isNotFound()`, `.isAuthError()`)
 - Sentry integration (5xx + network errors only)
-- Multi-brand support via `X-Brand-ID` header
+- Multi-tenant support via `X-Tenant-ID` header
 
 **Cons:**
 - More code to maintain (150+ lines of custom fetch logic)
@@ -582,7 +582,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    // types/video.ts
    export interface Video {
      id: string;
-     brief_id: string;
+     document_id: string;
      url: string | null;
      status: VideoStatus;
      created_at: string;
@@ -595,7 +595,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 2. **Request types** (optional; often inferred from API functions):
    ```typescript
    export interface GenerateVideoRequest {
-     brief_id: string;
+     document_id: string;
      options?: {
        style?: 'minimal' | 'detailed';
        duration?: number;
@@ -608,7 +608,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    // types/video.ts
    export interface VideoFE {
      id: string;
-     briefId: string; // camelCase (API uses snake_case)
+     documentId: string; // camelCase (API uses snake_case)
      url: string | null;
      status: VideoStatus;
      createdAt: Date; // Date object (API returns ISO string)
@@ -619,7 +619,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    export function toVideoFE(apiVideo: Video): VideoFE {
      return {
        id: apiVideo.id,
-       briefId: apiVideo.brief_id,
+       documentId: apiVideo.document_id,
        url: apiVideo.url,
        status: apiVideo.status,
        createdAt: new Date(apiVideo.created_at),
@@ -705,7 +705,7 @@ const browserConfig = typeof window !== 'undefined' && window._conf ? window._co
 
 const environment = {
   ENV: readString(browserConfig.ENV, 'development'),
-  API_BASE_URL: readString(browserConfig.API_BASE_URL, 'https://api.<REDACTED>.de'),
+  API_BASE_URL: readString(browserConfig.API_BASE_URL, 'https://api.example.com'),
   // ...
 };
 ```
@@ -733,7 +733,7 @@ const environment = {
 | **Token refresh** | Interceptor (automatic) | Race-guard (manual) | N/A (GraphQL errors) |
 | **Error handling** | Interceptor (401/403 global) | APIError class + 5xx Sentry | errorLink (UNAUTHENTICATED) |
 | **File uploads** | FormData + axios | FormData + fetch | GraphQL multipart (createUploadLink) |
-| **Multi-tenancy** | Dynamic headers (API_HEADERS proxy) | X-Brand-ID header | x-org-id header (authLink) |
+| **Multi-tenancy** | Dynamic headers (API_HEADERS proxy) | X-Tenant-ID header | x-org-id header (authLink) |
 | **Bundle size** | ~13 KB (axios) + ~10 KB (react-query) | 0 KB (fetch is native) | ~50 KB (@apollo/client) |
 | **Best for** | Envelope-based REST, multi-tenant | Flat JSON REST, JWT refresh | GraphQL, SSR, complex relationships |
 

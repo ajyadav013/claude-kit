@@ -105,11 +105,11 @@ Uses the event loop policy to create a new loop; same effect as Pattern A.
 @pytest.fixture
 async def dao(db_connection):
     async with db_connection() as session:
-        yield BrandDAO(session)
+        yield TenantDAO(session)
 
 @pytest_asyncio.fixture  # Different decorator for no reason
 async def service(dao):
-    yield BrandService(dao)
+    yield TenantService(dao)
 ```
 
 **Good** (consistent style):
@@ -117,11 +117,11 @@ async def service(dao):
 @pytest.fixture
 async def dao(db_connection):
     async with db_connection() as session:
-        yield BrandDAO(session)
+        yield TenantDAO(session)
 
 @pytest.fixture  # Same decorator style
 async def service(dao):
-    yield BrandService(dao)
+    yield TenantService(dao)
 ```
 
 Pick one style and stick with it. `@pytest.fixture` with `async def` is simpler and works everywhere.

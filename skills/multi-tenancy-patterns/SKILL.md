@@ -195,7 +195,7 @@ class PostgreSQLConnector:
             )
 
 # Data-layer org_id tenancy
-CREATE TABLE analytics_silver.silver_sales (
+CREATE TABLE analytics_silver.metrics_summary (
   org_id              STRING NOT NULL,
   metric_date         DATE NOT NULL,
   site                STRING NOT NULL,

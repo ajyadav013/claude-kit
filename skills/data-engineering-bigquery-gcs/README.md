@@ -24,7 +24,7 @@ Derived from real-world production Python/FastAPI services implementing data pip
 
 ## How to apply
 
-1. **For medallion architecture**: Create three BigQuery datasets (`da_bronze`, `da_silver`, `da_gold`). Bronze ingests raw CDC with deduplication; Silver cleans and joins; Gold aggregates.
+1. **For medallion architecture**: Create three BigQuery datasets (`bronze`, `silver`, `gold`). Bronze ingests raw CDC with deduplication; Silver cleans and joins; Gold aggregates.
 2. **For BigQuery schemas**: Always partition by date column (`metric_date`, `event_date`). Cluster by high-cardinality dimensions used in filters (`org_id`, `site`). Use the `TimePartitioning` Python API for programmatic table creation, or `PARTITION BY` in SQLX/Dataform.
 3. **For incremental sync jobs**: Use temp table + MERGE pattern — load (from GCS via `load_table_from_uri`, or in-memory via `load_table_from_dataframe`) → temp table with `WRITE_TRUNCATE`, MERGE temp → main with timestamp check, track MAX(timestamp), cleanup temp.
 4. **For user-supplied query values**: Always use parameterized queries (`QueryJobConfig` + `ScalarQueryParameter`/`ArrayQueryParameter`); never f-string interpolate input into SQL.

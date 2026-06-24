@@ -136,7 +136,7 @@ src/ or app/
     router.py
     service.py
     models.py
-  hsn/
+  billing/
     router.py
     service.py
     dao.py
@@ -165,7 +165,7 @@ src/ or app/
 # src/routers.py
 api_router_v1_prefix = APIRouter(prefix="/v1.0")
 api_router_v1_prefix.include_router(supplier_router, prefix="/supplier", tags=["supplier"])
-api_router_v1_prefix.include_router(brand_router, prefix="/brand", tags=["brand"])
+api_router_v1_prefix.include_router(order_router, prefix="/order", tags=["order"])
 api_router.include_router(api_router_v1_prefix, tags=["api route v1"])
 ```
 

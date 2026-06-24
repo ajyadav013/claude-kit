@@ -220,7 +220,7 @@ Pattern: Frontend uses build args (`--build-arg VITE_*`) during Docker build for
     docker build \
       -f app/Dockerfile \
       --build-arg API_KEY=${{ vars.API_KEY }} \
-      --build-arg BRAND_ID=${{ vars.BRAND_ID }} \
+      --build-arg TENANT_ID=${{ vars.TENANT_ID }} \
       --build-arg NEXT_PUBLIC_API_BASE_URL=${{ vars.BACKEND_BASE_URL }} \
       -t <registry>/<path>/app:${{ github.sha }} .
     docker push <registry>/<path>/app:${{ github.sha }}

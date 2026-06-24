@@ -4,6 +4,29 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.25.0] — 2026-06-24
+
+**PR4 of the phased hardening review: supply-chain provenance, an explicit trust model, and a full
+genericization pass so the public repo carries only neutral examples.**
+
+### Added
+- **PEP 740 build attestations re-enabled** in `publish.yml`. They were temporarily disabled while
+  Sigstore's Rekor transparency log was returning HTTP 502s at upload time; Sigstore has since been
+  healthy (verified via status.sigstore.dev — all services online, no incidents), so releases are
+  signed again for supply-chain provenance.
+- **A "Security & trust model" section** in `README.md` (with a nav link) stating plainly that the
+  guard hooks are convenience, not a hardened boundary; that most quality gates are agent protocols
+  rather than mechanical enforcement; and that MCP servers are third-party code — surfacing
+  `SECURITY.md`'s posture where users decide to rely on the kit.
+
+### Changed
+- **Genericization pass** — removed residual internal / company-specific identifiers so the published
+  repo carries only neutral examples. Genericized the 0.15.0 adoption narrative in `CHANGELOG.md` and
+  `docs/coverage-audit.md`; renamed test functions and replaced an internal-token blocklist with a
+  positive neutralization check in `tests/test_scaffold.py`; and neutralized the skills-collection
+  reference docs (example feature / module / variable names, domain-specific jargon, and a
+  region-specific registry host) into generic equivalents. Examples-only — no behavior change.
+
 ## [0.24.0] — 2026-06-24
 
 **PR3 of the phased hardening review: deeper validation, a deterministic pipeline CLI, an MCP
@@ -532,7 +555,7 @@ values (→ `#______` placeholders, matching the existing `design-system-complia
 
 ## [0.15.0] — 2026-06-16
 
-**Adopt the Fynd Agentic Engineering personas & skills** (an internal Claude Code plugin marketplace —
+**Adopt a set of internal engineering personas & skills** (a private Claude Code plugin marketplace —
 11 agents + 29 skills across 7 plugins: engineer, designer, pm, context-gen, staff-em, staff-sdet,
 staff-pm). Those plugins are excellent but heavily **stack-bound** (FastAPI/SQLAlchemy/Pydantic/React/
 Tailwind/Radix/Zod/Temporal/Kafka/Langfuse, against an internal `.ai/` doc convention). Mirroring all
@@ -546,7 +569,7 @@ nothing), **18 extend** (a real delta folded into the nearest existing component
 layer), **1 adopt-core** (genuinely new + stack-agnostic). Net: **2 new core skills, ~10 surgical core
 extends, 1 new React overlay rule + FastAPI/React overlay enrichments, 5 new org components** — zero
 stack leakage into core, zero diluting duplicates. IP boundary: technique-and-structure only, no source
-text copied; every Fynd-internal reference (the `.ai/` naming, internal field/service names, numeric
+text copied; every source-internal reference (internal doc conventions, internal field/service names, numeric
 heuristics) stripped or genericized.
 
 Three deliberate decisions: **(1)** Temporal/Kafka/Langfuse are **not** added as selectable stacks —

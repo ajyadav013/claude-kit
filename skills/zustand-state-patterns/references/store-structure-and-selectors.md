@@ -11,15 +11,15 @@ interface AuthState {
   isAuthenticated: boolean;
   isInitializing: boolean;
   isLoading: boolean;
-  currentBrand: Brand | null;
-  availableBrands: Brand[];
+  currentTenant: Tenant | null;
+  availableTenants: Tenant[];
   userRole: UserRole;
 
   // Actions
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
-  switchBrand: (brandId: string) => Promise<void>;
+  switchTenant: (tenantId: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -30,8 +30,8 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isInitializing: true,
       isLoading: false,
-      currentBrand: null,
-      availableBrands: [],
+      currentTenant: null,
+      availableTenants: [],
       userRole: 'viewer',
 
       // Actions implementation
@@ -39,12 +39,12 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true });
         try {
           await authService.login(email, password);
-          const { user, brands } = await fetchUserAndBrands();
+          const { user, tenants } = await fetchUserAndTenants();
           set({
             user,
             isAuthenticated: true,
             isLoading: false,
-            availableBrands: brands,
+            availableTenants: tenants,
           });
         } catch (error) {
           set({ isLoading: false });
@@ -68,8 +68,8 @@ const initialState = {
   isAuthenticated: false,
   isInitializing: true,
   isLoading: false,
-  currentBrand: null,
-  availableBrands: [],
+  currentTenant: null,
+  availableTenants: [],
   userRole: 'viewer' as UserRole,
 };
 
@@ -85,8 +85,8 @@ export const useAuthStore = create<AuthState>()(
           set({
             user: null,
             isAuthenticated: false,
-            currentBrand: null,
-            availableBrands: [],
+            currentTenant: null,
+            availableTenants: [],
             userRole: 'viewer',
           });
         }
@@ -112,13 +112,13 @@ export const selectIsAuthenticated = (state: AuthState) => state.isAuthenticated
 export const selectIsInitializing = (state: AuthState) => state.isInitializing;
 export const selectIsLoading = (state: AuthState) => state.isLoading;
 
-/** Returns the currently active brand the user is scoped to for API calls. */
-export const selectCurrentBrand = (state: AuthState) => state.currentBrand;
+/** Returns the currently active tenant the user is scoped to for API calls. */
+export const selectCurrentTenant = (state: AuthState) => state.currentTenant;
 
-/** Returns all brands the authenticated user has access to across agencies. */
-export const selectAvailableBrands = (state: AuthState) => state.availableBrands;
+/** Returns all tenants the authenticated user has access to across organizations. */
+export const selectAvailableTenants = (state: AuthState) => state.availableTenants;
 
-/** Returns the user's role within the currently active brand (admin, editor, viewer). */
+/** Returns the user's role within the currently active tenant (admin, editor, viewer). */
 export const selectUserRole = (state: AuthState) => state.userRole;
 ```
 
@@ -142,13 +142,13 @@ export const selectInsightsByType =
   (type: 'success_pattern' | 'improvement' | 'warning') => (state: AnalyticsState) =>
     state.insights.filter((insight) => insight.type === type);
 
-/** Returns only trends with 'rising' status from the current loaded list. */
-export const selectRisingTrends = (state: TrendsState) =>
-  state.trends.filter((trend) => trend.status === 'rising');
+/** Returns only recent reports from the current loaded list. */
+export const selectRecentReports = (state: ReportsState) =>
+  state.reports.filter((report) => report.status === 'recent');
 
-/** Returns true if no reference brands are configured. */
-export const selectHasNoReferenceBrands = (state: TrendsState) =>
-  state.referenceBrands.length === 0;
+/** Returns true if no reference tenants are configured. */
+export const selectHasNoReferenceTenants = (state: ReportsState) =>
+  state.referenceTenants.length === 0;
 ```
 
 ## StateCreator slices for complex stores
@@ -253,7 +253,7 @@ updateVideoUrl: (url: string) => {
 },
 
 // Merging filters
-setFilters: (filters: Partial<TrendFilters>) => {
+setFilters: (filters: Partial<ReportFilters>) => {
   const currentFilters = get().filters;
   const page = filters.page !== undefined ? filters.page : 1;
   const newFilters = { ...currentFilters, ...filters, page };
@@ -263,7 +263,7 @@ setFilters: (filters: Partial<TrendFilters>) => {
 
 ## Action naming conventions
 
-- **Imperative verbs** for actions: `login`, `logout`, `loadTrends`, `approveBrief`, `setFilters`, `switchBrand`
-- **`select*` prefix** for selectors: `selectUser`, `selectCurrentBrand`, `selectIsLoading`
+- **Imperative verbs** for actions: `login`, `logout`, `loadReports`, `approveDocument`, `setFilters`, `switchTenant`
+- **`select*` prefix** for selectors: `selectUser`, `selectCurrentTenant`, `selectIsLoading`
 - **`is*` or `has*` prefix** for boolean flags: `isLoading`, `isAuthenticated`, `hasUnreadMessages`, `isInitializing`
-- **Specific action names** over generic ones: `loadTrends` instead of `load`, `switchBrand` instead of `switch`
+- **Specific action names** over generic ones: `loadReports` instead of `load`, `switchTenant` instead of `switch`
