@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "task": "(recorded via claude-kit pipeline close-gate)",
+  "profile": "standard",
+  "scope": "team",
+  "stage": "spec-complete",
+  "last_gate_passed": "contract-clear",
+  "gate_evidence": {
+    "spec-complete": "specs/delete-task_spec.md",
+    "em-approved": "evidence/em-approved.txt",
+    "code-review": "evidence/code-review.txt",
+    "build-green": "evidence/build-green.txt",
+    "test-coverage": "evidence/test-coverage.txt",
+    "security-clear": "evidence/security-clear.txt",
+    "contract-clear": "evidence/contract-clear.txt"
+  },
+  "open_findings": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 1
+  }
+}

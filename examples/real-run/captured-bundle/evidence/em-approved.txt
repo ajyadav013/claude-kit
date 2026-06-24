@@ -1,0 +1,20 @@
+EM REVIEW — DELETE /tasks/{id} spec  (claude-kit em-reviewer, read-only)
+Spec: docs/specs/delete-task_spec.md
+
+VERIFIED AGAINST CODE
+- "3 existing routes unchanged" -> confirmed server.go:16,20,37 (GET /health, GET /tasks, POST /tasks).
+- Test count -> server_test.go has 6 tests: 3 new delete tests + 3 pre-existing. Matches the plan.
+- "Store.Delete(id int) error returns errNotFound" -> store.go:43-50 implements exactly this.
+
+COMPLETENESS
+- Problem clear; scope bounded (in: one route; out: bulk/soft-delete, auth, persistence — defensible
+  for a minimal in-memory sample). No scope creep.
+- All 5 acceptance criteria are testable and each maps 1:1 to a test (AC1->TestDeleteTask,
+  AC2->TestDeleteMissingReturns404, AC3->TestDeleteNonIntegerReturns400, AC4->TestDeleteTask list
+  assertion, AC5->existing regression suite).
+- Design matches implementation exactly (route pattern, PathValue, Atoi 400-vs-404 discrimination,
+  204 empty body, mutex reuse). No over- or under-engineering.
+
+VERDICT: APPROVED
+Rationale: complete, accurate, well-scoped spec; every design claim verified against the code; full
+acceptance-criteria test coverage; no architecture/security/testability gaps.

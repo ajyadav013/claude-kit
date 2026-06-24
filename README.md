@@ -347,8 +347,9 @@ need.
   [what we adopted](#influences--what-we-adopted)).
 - **Opt-in LLM/AI security** — `security-and-hardening` covers the OWASP LLM Top 10 (input/output
   guardrails, PII vault) as bypassable guidance, distinct from the mandatory appsec gate.
-- **A worked example + self-test matrix** — [`examples/`](examples/) shows an end-to-end run, and a
-  profile×stack×scope test matrix backs the stack-agnostic claim.
+- **A real captured run + self-test matrix** — [`examples/real-run/`](examples/real-run/) is a genuine
+  run captured by the `capture-sdlc-run.sh` harness, where the `devils-advocate` found and reproduced a
+  Medium bug a unanimous review missed; a profile×stack×scope test matrix backs the stack-agnostic claim.
 
 </details>
 
@@ -447,9 +448,13 @@ is inert for non-API projects. Organization scope at `regulated` strictness adds
 (WCAG-AA on changed UI). A **fast-track** mode collapses small changes (< 5 files) to Developer →
 Code Reviewer → Tester → PR.
 
-See [`examples/`](examples/) for a synthetic end-to-end walkthrough — request → spec → story breakdown
-→ gate verdicts (with one defect-loop cycle) → sample PR diff. To capture *your own* real run as a
-publishable, redaction-scrubbed bundle, see [`docs/capture-a-real-run.md`](docs/capture-a-real-run.md).
+See [`examples/real-run/`](examples/real-run/) for a **real**, harness-captured run — a `DELETE
+/tasks/{id}` feature driven through every gate on a Go/net-http project, where the `devils-advocate`
+caught and reproduced a Medium bug a unanimous review missed and the deterministic gate refused to
+advance until it was fixed (verbatim `pipeline-snapshot.json`, agent verdicts, diff, and an asciicast of
+the green checks). A [synthetic walkthrough](examples/react-fastapi-postgres-feature/) also maps the
+default-stack flow. To capture *your own* run as a publishable, redaction-scrubbed bundle, see
+[`docs/capture-a-real-run.md`](docs/capture-a-real-run.md).
 
 ---
 

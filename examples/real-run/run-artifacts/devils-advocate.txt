@@ -1,0 +1,37 @@
+DEVIL'S ADVOCATE — gate critique of a unanimous PASS  (claude-kit devils-advocate, read-only + Bash)
+Project: <project>  Branch: feat/delete-task vs main
+Spawned because all 4 gates passed clean (code-review PASS, em APPROVED, security CLEAR, acceptance ACCEPT).
+
+Shared blind spot: every reviewer (and every test) exercised the handler through Go's http.Client,
+which normalizes request paths — so id-parsing edge cases never reached the server. Attacked the
+id-parsing seam via raw TCP socket and direct-to-mux (httptest.NewRecorder) instead.
+
+FINDING 1 [Medium] server.go:25 — id aliasing: non-canonical ids mutate the canonical task.
+strconv.Atoi accepts '+', leading zeros, arbitrary zero-padding, so "01", "+1", "%2B1",
+"00000000001" are all treated as id 1 and DELETE it; "-1" returns 404. Inconsistent + destructive.
+Per .claude/rules/quality-gates.md, Medium = missing edge-case handling and Medium BLOCKS the gate.
+
+  Reproduction (raw socket, no client normalization):
+    $ DELETE /tasks/01  -> HTTP/1.1 204 No Content   (task 1 deleted)
+    $ DELETE /tasks/1   -> HTTP/1.1 404 Not Found
+  Direct-to-mux (fresh store each row):
+    /tasks/1    PathValue=1    status=204 task1_remaining=false
+    /tasks/01   PathValue=01   status=204 task1_remaining=false
+    /tasks/+1   PathValue=+1   status=204 task1_remaining=false
+    /tasks/%2B1 PathValue=+1   status=204 task1_remaining=false
+    /tasks/-1   PathValue=-1   status=404 task1_remaining=true   <- inconsistent with +1
+  Why the suite missed it: tests route through http.Client, which normalizes /tasks/01 -> /tasks/1
+  before the request leaves the process, so the alias path is never sent.
+
+FINDING 2 [Low] server.go:24 — no regression test pins the 405 method-not-allowed contract on
+/tasks/{id} (verified GET/PUT/PATCH/POST -> 405 manually; no defect, note only).
+
+Hypotheses tried and could NOT reproduce (reported for honesty): idempotency lie (held — 2nd delete
+404s), concurrency/TOCTOU (50 racing deletes -> {204:1,404:49}, mutex correct), panic on extremes
+(empty id, trailing slash, int64 overflow, min/max, zero — none panic), criteria 1/2/4 all verified MET.
+
+VERDICT: OVERTURNED
+FINDINGS: critical=0 high=0 medium=1 low=1
+Route: backend lane — reject non-canonical ids + add a mux-level/raw-socket test.
+Blind-spot for CONTINUITY: path/id-parsing handlers must be tested at the mux level or over a raw
+socket; Go's http.Client silently normalizes paths and hides aliasing/leading-zero/encoded-char bugs.

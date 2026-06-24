@@ -1,0 +1,24 @@
+CODE REVIEW — DELETE /tasks/{id}  (claude-kit sdlc-code-reviewer, read-only)
+Project: <project>  Branch: feat/delete-task vs main
+
+SPEC COMPLIANCE
+1. AC1 (204 on success): server.go:34 returns 204 with no body (w.WriteHeader(http.StatusNoContent)).
+2. AC2 (404 missing): server.go:30-33 maps errNotFound -> 404 + JSON error body.
+3. AC3 (400 non-integer): server.go:25-29 maps strconv.Atoi error -> 400 + JSON error body.
+4. AC4 (removed from GET /tasks): TestDeleteTask verifies list empty after delete.
+5. AC5 (existing routes unchanged): existing handlers untouched.
+
+DESIGN
+- store.go:43-51 implements Store.Delete(id int) error exactly as specified (errNotFound sentinel).
+- Mutex protection correct (lock/defer unlock); check-then-delete safe under the mutex (no TOCTOU).
+- Go 1.22+ ServeMux "DELETE /tasks/{id}" pattern + r.PathValue("id"); errors.Is used correctly.
+
+CORRECTNESS / CONCURRENCY / ERROR HANDLING: no Critical/High/Medium issues found.
+
+LOW findings (test thoroughness, not implementation correctness):
+1. server_test.go:77 TestDeleteTask does not assert the 204 response body is empty.
+2. server_test.go:102 TestDeleteMissingReturns404 does not assert the {"error":...} body shape.
+3. server_test.go:109 TestDeleteNonIntegerReturns400 does not assert the {"error":...} body shape.
+
+VERDICT: PASS
+FINDINGS: critical=0 high=0 medium=0 low=3

@@ -1,0 +1,30 @@
+CONTRACT-CLEAR — backward-compatibility check for feat/delete-task vs main
+
+The change is ADDITIVE: it adds a new route (DELETE /tasks/{id}) and a new Store.Delete
+method. No existing route handler or response shape was modified.
+
+$ git diff --stat main..HEAD
+ .gitignore                     |  1 +
+ docs/specs/delete-task_spec.md | 38 +++++++++++++++++++++++++++++
+ server.go                      | 15 ++++++++++++
+ server_test.go                 | 54 ++++++++++++++++++++++++++++++++++++++++++
+ store.go                       | 12 ++++++++++
+ 5 files changed, 120 insertions(+)
+
+$ git diff main..HEAD -- server.go  (existing routes: are GET /health, GET /tasks, POST /tasks touched?)
+Existing route registrations on main vs HEAD:
+  main:  3 existing GET/POST routes
+  HEAD:  3 existing GET/POST routes (unchanged)
+  added: 1 DELETE route
+
+Pre-existing endpoint tests still green (no consumer breakage):
+=== RUN   TestHealth
+--- PASS: TestHealth (0.00s)
+=== RUN   TestCreateAndListTask
+--- PASS: TestCreateAndListTask (0.00s)
+=== RUN   TestCreateRejectsEmptyTitle
+--- PASS: TestCreateRejectsEmptyTitle (0.00s)
+PASS
+ok  	taskapi	0.326s
+
+VERDICT: CONTRACT CLEAR (additive change; existing endpoints unchanged and still passing)

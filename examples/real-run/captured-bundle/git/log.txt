@@ -1,0 +1,3 @@
+1743672 fix: reject non-canonical task ids in DELETE (devils-advocate found id aliasing)
+7897309 feat: add DELETE /tasks/{id} (204/404/400) + tests + spec
+c1f02c7 baseline: tiny Go net/http task API (health, list, create) + claude-kit config

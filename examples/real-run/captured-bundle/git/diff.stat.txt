@@ -1,0 +1,6 @@
+ .gitignore                     |  1 +
+ docs/specs/delete-task_spec.md | 41 +++++++++++++++++++++
+ server.go                      | 19 ++++++++++
+ server_test.go                 | 83 ++++++++++++++++++++++++++++++++++++++++++
+ store.go                       | 12 ++++++
+ 5 files changed, 156 insertions(+)

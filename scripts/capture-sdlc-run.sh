@@ -101,6 +101,59 @@ else
   printf '  [skip] docs/specs/ (not found)\n'; missing=$((missing + 1))
 fi
 
+# --- 1b. Evidence files the snapshot points at -------------------------------------------------
+# The pipeline snapshot records a `gate_evidence` map of absolute paths. Pull those artifacts into
+# the bundle and rewrite the snapshot to point at the copied, bundle-relative files — so the bundle
+# is self-contained and leaks no local filesystem paths. Needs python3 (json); skipped with a note
+# if it is absent, leaving the snapshot untouched.
+snap_copy="$OUT/state/pipeline-snapshot.json"
+if [ -f "$snap_copy" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    printf '\nCollecting gate-evidence referenced by the snapshot:\n'
+    CK_PROJECT="$PROJECT" CK_OUT="$OUT" CK_SNAP="$snap_copy" python3 - <<'PY' || printf '  [skip] could not process gate_evidence (snapshot left as-is)\n'
+import json, os, pathlib, shutil
+
+project = pathlib.Path(os.environ["CK_PROJECT"]).resolve()
+out = pathlib.Path(os.environ["CK_OUT"])
+snap = pathlib.Path(os.environ["CK_SNAP"])
+data = json.loads(snap.read_text())
+ev = data.get("gate_evidence")
+if not isinstance(ev, dict):
+    raise SystemExit(0)
+changed = False
+for gate, p in list(ev.items()):
+    if not isinstance(p, str):
+        continue
+    src = pathlib.Path(p)
+    if not src.is_file():
+        print(f"  [skip] {gate}: evidence not found ({p})")
+        continue
+    resolved = src.resolve()
+    try:
+        resolved.relative_to(project)
+    except ValueError:
+        print(f"  [skip] {gate}: evidence outside the project ({p})")
+        continue
+    # the spec already lives under specs/; point there instead of duplicating it.
+    if resolved.suffix == ".md" and "specs" in resolved.parts:
+        ev[gate] = f"specs/{resolved.name}"
+        changed = True
+        print(f"  [ok]   {gate} -> specs/{resolved.name}")
+        continue
+    (out / "evidence").mkdir(parents=True, exist_ok=True)
+    dest_name = f"{gate}{resolved.suffix or '.txt'}"
+    shutil.copyfile(resolved, out / "evidence" / dest_name)
+    ev[gate] = f"evidence/{dest_name}"
+    changed = True
+    print(f"  [ok]   {gate} -> evidence/{dest_name}")
+if changed:
+    snap.write_text(json.dumps(data, indent=2) + "\n")
+PY
+  else
+    printf '\n  [skip] python3 not found — snapshot keeps absolute gate_evidence paths\n'
+  fi
+fi
+
 # --- 2. The code the run produced (git) --------------------------------------------------------
 printf '\nCollecting git evidence (base = %s):\n' "$BASE"
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then

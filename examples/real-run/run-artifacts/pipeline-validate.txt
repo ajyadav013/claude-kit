@@ -1,0 +1,2 @@
+WARN  snapshot has no 'next' (resume context is weaker)
+OK    pipeline snapshot is coherent (stage: spec-complete)

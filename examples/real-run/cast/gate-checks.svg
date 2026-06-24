@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="443" height="520" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14">
+<rect width="443" height="520" rx="8" fill="#282c34"/>
+<rect width="443" height="28" rx="8" fill="#21252b"/>
+<rect y="20" width="100%" height="8" fill="#21252b"/>
+<circle cx="18" cy="14" r="6" fill="#ff5f56"/>
+<circle cx="36" cy="14" r="6" fill="#ffbd2e"/>
+<circle cx="54" cy="14" r="6" fill="#27c93f"/>
+<text x="221.5" y="18" fill="#5c6370" text-anchor="middle" font-size="12">taskapi — run-checks.sh</text>
+<text x="16" y="44" fill="#56b6c2" xml:space="preserve">$ bash run-checks.sh</text>
+<text x="16" y="64" fill="#e5c07b" xml:space="preserve">== build ==</text>
+<text x="16" y="84" fill="#e5c07b" xml:space="preserve">== vet ==</text>
+<text x="16" y="104" fill="#e5c07b" xml:space="preserve">== gofmt ==</text>
+<text x="16" y="124" fill="#98c379" xml:space="preserve">all files formatted</text>
+<text x="16" y="144" fill="#e5c07b" xml:space="preserve">== test ==</text>
+<text x="16" y="164" fill="#7f848e" xml:space="preserve">=== RUN   TestHealth</text>
+<text x="16" y="184" fill="#98c379" xml:space="preserve">--- PASS: TestHealth (0.00s)</text>
+<text x="16" y="204" fill="#7f848e" xml:space="preserve">=== RUN   TestCreateAndListTask</text>
+<text x="16" y="224" fill="#98c379" xml:space="preserve">--- PASS: TestCreateAndListTask (0.00s)</text>
+<text x="16" y="244" fill="#7f848e" xml:space="preserve">=== RUN   TestCreateRejectsEmptyTitle</text>
+<text x="16" y="264" fill="#98c379" xml:space="preserve">--- PASS: TestCreateRejectsEmptyTitle (0.00s)</text>
+<text x="16" y="284" fill="#7f848e" xml:space="preserve">=== RUN   TestDeleteTask</text>
+<text x="16" y="304" fill="#98c379" xml:space="preserve">--- PASS: TestDeleteTask (0.00s)</text>
+<text x="16" y="324" fill="#7f848e" xml:space="preserve">=== RUN   TestDeleteMissingReturns404</text>
+<text x="16" y="344" fill="#98c379" xml:space="preserve">--- PASS: TestDeleteMissingReturns404 (0.00s)</text>
+<text x="16" y="364" fill="#7f848e" xml:space="preserve">=== RUN   TestDeleteNonIntegerReturns400</text>
+<text x="16" y="384" fill="#98c379" xml:space="preserve">--- PASS: TestDeleteNonIntegerReturns400 (0.00s)</text>
+<text x="16" y="404" fill="#7f848e" xml:space="preserve">=== RUN   TestDeleteRejectsNonCanonicalID</text>
+<text x="16" y="424" fill="#98c379" xml:space="preserve">--- PASS: TestDeleteRejectsNonCanonicalID (0.00s)</text>
+<text x="16" y="444" fill="#98c379" xml:space="preserve">PASS</text>
+<text x="16" y="464" fill="#98c379" xml:space="preserve">coverage: 85.2% of statements</text>
+<text x="16" y="484" fill="#98c379" xml:space="preserve">ok  	taskapi	0.833s	coverage: 85.2% of statements</text>
+</svg>

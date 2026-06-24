@@ -1,9 +1,10 @@
 # Capture a real `/sdlc` run
 
-The repo ships a **synthetic** worked example under [`examples/`](../examples/) — useful, but
-hand-written. The most convincing evidence is *your own* run: a real request that flowed through the
-pipeline, with the real spec, real gate verdicts, and the real diff it produced. This guide turns one
-completed run into a publishable, redaction-scrubbed bundle.
+The repo ships a **real, harness-captured** run under [`examples/real-run/`](../examples/real-run/)
+(produced exactly the way this guide describes) alongside a hand-written **synthetic** walkthrough. The
+most convincing evidence, though, is *your own* run: a real request that flowed through the pipeline,
+with the real spec, real gate verdicts, and the real diff it produced. This guide turns one completed
+run into a publishable, redaction-scrubbed bundle.
 
 > **You run this — not the kit.** `/sdlc` is interactive (it runs inside Claude Code). The script here
 > only *collects and scrubs* what a finished run left behind; it never drives the pipeline and never

@@ -1,0 +1,208 @@
+diff --git a/.gitignore b/.gitignore
+index 0fa0335..5bb4fd6 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,3 +8,4 @@ CLAUDE.local.md
+ 
+ # compiled binary
+ /taskapi
++/.sdlc-evidence/
+diff --git a/docs/specs/delete-task_spec.md b/docs/specs/delete-task_spec.md
+new file mode 100644
+index 0000000..b5f88af
+--- /dev/null
++++ b/docs/specs/delete-task_spec.md
+@@ -0,0 +1,41 @@
++# Spec — Delete a task (`DELETE /tasks/{id}`)
++
++**Status:** approved · **Profile:** standard · **Lane:** backend (Go / net-http)
++
++## Problem
++
++The task API can create and list tasks but has no way to remove one. Clients that complete or
++mis-create a task have no corrective action. Add a single endpoint to delete a task by id.
++
++## Scope
++
++- **In:** one new route, `DELETE /tasks/{id}`, over the existing in-memory `Store`.
++- **Out:** bulk delete, soft-delete/archival, auth (the sample is unauthenticated by design),
++  persistence.
++
++## Acceptance criteria
++
++1. `DELETE /tasks/{id}` removes an existing task and returns **`204 No Content`** with an empty body.
++2. Deleting an id that does not exist returns **`404 Not Found`** with an `{"error": ...}` body.
++3. The id must be a **canonical positive integer**. A non-integer (`/tasks/abc`), zero/negative, or
++   non-canonical form (`/tasks/01`, `/tasks/+1`) returns **`400 Bad Request`** — it must not 404,
++   panic, or alias another task. *(Tightened after the devils-advocate found that `strconv.Atoi` alone
++   aliased `01`/`+1` onto task `1` and deleted it; see `../../.sdlc-evidence/devils-advocate.txt`.)*
++4. After a successful delete, the task no longer appears in `GET /tasks`.
++5. The change is **additive**: `GET /health`, `GET /tasks`, and `POST /tasks` behave exactly as before
++   (no contract change to existing routes).
++
++## Design
++
++- `Store.Delete(id int) error` — returns `errNotFound` (sentinel) when the id is absent; otherwise
++  deletes under the existing mutex. No new state.
++- Route handler uses Go 1.22+ `ServeMux` method+pattern routing (`DELETE /tasks/{id}`) and
++  `r.PathValue("id")`; `strconv.Atoi` distinguishes a bad id (400) from a missing task (404).
++
++## Test plan
++
++- `TestDeleteTask` — create then delete → 204, then `GET /tasks` is empty (criteria 1, 4).
++- `TestDeleteMissingReturns404` — delete unknown id → 404 (criterion 2).
++- `TestDeleteNonIntegerReturns400` — delete `/tasks/abc` → 400 (criterion 3).
++- Existing `TestHealth`, `TestCreateAndListTask`, `TestCreateRejectsEmptyTitle` remain green
++  (criterion 5).
+diff --git a/server.go b/server.go
+index 99df387..e36abb9 100644
+--- a/server.go
++++ b/server.go
+@@ -2,7 +2,9 @@ package main
+ 
+ import (
+ 	"encoding/json"
++	"errors"
+ 	"net/http"
++	"strconv"
+ 	"strings"
+ )
+ 
+@@ -19,6 +21,23 @@ func newMux(store *Store) *http.ServeMux {
+ 		writeJSON(w, http.StatusOK, map[string]any{"tasks": store.List()})
+ 	})
+ 
++	mux.HandleFunc("DELETE /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
++		raw := r.PathValue("id")
++		id, err := strconv.Atoi(raw)
++		// The path id must be the task's canonical positive integer. strconv.Atoi alone accepts
++		// leading zeros and a leading '+' ("01", "+1", "%2B1"), which would alias and delete task 1;
++		// re-encoding and comparing rejects every non-canonical form. (Defect found by devils-advocate.)
++		if err != nil || id <= 0 || strconv.Itoa(id) != raw {
++			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id must be a positive integer"})
++			return
++		}
++		if err := store.Delete(id); errors.Is(err, errNotFound) {
++			writeJSON(w, http.StatusNotFound, map[string]string{"error": "task not found"})
++			return
++		}
++		w.WriteHeader(http.StatusNoContent)
++	})
++
+ 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
+ 		var body struct {
+ 			Title string `json:"title"`
+diff --git a/server_test.go b/server_test.go
+index f577716..9d1affd 100644
+--- a/server_test.go
++++ b/server_test.go
+@@ -58,3 +58,86 @@ func TestCreateRejectsEmptyTitle(t *testing.T) {
+ 		t.Fatalf("status = %d, want 400", resp.StatusCode)
+ 	}
+ }
++
++// do issues a request with no body and returns the status code.
++func do(t *testing.T, method, url string) int {
++	t.Helper()
++	req, err := http.NewRequest(method, url, nil)
++	if err != nil {
++		t.Fatalf("new request: %v", err)
++	}
++	resp, err := http.DefaultClient.Do(req)
++	if err != nil {
++		t.Fatalf("%s %s: %v", method, url, err)
++	}
++	defer resp.Body.Close()
++	return resp.StatusCode
++}
++
++func TestDeleteTask(t *testing.T) {
++	srv := newTestServer(t)
++	if _, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"title":"a"}`)); err != nil {
++		t.Fatalf("seed POST: %v", err)
++	}
++	if code := do(t, http.MethodDelete, srv.URL+"/tasks/1"); code != http.StatusNoContent {
++		t.Fatalf("DELETE status = %d, want 204", code)
++	}
++	// The list is empty after the only task is deleted.
++	resp, err := http.Get(srv.URL + "/tasks")
++	if err != nil {
++		t.Fatalf("GET /tasks: %v", err)
++	}
++	defer resp.Body.Close()
++	var payload struct {
++		Tasks []Task `json:"tasks"`
++	}
++	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
++		t.Fatalf("decode: %v", err)
++	}
++	if len(payload.Tasks) != 0 {
++		t.Fatalf("tasks after delete = %d, want 0", len(payload.Tasks))
++	}
++}
++
++func TestDeleteMissingReturns404(t *testing.T) {
++	srv := newTestServer(t)
++	if code := do(t, http.MethodDelete, srv.URL+"/tasks/999"); code != http.StatusNotFound {
++		t.Fatalf("DELETE missing status = %d, want 404", code)
++	}
++}
++
++func TestDeleteNonIntegerReturns400(t *testing.T) {
++	srv := newTestServer(t)
++	if code := do(t, http.MethodDelete, srv.URL+"/tasks/abc"); code != http.StatusBadRequest {
++		t.Fatalf("DELETE non-int status = %d, want 400", code)
++	}
++}
++
++// TestDeleteRejectsNonCanonicalID drives the mux directly (httptest.NewRecorder), because the Go
++// http.Client normalizes request paths and would hide non-canonical ids. Regression for the id-
++// aliasing defect the devils-advocate found: "01"/"+1"/"-1"/"0" must 400, not delete task 1.
++func TestDeleteRejectsNonCanonicalID(t *testing.T) {
++	for _, id := range []string{"01", "+1", "%2B1", "00000000001", "-1", "0"} {
++		store := NewStore()
++		store.Add("keep me")
++		rec := httptest.NewRecorder()
++		req := httptest.NewRequest(http.MethodDelete, "/tasks/"+id, nil)
++		newMux(store).ServeHTTP(rec, req)
++		if rec.Code != http.StatusBadRequest {
++			t.Errorf("DELETE /tasks/%s = %d, want 400", id, rec.Code)
++		}
++		if _, err := storeGet(store, 1); err != nil {
++			t.Errorf("DELETE /tasks/%s deleted canonical task 1 (alias bug)", id)
++		}
++	}
++}
++
++// storeGet reports whether task id is still present (test-only helper).
++func storeGet(s *Store, id int) (Task, error) {
++	for _, tk := range s.List() {
++		if tk.ID == id {
++			return tk, nil
++		}
++	}
++	return Task{}, errNotFound
++}
+diff --git a/store.go b/store.go
+index 5046dfe..7bb1210 100644
+--- a/store.go
++++ b/store.go
+@@ -38,6 +38,18 @@ func (s *Store) Add(title string) Task {
+ 	return t
+ }
+ 
++// Delete removes the task with the given id, returning errNotFound if it does
++// not exist.
++func (s *Store) Delete(id int) error {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if _, ok := s.tasks[id]; !ok {
++		return errNotFound
++	}
++	delete(s.tasks, id)
++	return nil
++}
++
+ // List returns all tasks ordered by id.
+ func (s *Store) List() []Task {
+ 	s.mu.Lock()
