@@ -29,7 +29,7 @@ from pathlib import Path
 
 from claude_kit import catalog, scaffold
 from claude_kit.models import FileRecord, InitOptions, ResolvedPlan
-from claude_kit.validator import _load_init_options
+from claude_kit.validator import _load_init_options, _read_init_options
 
 #: Sidecar suffix for a new version of a user-modified, protected file.
 _SIDECAR_SUFFIX = ".claude-kit"
@@ -129,9 +129,9 @@ def _compare(src: Path, target: str | Path) -> _Comparison | str:
     claude = target / ".claude"
     if not claude.is_dir():
         return "not-installed"
-    old = _load_init_options(claude)
+    old, err = _read_init_options(claude)
     if old is None:
-        return "no-options"
+        return "corrupt-options" if err and err.startswith("corrupt") else "no-options"
 
     plan = catalog.resolve(src, old.selection)
     # Render the reference under the REAL project name so CLAUDE.md/README don't diff spuriously.
@@ -354,6 +354,11 @@ def _explain_error(code: str, target: str | Path) -> tuple[bool, list[str]]:
     if code == "not-installed":
         return False, [
             f"FAIL  no .claude/ at {Path(target).expanduser().resolve()} — run `claude-kit init` first"
+        ]
+    if code == "corrupt-options":
+        return False, [
+            "FAIL  .claude/config/init-options.json is unreadable (invalid JSON) — repair it "
+            "or re-run `claude-kit init --force` to re-create it"
         ]
     return False, [
         "FAIL  no .claude/config/init-options.json — this install predates upgrade tracking; "

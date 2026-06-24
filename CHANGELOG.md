@@ -4,6 +4,28 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.27.0] — 2026-06-24
+
+**Objective fixes from a product review: honest skill counts (with a guard), drift-aware
+`doctor`/`validate`, and a distinct corrupt-vs-missing manifest signal.**
+
+### Added
+- **`validate`/`doctor` now surface kit-owned drift.** They already verified that every tracked file
+  is *present*; they now also compare each kit/overlay file's live SHA-256 against the install
+  manifest and emit `N kit-owned file(s) modified since install … run claude-kit diff` (a WARN, never
+  a FAIL — edits to user-editable files are not flagged). The manifest data already existed; only
+  `diff`/`upgrade` consulted it before.
+
+### Changed
+- **Honest skill counts.** The README advertised "51 skills" — the count of *core* skills only, while
+  the repo ships **96** (51 stack-agnostic core + 45 stack-collection). All three occurrences now read
+  "96 … (51 core + 45 stack-collection)", and `check_docs_consistency.py` pins the headline total
+  **and** both halves to the filesystem so the number can't silently drift again.
+- **Corrupt vs missing `init-options.json` are now distinct signals.** A missing manifest stays a WARN
+  ("validate/upgrade limited"); a *corrupt* one is a FAIL ("unreadable … repair the JSON or re-run
+  `claude-kit init --force`") in `validate`, `doctor`, `diff`, and `upgrade` — matching how the kit
+  already reports a malformed `settings.json`/`.mcp.json`.
+
 ## [0.26.1] — 2026-06-24
 
 **A second strict practical review (installed and exercised end-to-end) surfaced seven papercuts on

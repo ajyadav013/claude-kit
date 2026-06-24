@@ -100,6 +100,7 @@ def _actuals() -> dict[str, int]:
     return {
         "agents": len(list((ROOT / "agents").glob("*.md"))),
         "rules": len(list((ROOT / "rules").glob("*.md"))),
+        "skills": core + collection,
         "core skills": core,
         "collection skills": collection,
         "hook scripts": len(list((ROOT / "hooks" / "scripts").glob("*.sh"))),
@@ -120,8 +121,12 @@ _ANCHORS: list[tuple[str, str, str]] = [
     ("rules", "README.md", r"(\d+) stack-agnostic core rules"),
     ("rules", "README.md", r"(\d+) stack-agnostic contracts"),
     ("rules", "README.md", r"(\d+) engineering rules"),
-    ("core skills", "README.md", r"\*\*(\d+)\*\* context-activated skills"),
-    ("core skills", "README.md", r"(\d+) on-demand skills"),
+    # The headline skill number is the FULL catalog (core + collection); the breakdown pins each part.
+    ("skills", "README.md", r"\*\*(\d+)\*\* context-activated skills"),
+    ("skills", "README.md", r"(\d+) on-demand skills"),
+    ("skills", "README.md", r"(\d+) skills, gates"),
+    ("core skills", "README.md", r"\((\d+) core \+"),
+    ("collection skills", "README.md", r"\+ (\d+) stack-collection\)"),
     ("hook scripts", "README.md", r"\*\*(\d+)\*\* event hooks"),
     ("hook scripts", "README.md", r"(\d+) event hook scripts"),
     ("mcp servers", "README.md", r"\*\*(\d+)\*\* ready MCP fragments"),

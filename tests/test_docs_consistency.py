@@ -48,6 +48,16 @@ def test_checker_detects_count_drift(monkeypatch):
     assert any("agents" in e for e in errors)
 
 
+def test_checker_detects_skill_total_drift(monkeypatch):
+    """The headline skill total (core + collection) is pinned to the filesystem, not just core."""
+    mod = _load()
+    real_actuals = mod._actuals
+
+    monkeypatch.setattr(mod, "_actuals", lambda: {**real_actuals(), "skills": 999})
+    errors = mod.check_counts()
+    assert any("skills count says" in e for e in errors), errors
+
+
 def test_checker_detects_duplicate_gate_tables(monkeypatch):
     """A second (stale) gate table must be flagged, not silently shadowed by a later correct one."""
     mod = _load()
