@@ -1,0 +1,4 @@
+# Transient artifacts from running the sample app's checks — never committed.
+__pycache__/
+*.pyc
+.pytest_cache/

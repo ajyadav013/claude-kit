@@ -1,0 +1,4 @@
+BUG 1 — POST /tasks with a non-dict JSON body (array):
+  client error: HTTPError: HTTP Error 400: Bad Request
+BUG 2 — POST /tasks with a malformed Content-Length header:
+  raw response: b'HTTP/1.0 400 Bad Request\r\nServer: BaseHTTP/0.6 Pyt'
