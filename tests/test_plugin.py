@@ -14,6 +14,8 @@ auto-discovered ``./hooks/hooks.json`` makes the loader read the same file twice
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -214,3 +216,61 @@ def test_basic_scaffolder_warns_it_is_degraded() -> None:
     text = INIT_SH.read_text(encoding="utf-8")
     assert "BASIC scaffolder" in text
     assert "upgrade" in text and "NOT work" in text
+
+
+# --- functional rm-rf guard behaviour (order-independent recursive+force regex) ----------------
+
+_NEED_JQ = pytest.mark.skipif(
+    shutil.which("jq") is None,
+    reason="the rm-rf guard degrades to a no-op without jq; its blocking can't be asserted",
+)
+
+
+def _run_rm_rf_guard(command: str) -> int:
+    """Pipe a PreToolUse JSON payload through the inline rm-rf guard; return its exit code."""
+    from claude_kit import hooks
+
+    payload = json.dumps({"tool_input": {"command": command}})
+    proc = subprocess.run(
+        ["sh", "-c", hooks._RM_RF_GUARD],
+        input=payload,
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf /tmp/x",
+        "rm -fr /tmp/x",  # force before recursive
+        "rm -r -f /tmp/x",  # split flags
+        "rm -f -r /tmp/x",
+        "rm -Rf /tmp/x",  # capital R
+        "rm --recursive --force /tmp/x",
+        "rm --force --recursive /tmp/x",
+        "sudo rm -rf /tmp/x",  # leading command
+    ],
+)
+def test_rm_rf_guard_blocks_recursive_force(command: str) -> None:
+    """Every recursive+force spelling/ordering is blocked (exit 2), not only the literal ``-rf``."""
+    assert _run_rm_rf_guard(command) == 2, command
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm /tmp/x",  # no flags
+        "rm -f /tmp/x",  # force, not recursive
+        "rm -i /tmp/x",  # interactive
+        "docker rm -f mycontainer",  # removes a container, not files
+        "git rm --cached file",  # unstage, no force/recursive
+        "ls -alF /tmp",  # unrelated command
+    ],
+)
+def test_rm_rf_guard_spares_safe_commands(command: str) -> None:
+    """A command that is not a recursive *and* forced rm is allowed (exit 0)."""
+    assert _run_rm_rf_guard(command) == 0, command

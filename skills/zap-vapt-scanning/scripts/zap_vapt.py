@@ -20,7 +20,6 @@ import atexit
 import base64
 import json
 import os
-from collections import Counter
 import platform
 import re
 import shlex
@@ -28,12 +27,13 @@ import shutil
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from glob import glob
-from urllib.parse import urlsplit, quote_plus
+from urllib.parse import quote_plus, urlsplit
 from xml.sax.saxutils import escape as _xml_escape
-import xml.etree.ElementTree as ET
 
 # ----------------------------------------------------------------------------
 # Constants & small console helpers
@@ -1082,22 +1082,22 @@ def build_pdf(
     agg: Aggregates,
     unmatched: list | None = None,
 ):
-    from reportlab.lib.pagesizes import A4
     from reportlab.lib.colors import HexColor, white
     from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.utils import ImageReader
     from reportlab.platypus import (
-        SimpleDocTemplate,
+        CondPageBreak,
+        Flowable,
+        Image,
+        ListFlowable,
+        PageBreak,
         Paragraph,
+        SimpleDocTemplate,
         Spacer,
         Table,
         TableStyle,
-        Image,
-        PageBreak,
-        ListFlowable,
-        Flowable,
-        CondPageBreak,
     )
 
     G, B, GR = HexColor(GREEN), HexColor(BLUE), HexColor(GRID)
@@ -2091,8 +2091,8 @@ def main() -> int:
         return run_selftest()
 
     try:
-        import requests  # noqa: F401
         import reportlab  # noqa: F401
+        import requests  # noqa: F401
     except ImportError:
         err("Missing dependencies. Run:  python3 -m pip install -r requirements.txt")
         return 2

@@ -4,6 +4,31 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.26.1] — 2026-06-24
+
+**A second strict practical review (installed and exercised end-to-end) surfaced seven papercuts on
+top of 0.26.0 — all bug fixes and polish, no behavior change for existing configs.**
+
+### Changed
+- **The destructive-delete guard is no longer order-dependent.** The previous regex only matched
+  `r…f` order, so `rm -fr`, `rm -r -f`, `rm -Rf`, and `rm --recursive --force` slipped through. It now
+  blocks any invocation that combines a recursive flag **and** a force flag in any order or spelling
+  (incl. `-R` and long flags); the plugin `hooks.json` and starter `settings.json` were regenerated
+  from the registry. New functional tests fire JSON payloads through the guard to lock the behavior in.
+- **CI lints shipped skill Python** (`ruff check … skills`), so future skill scripts are covered;
+  `zap_vapt.py` import ordering was fixed to match.
+
+### Fixed
+- **Upgrade artifacts are now gitignored.** `claude-kit upgrade` writes `.claude-kit.bak-*/` backup
+  dirs and `*.claude-kit` sidecars; a scaffolded `.gitignore` now lists both so `git add -A` never
+  commits a backup.
+- **Frontmatter hygiene, swept across every component.** Two skill descriptions over the 1024-char cap
+  (`design-patterns-and-conventions`, `shannon-ai-pentest`) were trimmed; `security-reviewer` and two
+  `templates/org` skills (`prompt-to-safe-task`, `repo-onboarding`) had unquoted `: ` scalars that
+  fail strict YAML and are now quoted; `smoke-test`'s `argument-hint` is a valid YAML string. A new
+  `tests/test_frontmatter.py` parses every shipped agent/command/skill under strict YAML and enforces
+  the description cap, so these regress loudly.
+
 ## [0.26.0] — 2026-06-24
 
 **Post-hardening follow-up: two correctness/security fixes plus polish, all from a verified review

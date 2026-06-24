@@ -253,6 +253,15 @@ def test_gitignore_is_selective(tmp_path, payload):
     assert "\n.claude/\n" not in "\n" + gi
 
 
+def test_gitignore_ignores_upgrade_backups(tmp_path, payload):
+    """`claude-kit upgrade` writes .claude-kit.bak-N/ dirs and *.claude-kit sidecars — never commit
+    them. A fresh scaffold's .gitignore must list both so `git add -A` skips them."""
+    install(payload, tmp_path)
+    gi = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    for entry in (".claude-kit.bak-*/", "*.claude-kit"):
+        assert entry in gi, f"managed .gitignore must ignore upgrade artifact {entry!r}"
+
+
 def test_core_org_rules_ship_in_every_profile(tmp_path, payload):
     """autonomy-levels + risk-classification are core rules — present even in lean, team scope."""
     expected = {"autonomy-levels.md", "risk-classification.md"}

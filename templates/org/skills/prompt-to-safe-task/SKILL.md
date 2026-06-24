@@ -1,6 +1,6 @@
 ---
 name: prompt-to-safe-task
-description: Use when anyone — especially a non-engineer — types a free-form request in plain language and wants it turned into a scoped, risk-classified, approval-gated task before anything happens. The safe front door for vibe-coding: goal → scope + out-of-scope → risk tier → success criteria → plan → approval, then route to the right skill/agent.
+description: "Use when anyone — especially a non-engineer — types a free-form request in plain language and wants it turned into a scoped, risk-classified, approval-gated task before anything happens. The safe front door for vibe-coding: goal → scope + out-of-scope → risk tier → success criteria → plan → approval, then route to the right skill/agent."
 ---
 
 # Prompt to Safe Task
