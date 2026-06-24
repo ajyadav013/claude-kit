@@ -12,6 +12,7 @@ report and choose an exit code.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import platform
@@ -72,15 +73,31 @@ def _parse_frontmatter(text: str) -> dict[str, str] | None:
     return data
 
 
-def _load_init_options(claude_dir: Path) -> InitOptions | None:
-    """Load and parse ``.claude/config/init-options.json`` if present."""
+def _sha256(path: Path) -> str:
+    """Hex SHA-256 of a file's bytes (matches the digest recorded in init-options.json)."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _read_init_options(claude_dir: Path) -> tuple[InitOptions | None, str | None]:
+    """Load ``init-options.json``, distinguishing *missing* from *corrupt*.
+
+    Returns ``(options, None)`` on success; ``(None, "missing")`` when the file is absent; and
+    ``(None, "corrupt: <detail>")`` when it exists but cannot be parsed. Callers can then surface a
+    distinct, louder signal for a corrupt manifest (a real problem worth a FAIL) versus a missing
+    one (an older install that merely predates upgrade tracking — a WARN).
+    """
     path = claude_dir / "config" / "init-options.json"
     if not path.is_file():
-        return None
+        return None, "missing"
     try:
-        return InitOptions.from_dict(json.loads(path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
+        return InitOptions.from_dict(json.loads(path.read_text(encoding="utf-8"))), None
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return None, f"corrupt: {exc}"
+
+
+def _load_init_options(claude_dir: Path) -> InitOptions | None:
+    """Back-compat: the parsed options, or None for either a missing or corrupt manifest."""
+    return _read_init_options(claude_dir)[0]
 
 
 def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[str]]:
@@ -116,19 +133,41 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
         fail(f"no .claude/ directory in {target} — run `claude-kit init` here")
         return ok, msgs
 
-    options = _load_init_options(claude)
+    options, opt_err = _read_init_options(claude)
     if options is None:
-        warn(
-            "missing or unreadable .claude/config/init-options.json (validate/upgrade limited)"
-        )
+        if opt_err == "missing":
+            warn(
+                "no .claude/config/init-options.json (validate/upgrade limited — "
+                "re-run `claude-kit init` to start tracking)"
+            )
+        else:
+            fail(
+                f".claude/config/init-options.json is unreadable ({opt_err}) — repair the JSON "
+                "or re-run `claude-kit init --force`"
+            )
     else:
         good(
             f"init-options.json (schema v{options.schema_version}, kit {options.claude_kit_version})"
         )
+        drifted: list[str] = []
         for rec in options.files:
-            if not (target / rec.path).exists():
+            fp = target / rec.path
+            if not fp.exists():
                 fail(f"recorded file missing: {rec.path}")
+            elif (
+                rec.owner in ("kit", "overlay")
+                and fp.is_file()
+                and _sha256(fp) != rec.sha256
+            ):
+                drifted.append(rec.path)
         good(f"tracked files present ({len(options.files)} recorded)")
+        if drifted:
+            preview = ", ".join(sorted(drifted)[:3])
+            more = "" if len(drifted) <= 3 else f" (+{len(drifted) - 3} more)"
+            warn(
+                f"{len(drifted)} kit-owned file(s) modified since install: {preview}{more} "
+                "— run `claude-kit diff` to review (edits to user-editable files are not flagged)"
+            )
 
     settings = claude / "settings.json"
     if settings.is_file():

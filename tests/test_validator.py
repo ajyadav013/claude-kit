@@ -30,6 +30,58 @@ def test_validate_fails_when_not_installed(tmp_path):
     assert any("no .claude" in m for m in messages)
 
 
+def test_validate_warns_on_kit_owned_drift(tmp_path, payload):
+    """A hand-edited kit/overlay file is surfaced via the sha256 manifest, not just presence (WARN)."""
+    install(payload, tmp_path)
+    opts = json.loads(
+        (tmp_path / ".claude" / "config" / "init-options.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    rec = next(
+        f
+        for f in opts["files"]
+        if f["owner"] in ("kit", "overlay") and f["path"].endswith(".md")
+    )
+    fp = tmp_path / rec["path"]
+    fp.write_text(
+        fp.read_text(encoding="utf-8") + "\n<!-- local edit -->\n", encoding="utf-8"
+    )
+    ok, messages = validator.validate(tmp_path)
+    assert ok, "\n".join(messages)  # drift is a WARN, never a FAIL
+    assert any(
+        m.startswith("WARN")
+        and "modified since install" in m
+        and "claude-kit diff" in m
+        for m in messages
+    ), "\n".join(messages)
+
+
+def test_validate_fails_on_corrupt_init_options(tmp_path, payload):
+    """A corrupt manifest is a distinct, louder signal (FAIL) — not the same as a missing one."""
+    install(payload, tmp_path)
+    (tmp_path / ".claude" / "config" / "init-options.json").write_text(
+        "{ not valid json", encoding="utf-8"
+    )
+    ok, messages = validator.validate(tmp_path)
+    assert not ok
+    assert any(m.startswith("FAIL") and "unreadable" in m for m in messages), "\n".join(
+        messages
+    )
+
+
+def test_validate_warns_on_missing_init_options(tmp_path, payload):
+    """A missing manifest (old install) stays a WARN, distinct from the corrupt FAIL above."""
+    install(payload, tmp_path)
+    (tmp_path / ".claude" / "config" / "init-options.json").unlink()
+    ok, messages = validator.validate(tmp_path)
+    assert any(
+        m.startswith("WARN") and "no .claude/config/init-options.json" in m
+        for m in messages
+    ), "\n".join(messages)
+    assert not any("unreadable" in m for m in messages)
+
+
 def test_doctor_runs_environment_checks(tmp_path, payload):
     install(payload, tmp_path)
     ok, messages = validator.doctor(tmp_path)
