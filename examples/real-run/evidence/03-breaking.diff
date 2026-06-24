@@ -1,0 +1,13 @@
+diff --git a/tmp/api-before.py b/examples/real-run/sample-app/tasktracker/api.py
+index d1bfaad..c0a2b6f 100644
+--- a/tmp/api-before.py
++++ b/examples/real-run/sample-app/tasktracker/api.py
+@@ -43,7 +43,7 @@ def make_handler(store: TaskStore) -> type[BaseHTTPRequestHandler]:
+                 except ValidationError as exc:
+                     self._send(400, {"error": str(exc)})
+                     return
+-                self._send(200, {"tasks": [t.as_dict() for t in tasks]})
++                self._send(200, [t.as_dict() for t in tasks])  # BREAKING: was {"tasks": [...]}
+                 return
+             self._send(404, {"error": "not found"})
+ 

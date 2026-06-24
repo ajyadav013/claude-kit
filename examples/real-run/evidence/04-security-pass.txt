@@ -1,0 +1,2 @@
+=== secret scan AFTER removing vuln (should PASS = no output) ===
+clean: no secrets found

@@ -1,0 +1,22 @@
+.F..........                                                             [100%]
+=================================== FAILURES ===================================
+__________________________ test_create_and_list_task ___________________________
+
+base_url = 'http://127.0.0.1:55993'
+
+    def test_create_and_list_task(base_url):
+        status, created = _request(
+            base_url + "/tasks", method="POST", body={"title": "ship it"}
+        )
+        assert status == 201
+        assert created["id"] == 1
+        status, payload = _request(base_url + "/tasks")
+        assert status == 200
+>       assert payload["tasks"][0]["title"] == "ship it"
+               ^^^^^^^^^^^^^^^^
+E       TypeError: list indices must be integers or slices, not str
+
+examples/real-run/sample-app/tests/test_api.py:53: TypeError
+=========================== short test summary info ============================
+FAILED examples/real-run/sample-app/tests/test_api.py::test_create_and_list_task
+1 failed, 11 passed in 2.58s

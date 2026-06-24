@@ -1,0 +1,55 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0
+rootdir: /Users/arjunsinghyadav/Practice/Personal/claude-kit/claude-kit
+configfile: pyproject.toml
+collected 12 items
+
+examples/real-run/sample-app/tests/test_api.py ...F.                     [ 41%]
+examples/real-run/sample-app/tests/test_store.py ...FF..                 [100%]
+
+=================================== FAILURES ===================================
+______________________________ test_complete_task ______________________________
+
+base_url = 'http://127.0.0.1:55744'
+
+    def test_complete_task(base_url):
+        _request(base_url + "/tasks", method="POST", body={"title": "a"})
+        status, payload = _request(base_url + "/tasks/1/complete", method="POST")
+        assert status == 200
+>       assert payload["done"] is True
+E       assert False is True
+
+examples/real-run/sample-app/tests/test_api.py:66: AssertionError
+___________________________ test_complete_marks_done ___________________________
+
+    def test_complete_marks_done():
+        store = TaskStore()
+        store.add("a")
+>       assert store.complete(1).done is True
+E       AssertionError: assert False is True
+E        +  where False = Task(id=1, title='a', priority='medium', done=False).done
+E        +    where Task(id=1, title='a', priority='medium', done=False) = complete(1)
+E        +      where complete = TaskStore(_tasks={1: Task(id=1, title='a', priority='medium', done=False)}, _next_id=2).complete
+
+examples/real-run/sample-app/tests/test_store.py:31: AssertionError
+_________________________ test_list_filters_by_status __________________________
+
+    def test_list_filters_by_status():
+        store = TaskStore()
+        store.add("a")
+        store.add("b")
+        store.complete(1)
+        assert [t.id for t in store.list()] == [1, 2]
+>       assert [t.id for t in store.list(status="open")] == [2]
+E       assert [1, 2] == [2]
+E         
+E         At index 0 diff: 1 != 2
+E         Left contains one more item: 2
+E         Use -v to get more diff
+
+examples/real-run/sample-app/tests/test_store.py:41: AssertionError
+=========================== short test summary info ============================
+FAILED examples/real-run/sample-app/tests/test_api.py::test_complete_task - a...
+FAILED examples/real-run/sample-app/tests/test_store.py::test_complete_marks_done
+FAILED examples/real-run/sample-app/tests/test_store.py::test_list_filters_by_status
+========================= 3 failed, 9 passed in 2.59s ==========================

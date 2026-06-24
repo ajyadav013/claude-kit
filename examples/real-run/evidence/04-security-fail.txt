@@ -1,0 +1,3 @@
+=== secret scan WITH vuln present (should FAIL) ===
+examples/real-run/sample-app/tasktracker/admin.py:7:API_TOKEN = "sk-live-9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c"
+--- grep exit (0 = match found = secret present) ---

@@ -4,6 +4,32 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.30.0] — 2026-06-24
+
+**A real, executed `/sdlc` run as the flagship example — closing the biggest credibility gap (the
+prior flagship was labeled synthetic). Docs/example only; no payload or behavior change.**
+
+### Added
+- **`examples/real-run/`** — a genuine end-to-end run, not an illustration. A real, dependency-free
+  sample app (`sample-app/`, stdlib-only task tracker) was built; **real claude-kit agents**
+  (`risk-classifier`, `sdlc-code-reviewer`, `devils-advocate`, `security-reviewer`,
+  `acceptance-reviewer`) were spawned against it; and every gate verdict is backed by the **actual
+  captured command output** it cites (`evidence/`: lint, pytest red/green, crash reproductions, the
+  fix diff, the breaking-change diff, the secret scan).
+- **The headline (`scenarios/02-devils-advocate-catch.md`).** A blind code review returned PASS (12
+  tests green, ruff clean). The `devils-advocate` — spawned *because* the verdict looked clean — then
+  found **two real Critical bugs the review missed**: a non-object JSON body and a malformed
+  `Content-Length` each **crashed** the handler. Both were reproduced, fixed (fail-closed to HTTP 400),
+  and covered by new regression tests — the suite went 12 → **14 green**.
+- **Six scenarios** exercising different parts of the pipeline, including edge cases and an
+  out-of-scope request the kit **refuses**: standard feature · Devil's-Advocate catch · backward-
+  incompatible API change (`contract-clear`) · planted-secret security block (auto-Critical) ·
+  test-coverage defect loop (RED→GREEN) · out-of-scope/restricted refusal (`risk-classifier`).
+
+### Changed
+- **The README and `examples/` index now lead with the real run** and reframe the prior
+  `react-fastapi-postgres-feature/` walkthrough as the explicitly *synthetic* map alongside it.
+
 ## [0.29.0] — 2026-06-24
 
 **Positioning v2 (docs): lead with the trust moat, promote the comparison to a top-level block, and
