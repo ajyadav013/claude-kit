@@ -1,0 +1,1 @@
+FAIL  cannot close 'contract-clear': medium=1 open finding(s) must be resolved first (critical/high/medium block a gate per quality-gates.md). Re-run with --force --override-reason '<why>' to record a deliberate override.

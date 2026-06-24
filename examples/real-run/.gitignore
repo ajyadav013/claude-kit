@@ -1,0 +1,5 @@
+# Transient build/test artifacts — never committed.
+sample-app/sample-app
+sample-app/taskapi
+*.test
+*.out

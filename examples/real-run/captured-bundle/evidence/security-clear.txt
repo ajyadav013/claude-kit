@@ -1,0 +1,29 @@
+SECURITY REVIEW — DELETE /tasks/{id}  (claude-kit security-reviewer, read-only)
+Project: <project>  Branch: feat/delete-task vs main
+
+SECRET SCAN (run during review):
+  $ secret scan (private keys, AWS/GitHub tokens, secret=/token=/password=/api_key= assignments)
+  clean: no secret patterns in source
+
+HARDCODED SECRETS: PASS — none in the change; no .env/credential files; clean branch history.
+DEPENDENCIES: PASS — Go stdlib only (go.mod has zero external deps); no third-party CVE surface.
+
+OWASP TOP 10
+- A01 Access control: no authn/authz on DELETE (server.go:24-35). LOW for this intentionally
+  unauthenticated demo (per spec); CRITICAL in production -> would need authn middleware + ownership check.
+- A03 Injection: PASS — strconv.Atoi(r.PathValue("id")) parses the id; non-integer -> 400. No SQL/cmd
+  injection (in-memory map).
+- A04 Insecure design: Store.Delete locks before check+delete (store.go:44-50) — no TOCTOU race.
+- A05 Headers: missing security headers (server.go:56-60 sets Content-Type only). LOW (demo).
+- A09 Logging: no audit log for DELETE. LOW (demo).
+- A10 SSRF: PASS — no outbound requests.
+
+INPUT VALIDATION: PASS — non-integer/negative/large ids handled without panic (400 or 404).
+DoS/ABUSE: no rate limiting on DELETE (LOW, demo). DELETE has no body — no request-size concern.
+ERROR DISCLOSURE: PASS — generic {"error":...} messages; no stack traces/internal paths.
+TEST COVERAGE (security view): PASS — 204/404/400 paths all tested.
+
+VERDICT: SECURITY CLEAR
+FINDINGS: critical=0 high=0 medium=0 low=4
+(All LOW are demo-appropriate; production hardening = authn+authz, security headers, rate limiting,
+audit logging, CORS allowlist, TLS.)

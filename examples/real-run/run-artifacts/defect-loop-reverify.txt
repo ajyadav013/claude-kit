@@ -1,0 +1,36 @@
+DEVIL'S ADVOCATE — re-verification after the fix  (claude-kit devils-advocate, resumed, read-only + Bash)
+Finding under re-test: [Medium] id-aliasing (01/+1/%2B1/00000000001 deleting task 1), server.go:25.
+Method: re-ran the ORIGINAL reproductions (raw TCP socket + direct-to-mux) against the CURRENT code,
+did not trust the coordinator's claim, added new probes, ran the official suite verbose + the race detector.
+
+1. Original alias attack over the raw wire (no client normalization) — RESOLVED:
+   WIRE DELETE /tasks/01          -> "HTTP/1.1 400 Bad Request"
+   WIRE DELETE /tasks/+1          -> "HTTP/1.1 400 Bad Request"
+   WIRE DELETE /tasks/%2B1        -> "HTTP/1.1 400 Bad Request"
+   WIRE DELETE /tasks/00000000001 -> "HTTP/1.1 400 Bad Request"
+   WIRE DELETE /tasks/-1          -> "HTTP/1.1 400 Bad Request"
+   WIRE DELETE /tasks/0           -> "HTTP/1.1 400 Bad Request"
+   WIRE DELETE /tasks/1 (canonical) -> "HTTP/1.1 204 No Content"   <- happy path intact
+
+2. Direct-to-mux, asserting store state (the exploit surface) — RESOLVED:
+   "/tasks/1"            status=204 task1_remaining=false   <- canonical deletes
+   "/tasks/01"           status=400 task1_remaining=true
+   "/tasks/+1"           status=400 task1_remaining=true
+   "/tasks/%2B1"         status=400 task1_remaining=true
+   "/tasks/00000000001"  status=400 task1_remaining=true
+   "/tasks/-1"           status=400 task1_remaining=true
+   "/tasks/0"            status=400 task1_remaining=true
+   (Before the fix these six rows were status=204 task1_remaining=false — task wrongly deleted.)
+   Guard: `id <= 0 || strconv.Itoa(id) != raw` (server.go) re-encodes and rejects every non-canonical form.
+
+3. New whitespace/odd-form probes over the wire — all 400, none 204: %201, 1%20, %09, 1.0, 0x1.
+4. No regression / no panic: int64 overflow -> 400; abc -> 400; canonical ids -> 204/404 correctly.
+   Official suite passes incl. the new regression test; `go test -race` clean (7/7).
+5. Spec tightened (verified docs/specs/delete-task_spec.md): criterion 3 now requires a canonical
+   positive integer and names 01/+1/zero/negative as 400.
+
+No open Critical/High/Medium findings remain. The Low note (no 405 regression test on /tasks/{id}) is
+non-blocking and unchanged.
+
+VERDICT: UPHELD
+FINDINGS: critical=0 high=0 medium=0 low=1

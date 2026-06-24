@@ -1,0 +1,119 @@
+selection:
+  frontend_framework: react
+  frontend_language: typescript
+  backend_language: go
+  backend_framework: net-http
+  database: postgres
+  profile: standard
+  capture_mode: session-end-catchup
+  mcp: []
+  scope: team
+  teams: []
+  autonomy: assisted
+  review_strictness: standard
+  org_packs: true
+agents:
+- orchestrator
+- developer
+- sdlc-code-reviewer
+- tester
+- pr-raiser
+- spec-doc-writer
+- story-planner
+- ui-designer
+- technical-architect
+- em-reviewer
+- senior-backend-dev
+- senior-frontend-dev
+- merge-reviewer
+- unit-tester
+- e2e-tester
+- senior-tester
+- devils-advocate
+- acceptance-reviewer
+- security-reviewer
+- secret-scanner
+- dependency-scanner
+- owasp-reviewer
+- policy-validator
+skills:
+- sdlc
+- execute
+- incremental-implementation
+- test-driven-development
+- debugging-and-error-recovery
+- git-workflow-and-versioning
+- code-review-and-quality
+- using-agent-skills
+- spec-driven-development
+- planning-and-task-breakdown
+- interview-me
+- idea-refine
+- scope
+- api-and-interface-design
+- frontend-ui-engineering
+- component-design
+- ui-ux-design
+- unit-test
+- security-and-hardening
+- security-verification
+- documentation-and-adrs
+- decision
+- remember
+- context-engineering
+- source-driven-development
+- doubt-driven-development
+- code-simplification
+- refresh-docs
+- smoke-test
+- manual-test
+- browser-testing-with-devtools
+- api-integration
+- performance-optimization
+- load-testing
+- incident-postmortem
+- threat-model
+- accessibility-review
+- over-engineering-review
+- simplification-debt
+- task-tracker-sync
+- bug-hunt
+- test-plan-review
+overlay_rules:
+- react-patterns.md
+- design-system-compliance.md
+- ui-design-system.md
+- ux-patterns.md
+- mobile-design-guidelines.md
+- go-patterns.md
+- postgres-patterns.md
+- database-performance.md
+overlay_agents:
+- postgres-specialist
+- migration-specialist
+- db-performance-reviewer
+hooks:
+- load-continuity
+- lint-fix
+- load-learnings
+- load-autonomy
+- guard-rm-rf
+- guard-push-main
+- guard-destructive-git
+- protect-secrets
+- guard-commit-secrets
+- warn-shared-modules
+- warn-llm-io
+- type-check
+- capture-learnings
+- capture-learnings-catchup
+gates:
+- code-review
+- build-green
+- spec-complete
+- em-approved
+- test-coverage
+- security-clear
+- contract-clear
+mcp: []
+org: null

@@ -1,0 +1,8 @@
+$ go build ./...
+exit=0
+
+$ go vet ./...
+exit=0
+
+$ gofmt -l .
+(empty = all formatted)

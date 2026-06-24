@@ -1,0 +1,13 @@
+ACCEPTANCE REVIEW — DELETE /tasks/{id}  (claude-kit acceptance-reviewer, read-only)
+Spec: docs/specs/delete-task_spec.md  (independently ran `go test ./... -v`: 6 PASS)
+
+AC1 (204 + empty body): MET — server.go:24-35 + store.go:43-51; TestDeleteTask asserts 204.
+AC2 (404 + {error} on missing): MET — server.go:30-32 maps errNotFound; TestDeleteMissingReturns404.
+AC3 (400 on non-integer, no panic): MET — server.go:25-28 strconv.Atoi guard; TestDeleteNonIntegerReturns400 (no panic).
+AC4 (gone from GET /tasks): MET — store.go:49 delete + List(); TestDeleteTask asserts list len 0.
+AC5 (existing routes unchanged): MET — server.go:16-50 existing handlers untouched; TestHealth,
+    TestCreateAndListTask, TestCreateRejectsEmptyTitle all PASS.
+
+GATE AUDIT: independently executed the suite — all 6 tests PASS. No spec drift, no scope creep.
+
+VERDICT: ACCEPT

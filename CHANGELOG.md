@@ -4,6 +4,38 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.30.0] — 2026-06-24
+
+**The flagship example is now a *real, harness-captured* `/sdlc` run — closing the credibility gap that
+the prior flagship was synthetic. Plus a harness improvement found by running it. Docs/example +
+`capture-sdlc-run.sh` only; no payload or pipeline behavior change.**
+
+### Added
+- **`examples/real-run/`** — a genuine run, produced by the kit's own
+  [`scripts/capture-sdlc-run.sh`](scripts/capture-sdlc-run.sh) harness. A real `DELETE /tasks/{id}`
+  feature was driven through every standard-profile gate on a freshly-scaffolded **Go / net-http**
+  project; the folder holds the **verbatim harness bundle** (`captured-bundle/`: the spec, the
+  deterministic `pipeline-snapshot.json` with per-gate evidence, the `stack-catalog.snapshot.yaml`, the
+  `continuity.md` verdict log, the gate evidence, and the real `git/changes.diff`), the agent verdicts
+  the harness's gate model doesn't collect (`run-artifacts/`), the reproducible Go source
+  (`sample-app/`, 7 tests / 85.2% coverage), and a **genuine terminal recording** of the gate checks
+  (`cast/`: an asciicast `.cast` + static `.svg`, recorded via a stdlib `pty` recorder).
+- **The headline:** four reviewers returned a unanimous PASS; the `devils-advocate` (spawned *because*
+  of the unanimity) attacked the id-parsing seam over a raw socket and found + **reproduced** a real
+  **Medium** — `strconv.Atoi` aliased `01`/`+1`/`%2B1` onto task `1` and deleted it. The deterministic
+  pipeline then **refused to close the next gate** while the Medium was open; a fix + a mux-level
+  regression test closed it and the devil's advocate re-verified **UPHELD**.
+
+### Changed
+- **`scripts/capture-sdlc-run.sh` now produces a self-contained bundle** (improvement surfaced by
+  actually running it): it copies the gate-evidence files the snapshot references into the bundle's
+  `evidence/` and rewrites the snapshot's `gate_evidence` paths to bundle-relative, so a published
+  bundle resolves its own pointers and leaks no local absolute filesystem paths. Degrades gracefully
+  (with a note) when `python3` is absent.
+- **The README and `examples/` index now lead with the real captured run**; the
+  `react-fastapi-postgres-feature/` walkthrough is reframed as the explicitly *synthetic* map alongside
+  it, and `docs/capture-a-real-run.md` points at the shipped real bundle as a worked reference.
+
 ## [0.29.0] — 2026-06-24
 
 **Positioning v2 (docs): lead with the trust moat, promote the comparison to a top-level block, and

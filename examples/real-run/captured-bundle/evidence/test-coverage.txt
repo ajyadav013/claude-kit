@@ -1,0 +1,17 @@
+=== RUN   TestHealth
+--- PASS: TestHealth (0.00s)
+=== RUN   TestCreateAndListTask
+--- PASS: TestCreateAndListTask (0.00s)
+=== RUN   TestCreateRejectsEmptyTitle
+--- PASS: TestCreateRejectsEmptyTitle (0.00s)
+=== RUN   TestDeleteTask
+--- PASS: TestDeleteTask (0.00s)
+=== RUN   TestDeleteMissingReturns404
+--- PASS: TestDeleteMissingReturns404 (0.00s)
+=== RUN   TestDeleteNonIntegerReturns400
+--- PASS: TestDeleteNonIntegerReturns400 (0.00s)
+=== RUN   TestDeleteRejectsNonCanonicalID
+--- PASS: TestDeleteRejectsNonCanonicalID (0.00s)
+PASS
+coverage: 85.2% of statements
+ok  	taskapi	0.238s	coverage: 85.2% of statements
