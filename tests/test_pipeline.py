@@ -194,6 +194,111 @@ def test_validate_rejects_nonobject_snapshot_root(tmp_path, payload):
     assert any("not a JSON object" in m for m in msgs)
 
 
+def test_close_gate_refuses_blocking_findings(tmp_path, payload):
+    install(payload, tmp_path)
+    snap = _coherent()
+    snap["open_findings"] = {"critical": 1, "high": 0, "medium": 2}
+    _write_snapshot(tmp_path, **snap)
+    evidence = tmp_path / "e.txt"
+    evidence.write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.close_gate(tmp_path, "code-review", evidence)
+    assert not ok
+    joined = "\n".join(msgs)
+    assert "cannot close" in joined and "critical=1" in joined and "medium=2" in joined
+    # the gate must NOT have been recorded
+    written = json.loads(
+        (tmp_path / ".claude" / "state" / "pipeline-snapshot.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert (
+        written.get("last_gate_passed") == "code-review"
+    )  # the pre-existing value, unchanged
+    assert "build-green" not in (written.get("gate_evidence") or {})
+
+
+def test_close_gate_allows_low_findings(tmp_path, payload):
+    install(payload, tmp_path)
+    snap = _coherent()
+    snap["open_findings"] = {"critical": 0, "high": 0, "medium": 0, "low": 5}
+    _write_snapshot(tmp_path, **snap)
+    evidence = tmp_path / "e.txt"
+    evidence.write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.close_gate(tmp_path, "build-green", evidence)
+    assert ok, "\n".join(msgs)  # low findings do not block
+
+
+def test_close_gate_force_requires_reason(tmp_path, payload):
+    install(payload, tmp_path)
+    snap = _coherent()
+    snap["open_findings"] = {"high": 3}
+    _write_snapshot(tmp_path, **snap)
+    evidence = tmp_path / "e.txt"
+    evidence.write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.close_gate(tmp_path, "build-green", evidence, force=True)
+    assert not ok
+    assert any("--force requires --override-reason" in m for m in msgs)
+
+
+def test_close_gate_force_with_reason_records_override(tmp_path, payload):
+    install(payload, tmp_path)
+    snap = _coherent()
+    snap["open_findings"] = {"high": 3}
+    _write_snapshot(tmp_path, **snap)
+    evidence = tmp_path / "e.txt"
+    evidence.write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.close_gate(
+        tmp_path,
+        "build-green",
+        evidence,
+        force=True,
+        override_reason="hotfix: blocked finding tracked in TICKET-1",
+    )
+    assert ok, "\n".join(msgs)
+    assert any("force-closed" in m for m in msgs)
+    written = json.loads(
+        (tmp_path / ".claude" / "state" / "pipeline-snapshot.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert written["last_gate_passed"] == "build-green"
+    assert written["gate_overrides"]["build-green"].startswith("hotfix:")
+
+
+def test_validate_fails_when_evidence_file_gone(tmp_path, payload):
+    install(payload, tmp_path)
+    snap = _coherent()
+    snap["gate_evidence"] = {"code-review": str(tmp_path / "deleted-evidence.txt")}
+    _write_snapshot(tmp_path, **snap)
+    ok, msgs = pipeline.validate(tmp_path)
+    assert not ok
+    assert any("evidence file is missing" in m for m in msgs)
+
+
+def test_validate_passes_when_evidence_file_present(tmp_path, payload):
+    install(payload, tmp_path)
+    evidence = tmp_path / "review.md"
+    evidence.write_text("approved", encoding="utf-8")
+    snap = _coherent()
+    snap["gate_evidence"] = {"code-review": str(evidence)}
+    _write_snapshot(tmp_path, **snap)
+    ok, msgs = pipeline.validate(tmp_path)
+    assert ok, "\n".join(msgs)
+
+
+def test_validate_surfaces_forced_gate(tmp_path, payload):
+    install(payload, tmp_path)
+    evidence = tmp_path / "review.md"
+    evidence.write_text("approved", encoding="utf-8")
+    snap = _coherent()
+    snap["gate_evidence"] = {"code-review": str(evidence)}
+    snap["gate_overrides"] = {"code-review": "bypassed for hotfix"}
+    _write_snapshot(tmp_path, **snap)
+    ok, msgs = pipeline.validate(tmp_path)
+    assert ok, "\n".join(msgs)
+    assert any("force-closed" in m for m in msgs)
+
+
 def test_close_gate_warns_when_install_snapshot_missing(tmp_path):
     # No install() → no .claude/config/stack-catalog.snapshot.yaml to confirm the gate against.
     (tmp_path / ".claude" / "state").mkdir(parents=True, exist_ok=True)

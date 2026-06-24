@@ -39,9 +39,13 @@ Schema (keep it small and truthful — omit a field rather than guess it):
   "lanes": { "<lane>": "not-started | in-progress | passed | failed" },
   "last_gate_passed": "<gate token, e.g. code-review>",
   "open_findings": { "critical": 0, "high": 0, "medium": 0 },
+  "gate_evidence": { "<gate token>": "<path to the evidence artifact>" },
+  "gate_overrides": { "<gate token>": "<why a blocking gate was force-closed>" },
   "next": "<the immediate next action>"
 }
 ```
+
+A gate is PASS only when zero **critical/high/medium** findings remain open (low/cosmetic may pass with notes). `gate_evidence` records the artifact backing each passed gate; `gate_overrides` is written **only** when a gate is deliberately force-closed despite open blocking findings, so a reviewer (or `claude-kit pipeline validate`) can surface and re-examine it.
 
 **Resume by reloading, not by re-running.** On resume, read the snapshot as *context* to decide where to continue — then continue from there. Do **not** re-run setup that already ran, re-apply edits already committed, or re-open a gate already PASSed. Re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes. The snapshot records what was *true when written*, so the verify-before-trust check still applies (`.claude/rules/agent-memory.md`): if a "passed" gate's artifact is gone, treat it as not passed. If the snapshot is absent or unparseable, fall back to the freeform CONTINUITY state (back-compatible) and proceed.
 

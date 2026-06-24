@@ -183,13 +183,17 @@ def _effective_gates() -> dict[str, set[str]]:
     return {name: resolve(name) for name in profiles}
 
 
-def _doc_gate_sets(relfile: str) -> dict[str, set[str]]:
-    """Parse the lean/standard/enterprise gate rows from a doc's profile→gate table."""
-    raw: dict[str, str] = {}
+def _doc_gate_sets(relfile: str) -> dict[str, list[set[str]]]:
+    """Parse *every* lean/standard/enterprise gate row from a doc (one entry per table occurrence).
+
+    Returns a list of gate sets per profile rather than a single value, so a second (possibly stale)
+    gate table can't silently overwrite an earlier one — each occurrence is checked independently.
+    """
+    raw: dict[str, list[str]] = {}
     for line in _read(relfile).splitlines():
         m = re.match(r"\|\s*\*\*(lean|standard|enterprise)\*\*\s*\|(.+?)\|\s*$", line)
         if m:
-            raw[m.group(1)] = m.group(2)
+            raw.setdefault(m.group(1), []).append(m.group(2))
 
     def tokens(cell: str) -> set[str]:
         return {
@@ -198,16 +202,18 @@ def _doc_gate_sets(relfile: str) -> dict[str, set[str]]:
             if t.strip().strip("*").strip("\\").strip()
         }
 
-    def expand(profile: str) -> set[str]:
-        cell = raw[profile]
+    def expand(cell: str) -> set[str]:
         if (
             "+" in cell
         ):  # e.g. "standard + pipeline-green · observability-ready · acceptance"
             base, extra = cell.split("+", 1)
-            return expand(base.strip().strip("*").lower()) | tokens(extra)
+            base_name = base.strip().strip("*").lower()
+            base_cells = raw.get(base_name)
+            base_gates = expand(base_cells[0]) if base_cells else set()
+            return base_gates | tokens(extra)
         return tokens(cell)
 
-    return {p: expand(p) for p in raw}
+    return {p: [expand(c) for c in cells] for p, cells in raw.items()}
 
 
 def check_profile_gates() -> list[str]:
@@ -216,21 +222,30 @@ def check_profile_gates() -> list[str]:
     for relfile in ("README.md", "skills/sdlc/SKILL.md"):
         doc = _doc_gate_sets(relfile)
         for profile in ("lean", "standard", "enterprise"):
-            if profile not in doc:
+            occurrences = doc.get(profile) or []
+            if not occurrences:
                 errors.append(f"{relfile}: no gate row found for profile {profile!r}")
                 continue
-            if doc[profile] != effective[profile]:
-                missing = effective[profile] - doc[profile]
-                extra = doc[profile] - effective[profile]
-                detail = []
-                if missing:
-                    detail.append(f"missing {sorted(missing)}")
-                if extra:
-                    detail.append(f"unexpected {sorted(extra)}")
+            if len(occurrences) > 1:
                 errors.append(
-                    f"{relfile}: {profile} gate row disagrees with profiles.yaml — "
-                    + "; ".join(detail)
+                    f"{relfile}: {len(occurrences)} gate rows for profile {profile!r} "
+                    "(duplicate gate table) — keep exactly one so a stale table can't hide "
+                    "behind a correct one"
                 )
+            for idx, gates in enumerate(occurrences):
+                if gates != effective[profile]:
+                    missing = effective[profile] - gates
+                    extra = gates - effective[profile]
+                    detail = []
+                    if missing:
+                        detail.append(f"missing {sorted(missing)}")
+                    if extra:
+                        detail.append(f"unexpected {sorted(extra)}")
+                    where = "" if len(occurrences) == 1 else f" (occurrence {idx + 1})"
+                    errors.append(
+                        f"{relfile}: {profile} gate row{where} disagrees with "
+                        "profiles.yaml — " + "; ".join(detail)
+                    )
     return errors
 
 

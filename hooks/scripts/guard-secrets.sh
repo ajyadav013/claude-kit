@@ -3,7 +3,7 @@
 # Pairs with the secret-scanner agent and the protect-secrets read-guard — this is the automatic,
 # every-commit guardrail. Degrades to a no-op when not a git commit or git/jq is unavailable.
 command -v jq >/dev/null 2>&1 || exit 0
-CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null)
+CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)
 echo "$CMD" | grep -qE 'git[[:space:]]+commit' || exit 0
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 command -v git >/dev/null 2>&1 || exit 0
