@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-code-kit"
-version = "0.23.0"
+version = "0.24.0"
 description = "Cookiecutter-style scaffolder for an autonomous Claude Code SDLC configuration (no app code, no Docker). Asks ordered questions and installs CLAUDE.md + .claude/ (rules, the chosen profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates, working memory, and a self-improving learnings loop."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -46,6 +46,9 @@ dev = [
   "pytest>=8.0",
   "build>=1.2",
   "twine>=5.0",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "shellcheck-py>=0.10",
 ]
 
 [project.urls]
@@ -61,6 +64,20 @@ claude-sdlc = "claude_kit.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+# Deliberately conservative: pyflakes (F) + the actionable pycodestyle subsets (E4/E7/E9, W) +
+# import sorting (I) + bugbear (B). Line length (E501) is intentionally NOT enforced — docstrings and
+# pinned-version comments run long on purpose and `ruff format` owns layout.
+select = ["E4", "E7", "E9", "F", "W", "I", "B"]
+
+[tool.mypy]
+files = ["src/claude_kit"]
+ignore_missing_imports = true
+# typer/yaml ship without type stubs; we check our own code, not third-party signatures.
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/claude_kit"]

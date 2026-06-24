@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from claude_kit import catalog, scaffold
-from claude_kit.models import FileRecord, InitOptions
+from claude_kit.models import FileRecord, InitOptions, ResolvedPlan
 from claude_kit.validator import _load_init_options
 
 #: Sidecar suffix for a new version of a user-modified, protected file.
@@ -118,7 +118,7 @@ def _diff_actions(
     return actions
 
 
-def _compare(src: Path, target: Path) -> _Comparison | str:
+def _compare(src: Path, target: str | Path) -> _Comparison | str:
     """Render a reference install and diff it against ``target``.
 
     Returns a :class:`_Comparison`, or a short error string (``"not-installed"`` /
@@ -168,8 +168,9 @@ def _format_preview(cmp: _Comparison) -> list[str]:
     from claude_kit import __version__
 
     msgs: list[str] = []
-    if cmp.old.claude_kit_version != __version__:
-        msgs.append(f"INFO  kit version {cmp.old.claude_kit_version} -> {__version__}")
+    old_ver = cmp.old.claude_kit_version if cmp.old else "(untracked)"
+    if old_ver != __version__:
+        msgs.append(f"INFO  kit version {old_ver} -> {__version__}")
     else:
         msgs.append(f"INFO  kit version {__version__} (unchanged)")
 
