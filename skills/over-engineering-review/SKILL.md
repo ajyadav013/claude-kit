@@ -18,6 +18,10 @@ description: Scans code for over-engineering ONLY and returns a terse delete-lis
   when you want the complexity axis alone, in a scannable form, with no other noise.
 - **Not `code-simplification`:** that skill *applies* the refactor and preserves behavior step by step.
   This skill produces the list; hand the list to `code-simplification` (or a developer) to execute.
+- **Proactive twin — `mandatory-workflow.md` §2a.5:** this skill scans complexity *out* after code
+  exists; the **Reuse & YAGNI Gate** (`.claude/rules/mandatory-workflow.md`, stage 2a.5) applies the
+  same five lenses *before* code is written. Run the gate to avoid the bloat; run this skill to catch
+  what slipped through.
 
 ## When to use
 

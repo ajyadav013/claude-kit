@@ -202,6 +202,30 @@ app entry points, shared barrels) require telling the user what and why, the imp
 getting approval first. NEVER add/remove/upgrade dependencies without confirmation.
 **Gate:** you understand every file/function you'll touch; the file list is task-scoped only.
 
+## 2a.5 — Reuse & YAGNI Gate `[Developer]`
+The cheapest code is the code you never write. Before adding a single new file, function, type, or
+abstraction, walk this ladder and **stop at the first rung that satisfies the need** — only what
+survives every rung gets written:
+
+1. **Does it need to exist at all?** If the task is satisfiable without this code, don't write it.
+2. **Already in the codebase?** Search first; reuse the existing utility, component, or pattern
+   rather than adding a parallel one.
+3. **Standard library?** Prefer the language's stdlib over a hand-rolled equivalent.
+4. **Native platform feature?** A built-in input type, a CSS feature, a DB constraint, a framework
+   primitive — use it before adding a dependency or custom code.
+5. **An existing dependency?** Reuse something already installed before pulling in a new one (and
+   adding a dependency needs user approval — see 2a).
+6. **The minimum that works?** No abstraction with a single caller, no config nobody sets, no layer
+   that only delegates, no flexibility no requirement asks for.
+
+Record any deliberate shortcut where you take it — `# shortcut: <ceiling> — <upgrade path>` (see
+`.claude/skills/simplification-debt/SKILL.md`) — so it is traceable, not silent debt.
+
+This is the **proactive twin** of the reactive `over-engineering-review` skill: the same
+delete/stdlib/native/yagni/shrink lenses, applied *before* the code exists rather than scanned out
+after. **Gate:** every new unit of code traces to a rung you could not satisfy more cheaply, and the
+implementation adds no abstraction the spec does not require.
+
 ## 2b — Write Implementation Code `[Developer]`
 Follow the approved spec + dev docs and your stack's rules.
 - Put files in the correct module/package; don't put module-specific code in shared dirs.
@@ -309,7 +333,7 @@ B1 understand → B2 failing test → B3 root cause → B4 fix → B5 quality ga
 Phase 1: 1a Understand [Orchestrator] → 1b Clarify → 1c Spec [Spec Writer]
   → 1d Dev docs [Dev Doc Writer] → 1e EM review [EM Reviewer, max 3]
   → 1e.5 Plan critique [Devil's Advocate, standard+] → 1f Story breakdown + coverage gate [Story Planner]
-Phase 2: 2a Read code [Developer] → 2b Implement → 2c Code review [Code Reviewer, max 5] → 2d Impact check
+Phase 2: 2a Read code [Developer] → 2a.5 Reuse/YAGNI gate → 2b Implement → 2c Code review [Code Reviewer, max 5] → 2d Impact check
 Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
   → 3b.5 Test-coverage gate (blind review + Devil's Advocate)
   → 3b.6 Security (Security Clear) → 3b.7 DevOps + Observability (if applicable)
@@ -324,6 +348,7 @@ Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
 | EM `APPROVED` (1e) | Plan critique (standard+) / Story Planner starts |
 | Plan critique CONFIRMED (1e.5, standard+) | Story breakdown is final |
 | Story coverage complete — every criterion mapped, no scope creep (1f) | Developer starts coding |
+| Reuse & YAGNI gate cleared (2a.5) | Writing implementation code (2b) |
 | Code Reviewer `APPROVED` (2c) | Testing starts |
 | Both testers pass (3a+3b) | Test-coverage gate |
 | Test-coverage PASS/CONFIRMED (3b.5) | Security review |
