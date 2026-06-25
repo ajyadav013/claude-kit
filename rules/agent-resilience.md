@@ -41,6 +41,25 @@ Operation fails
 | **Idempotency awareness** | Before retrying a side-effecting action | Re-running a commit/write/deploy/API-POST can double-apply. Check state first; make the retry safe. |
 | **Checkpointing** | Long runs, before risky steps, pre-compaction | Write `.claude/CONTINUITY.md` so a crash/compaction resumes from the last good state, not from zero. See `.claude/rules/continuity.md`. |
 
+## Fix-attempt discipline (the 3-strike rule)
+
+Bounded retry applies to *fixes*, too. Three failed attempts at the same failure is not a
+fourth-attempt problem — it is a signal that you do not yet understand the root cause, or the design
+is wrong. Retrying variations of the same fix is the deterministic-failure trap above wearing a
+disguise.
+
+- **Attempts 1–2** — allowed, but each must test a *different, explicit* hypothesis, changing one
+  variable at a time. The same edit retried (or a near-duplicate) does not count as a new attempt.
+- **At the 3rd failed attempt — STOP.** Do not attempt a fourth blind fix. Switch modes: re-derive
+  the root cause from first principles (`.claude/skills/debugging-and-error-recovery/SKILL.md`), and
+  ask the harder question — is the *approach or architecture* wrong, not the line?
+- **Then escalate** (`.claude/rules/human-in-the-loop.md`) with what you tried, what each attempt
+  ruled out, and the hypothesis you cannot resolve — not just "it still fails."
+
+This bounds *blind fix attempts within a single issue*; the defect-loop **budget** in
+`.claude/rules/quality-gates.md` bounds how many times a finding may cycle review→fix across the
+pipeline. Different scopes, same principle: no loop is unbounded.
+
 ## Rules
 
 1. **Fail loud, never silent.** A swallowed error that lets work continue on bad state is worse than a

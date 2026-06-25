@@ -4,6 +4,21 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.35.0] — 2026-06-25
+
+**3-strike fix-attempt discipline** (pattern adopted from gstack's "Iron Law" + the superpowers
+`systematic-debugging` skill, both MIT; re-derived in claude-kit's idiom). Retry *budgets* existed for
+gates and operations, but nothing bounded blind *fix* attempts on a single bug:
+
+- **`rules/agent-resilience.md` — new "Fix-attempt discipline (the 3-strike rule)" section.** Attempts
+  1–2 must each test a *different, explicit* hypothesis (a near-duplicate edit doesn't count). At the
+  3rd failed attempt: STOP — re-derive the root cause (`debugging-and-error-recovery` skill), question
+  whether the *approach/architecture* is wrong (not the line), then escalate via `human-in-the-loop.md`
+  with what each attempt ruled out. Explicitly scoped against the `quality-gates.md` defect-loop budget
+  (that bounds review→fix cycles across the pipeline; this bounds blind attempts within one issue).
+
+Single-rule, count-neutral change; existing commands unaffected.
+
 ## [0.34.0] — 2026-06-25
 
 **Delta-specs + change-scoped artifacts** (pattern adopted from [OpenSpec](https://github.com/Fission-AI/OpenSpec),
