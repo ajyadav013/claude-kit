@@ -1,6 +1,6 @@
 ---
 name: threat-model
-description: Use when adding or changing a security-relevant feature (auth, sessions, payments, data access, file upload, external integrations, multi-tenant boundaries) and you need a structured threat model. Enumerates assets, entry points, and threats (STRIDE), rates them, and proposes mitigations + tests before implementation.
+description: Use when adding or changing a security-relevant feature (auth, sessions, payments, data access, file upload, external integrations, multi-tenant boundaries) and you need a structured threat model. Enumerates assets, entry points, and threats (STRIDE), rates them, and proposes mitigations + tests before implementation. Do NOT use to write or harden the secure code itself (use security-and-hardening) or to run a live vulnerability scan (use zap-vapt-scanning).
 ---
 
 # Threat Model

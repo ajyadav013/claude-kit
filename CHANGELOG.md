@@ -16,6 +16,25 @@ All notable changes to claude-kit are documented here. The format follows
   and tools discovering the repo get install + key-command + concept pointers fast. Repo artifact only;
   not shipped in the wheel/sdist or scaffolded into projects.
 
+## [0.31.0] — 2026-06-24
+
+**Sharper skill auto-triggering.** Added explicit `Do NOT use when … → use [sibling]` boundary clauses to
+the `description:` frontmatter of the most overlapping **model-invocable** skills, so the model routes to
+the right skill instead of coin-flipping between siblings whose "Use when" clauses both match a request:
+
+- **`*-driven-development`** — `test-driven-development`, `spec-driven-development`,
+  `source-driven-development`, `doubt-driven-development` now cross-route (spec before code exists, source
+  for "which API is correct", TDD for the red-green loop, doubt as the review layer *on top* of the others).
+- **Security** — `security-and-hardening`, `threat-model`, `zap-vapt-scanning`,
+  `kubernetes-workload-hardening`, `edge-to-service-trust-boundary` now disambiguate code-hardening vs
+  upfront STRIDE vs live DAST scan vs k8s-manifest/pod hardening vs the gateway signed-header trust contract.
+- **Testing** — `testing-conventions` routes the red-green loop to `test-driven-development` and pre-write
+  plan critique to `test-plan-review`.
+
+Skills carrying `disable-model-invocation: true` (slash-only; they never auto-trigger) were intentionally
+left untouched. The clauses were adversarially verified for truthful routing, coverage, and the ~1024-char
+description ceiling. Skill-`description` text only — no agent, rule, hook, catalog, or pipeline behavior change.
+
 ## [0.30.0] — 2026-06-24
 
 **The flagship example is now a *real, harness-captured* `/sdlc` run — closing the credibility gap that

@@ -1,6 +1,6 @@
 ---
 name: security-and-hardening
-description: Hardens code against vulnerabilities. Use when handling user input, authentication, data storage, or external integrations. Use when building any feature that accepts untrusted data, manages user sessions, or interacts with third-party services.
+description: Hardens code against vulnerabilities. Use when handling user input, authentication, data storage, or external integrations. Use when building any feature that accepts untrusted data, manages user sessions, or interacts with third-party services. Do NOT use for upfront STRIDE threat enumeration before building (use threat-model), for running an automated DAST/penetration scan against a live app (use zap-vapt-scanning), for hardening Kubernetes workload manifests or pod security (use kubernetes-workload-hardening), or for the specific edge/gateway signed-header trust contract (use edge-to-service-trust-boundary).
 ---
 
 # Security and Hardening
