@@ -1,0 +1,49 @@
+# claude-kit
+
+> A Cookiecutter-style scaffolder that installs a stack-agnostic, autonomous-SDLC **configuration**
+> for Claude Code — no application code, no Docker. It lays down `CLAUDE.md` + `.claude/` (engineering
+> rules, the chosen profile's agents/skills, hooks, artifact templates) plus an optional `.mcp.json`,
+> then `/sdlc` drives spec → review → build → test → security → ship through **owned quality gates**.
+
+claude-kit is distributed two ways from one source of truth: as a **Claude Code plugin** (components
+auto-discovered) and as a **pip package** (`claude-code-kit`; CLIs `claude-kit` / `ckit` /
+`claude-sdlc`) that scaffolds the same content into any project. What gets installed is decided by a
+data-driven `catalog/` (stacks · profiles · MCP · org) — extend by editing data, not code.
+
+## Install
+
+- **Plugin (recommended):** `/plugin marketplace add ajyadav013/claude-kit` → `/plugin install claude-kit`
+  → `/claude-kit:sdlc <task>` runs the standard gated pipeline immediately (no CLI, no restart).
+- **Tune to your repo:** `pip install claude-code-kit` (or `pipx install claude-code-kit`), then
+  `claude-kit init` resolves your stack/profile/MCP and wires your exact build/test/lint commands.
+
+## Commands
+
+- `claude-kit init [PATH] [--defaults | --config FILE] [--dry-run] [--force]` — scaffold the config.
+  `--dry-run` prints the resolved plan and every file that would be written, touching nothing.
+- `claude-kit validate [PATH] [--strict]` — structurally validate a scaffolded `.claude/`.
+- `claude-kit doctor [PATH] [--mcp]` — strict validation plus environment/health checks with fix hints.
+- `claude-kit diff [PATH]` / `claude-kit upgrade [PATH] [--force]` — preview / apply edit-preserving
+  upgrades (kit files refresh; your edits are kept via owner + checksum).
+- `claude-kit pipeline {validate,status,close-gate,abort}` — inspect or mutate the `/sdlc` state files
+  (does not run the pipeline; `close-gate` refuses while critical/high/medium findings are open).
+- `/sdlc <task>` (project skill) or `/claude-kit:sdlc <task>` (plugin) — run the gated pipeline.
+
+## Concepts
+
+- **Owned quality gates** — a gate passes only with zero open critical/high/medium findings.
+- **Evidence requirement** (`rules/quality-gates.md` §2.5) — a fabricated, assumed, or partial-output
+  verdict is an automatic Critical. No gate passes on an unproven verdict.
+- **Catalog-driven extensibility** — a new framework/database/profile/MCP server/org pack is a
+  `catalog/*.yaml` edit plus content files; the resolver stays branch-free.
+- **Stack-agnostic core** — rules/agents/skills carry no framework specifics; stack details live in
+  overlays under `templates/stacks/` and install only when that stack is selected.
+- **Structured resume** — pipeline state lives in `.claude/state/pipeline-snapshot.json`.
+
+## Docs
+
+- [README](https://github.com/ajyadav013/claude-kit/blob/main/README.md): full overview, onboarding, and how claude-kit compares.
+- [Architecture](https://github.com/ajyadav013/claude-kit/blob/main/docs/architecture.md): components, resolver, and install flow.
+- [Agents guide](https://github.com/ajyadav013/claude-kit/blob/main/docs/agents.md): the SDLC pipeline agents and their hand-offs.
+- [Contributing](https://github.com/ajyadav013/claude-kit/blob/main/CONTRIBUTING.md): the "extend via the catalog, not code" workflow.
+- [Changelog](https://github.com/ajyadav013/claude-kit/blob/main/CHANGELOG.md): release history.

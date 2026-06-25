@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import tempfile
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
@@ -566,3 +567,36 @@ def install_sdlc(
     _update_gitignore(target, log)
     _write_config(src, target, plan, log)
     return log
+
+
+def preview_install(
+    src: Path, target: Path, plan: ResolvedPlan
+) -> tuple[list[str], list[str]]:
+    """Compute what :func:`install_sdlc` would write, without touching ``target``.
+
+    Runs the real installer into a throwaway temporary directory (``force=True`` so it always writes
+    the full fresh-install set), captures its per-component log, and walks the temp tree to list the
+    files that would be created. The temp dir is discarded before returning, so the caller's project
+    is never modified. Reusing the real installer keeps the preview from ever drifting from actual
+    install behavior — there is no second code path to keep in sync.
+
+    Args:
+        src: Payload root (same as :func:`install_sdlc`).
+        target: The project that *would* be installed into — used only to label the render context
+            (project name); it is never read or written.
+        plan: The resolved install plan.
+
+    Returns:
+        ``(log_lines, would_write_paths)`` — the installer's per-component log, and the sorted list of
+        file paths (relative to the project root) that a fresh install would create.
+    """
+    # Pin the project name to the real target so the previewed context matches a real install
+    # (install_sdlc uses setdefault, so this wins over the sandbox dir name).
+    plan.context.setdefault("project_name", target.name)
+    with tempfile.TemporaryDirectory(prefix="claude-kit-dryrun-") as tmp:
+        sandbox = Path(tmp)
+        log = install_sdlc(src, sandbox, plan, force=True)
+        paths = sorted(
+            str(p.relative_to(sandbox)) for p in sandbox.rglob("*") if p.is_file()
+        )
+    return log, paths

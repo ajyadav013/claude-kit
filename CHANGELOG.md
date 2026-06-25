@@ -4,6 +4,18 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.32.0] — 2026-06-25
+
+**Two patterns adopted from Agent-Reach (MIT); no behavior change to existing commands.**
+
+- **`claude-kit init --dry-run`** — preview the resolved plan (stack / profile / scope / MCP / gates)
+  and the exact list of files a fresh install would write, **without touching the target project**.
+  Implemented by running the real installer into a throwaway sandbox and discarding it, so the preview
+  can never drift from a real install. Great for CI, onboarding, and evaluation.
+- **Root `llms.txt`** — a concise, machine-readable project guide (the llmstxt.org convention) so agents
+  and tools discovering the repo get install + key-command + concept pointers fast. Repo artifact only;
+  not shipped in the wheel/sdist or scaffolded into projects.
+
 ## [0.31.0] — 2026-06-24
 
 **Sharper skill auto-triggering.** Added explicit `Do NOT use when … → use [sibling]` boundary clauses to
