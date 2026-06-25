@@ -4,6 +4,23 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.33.0] — 2026-06-25
+
+**Pre-code Reuse & YAGNI gate** (pattern adopted from the [ponytail](https://github.com/DietrichGebert/ponytail)
+plugin, MIT; re-derived in claude-kit's idiom, no vendored code). The kit's complexity controls were all
+*reactive* (the `over-engineering-review` skill scans bloat out after code exists). This adds the proactive
+twin:
+
+- **`rules/mandatory-workflow.md` §2a.5 — Reuse & YAGNI Gate** — a new Phase-2 stage between "read code"
+  (2a) and "write code" (2b). Before adding any new file/function/abstraction, the developer walks a
+  stop-at-first-rung ladder — *needs to exist? → already in the codebase? → stdlib? → native platform
+  feature? → existing dependency? → minimum that works?* — applying the same delete/stdlib/native/yagni/
+  shrink lenses as `over-engineering-review`, but *before* the code is written. Wired into the Quick
+  Reference flow and the pipeline-gating table.
+- **`skills/over-engineering-review/SKILL.md`** — cross-links the gate as its proactive twin.
+
+No catalog/hook/agent/count changes; existing commands unaffected.
+
 ## [0.32.0] — 2026-06-25
 
 **Two patterns adopted from Agent-Reach (MIT); no behavior change to existing commands.**
