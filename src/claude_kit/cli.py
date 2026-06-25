@@ -23,6 +23,7 @@ from claude_kit import (
     upgrader,
     validator,
 )
+from claude_kit.models import ResolvedPlan
 
 BANNER = r"""
   ___ _      _   _ ___  ___   _  _____ _____
@@ -79,6 +80,51 @@ def _print_report(ok: bool, messages: list[str]) -> None:
         raise typer.Exit(1)
 
 
+def _resolve_plan(src: Path, *, config: Optional[str], defaults: bool) -> ResolvedPlan:
+    """Resolve the user's selection (``--config`` / ``--defaults`` / interactive) into a plan."""
+    try:
+        if config is not None:
+            selection = prompts.from_config(config, src)
+        elif defaults:
+            selection = catalog.defaults(src)
+        else:
+            selection = prompts.interactive(src)
+        return catalog.resolve(src, selection)
+    except (ValueError, FileNotFoundError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+
+def _print_dry_run(src: Path, target: Path, plan: ResolvedPlan) -> None:
+    """Print the resolved plan + the exact files a fresh install would write. Touches nothing."""
+    sel = plan.selection
+    stack_str = (
+        f"{sel.frontend_framework}/{sel.frontend_language} + "
+        f"{sel.backend_language}/{sel.backend_framework} + {sel.database}"
+    )
+    _, paths = scaffold.preview_install(src, target, plan)
+    typer.echo(f"\nDRY RUN — previewing install into {target} (no files written)\n")
+    typer.echo(f"  profile : {sel.profile}    scope: {sel.scope}")
+    typer.echo(f"  stack   : {stack_str}")
+    typer.echo(f"  MCP     : {', '.join(sorted(plan.mcp_servers)) or 'none'}")
+    typer.echo(
+        f"  resolves to: {len(plan.agents)} agents · {len(plan.skills)} skills · "
+        f"{len(plan.overlay_rules)} overlay rules · {len(plan.hooks)} hooks · "
+        f"{len(plan.gates)} gates"
+    )
+    if plan.gates:
+        typer.echo(f"  gates   : {', '.join(plan.gates)}")
+    typer.echo(f"\nWould write {len(paths)} file(s):")
+    for p in paths:
+        typer.echo(f"  + {p}")
+    if (target / ".claude").exists():
+        typer.echo(
+            "\nNote: this project already has .claude/ — a real run would MERGE (preserving your "
+            "files) or need --force. Use `claude-kit diff` to preview an upgrade."
+        )
+    typer.echo("\nDRY RUN — nothing was written.")
+
+
 @app.command()
 def init(
     path: Optional[str] = typer.Argument(
@@ -95,6 +141,11 @@ def init(
         "--force",
         help="overwrite existing CLAUDE.md / settings.json / .mcp.json",
     ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="preview the resolved plan and the files that would be written; write nothing",
+    ),
 ) -> None:
     """Scaffold a Claude Code SDLC configuration into a project."""
     non_interactive = defaults or config is not None
@@ -107,6 +158,14 @@ def init(
         else:
             raw = path
         target = Path(raw).expanduser().resolve()
+
+        # --dry-run: resolve + preview only. Never create the target or write anything; skip the
+        # existing-.claude handling and the install spine entirely.
+        if dry_run:
+            plan = _resolve_plan(src, config=config, defaults=defaults)
+            _print_dry_run(src, target, plan)
+            return
+
         if not target.exists():
             if not non_interactive and not typer.confirm(
                 f"Create {target}?", default=True
@@ -145,17 +204,7 @@ def init(
                 typer.echo(f"  • backed up existing .claude/ -> .claude.bak-{n}")
 
         # 3) Resolve the selection.
-        try:
-            if config is not None:
-                selection = prompts.from_config(config, src)
-            elif defaults:
-                selection = catalog.defaults(src)
-            else:
-                selection = prompts.interactive(src)
-            plan = catalog.resolve(src, selection)
-        except (ValueError, FileNotFoundError) as exc:
-            typer.echo(f"error: {exc}", err=True)
-            raise typer.Exit(2) from exc
+        plan = _resolve_plan(src, config=config, defaults=defaults)
 
         # 4) Install. Merge mode reconciles non-destructively (preserving the user's own files);
         # fresh / overwrite / backup all go through the destructive install spine.

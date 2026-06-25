@@ -265,3 +265,40 @@ def test_pipeline_close_gate_and_abort_cli(tmp_path, payload):
     assert bad.exit_code == 1
     assert "is not a gate of this profile" in bad.stdout
     assert runner.invoke(app, ["pipeline", "abort", str(tmp_path)]).exit_code == 0
+
+
+def test_init_dry_run_writes_nothing(tmp_path):
+    """`init --dry-run` previews the plan and must NOT create or touch the target."""
+    target = tmp_path / "proj"
+    result = runner.invoke(app, ["init", str(target), "--defaults", "--dry-run"])
+    assert result.exit_code == 0, result.stdout
+    # Safety net: a pure preview creates nothing — the target dir is never even made.
+    assert not target.exists()
+    assert "DRY RUN" in result.stdout
+    assert "nothing was written" in result.stdout
+    # It lists representative files that a real install would write.
+    assert "+ CLAUDE.md" in result.stdout
+    assert any(
+        line.strip().startswith("+ .claude/rules/")
+        for line in result.stdout.splitlines()
+    )
+
+
+def test_init_dry_run_matches_real_install(tmp_path):
+    """The previewed file set equals the real fresh-install file set (no drift)."""
+    preview_target = tmp_path / "preview"
+    r = runner.invoke(app, ["init", str(preview_target), "--defaults", "--dry-run"])
+    assert r.exit_code == 0, r.stdout
+    previewed = sorted(
+        line.strip()[2:]
+        for line in r.stdout.splitlines()
+        if line.strip().startswith("+ ")
+    )
+    assert previewed, "dry-run listed no files"
+
+    real_target = tmp_path / "real"
+    assert runner.invoke(app, ["init", str(real_target), "--defaults"]).exit_code == 0
+    actual = sorted(
+        str(p.relative_to(real_target)) for p in real_target.rglob("*") if p.is_file()
+    )
+    assert previewed == actual
