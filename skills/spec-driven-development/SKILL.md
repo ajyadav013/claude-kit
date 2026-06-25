@@ -1,6 +1,6 @@
 ---
 name: spec-driven-development
-description: Creates specs before coding. Use when starting a new project, feature, or significant change and no specification exists yet. Use when requirements are unclear, ambiguous, or only exist as a vague idea. Do NOT use when a spec or clear requirements already exist and you are ready to implement (use test-driven-development) or when you only need to pressure-test a decision that has already been made (use doubt-driven-development).
+description: Creates specs before coding. Use when starting a new project, feature, or significant change and no specification exists yet. Use when requirements are unclear, ambiguous, or only exist as a vague idea. For an incremental change to an existing, already-specced system, write a delta change-proposal (ADDED/MODIFIED/REMOVED) rather than a full spec. Do NOT use when a spec or clear requirements already exist and you are ready to implement (use test-driven-development) or when you only need to pressure-test a decision that has already been made (use doubt-driven-development).
 ---
 
 # Spec-Driven Development
@@ -18,6 +18,8 @@ Write a structured specification before writing any code. The spec is the shared
 - The task would take more than 30 minutes to implement
 
 **When NOT to use:** Single-line fixes, typo corrections, or changes where requirements are unambiguous and self-contained.
+
+**Full spec vs delta spec.** A brand-new project or feature gets a full spec (the `feature-spec.md` template). An *incremental change to a system that already has a spec* — modify existing behavior, add one route, deprecate a field — gets a **delta change-proposal** instead: capture only the `ADDED` / `MODIFIED` / `REMOVED` requirements against the base spec's stable ids, not a full rewrite. Use the `change-proposal.md` template (`.claude/templates/change-proposal.md`). It keeps the base spec authoritative, makes the diff reviewable, and still feeds the stage-1f coverage gate (every new or changed acceptance criterion maps to a story). Externally-exposed API contract deltas additionally get an `api-change-report.md`.
 
 ## The Gated Workflow
 
@@ -168,6 +170,7 @@ The spec is a living document, not a one-time artifact:
 
 - **Update when decisions change** — If you discover the data model needs to change, update the spec first, then implement.
 - **Update when scope changes** — Features added or cut should be reflected in the spec.
+- **Capture substantial changes as a delta, not a rewrite** — once a spec exists, a later change to that system is a `change-proposal.md` (ADDED/MODIFIED/REMOVED against the base R-ids), keeping history legible and the base spec authoritative rather than overwriting it.
 - **Commit the spec** — The spec belongs in version control alongside the code.
 - **Reference the spec in PRs** — Link back to the spec section that each PR implements.
 
