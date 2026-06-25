@@ -1,6 +1,11 @@
 # Code Structure & Conventions
 
+**Match the codebase that exists — new code follows established patterns, it never invents parallel ones.**
+
 Codified patterns extracted from the existing codebase. All new code must follow these established conventions.
+
+**Self-check before adding a file or utility:** did I find the existing pattern first? New code should
+read as if it was always part of this codebase — same layout, same mixins, same base classes.
 
 ## 1. Backend Module Layout
 
@@ -310,3 +315,9 @@ if existing:
 - Use framework status constants — never magic numbers
 - `detail` is a user-facing string — never expose internal errors
 - Never catch and swallow exceptions silently
+
+---
+
+**These conventions are working if** new code is indistinguishable in shape from the code already
+there — no parallel utility, no bypassed base repository, no hand-rolled pattern that an existing one
+already covered.

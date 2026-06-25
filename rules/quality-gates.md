@@ -1,5 +1,7 @@
 # Quality Gates, Severity & Blind Review
 
+**A gate passes only with zero open Critical/High/Medium — and never on a verdict you can't prove.**
+
 This rule adds three things on top of the existing pipeline in `mandatory-workflow.md`:
 
 1. a single **severity model** every reviewer and tester classifies findings against,
@@ -66,6 +68,8 @@ A gate result is a claim about reality, so it must be grounded in reality. A PAS
 
 A fabricated, assumed, or partial-output-based verdict is an **auto-Critical** finding (§1): it defeats every downstream gate that trusts it. This is the gate-level form of the RARV rule "Verify means run it, not imagine it" (`.claude/rules/rarv-cycle.md`).
 
+**Self-check before recording any verdict:** can I point to the captured command output or the `file:line` finding behind this PASS/FAIL? If not, it is a TODO, not a verdict — leave the gate closed.
+
 ---
 
 ## 3. Blind Review + Devil's Advocate
@@ -124,3 +128,9 @@ Track these in `CONTINUITY.md` when running a full pipeline; they reveal a degra
 | Defect-loop cycles per feature | ≤ 1 | 2 (then escalate) |
 
 These are observability for the *process*, not a gate. Do not block on them.
+
+---
+
+**This rule is working if** no gate ever passes with an open Critical/High/Medium, no verdict ships
+without the evidence that produced it, and a unanimous PASS always saw the Devil's Advocate before it
+counted.

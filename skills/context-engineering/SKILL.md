@@ -71,6 +71,11 @@ Create a rules file that persists across sessions. This is the highest-leverage 
 [One short example of a well-written component/module in your style]
 ```
 
+**Keep it short.** Target **under 200 lines** (aim 100–150). A rules file competes with the task for
+attention — past ~200 lines it costs more than it gives. Push stack- or area-specific detail into
+separate rule files the agent loads only when relevant (progressive disclosure, below), rather than
+growing one giant CLAUDE.md.
+
 **Equivalent files for other tools:**
 - `.cursorrules` or `.cursor/rules/*.md` (Cursor)
 - `.windsurfrules` (Windsurf)
@@ -114,8 +119,12 @@ When tests fail or builds break, feed the specific error back to the agent:
 
 Long conversations accumulate stale context. Manage this:
 
+- **New task = new session.** A genuinely different task starts cleaner in a fresh session than dragging
+  a long, unrelated history behind it.
 - **Start fresh sessions** when switching between major features
 - **Summarize progress** when context is getting long: "So far we've completed X, Y, Z. Now working on W."
+- **Summarize *from here* before rewinding or compacting** — write done-state to `.claude/CONTINUITY.md`
+  first, so the summary survives the reset (`.claude/rules/continuity.md`).
 - **Compact deliberately** — if the tool supports it, compact/summarize before critical work
 
 ## Context Degradation: the failure taxonomy
@@ -133,13 +142,21 @@ modes — recognize them so you reach for the right fix:
   and end (a U-shaped curve). *Fix:* put the most important instructions/facts at the top or bottom,
   never buried in a long paste.
 
+**Degradation-zone thresholds (rules of thumb, not hard limits).** Quality starts to slip well before
+the window is "full": watch once live context passes **~40% of the window**, because the back half of a
+window earns less attention than the front (the lost-in-the-middle curve, at scale). Pair this with the
+flooding thresholds in Anti-Patterns (>5,000 lines is a smell; aim for <2,000 *focused* lines per
+task). When you cross these, compact or split the work — don't push on and hope.
+
 ## Advanced: progressive disclosure, compaction, offloading
 
 Three primitives keep long runs coherent:
 
 - **Progressive disclosure** — don't load everything up front. Expose names + one-line descriptions and
   load full detail only on use (how skills and well-designed tools work — see
-  `.claude/rules/tool-design.md`). Preserves the baseline attention budget for the task.
+  `.claude/rules/tool-design.md`). Preserves the baseline attention budget for the task — aim to keep
+  that standing baseline well under the degradation zone (≈30% of the window) so there's room to
+  actually reason.
 - **Compaction** — when history grows, summarize completed work into a compact state ("done: X, Y;
   now: Z") and continue from the summary, not the full transcript. Compact *deliberately* before
   critical work, not only when forced.

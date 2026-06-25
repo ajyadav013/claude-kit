@@ -1,5 +1,7 @@
 # Agent Resilience
 
+**Every retry is bounded; every recovery tells the truth about what's left.**
+
 How the **agent machinery itself** behaves when something goes wrong: a tool errors, a command fails,
 a sub-agent returns empty or malformed output, an external service is down or rate-limited, a network
 call times out. The book's thesis is that production-grade agents must be treated as **complex
@@ -71,6 +73,13 @@ pipeline. Different scopes, same principle: no loop is unbounded.
    — never report full success for a partial result.
 4. **Promote recurring failures.** A failure mode worth avoiding next time goes to `agent-memory/` via
    `remember`.
+
+**Self-check before retrying or handing off:** does every loop I'm in have a limit, and does my
+reported state match what actually happened (no silent swallow, no fake "done")?
+
+**This rule is working if** no run hangs in an unbounded loop, every fallback or degradation is stated
+truthfully in the handoff, and a crash or compaction resumes from the last checkpoint rather than from
+zero.
 
 ## Relationship to other rules
 

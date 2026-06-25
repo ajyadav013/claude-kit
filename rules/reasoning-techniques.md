@@ -1,5 +1,7 @@
 # Reasoning Techniques
 
+**Match the thinking to the stakes: show the path, observe before you act, and ask when it's genuinely ambiguous.**
+
 How an agent should *think* before and while it acts. This is the layer underneath the RARV cycle:
 `.claude/rules/rarv-cycle.md` says **reflect and verify before handoff**; this rule says **how to
 reason your way to a correct answer in the first place**. Match the technique to the difficulty of
@@ -36,6 +38,9 @@ heavier techniques.
    human decision point — see `.claude/rules/human-in-the-loop.md`. Reasoning harder cannot
    manufacture a requirement that was never given.
 
+**Self-check:** could the next agent (or a reviewer) follow *why*, not just *what*? If the reasoning
+isn't inspectable, slow down and make it so — that's the input the Reflect step needs.
+
 ## Resource-aware effort & model tiers
 
 Reasoning has a cost; allocate it deliberately (see also `.claude/rules/agent-resilience.md` for the
@@ -51,6 +56,9 @@ failure side of resource awareness).
 - **Prune context before you reason.** Summarize or drop what the current decision doesn't need —
   isolate large reads behind a research subagent (`Explore`) so the main context stays clear enough
   to think. See the `context-engineering` skill.
+
+**This rule is working if** the depth of thinking visibly scales with the stakes, tool actions follow
+observations rather than blind chains, and genuine ambiguity becomes a question instead of a guess.
 
 ## Relationship to other rules
 
