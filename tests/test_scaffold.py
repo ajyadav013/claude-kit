@@ -688,6 +688,15 @@ def test_api_change_report_template_ships(tmp_path, payload):
     assert matches, "api-change-report.md artifact template not installed"
 
 
+def test_change_proposal_template_ships(tmp_path, payload):
+    """The change-proposal (delta-spec) artifact installs with the templates and uses delta notation."""
+    install(payload, tmp_path)
+    matches = list((tmp_path / ".claude").rglob("change-proposal.md"))
+    assert matches, "change-proposal.md artifact template not installed"
+    body = matches[0].read_text(encoding="utf-8")
+    assert "### Added" in body and "### Modified" in body and "### Removed" in body
+
+
 def test_guard_destructive_git_hook_in_standard_not_lean(tmp_path, payload):
     """guard-destructive-git ships + wires into PreToolUse(Bash) in standard; absent in lean.
     Functionally blocks irreversible work-loss commands (exit 2) and allows safe git (exit 0)."""

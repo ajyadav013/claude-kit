@@ -4,6 +4,10 @@
 > enough to review. Give each requirement a stable id: the **Story Planner** (workflow stage 1f)
 > maps every acceptance criterion below to an implementation story, so coverage gaps and scope
 > creep are caught on paper, not mid-build.
+>
+> This template is for a **new** project or feature. For an *incremental change to a system that
+> already has a spec*, write a delta `change-proposal.md` (ADDED/MODIFIED/REMOVED) instead of
+> rewriting the whole spec.
 
 ## Problem / motivation
 What user need or problem does this address? Why now?

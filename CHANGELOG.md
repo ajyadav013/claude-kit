@@ -4,6 +4,25 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.34.0] — 2026-06-25
+
+**Delta-specs + change-scoped artifacts** (pattern adopted from [OpenSpec](https://github.com/Fission-AI/OpenSpec),
+MIT; re-derived in claude-kit's idiom). The spec flow was greenfield-only — every change wrote a full
+spec. This adds an incremental path for brownfield work, mirroring how `api-change-report.md` already
+complements `feature-spec.md` for API contracts:
+
+- **New `templates/artifacts/change-proposal.md`** — a delta spec keyed to the base spec's stable
+  `R#` ids, with `ADDED` (new requirement + Given/When/Then) / `MODIFIED` (`was: … → now: …` + acceptance
+  delta) / `REMOVED` (reason + migration) sections, change-scoped scope, a backward-compat/migration
+  section, and a delta test plan. Auto-installs into `.claude/templates/` (no scaffold change).
+- **`skills/spec-driven-development/SKILL.md`** — adds a "Full spec vs delta spec" decision (new system →
+  full `feature-spec.md`; change to an already-specced system → delta `change-proposal.md`), a
+  "Keeping the Spec Alive" pointer, and an incremental-change clause in the `description:` frontmatter.
+  Delta criteria still feed the stage-1f coverage gate.
+- **`templates/artifacts/feature-spec.md`** — preamble now points incremental changes at the delta template.
+
+New test asserts the template ships with delta notation. No count changes (templates aren't counted).
+
 ## [0.33.0] — 2026-06-25
 
 **Pre-code Reuse & YAGNI gate** (pattern adopted from the [ponytail](https://github.com/DietrichGebert/ponytail)
