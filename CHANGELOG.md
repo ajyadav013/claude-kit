@@ -4,6 +4,23 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.36.0] — 2026-06-25
+
+**Rule-presentation + context-hygiene polish** (patterns adopted from Karpathy-skills, addyosmani/agent-skills,
+and shanraisshan/claude-code-best-practice — all MIT; presentation only, no substance change). Same rules,
+stickier and more actionable:
+
+- **6 high-value rules** (`mandatory-workflow`, `quality-gates`, `agent-resilience`,
+  `goal-setting-and-monitoring`, `reasoning-techniques`, `code-organization`) each gain a **bold quotable
+  tagline** under the H1, one or two **embedded self-check** lines in their key section, and a measurable
+  **"This rule is working if …"** success-signal line.
+- **`skills/context-engineering/SKILL.md`** gains quantitative guardrails: a **<200-line CLAUDE.md target**,
+  a **degradation-zone threshold** (~40% of window) in the failure taxonomy, **session-boundary heuristics**
+  ("new task = new session"; summarize-before-rewind) under Level 5, and a **≈30% baseline headroom** target
+  for progressive disclosure.
+
+Markdown-only, count-neutral (no new rules/skills); existing behavior unchanged.
+
 ## [0.35.0] — 2026-06-25
 
 **3-strike fix-attempt discipline** (pattern adopted from gstack's "Iron Law" + the superpowers

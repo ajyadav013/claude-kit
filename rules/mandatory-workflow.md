@@ -1,5 +1,7 @@
 # Mandatory Workflow
 
+**Identify the workflow first, then walk every gate in order — no phase starts until the one before it has passed.**
+
 This document defines **two development workflows**: one for bug fixes and one for features.
 Identify which workflow to follow FIRST, then execute it step by step.
 
@@ -22,6 +24,9 @@ If unclear whether a task is a bug fix or feature, ask the user.
 ---
 
 ## Working Memory & Self-Check (both workflows)
+
+**Self-check before every handoff:** which stage am I at, which gate is next, and can I show the
+captured evidence that the current one passed? If you can't, you are not done.
 
 - **CONTINUITY.md** — read `.claude/CONTINUITY.md` at the start of every turn and write it
   back at the end and at each stage transition. It carries phase, active work, decisions,
@@ -373,3 +378,9 @@ user for the ticket ID — never guess.
 ## Files that require user approval before editing
 Build config, dependency manifests + lockfiles, CI config, app entry points, shared component
 barrels/index files, `CLAUDE.md`, and `.claude/rules/*`. Define the exact list for your project.
+
+---
+
+**This workflow is working if** every change can name the gate it last cleared, no phase started
+before its predecessor passed, and a reviewer could reconstruct the path from spec to PR from the
+artifacts alone.

@@ -1,5 +1,7 @@
 # Goal Setting & Monitoring
 
+**If you can't say what "done" looks like and measure whether you're getting there, you're drifting.**
+
 An agent that can't say *what done looks like* and *whether it's getting there* drifts. Every task
 runs against **measurable success criteria** that are recorded up front, **monitored** as work
 proceeds, and used to **prioritize** what to do next. This rule turns "I produced output" into "I met
@@ -26,6 +28,9 @@ Before doing the work, state the goal so success is **verifiable, not vibes**. A
 Record them in `.claude/CONTINUITY.md` (and for features, they live in the spec). If you cannot make a
 criterion measurable, that ambiguity is a human decision point — see
 `.claude/rules/human-in-the-loop.md`.
+
+**Self-check:** is every criterion something a command, test, or metric can pass or fail? If it's a
+feeling ("make it better"), it isn't a criterion yet — sharpen it or escalate it.
 
 ## 2. Monitor progress against them
 
@@ -62,6 +67,9 @@ at backlog/sprint scope).
    compaction and the next turn measures against the same bar.
 3. **Re-prioritize on new information; don't sunk-cost a stale plan.**
 4. **Goal met = every criterion verified**, not "the code is written." Hand off against the criteria.
+
+**This rule is working if** every task names a checkable goal up front, progress is measured against it
+rather than assumed, and priorities visibly re-rank when new information lands.
 
 ## Relationship to other rules
 
