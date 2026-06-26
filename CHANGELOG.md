@@ -4,6 +4,27 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.43.0] — 2026-06-26
+
+**New `otel-tracing` collection skill** — vendor-neutral distributed tracing with OpenTelemetry and
+Grafana Tempo. Re-derived from public OpenTelemetry, W3C Trace Context, and Grafana Tempo
+documentation; nothing vendored, no proprietary content.
+
+- **`skills/otel-tracing/`** (new collection skill) — the language-neutral tracing **pipeline and
+  backend**, complementary to the app-side `observability-and-logging`. `SKILL.md` covers the OTel
+  trace data model, the standard OTLP env-var contract (incl. the 4317-gRPC / 4318-HTTP +
+  `/v1/traces` port/path traps and the missing-`service.name` trap), the signal pipeline, env-gated /
+  fail-safe / idempotent instrumentation (auto + manual + framework, init order, span processors),
+  head-plus-tail sampling, Tempo essentials (distributor/ingester/querier/compactor, retention, the
+  metrics-generator), and trace↔logs↔metrics correlation. Six references go deep:
+  `instrumentation.md`, `collector.md`, `sampling.md`, `tempo.md`, `correlation.md`, and `gotchas.md`.
+- **Clean auto-trigger boundaries** — the `description:` routes app-side observability code to
+  `observability-and-logging` and LLM/model tracing to `langfuse-llm-tracing`; both siblings carry a
+  reciprocal pointer back (the `observability-and-logging` OTel section now points to `otel-tracing`
+  for the pipeline/backend layer). The neutral policy stays in `.claude/rules/devops-observability.md`
+  and the role stays the `observability-engineer` agent.
+- Counts: **102 → 103** total skills (**46 → 47** stack-collection; core unchanged at 56).
+
 ## [0.42.0] — 2026-06-26
 
 **Doc hygiene + workflow polish** (PR 4 of 4 — the final adoption from the MIT

@@ -76,6 +76,8 @@ and blow up log volume. _(reference service pattern)_
 
 ### OpenTelemetry Distributed Tracing
 
+> This section is the **app-side** wiring (SDK init, FastAPI/asyncpg/Redis/Kafka auto-instrumentation, the `OTEL_ENABLED` switch). For the language-neutral tracing **pipeline and backend** — the OTLP/Collector topology, head-plus-tail sampling, the Grafana Tempo backend, TraceQL, and trace↔logs↔metrics correlation — see the sibling `otel-tracing` skill.
+
 **Initialize SDK first**: Call `initialize_telemetry()` in the app startup hook; create `TracerProvider(resource=Resource({SERVICE_NAME: ...}))`, add `BatchSpanProcessor(OTLPSpanExporter(endpoint=...))`, set global provider with `trace.set_tracer_provider()`. _(reference service pattern)_
 
 **Auto-instrumentation**: After SDK init, call `FastAPIInstrumentor.instrument_app(app)`, `AsyncPGInstrumentor().instrument()`, `RedisInstrumentor().instrument()`. Kafka consumers: `KafkaInstrumentor().instrument()`. _(production services pattern)_
