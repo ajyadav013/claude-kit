@@ -4,6 +4,22 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.40.0] — 2026-06-26
+
+**Review grounding + addition scrutiny** (PR 2 of 4 from the MIT `athola/claude-night-market` audit;
+re-derived stack-agnostic, count-neutral — both are edits to existing skills).
+
+- **`skills/code-review-and-quality`** — Step 4 now requires every finding to be **grounded**: a
+  `file:line` Location + a verbatim Anchor snippet, re-verified before reporting; a finding whose
+  location/anchor doesn't resolve is dropped or labelled `UNVERIFIED`. Stops AI reviewers from
+  hallucinating locations/issues; the review-level form of the §2.5 evidence rule in `quality-gates.md`.
+- **`skills/over-engineering-review`** — new **Burden-of-Proof Scrutiny** section that inverts the
+  default for *additions* in diff mode: 5 scrutiny questions (priority/criticality/simplicity/evidence/
+  consequence), 6 AI-additive anti-patterns (wheel reinvention, hallucinated issue, test manipulation,
+  complexity creep, priority deviation, gold plating), a justified/needs-evidence/unjustified verdict,
+  and the subtractive question. Collapses the upstream additive-bias-defense + justify + bloat-detector
+  ideas into the kit's existing complexity-review skill.
+
 ## [0.39.0] — 2026-06-26
 
 **Supply-chain defense** (first of four adoptions from the MIT [`athola/claude-night-market`](https://github.com/athola/claude-night-market);
