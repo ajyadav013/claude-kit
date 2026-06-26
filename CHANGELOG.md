@@ -4,6 +4,25 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.39.0] — 2026-06-26
+
+**Supply-chain defense** (first of four adoptions from the MIT [`athola/claude-night-market`](https://github.com/athola/claude-night-market);
+re-derived stack-agnostic, nothing vendored). Closes the pre-install gap between "should we add a dep"
+(§2a.5 / `library-review`) and "are our installed deps vulnerable" (`dependency-scanner`).
+
+- **`skills/dependency-verification/`** (new core skill) — pre-install verification that a package
+  **name** actually exists in its registry (PyPI/npm/crates.io/…) and isn't a typosquat/slopsquat,
+  before any install command or manifest edit. Defends against LLM-hallucinated package names
+  (~5–22% of model-suggested packages don't exist; the recurring names get pre-registered with
+  malware). Three states — exists / nonexistent / unverified — and **never fails closed on a network
+  error**. Cross-linked into the supply-chain layer chain (§2a.5 → library-review → this → install →
+  dependency-scanner).
+- **`agents/dependency-scanner.md`** gains a **Supply-Chain Integrity mode** (post-resolve):
+  lockfile/hash integrity, artifact + lifecycle-script scanning, known-bad-versions cross-check, and
+  provenance signals — beyond the existing CVE audit.
+- **`skills/security-and-hardening`** + **`skills/library-review`** updated to point at the new layers.
+- Counts: **98 → 99** total skills (**52 → 53** core; stack-collection unchanged at 46).
+
 ## [0.38.0] — 2026-06-26
 
 **New `library-review` core skill + a property-based-testing note** (two genuinely-new ideas
