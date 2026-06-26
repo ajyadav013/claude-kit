@@ -1,11 +1,17 @@
 ---
 name: temporal-config-driven
-description: Encodes Temporal workflow orchestration patterns derived from production Python/FastAPI services—config-driven worker maps, workflow/activity definitions, retry policies, idempotency via activity_id, cron-based schedules, and DAG-based config-as-data orchestration. Use when implementing or debugging Temporal workflows, workers, activities, retries, schedules, or config-driven orchestration engines. Use when setting up worker bootstrap with graceful shutdown, or when building DAG-based config-as-data orchestration systems.
+description: Encodes Temporal workflow orchestration patterns derived from production Python/FastAPI services—config-driven worker maps, workflow/activity definitions, retry policies, idempotency via activity_id, cron-based schedules, and DAG-based config-as-data orchestration. Use when implementing or debugging this kit's config-driven Temporal architecture (WORKER_MODE_CONFIG_MAP, _execute_dag/NODE_TYPE_MAP, schedule registration), worker bootstrap with graceful shutdown, or DAG-based config-as-data orchestration systems. Do NOT use for Temporal fundamentals (determinism/history replay, safe versioning of running workflows, testing, signals/queries/updates) or non-Python SDKs—use temporal-developer for those.
 ---
 
 # temporal-config-driven
 
 Temporal workflow orchestration using config-driven worker maps and DAG-based execution.
+
+> **Fundamentals live elsewhere.** This skill is the *config-driven architecture* layer and assumes
+> you already understand durable execution. For Temporal **fundamentals** — why workflows must be
+> deterministic (history replay), safely versioning running workflows, testing (time-skipping/replay),
+> signals/queries/updates, and non-Python SDKs — use the **`temporal-developer`** skill. They are
+> complementary.
 
 ## When to use
 
