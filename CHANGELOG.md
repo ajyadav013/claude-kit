@@ -4,6 +4,26 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.37.0] — 2026-06-26
+
+**New `temporal-developer` collection skill — Temporal *fundamentals*, language-agnostic** (re-derived
+concisely from the official MIT [`temporalio/skill-temporal-developer`](https://github.com/temporalio/skill-temporal-developer);
+nothing vendored, cross-checked against https://docs.temporal.io). Complements — does **not** duplicate —
+the existing `temporal-config-driven` skill (which stays scoped to this kit's config-driven worker-map /
+DAG-as-data architecture and *assumes* these fundamentals).
+
+- **`skills/temporal-developer/`** (SKILL.md + README.md with MIT provenance) covers the durable-execution
+  model, **why workflows must be deterministic** (history replay → Command/Event matching), the
+  workflow/activity/worker split, Query vs Signal vs Update, and six compact references:
+  `determinism.md`, `versioning.md` (patching · workflow-type · worker/Build-ID versioning),
+  `testing.md` (local/time-skipping env, activity mocking, replay tests), `gotchas.md`,
+  `cli.md` (`temporal server start-dev` + the `workflow start/execute/signal/query/update` dev loop),
+  and `languages.md` (Python/Go/TypeScript starters + pointer to upstream Java/.NET/Ruby/Rust depth).
+- **Auto-trigger boundary** wired both ways: each skill's `description` carries an explicit
+  `Do NOT use … → use <sibling>` clause, with reciprocal pointers in both SKILL.md/README.md bodies.
+- Counts: **96 → 97** total skills (**45 → 46** stack-collection; core unchanged at 51), plus a new
+  `docs/stack-skills` catalog row. No catalog/stack/hook/agent changes (Temporal is a skill, not a stack axis).
+
 ## [0.36.0] — 2026-06-25
 
 **Rule-presentation + context-hygiene polish** (patterns adopted from Karpathy-skills, addyosmani/agent-skills,

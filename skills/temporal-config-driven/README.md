@@ -11,6 +11,14 @@ Temporal workflow orchestration patterns derived from real-world production Pyth
 - **Dynamic worker generation** for matrix-based workers (e.g., file_type × business_unit)
 - **Graceful shutdown** patterns (SIGTERM/SIGINT handling in worker processes)
 
+## Related skill
+
+For Temporal **fundamentals** — durable execution, why workflows must be deterministic (history
+replay), safely changing running workflows (patching/worker versioning), testing
+(time-skipping/replay), signals/queries/updates, and non-Python SDKs — use the complementary
+**`temporal-developer`** skill. This skill assumes those fundamentals and focuses on the
+config-driven worker-map / DAG-as-data architecture.
+
 ## Source provenance
 
 Derived from real-world production Python/FastAPI services implementing Temporal orchestration at scale.
