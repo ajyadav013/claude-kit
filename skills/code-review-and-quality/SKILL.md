@@ -181,6 +181,23 @@ Label every comment with its severity so the author knows what's required vs opt
 
 This prevents authors from treating all feedback as mandatory and wasting time on optional suggestions.
 
+#### Every finding must be grounded
+
+A review finding is a **claim about a specific place in the code**, so it must be falsifiable — a
+citation a second pass (human or agent) can mechanically re-read and confirm. AI reviewers in
+particular hallucinate locations and issues; grounding is what stops that.
+
+Every finding carries:
+
+- **Location** — `file:line` (a concrete, current line, not "somewhere in the auth module").
+- **Anchor** — a short *verbatim* snippet copied from that line, so the citation can be re-verified by
+  matching text even if line numbers shift.
+
+Verify before reporting: re-read each cited `file:line` and confirm the anchor text is actually
+present. A finding whose location or anchor doesn't resolve is **dropped or labelled `UNVERIFIED`** —
+it never enters the verdict. This is the review-level form of the evidence rule in
+`.claude/rules/quality-gates.md` (§2.5): an uncited finding is a TODO, not a finding.
+
 ### Step 5: Verify the Verification
 
 Check the author's verification story:

@@ -55,6 +55,37 @@ Dependencies the stdlib or platform already ships · single-implementation inter
 one product · wrappers that only delegate · modules exporting one thing · dead flags and config ·
 hand-rolled stdlib · speculative "for later" scaffolding.
 
+## Burden of proof — scrutinize each addition
+
+The five tags catch complexity that already exists. In **diff mode**, also invert the burden of proof
+on what the change *adds* — LLM-written code is additive by default (it reinvents wheels, gilds error
+handling, and abstracts for a single caller). **The default answer to "should we add this?" is no;
+the addition must earn its place.** For each added file / function / abstraction / config / dependency,
+ask:
+
+1. **Priority** — does this serve the current task/spec, or is it a detour?
+2. **Criticality** — is it needed *now*, or speculative "for later"?
+3. **Simplicity** — does a simpler or subtractive solution exist?
+4. **Evidence** — what proves it's needed (a failing test, a real requirement) rather than assumed?
+5. **Consequence** — what concretely breaks if it's omitted?
+
+If 4 and 5 can't be answered with evidence, the addition is unjustified. Watch for these **AI-additive
+anti-patterns**:
+
+| Anti-pattern | Signal | Challenge |
+|---|---|---|
+| Wheel reinvention | New helper overlapping existing code/stdlib | "Does X already do this?" |
+| Hallucinated issue | A fix for a bug with no reproduction | "Show the failing test before the fix." |
+| Test manipulation | Test changed to match new behavior, not the spec | "Did the spec change, or did you change the test?" |
+| Complexity creep | Abstraction for a single use case | "Is this the 3rd use, or the 1st?" |
+| Priority deviation | Work not traceable to the task/spec | "Which requirement does this serve?" |
+| Gold plating | Error handling / flexibility beyond need | "What breaks without this?" |
+
+Give each scrutinized addition a one-word verdict — **justified** (evidence supports it → keep),
+**needs-evidence** (plausible but unproven → prove or cut), **unjustified** (no evidence, likely
+additive bias → cut) — and fold the cuts into the delete-list below. Before accepting any addition,
+ask the subtractive question: *could this be achieved by removing code instead of adding it?*
+
 ## Output format
 
 One line per finding. Diff mode:
