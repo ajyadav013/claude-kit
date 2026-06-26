@@ -18,7 +18,7 @@ Document decisions, not just code. The most valuable documentation captures the 
 - Onboarding new team members (or agents) to the project
 - When you find yourself explaining the same thing repeatedly
 
-**When NOT to use:** Don't document obvious code. Don't add comments that restate what the code already says. Don't write docs for throwaway prototypes.
+**When NOT to use:** Don't document obvious code. Don't add comments that restate what the code already says. Don't write docs for throwaway prototypes. To *consolidate* ephemeral `*_REPORT.md` / `*_ANALYSIS.md` artifacts into canonical docs (rather than author new ones), use `doc-consolidation`.
 
 ## Architecture Decision Records (ADRs)
 
@@ -266,6 +266,57 @@ Special consideration for AI agent context:
 - **Spec files** — Keep specs updated so agents build the right thing
 - **ADRs** — Help agents understand why past decisions were made (prevents re-deciding)
 - **Inline gotchas** — Prevent agents from falling into known traps
+
+## Generated-doc quality gate
+
+When an agent *writes* the docs, the docs inherit the agent's tics: filler, unearned claims, and the
+tells of machine prose. The "why over what" principle above governs *what to say*; this gate governs
+*how it reads*. Run it on any doc an agent generated or rewrote (README, guide, ADR prose, API docs,
+changelog text) before commit — the prose counterpart to the code-review grounding discipline in
+`code-review-and-quality`.
+
+> Detection heuristics re-derived (stack-agnostic) from the MIT-licensed
+> [`athola/claude-night-market`](https://github.com/athola/claude-night-market) `slop-detector` /
+> `doc-generator` skills (© 2025 athola). Not vendored.
+
+### Hard fails — a single hit fails the doc, independent of any other quality
+
+1. **Identity & voice leaks.** Generated-assistant register that leaked into a published artifact:
+   "As a large language model", "as of my training cutoff", "I cannot provide"; conversational
+   openers ("Great question!", "Hope this helps!", "Sure!"); self-narration of structure ("In this
+   section we will…", "Let's dive into…", "By the end of this guide…"). Delete on sight.
+2. **Hallucinated references.** Every backticked identifier, function, path, and config key named in
+   the prose must actually exist in the codebase; every install command the doc tells the reader to
+   run must resolve on its registry (the typosquat/existence check in `dependency-verification`);
+   cited URLs should resolve. A confident reference to something that doesn't exist is wrongness, not
+   style.
+3. **Unverified quality claims.** "Production-ready", "fast", "secure", "scalable", "battle-tested"
+   each must point to evidence *in the same repo* (a CI workflow, a benchmark, a test, an audit). No
+   evidence → delete the claim. This is the grounded-findings rule (`code-review-and-quality`) applied
+   to marketing prose.
+
+### Human-quality writing principles
+
+- **Slop is a density problem, not a word list.** One "comprehensive" is fine; a paragraph of
+  "comprehensive / robust / seamless / leverage" is generated text. Don't maintain a banned-words
+  list — flag *concentrations* and register mismatch, and prefer the plain word ("use" over
+  "leverage", "thorough" over "comprehensive").
+- **Thesis-first.** The lead states the single takeaway; a reader who stops after the first paragraph
+  still leaves with the message. Echo the thesis at the close; cut every other repetition.
+- **Earn every sentence.** A document costs the sum of its readers' time. Each sentence should carry,
+  instance, bound, or repeat the thesis — delete the ones that don't. One example is proof; two is
+  emphasis; three is filler.
+- **Active voice with reasoning.** Explain *why this choice* (which database, which pattern), not
+  neutral boilerplate. Don't humanize constructs ("the code wants", "the function speaks to").
+- **Prose over bullet waterfalls.** Bullets are for short, parallel lists. Multi-line bullet cascades
+  bury the reasoning — convert them to prose so the *why* survives.
+- **Drop the machine tells.** Em-dash overuse as a rhetorical pause, tricolons ("fast, reliable, and
+  scalable"), contrastive negation ("not just X, but Y" / "it's not X, it's Y"), vapid openers ("In
+  today's fast-paced world"), and sycophantic framing. No emojis unless requested. Use the imperative
+  mood for docstrings ("Validate input", not "Validates input").
+
+When cleaning an existing doc, change *how* it reads, never *what* it says — if the meaning is
+unclear, ask rather than guess. After editing, re-check against the hard fails.
 
 ## Common Rationalizations
 

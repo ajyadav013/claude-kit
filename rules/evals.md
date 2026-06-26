@@ -30,6 +30,10 @@ strategies. (Mirror of the RARV "verify the result" stance in `.claude/rules/rar
 - **Code / exact** graders for deterministic outputs (a value, a file state, a passing build).
 - **LLM-as-judge** for open-ended outputs — but **calibrate the judge against human labels** on a
   sample first. An uncalibrated judge confidently mis-scores and you optimize toward the wrong thing.
+  For multi-dimensional quality, give the judge an explicit **weighted rubric** (named criteria whose
+  weights sum to 1, each with a score band → meaning) rather than a vague "rate this 1–10": a
+  documented rubric scores consistently across runs and makes a low score *explainable*. Keep the
+  rubric for *grading*; the pipeline's pass/fail **gate** stays binary (§6, `quality-gates.md`).
 - **Human** grading for the highest-stakes or subjective cases; use it to keep the automated graders honest.
 
 ## 4. Report non-determinism honestly

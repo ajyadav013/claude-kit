@@ -4,6 +4,40 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.42.0] — 2026-06-26
+
+**Doc hygiene + workflow polish** (PR 4 of 4 — the final adoption from the MIT
+`athola/claude-night-market` audit; re-derived stack-agnostic, nothing vendored).
+
+- **`skills/documentation-and-adrs`** gains a **generated-doc quality gate** — run on any doc an agent
+  wrote/rewrote before commit. Hard fails: identity/voice leaks ("As a large language model", "Great
+  question!", self-narration), **hallucinated references** (every backticked identifier/path/config
+  key must exist; every install command must resolve — ties to `dependency-verification`), and
+  **unverified quality claims** ("production-ready"/"fast" with no in-repo evidence — the prose form of
+  the `code-review-and-quality` grounding rule). Plus human-quality principles: slop is a *density*
+  problem not a banned-word list, thesis-first, earn every sentence, prose over bullet waterfalls, drop
+  the machine tells. (From `slop-detector`/`doc-generator`.)
+- **`skills/doc-consolidation/`** (new core skill) — harvest the ephemeral `*_REPORT.md`/`*_ANALYSIS.md`
+  that runs leave behind into canonical docs (ADRs, plans, CHANGELOG, existing docs), then delete the
+  sources. Two-phase: read-only triage → **approval gate** → merge → verified delete (deleting files
+  you didn't author is confirm-tier, `human-in-the-loop.md`). Routes durable *lessons* to
+  `agent-memory/`, not docs. (From `sanctum:doc-consolidation`.)
+- **`rules/continuity.md`** gains a **dual-probe summary check** — before any handoff/pre-compaction,
+  test the summary with a *progress probe* ("what's done + exact state?") and a *gap probe* ("what's
+  still needed?"); a hedged progress answer or an open-ended gap answer means rewrite it now. Catches
+  the confident-but-wrong summary the gap probe alone misses. (From `memory-clarity-probe`.)
+- **`rules/tool-design.md`** gains **§7 "Spend the resource in proportion to its value"** — Brooks's
+  law for agents (more parallel agents ≠ more throughput), source only high-value/changing claims, and
+  keep output dense. (Folds the genuinely-additive kernel of the `conserve` skills.)
+- **`rules/evals.md`** — the LLM-as-judge grader note now recommends an explicit **weighted rubric**
+  for multi-dimensional grading (kept for *grading*; the pass/fail gate stays binary). (Minimal ADAPT
+  of `leyline:evaluation-framework`.)
+- *Deliberately skipped* (reuse-first, no duplicates): `conserve:decisive-action` (already covered by
+  the 0.41.0 `human-in-the-loop` reversibility gate + `agent-guardrails` confirm/allow tiers);
+  `evaluation-framework` as a standalone skill (its weighted-scoring kernel folded into `evals.md`
+  instead, per the audit critic).
+- Counts: **101 → 102** total skills (**55 → 56** core; collection unchanged at 46).
+
 ## [0.41.0] — 2026-06-26
 
 **Escalation discipline + safety/shell review lenses** (PR 3 of 4 from the MIT
