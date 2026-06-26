@@ -322,6 +322,12 @@ def validate_upload(content_type: str, size: int) -> None:
 
 ## Triaging Dependency Audit Results
 
+> **Supply-chain layers.** A CVE audit catches *known-vulnerable* versions — it does not catch a
+> *hallucinated*, *typosquatted*, or *compromised* package. Pair it with the `dependency-verification`
+> skill (pre-install: confirm the package name exists and isn't a typosquat/slopsquat) and the
+> `dependency-scanner` agent's supply-chain integrity mode (post-resolve: lockfile-hash + artifact
+> scanning + known-bad versions). Pre-install name check → install → CVE + integrity audit.
+
 Not every finding is an emergency. Decision tree:
 
 ```

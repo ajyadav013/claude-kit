@@ -83,6 +83,29 @@ Backend deps: {N} · Frontend deps: {N} · Vulns: Critical {N} / High {N} / Medi
 
 Return counts by severity + the finding table to `security-reviewer`. If a CVE has no patch, recommend a workaround or replacement and mark it for an allowlist-with-review-date decision (route to the human via the Orchestrator). Log durable findings to `.claude/CONTINUITY.md`.
 
+## SUPPLY-CHAIN INTEGRITY MODE (beyond CVEs)
+
+CVE scanning catches *known-vulnerable* versions; it does not catch a *compromised* or *impersonated*
+package. When auditing for a supply-chain advisory, during incident response, or before a release, add
+these checks (still report-only — never modify lockfiles):
+
+- **Lockfile / hash integrity.** Confirm the lockfile pins integrity hashes and that resolved
+  artifacts match them (`pip`'s `--require-hashes`, `npm ci` against `package-lock.json`,
+  `cargo`'s `Cargo.lock`, `go.sum`). Flag lockfile drift (manifest and lockfile disagree) and any
+  dependency resolved from an unexpected source/registry.
+- **Artifact scan.** Inspect what an install would actually run: post-install/lifecycle scripts
+  (`package.json` `postinstall`, `pyproject`/`setup.py` build hooks), and suspicious payload files
+  (e.g. `.pth` files that execute on interpreter start, obfuscated blobs). Report; don't execute.
+- **Known-bad versions.** Cross-check resolved versions against a known-bad/compromised-version list
+  for the project's ecosystem (maintain the project's own list and the public advisory feeds). A
+  matched version is an **auto-Critical** finding.
+- **Provenance signals.** Prefer packages with signed releases / 2FA-published maintainers; flag a
+  dependency that recently changed maintainer or publishing key.
+
+This is the **post-resolve** half of the kit's supply-chain story; the **pre-install** half (verifying
+a package *name* exists and isn't a typosquat/slopsquat, before it ever enters a lockfile) is the
+`.claude/skills/dependency-verification` skill. Cite it; don't restate it.
+
 ## CADENCE MODE (whole-project maintenance pass)
 
 The same audit can be dispatched **standalone** — outside any one feature — as a recurring

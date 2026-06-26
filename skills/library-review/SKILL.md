@@ -99,6 +99,7 @@ worth recording too, so the question isn't re-litigated.
 
 - `.claude/rules/mandatory-workflow.md` (§2a.5 Reuse & YAGNI Gate) — the gate that decides *whether* a dep is needed
 - `over-engineering-review` — reactive twin of §2a.5; stdlib/native/yagni lenses
-- `dependency-scanner` agent — audits *already-installed* deps for CVEs (this skill's post-add counterpart)
+- `dependency-verification` — the *pre-install* name check (does this package name even exist / is it a typosquat) that runs before this evaluation
+- `dependency-scanner` agent — audits *already-installed* deps for CVEs + lockfile/artifact integrity (this skill's post-add counterpart)
 - `code-review-and-quality` (Dependency Discipline) — the quick 5-point form of this evaluation
 - `documentation-and-adrs` — record a consequential adopt/reject as an ADR
