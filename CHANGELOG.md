@@ -4,6 +4,27 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.38.0] — 2026-06-26
+
+**New `library-review` core skill + a property-based-testing note** (two genuinely-new ideas
+cherry-picked, stack-agnostic, from the MIT [`wdm0006/python-skills`](https://github.com/wdm0006/python-skills);
+the rest of that collection was skipped as redundant with existing core/collection skills).
+
+- **`skills/library-review/`** (core — SKILL.md only, stack-agnostic) — a structured **pre-add
+  dependency-adoption evaluation**: need & fit, alternatives (stdlib/native/existing dep),
+  maintenance & bus factor, license compatibility, security/supply-chain history, transitive weight,
+  lock-in/exit cost, and a documented adopt/reject decision. Re-cast (health-signal dimensions
+  adapted from the MIT upstream's `reviewing-python-libraries`) as an *adoption* gate. Reuse-first:
+  cross-linked to and explicitly bounded against `mandatory-workflow.md` §2a.5 (whether a dep is
+  needed at all), `over-engineering-review`, the `dependency-scanner` agent (audits *installed* deps —
+  this is its pre-add counterpart), and `code-review-and-quality` (whose 5-point Dependency
+  Discipline list now points here as its full form).
+- **`test-driven-development`** gains a **Property-Based Testing** section (count-neutral edit):
+  what it is, when to reach for it, the round-trip/idempotence/invariant/metamorphic property shapes,
+  and one-per-language ecosystem pointers (Hypothesis · fast-check · jqwik · proptest · …).
+- Counts: **97 → 98** total skills (**51 → 52** core; stack-collection unchanged at 46). No
+  `docs/stack-skills` row (core skills aren't listed there). Version bumped across the 5 parity files.
+
 ## [0.37.0] — 2026-06-26
 
 **New `temporal-developer` collection skill — Temporal *fundamentals*, language-agnostic** (re-derived
