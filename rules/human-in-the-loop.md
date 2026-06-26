@@ -40,6 +40,30 @@ When you stop, give the human enough to decide in one read — don't make them d
 Use the `interview-me` skill when an ask is underspecified and you need to extract true intent one
 question at a time, rather than firing a wall of questions.
 
+## Gate the depth of review to reversibility
+
+Not every stop deserves the same ceremony. Before a consequential decision, classify it by how hard it
+is to undo — the **one-way-door vs two-way-door** distinction — and spend review effort proportionally.
+
+Score reversibility across a few dimensions (each: easy → hard to reverse):
+
+- **Undo cost** — can it be reverted with a commit/flag, or does it need a migration/manual cleanup?
+- **Blast radius** — local change vs shared contract, data, or many consumers?
+- **Data effect** — none, or does it mutate/migrate/delete persistent or customer data?
+- **Externalization** — internal only, or published/deployed/sent outside (cacheable, indexable, shipped)?
+- **Commitment** — private, or a public/contractual promise others now depend on?
+
+| Reversibility | Door | Proportional response |
+|---------------|------|-----------------------|
+| **High** (easy to undo, local) | Two-way | Proceed on a stated default; normal review. Don't over-deliberate. |
+| **Medium** | — | Adversarial pass before committing — `doubt-driven-development` or the `devils-advocate` agent (`.claude/rules/quality-gates.md`). |
+| **Low** (hard/irreversible) | One-way | **Stop and ask a human** (this rule), and add a **premortem** (how could this go wrong?), **watch-points** (what to monitor after), and a **reversal plan** before acting. |
+
+Challenge **false irreversibility** too — "we can't change this later" asserted without evidence is
+often a two-way door dressed up as a one-way door; verify before paying one-way-door cost. The point is
+to match scrutiny to stakes, not to gate everything: a clearly-reversible change shouldn't pay for a
+council it doesn't need.
+
 ## Rules
 
 1. **When in doubt, ask.** A cheap question now beats an expensive wrong-direction unwind later. This

@@ -33,6 +33,43 @@ tier — they are focused specialists/personas, not deep-reasoning orchestrators
 - **Re-map when names/prices change.** Keep the tier *intent* (Critical / Default / Fast); swap the
   concrete alias if Anthropic's model lineup shifts.
 
+## When to escalate a tier
+
+The table above is the *default* assignment. Mid-task, an agent may want to **escalate** to a more
+capable model (or a human asks "should we move this to opus?"). Escalation trades cost for reasoning
+depth, so it must be **justified, not reflexive**.
+
+> **The Iron Law: no escalation without investigation first.** Escalation is never a shortcut for
+> "maybe a smarter model will figure it out." If you can't articulate *why* the current tier is
+> insufficient, escalating is premature — investigate the root cause first.
+
+**Four questions to answer before escalating:**
+
+1. **Understood?** Can I state specifically what reasoning the current tier is missing — is this a
+   *capability* gap or just a *knowledge* gap? (A knowledge gap → gather information, don't escalate.)
+2. **Investigated?** Have I done the systematic work (read the code, traced the data, reproduced the
+   failure) — see `.claude/rules/reasoning-techniques.md` — rather than guessing?
+3. **Right lever?** Is more model capability actually the fix, or is the real problem a wrong approach,
+   a missing requirement (`.claude/rules/human-in-the-loop.md`), or insufficient context?
+4. **Worth it?** Does the stakes/consequence justify the added cost (`.claude/rules/risk-classification.md`)?
+
+**Legitimate triggers:** genuine nuance/judgment (security trade-offs), multi-step reasoning under
+uncertainty (architecture), novel patterns with no precedent, high stakes (production/irreversible),
+or weighing several valid interpretations.
+
+**Anti-rationalizations — these mean STOP and investigate, not escalate:**
+
+| Rationalization | Reality |
+|---|---|
+| "Maybe a smarter model will figure it out" | Thrashing — find the root cause first |
+| "Several attempts already failed" | Suggests a wrong approach, not insufficient capability — question your assumptions |
+| "We're under time pressure" | Urgency doesn't change task complexity; systematic investigation is faster than guess-and-escalate |
+| "Just to be safe / just in case" | False safety — assess the *actual* complexity before spending the capability |
+
+The same discipline governs the **fix-attempt** loop in `.claude/rules/agent-resilience.md` (3-strike
+rule) and the budget-exhaustion escalations in `.claude/rules/quality-gates.md`: investigate, then
+escalate to a tier *or a human* deliberately.
+
 ## Profile cost expectations
 
 Token cost scales with the **profile** (the agent / skill / hook set it installs — see
