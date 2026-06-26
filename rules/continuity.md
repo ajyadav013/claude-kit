@@ -109,6 +109,33 @@ A gate is PASS only when zero **critical/high/medium** findings remain open (low
 - [linter/formatter status]   [type checker status]   [test runner status]   [build status]
 ```
 
+## Probe the summary before you rely on it
+
+A CONTINUITY entry is only worth what the *next* turn can reconstruct from it. Before you hand off — at
+the end of a turn, before spawning/awaiting subagents, and especially as pre-compaction insurance —
+test the summary against two anchor questions, reading **only** what you wrote:
+
+1. **Progress probe** — "From this alone, what is done and what is the task's exact current state?"
+2. **Gap probe** — "From this alone, what specific information is still needed to finish?"
+
+A summary passes when the progress answer is **specific and verifiable** (named files/gates/decisions,
+no hedging like "some work was done") and the gap answer is a **bounded, concrete list** of named
+unknowns. It fails when the progress answer hedges or the gap answer expands into open-ended
+categories — that means the summary won't survive the next turn and must be sharpened *now*, while you
+still hold the context.
+
+| Progress answer | Gap answer | Verdict |
+|-----------------|-----------|---------|
+| Specific | Bounded | **Ready** — hand off |
+| Specific | "nothing needed" but task is unfinished | **Suspect** — re-read the task; the memory has drifted |
+| Hedged / vague | anything | **Rewrite** — expand with explicit answers to both probes before handing off |
+
+The two probes catch different failures: the gap probe alone misses a *confident-but-wrong* belief
+about state; the progress probe catches it. This is the same standard as Rule 2 below — truthful state
+— applied *before* the handoff rather than after. (Dual-probe pattern adapted, stack-agnostic, from
+the MIT-licensed [`athola/claude-night-market`](https://github.com/athola/claude-night-market)
+`memory-clarity-probe` skill, © 2025 athola.)
+
 ## Rules
 
 1. **Keep it short.** Working memory, not a transcript. Overwrite stale content; do not append endlessly.
