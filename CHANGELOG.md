@@ -4,6 +4,31 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.41.0] — 2026-06-26
+
+**Escalation discipline + safety/shell review lenses** (PR 3 of 4 from the MIT
+`athola/claude-night-market` audit; re-derived stack-agnostic).
+
+- **`rules/model-tiers.md`** gains a **"When to escalate a tier"** section: the Iron Law
+  (no escalation without investigation first), a 4-question gate (understood? investigated? right lever?
+  worth it?), legitimate triggers, and an **anti-rationalization table** that catches "maybe a smarter
+  model will figure it out." Ties into the agent-resilience 3-strike rule + quality-gates escalation.
+- **`rules/human-in-the-loop.md`** gains a **reversibility gate**: classify a decision as one-way vs
+  two-way door across undo-cost/blast-radius/data/externalization/commitment, and scale review
+  proportionally (proceed → adversarial pass → stop-and-ask + premortem/watch-points/reversal-plan).
+  Also flags *false irreversibility*. (Adapted from war-room's reversibility scoring; the multi-LLM
+  panel was dropped — it overlaps the orchestrator/`devils-advocate`.)
+- **`skills/safety-critical-patterns/`** (new core skill) — NASA Power-of-10 high-reliability lens
+  adapted language-neutral, **gated by "match rigor to consequence"** (full for money/medical/
+  data-integrity/auth/irreversible; light for scripts) so it never over-applies to CRUD. Composes with
+  `risk-classification`.
+- **`skills/shell-review/`** (new core skill) — audits CI/hook/build/wrapper shell for exit-code
+  propagation (`set -euo pipefail`, capture-output-and-status), POSIX-vs-bash portability, safety
+  (quote/brace vars, `:?` required vars, `cd` in a subshell, `mktemp`+`trap`), and library/executable
+  structure; `shellcheck` as the backstop. (Re-derived without the upstream's bespoke logging/guard
+  conventions.)
+- Counts: **99 → 101** total skills (**53 → 55** core; collection unchanged at 46).
+
 ## [0.40.0] — 2026-06-26
 
 **Review grounding + addition scrutiny** (PR 2 of 4 from the MIT `athola/claude-night-market` audit;
