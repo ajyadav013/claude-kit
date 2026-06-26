@@ -171,6 +171,35 @@ Is it a critical user flow that must work end-to-end?
   → E2E test (large) — limit these to critical paths
 ```
 
+## Property-Based Testing
+
+Example-based tests (everything above) check the cases *you* thought of. **Property-based testing**
+checks a *property* that must hold for **all** inputs, by generating hundreds of randomized cases —
+including the boundary and adversarial inputs you'd never enumerate by hand — and shrinking any
+failure to a minimal reproducer. It complements, never replaces, example-based TDD: keep your
+hand-written cases as living documentation, and add properties where the input space is large and a
+general invariant exists.
+
+**Reach for it when** the input space is wide (parsers, serializers, numeric/data transforms,
+collection logic, state machines) and you can state a rule that should *always* be true.
+
+Common property shapes:
+
+| Property | The invariant | Example |
+|----------|---------------|---------|
+| **Round-trip** | `decode(encode(x)) == x` | serialize→deserialize, parse→format, compress→decompress |
+| **Idempotence** | `f(f(x)) == f(x)` | normalize, dedupe, sort, saturating clamp |
+| **Invariant / oracle** | a cheaper or known-correct implementation agrees | optimized vs naive; sorted output is a permutation of input and ordered |
+| **Metamorphic** | a transformed input changes the output predictably | `sort(reverse(xs)) == sort(xs)`; adding an item grows the count by one |
+
+The point isn't more assertions — it's letting the generator *find the input that breaks your
+mental model*. When it shrinks to a tiny failing case, that case becomes a permanent example-based
+regression test (the Prove-It Pattern).
+
+Ecosystem (one per language; the project's own runner/conventions live in `testing-conventions`):
+**Python** → Hypothesis · **JS/TS** → fast-check · **Java/Kotlin** → jqwik · **Rust** → proptest ·
+**Go** → built-in `testing/quick` or rapid · **Haskell/Scala** → QuickCheck/ScalaCheck.
+
 ## Writing Good Tests
 
 ### Test State, Not Interactions

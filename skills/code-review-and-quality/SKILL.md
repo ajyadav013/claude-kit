@@ -280,6 +280,8 @@ Part of code review is dependency review:
 
 **Rule:** Prefer standard library and existing utilities over new dependencies. Every dependency is a liability.
 
+For a full pre-add evaluation of a specific candidate (maintenance/bus-factor, license, supply-chain history, transitive weight, lock-in, adopt/reject decision), use the `library-review` skill — this 5-point list is its quick form.
+
 ## The Review Checklist
 
 ```markdown
