@@ -59,6 +59,31 @@ answer that reshapes scope. The order chosen at the start is a hypothesis, not a
 proceeds (and the `planning-and-task-breakdown`, `triage`, and `sprint` skills apply the same criteria
 at backlog/sprint scope).
 
+## 4. Instrument the run so monitoring is measured, not guessed
+
+§2 says *track, don't assume*. The cheapest way to track an agent honestly is to **emit telemetry from
+the run itself** instead of reconstructing it after the fact. Model the run as a **span tree** —
+`session → turn → tool call / model call` — and record each node:
+
+- **Hang the spans off events you already have.** The host's hooks (prompt-submit, pre/post tool use,
+  sub-agent start/stop, stop, pre-compact) are natural span boundaries — you get the hierarchy without
+  instrumenting business logic. claude-kit's own `hooks/` and its orchestrator/sub-agent structure map
+  directly onto this tree.
+- **Record the attributes that make a run debuggable:** which tool/model, token cost, latency, and
+  outcome per node — the same signals §2 monitors and `.claude/rules/quality-gates.md` trends. Capture
+  model token usage where the call happens, not by estimating later.
+- **Use a stable attribute vocabulary** (a documented convention — e.g. the emerging GenAI semantic
+  conventions) so runs stay comparable across sessions and tools, the way `.claude/rules/evals.md`
+  needs N-comparable numbers.
+
+This turns "I think the run is progressing" into a measured session you can grade
+(`.claude/rules/evals.md`) and trend. (This is *agent-run* telemetry; **app and LLM** observability
+live in the `observability-and-logging`, `otel-tracing`, and `langfuse-llm-tracing` skills.)
+
+> Stack-agnostic adaptation of the agent-session instrumentation pattern in the Apache-2.0
+> [`alibaba/loongsuite-js`](https://github.com/alibaba/loongsuite-js) (session→turn→tool/LLM span
+> hierarchy via runtime hooks, GenAI semantic-convention attributes). Re-derived in prose; not vendored.
+
 ## Rules
 
 1. **No work without a checkable goal.** Even a fast-track fix states what "fixed" means and how it's

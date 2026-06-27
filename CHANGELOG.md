@@ -4,6 +4,37 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.47.0] — 2026-06-27
+
+**Adopt 5 verified agentic-engineering patterns from an exhaustive review of the Alibaba GitHub org**
+— all 542 repos were reviewed; the overwhelming majority (Java middleware, ML/inference infra, mobile
+UI, frontend frameworks) yield nothing transferable to a stack-agnostic config scaffolder, and an
+adversarial verification pass dropped a sixth candidate (`p3c`) as unsubstantiated + already covered.
+The five that survived are re-derived **in prose (never vendored)** from Apache-2.0 sources, and the
+agnostic core stays free of framework/product names:
+
+- **`rules/evals.md` §7 — staged, leak-resistant eval pipelines** (from `alibaba/atrex-bench`):
+  sequential gates (build → correct → efficient, each gating the next), generate/grade session
+  isolation so the model can't read the answer, and objective external baselines instead of
+  self-grading.
+- **`rules/agent-guardrails.md` §5 — operation authorization** (from `alibaba/open-agent-auth`): a
+  delegated user→agent→operation authority chain, per-request revocable credential scope, a verifiable
+  audit trail, and runtime-updatable authz policy — distinct from the existing input/output/tool
+  guardrails.
+- **`rules/tool-design.md` §8 — orchestrating a tool *set*** (from `alibaba/app-controller` +
+  `alibaba/loongsuite-js`): registry-based discovery, plan-before-execute, concurrent independent
+  calls, durable cross-turn workflow state, written atomically (tmp-write-then-rename) to survive
+  concurrent hooks/agents.
+- **`rules/goal-setting-and-monitoring.md` §4 — instrument the run** (from `alibaba/loongsuite-js`):
+  model the agent run as a `session → turn → tool/LLM` span tree hung off the host's existing hooks,
+  with a stable (GenAI-semconv) attribute vocabulary — measured monitoring, not assumed.
+- **`skills/debugging-and-error-recovery` — live-attach debugging** (from `alibaba/arthas`;
+  `jvm-sandbox` referenced for concept only): the missing third mode (attach → instrument/profile/
+  inject-fault → observe → detach) for non-reproducible production bugs where restart is infeasible,
+  gated as a `block`/`confirm`-tier action with multi-language illustrative tooling.
+
+No count/anchor changes (rules and skills extended, none added). Version 0.46.0 → 0.47.0.
+
 ## [0.46.0] — 2026-06-27
 
 **New `design-system-ops` collection skill** — the **operations layer** for a design system: the work
