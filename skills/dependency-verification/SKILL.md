@@ -85,9 +85,17 @@ need a dep at all?      → mandatory-workflow.md §2a.5 (Reuse & YAGNI gate)
 which dep, is it healthy?→ library-review skill (adopt/reject evaluation)
 does this NAME exist?    → THIS skill (pre-install: hallucination/typosquat)   ◄── you are here
             install
+use its CURRENT api?     → Context7 MCP (live docs) · library-skills (author-shipped, version-synced skills)
 installed deps: CVEs?    → dependency-scanner agent (post-install CVE/outdated audit)
 lockfile/artifact integrity? → dependency-scanner agent (supply-chain integrity mode)
 ```
+
+**The "use its current API" layer** is the same root defense as the name check, one step later: the
+model's memory of a library's API is also a *claim*, and it goes stale as the library releases. Ground
+usage in the source — [`library-skills`](https://library-skills.io) (MIT) installs a dependency's
+*author-shipped, version-synced* skills into `.claude/skills/` (managed symlinks; `uvx library-skills`
+/ `npx library-skills`) for the growing set of libraries that ship them, and the Context7 MCP (live
+docs) covers the rest. Both beat reconstructing an out-of-date API from training data.
 
 **Optional enforcement:** a `PreToolUse` hook on install commands can run this check automatically
 (warn-by-default; block on nonexistent/typosquat when configured). The hook is a backstop — verify
