@@ -4,6 +4,36 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.46.0] — 2026-06-27
+
+**New `design-system-ops` collection skill** — the **operations layer** for a design system: the work
+*after* components are built. Where the existing `radix-tailwind-component-patterns` / `component-design`
+skills *build* components and `ui-ux-design` verifies *one* screen during implementation, this skill
+audits, governs, documents, validates, and measures the **system as a whole, over time** — the genuine
+gap in the kit's design coverage.
+
+- **`skills/design-system-ops/`** — `SKILL.md` (operations lifecycle: audit → govern → document →
+  validate → communicate, with explicit `Do NOT use … → use <sibling>` boundaries) + `README.md` +
+  five `references/`:
+  - `token-architecture.md` — three-tier token model (primitive → semantic → component),
+    strictly-downward references, naming, DTCG 2025.10 alignment, cross-platform handling.
+  - `system-health-and-maturity.md` — seven health dimensions, library-type classification, five
+    maturity stages, and how to grade/calibrate.
+  - `drift-detection.md` — four drift kinds (visual/behavioural/API/token), A/C/E classification,
+    styling-specific token-drift detection, severity, trend tracking.
+  - `governance-and-adoption.md` — deprecation, decision records, contribution + change communication;
+    adoption model (coverage ≠ adoption, four signals, leading/lagging, per-team).
+  - `ai-readiness.md` — context cascade, three pillars, six AI-readiness dimensions, Component
+    Challenge Rating calibration.
+- **Reuse-first, attributed:** frameworks **re-derived stack-agnostic** (not vendored) from the
+  MIT-licensed [`murphytrueman/design-system-ops`](https://github.com/murphytrueman/design-system-ops)
+  (© 2026 Murphy Trueman), re-expressed in the kit's idiom.
+- **Cross-links:** reciprocal scope-boundary pointer added to `ui-ux-design` (per-feature build-time →
+  this system-wide layer); decision records route to `documentation-and-adrs`; WCAG to
+  `accessibility-review`.
+- **Counts:** skills **103 → 104** (collection **47 → 48**, core unchanged at 56); `docs/stack-skills`
+  table row + routing entry added.
+
 ## [0.45.0] — 2026-06-27
 
 **Adopt `library-skills` as a referenced companion** — [`library-skills`](https://library-skills.io)

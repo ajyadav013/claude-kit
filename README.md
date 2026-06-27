@@ -54,7 +54,7 @@ Quick start) for the full breakdown of any row.
 | 🔁 **Pipeline & quality gates** | Gate-enforced progression (zero open Critical/High/Medium to advance), per-profile gate sets, a fast-track for small changes, and an anti-sycophancy `devils-advocate` pass |
 | 🤖 **Agent roster** | **28** tiered agents + per-database overlays + **6** org personas, led by an Orchestrator that never writes code |
 | 🔍 **Self-verification & review** | RARV green-Verify (real commands, not imagined), blind parallel review, and read-only risk classification |
-| 📐 **Rules & skills** | **23** stack-agnostic core rules (incl. 8 agent-operation rules) + **103** context-activated skills (56 core + 47 stack-collection) |
+| 📐 **Rules & skills** | **23** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
 | 🧱 **Stacks & overlays** | Stack-agnostic core + **10** overlay rule sets (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
@@ -251,7 +251,7 @@ need.
 - **23 stack-agnostic core rules** in [`rules/`](rules/) — `mandatory-workflow`, `quality-gates`,
   `rarv-cycle`, `continuity`, plus eight agent-operation rules and `autonomy-levels` +
   `risk-classification` (see [`docs/agentic-patterns.md`](docs/agentic-patterns.md)).
-- **103 on-demand skills** in [`skills/`](skills/) (56 core + 47 stack-collection) — spec-driven dev, planning, TDD, debugging, code
+- **104 on-demand skills** in [`skills/`](skills/) (56 core + 48 stack-collection) — spec-driven dev, planning, TDD, debugging, code
   review, threat modeling, and more — activated by context and led by the `sdlc` entrypoint.
 - **Profile-subset install** — each profile installs a strict subset of agents, skills, hooks, and
   rules (`lean ⊂ standard ⊂ enterprise`), from fast track to full audit.
@@ -407,7 +407,7 @@ owned gates, and the rule that **no gate passes on an unproven verdict**.
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | A **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | The same coverage-gate idea (the `story-planner` 1f gate + `task-tracker-sync`) **absorbed into a broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | **Portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 23 rules, 28 agents, 103 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 23 rules, 28 agents, 104 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
 
 **Choose claude-kit when** you want a consistent, reviewable, **gate-enforced** autonomous-SDLC setup
 that's the same across every repo and stack, installs in seconds, ships nothing you have to run, and
