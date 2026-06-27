@@ -469,11 +469,24 @@ non-duplicative gaps**, minimally and catalog-wired.
 | Source | What we learned | What we shipped | Since |
 |---|---|---|:--:|
 | **Agentic Design Patterns** — A. Gulli ([coverage map](docs/agentic-patterns.md)) | Reasoning, guardrails, resilience, human-in-the-loop, evals, and tool design as first-class agent disciplines | 8 agent-operation rules + [`docs/agentic-patterns.md`](docs/agentic-patterns.md) | `0.4.0` |
-| **[ponytail](https://github.com/DietrichGebert/ponytail)** | YAGNI / anti-over-engineering as an explicit recurring pass; deferral-debt tracking; surfacing the active autonomy level | `over-engineering-review` & `simplification-debt` skills, the `load-autonomy` hook, median-of-N in `evals` | `0.8.0` |
+| **[ponytail](https://github.com/DietrichGebert/ponytail)** | YAGNI / anti-over-engineering as an explicit recurring pass; deferral-debt tracking; surfacing the active autonomy level; a pre-code reuse gate | `over-engineering-review` & `simplification-debt` skills, the `load-autonomy` hook, median-of-N in `evals`; later the pre-code **Reuse/YAGNI gate** (`mandatory-workflow` §2a.5) | `0.8.0`, `0.33.0` |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec → tasks → **analyze** coverage gate; tasks → tracker issues; stable requirement IDs + assumptions in specs | Wired the (previously orphaned) `story-planner` as the **coverage gate (1f)**, a tracker-agnostic `task-tracker-sync` skill, and enriched the feature-spec template | `0.9.0` |
 | **[protectai/llm-guard](https://github.com/protectai/llm-guard)** | Input→model→output guardrails for LLM features — prompt injection, PII vault, treating model output as untrusted | **Opt-in** "LLM / AI Feature Security" guidance in `security-and-hardening` + the advisory `warn-llm-io` hook (warns, **never blocks**) | `0.10.0` |
+| **[repowise](https://github.com/repowise-dev/repowise)** | Runtime codebase-intelligence — hotspot (churn × complexity), co-change coupling, and change-risk as *advisory* review input | Hotspot/coupling/bus-factor guidance in `code-review-and-quality` (derivable from `git log` alone) + an **optional** `repowise` MCP fragment in the catalog (advisory, never a gate) | `0.11.0` |
 | **Improvement brief** (external self-review) | API backward-compat as a gate; load-against-SLO as a release criterion; supply-chain maintenance cadence; pipeline resumability, clean abort, and worktree lifecycle; pipeline cost/concurrency/cross-platform transparency | The enterprise **`contract-clear`** gate (owned by `merge-reviewer`) + `api-change-report` template; a load-vs-SLO criterion in Observability Ready; dependency **Cadence Mode**; `/sdlc` resume-vs-restart, `/claude-kit:abort`, worktree teardown; cost/concurrency/Windows notes — **9 surgical extensions, 0 new agents/skills/rules** | `0.12.0` |
 | **Improvement brief #2** (external self-review) | The covered-vs-**gated** distinction (a skill ≠ a gate); enforce API breaking-changes by default; expand/contract migration safety; back the stack-agnostic claim with a compiled backend; WCAG as a regulated gate; reconcile the PyPI story; ship a worked example + a self-test matrix | [`docs/coverage-audit.md`](docs/coverage-audit.md); **`contract-clear` promoted to `standard`**; a live **Go/net-http** backend; the **`accessibility-clear`** regulated gate; explicit migration-drop rules; a synthetic [`examples/`](examples/) run; an eval-harness template; a profile×stack×scope self-test matrix — **2 gates wired + 1 stack, 0 new agents/skills/rules** | `0.13.0` |
+| **[OpenSpec](https://github.com/Fission-AI/OpenSpec)** | Delta-specs — change-scoped artifacts describing only what a change adds / modifies / removes | A `change-proposal.md` delta-spec template (keyed to stable `R#` ids) + a "full vs delta spec" decision in `spec-driven-development` | `0.34.0` |
+| **gstack "Iron Law" + [superpowers](https://github.com/obra/superpowers)** `systematic-debugging` | Bounding blind fix attempts on a single bug | The **3-strike fix-attempt rule** in `agent-resilience` (each attempt a distinct hypothesis; at the 3rd, stop → re-derive root cause → escalate) | `0.35.0` |
+| **Karpathy-skills · addyosmani/agent-skills · shanraisshan/claude-code-best-practice** | Rule presentation & context hygiene — quotable taglines, embedded self-checks, quantitative context guardrails | Presentation polish on 6 rules + quantitative guardrails in `context-engineering` (presentation only, count-neutral) | `0.36.0` |
+| **[temporalio/skill-temporal-developer](https://github.com/temporalio/skill-temporal-developer)** | Temporal *fundamentals* — durable execution, determinism/replay, versioning, testing | `temporal-developer` collection skill (complements, not duplicates, `temporal-config-driven`) | `0.37.0` |
+| **[wdm0006/python-skills](https://github.com/wdm0006/python-skills)** | Pre-add dependency evaluation; property-based testing | `library-review` core skill + a Property-Based Testing section in `test-driven-development` (rest skipped as redundant) | `0.38.0` |
+| **[athola/claude-night-market](https://github.com/athola/claude-night-market)** (4-part audit) | Supply-chain defense; review grounding; escalation/safety/shell lenses; doc hygiene & resource-proportionality | `dependency-verification` · `safety-critical-patterns` · `shell-review` · `doc-consolidation` skills; finding-grounding in `code-review-and-quality`; tier-escalation + reversibility gates; `tool-design` §7 | `0.39.0`–`0.42.0` |
+| **OpenTelemetry · W3C Trace Context · [Grafana Tempo](https://github.com/grafana/tempo)** | Vendor-neutral distributed tracing & trace↔log correlation | `otel-tracing` collection skill | `0.43.0` |
+| **[Claude Code docs](https://code.claude.com)** | Verified token-economy settings | `autoCompactEnabled` / `maxSkillDescriptionChars` / terminal-title env in the generated settings, bounded SessionStart context hooks, and a leaner `templates/CLAUDE.md` | `0.44.0` |
+| **[library-skills](https://library-skills.io)** | A dependency's *author-shipped, version-synced* skills as the defense against stale-API generation | Documented as the no-MCP companion to Context7 in `catalog/mcp.yaml`; referenced from `dependency-verification` & `library-review` | `0.45.0` |
+| **[murphytrueman/design-system-ops](https://github.com/murphytrueman/design-system-ops)** | Operating a design system *over time* — token architecture, drift, health/maturity, governance, adoption, AI-readiness | `design-system-ops` collection skill (the operations layer, distinct from the build-time UI skills) | `0.46.0` |
+| **[alibaba](https://github.com/alibaba) org review** (all 542 repos) | Staged leak-resistant evals; agent-operation authorization; tool-set orchestration + atomic state; agent-run span-tree instrumentation; live-attach debugging | `evals` §7, `agent-guardrails` §5, `tool-design` §8, `goal-setting-and-monitoring` §4, and live-attach debugging in `debugging-and-error-recovery` (from atrex-bench · open-agent-auth · app-controller · loongsuite-js · arthas) | `0.47.0` |
+| **[alibaba/open-code-review](https://github.com/alibaba/open-code-review)** | Partition-for-coverage review — deterministic full-file coverage on large changesets, related-file bundling, plan-before-deep-pass | The "Cover Every Changed File" section in `code-review-and-quality` + a Coverage category in `sdlc-code-reviewer` | `0.48.0` |
 
 > Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
 > deliberately **did not** add because the kit already covered it.
@@ -483,28 +496,30 @@ non-duplicative gaps**, minimally and catalog-wired.
 
 <br>
 
-**🪶 ponytail → minimalism layer (0.8.0).** Most of ponytail's philosophy (YAGNI, stdlib-first,
-surgical diffs) was already enforced by `CLAUDE.md` "Simplicity First" + `code-simplification`, so we
-added only the missing *mechanisms*: `over-engineering-review` (a complexity-only, report-only
-delete-list), `simplification-debt` (harvests `TODO`/`FIXME`/inline `shortcut:` markers into a ledger
-and flags ones that name no upgrade path), and the `load-autonomy` SessionStart hook (surfaces the
-active autonomy level each session).
+**🎨 murphytrueman/design-system-ops → operations layer (0.46.0).** The kit already covered *building*
+components (`component-design`, `radix-tailwind-component-patterns`) and *verifying one screen*
+(`ui-ux-design`); the gap was operating the system **over time**. The new `design-system-ops`
+collection skill adds the operations lifecycle (audit → govern → document → validate → communicate)
+with five references — three-tier token architecture, seven-dimension health & five maturity stages,
+the drift taxonomy, governance & adoption measurement, and AI-readiness / Component Challenge Rating —
+re-derived stack-agnostic with attribution.
 
-**🧭 GitHub spec-kit → coverage gate + tracker sync (0.9.0).** The headline was *reuse*: the kit
-already had a `story-planner` agent that verifies every acceptance criterion maps to a story, but it
-was **never wired into the pipeline**. We made it **stage 1f** (between EM approval and the developer),
-so implementation can't start until coverage is proven. We also added `task-tracker-sync` (mirrors a
-plan into GitHub / Linear / Jira issues, dependencies preserved) and gave the feature-spec template
-stable requirement IDs + an Assumptions section. We **skipped** spec-kit's `/constitution`,
-`/clarify`, and `/checklist` — all already covered.
+**🧭 alibaba org review → 5 agentic patterns (0.47.0).** We reviewed **all 542 repos** in the Alibaba
+org (survey every repo → deep-dive every candidate → adversarially verify). The overwhelming majority —
+Java middleware, ML/inference, mobile, frontend frameworks — carried nothing transferable to a config
+scaffolder, and the verify pass *dropped* a sixth candidate (`p3c`) as unsubstantiated and already
+covered. Five survived: staged leak-resistant evals (`evals` §7), agent-operation authorization
+(`agent-guardrails` §5), tool-set orchestration + atomic state (`tool-design` §8), agent-run span-tree
+instrumentation (`goal-setting-and-monitoring` §4), and live-attach debugging
+(`debugging-and-error-recovery`).
 
-**🛡️ protectai/llm-guard → opt-in LLM security (0.10.0).** The kit secured the *agent itself* and
-*traditional* web appsec, but nothing covered **the LLM features you build into your product** (the
-OWASP LLM Top 10). Per request, the new layer is **opt-in, bypassable, and states the risk of
-bypassing**: an "LLM / AI Feature Security" section in `security-and-hardening` (input/output
-guardrails, PII vault, untrusted-output handling, a security-implications-of-bypassing table) plus a
-non-blocking `warn-llm-io` hook. We deliberately did **not** add a new rule or fold it into the
-mandatory security gate — that would have made it mandatory.
+**🔍 alibaba/open-code-review → coverage-partition review (0.48.0).** A detailed read showed most of its
+methodology (multi-axis review, line-level grounding + re-verify, severity, multi-model) was *already*
+in `code-review-and-quality`. The one genuine gap: **complete file coverage on large changesets** —
+where AI reviewers silently skip files. We added "Cover Every Changed File: Partition, Plan, Then
+Weight Depth" (enumerate from the diff as the checklist of record → bundle related files →
+isolated-context concurrent review → reconcile every file to a verdict), reframing the existing hotspot
+guidance as the *depth* step that follows coverage.
 
 </details>
 

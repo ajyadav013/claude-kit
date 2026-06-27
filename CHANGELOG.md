@@ -4,6 +4,25 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.49.0] — 2026-06-27
+
+**Docs: bring the README "Influences & what we adopted" table current.** The table had drifted —
+it stopped at `0.13.0` while the kit shipped ~13 more external-source adoptions. Since the README is
+the package's PyPI long-description, this republishes so the public page reflects the full ledger.
+
+- Added rows for every external-source adoption since `0.13.0`: repowise (`0.11.0`, backfilled),
+  OpenSpec (`0.34.0`), gstack + superpowers `systematic-debugging` (`0.35.0`), Karpathy-skills ·
+  addyosmani · shanraisshan presentation polish (`0.36.0`), temporalio/skill-temporal-developer
+  (`0.37.0`), wdm0006/python-skills (`0.38.0`), the athola/claude-night-market 4-part audit
+  (`0.39.0`–`0.42.0`), OpenTelemetry · W3C Trace Context · Grafana Tempo (`0.43.0`), Claude Code docs
+  (`0.44.0`), library-skills (`0.45.0`), murphytrueman/design-system-ops (`0.46.0`), the alibaba org
+  review (`0.47.0`), and alibaba/open-code-review (`0.48.0`).
+- Folded ponytail's second adoption (the pre-code Reuse/YAGNI gate, `0.33.0`) into its existing row.
+- Refreshed the "latest three reviews, in a bit more depth" details block (was `0.8`–`0.10`) to the
+  actual latest three: design-system-ops, the alibaba org review, and open-code-review.
+
+Docs-only (README is the sole content change); no payload/count/anchor changes. Version 0.48.0 → 0.49.0.
+
 ## [0.48.0] — 2026-06-27
 
 **Adopt the partition-for-coverage review methodology from `alibaba/open-code-review`** (Apache-2.0,
