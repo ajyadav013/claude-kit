@@ -70,3 +70,8 @@ Verify UI/UX design compliance for $ARGUMENTS.
 - Sidebar navigation: `docs/references/ui/sidebar-navigation.md` (project-specific, if present)
 - UI components: `src/components/ui/index.ts`
 - Existing pages: `src/pages/` (look at similar archetype)
+
+**Scope boundary.** This skill verifies *one* screen/feature against the design system *during
+implementation*. For the **system-wide, over-time** operations layer — token architecture, drift
+detection, system health & maturity, governance, adoption, and AI-readiness of the design system
+itself — use `design-system-ops`.
