@@ -287,6 +287,23 @@ _STARTER_COMMENT = (
     "existing settings.json as needed."
 )
 
+#: Token-budget defaults baked into every assembled settings.json (the pip-installed file AND the
+#: no-pip starter, since both go through :func:`build_settings`). These trim per-session/per-turn
+#: context cost without lowering reasoning on any gate — we deliberately do NOT set
+#: ``model``/``effortLevel``/``MAX_THINKING_TOKENS`` here, as those would cut capability on the
+#: judgment-heavy review/security stages.
+#:  - ``env.CLAUDE_CODE_DISABLE_TERMINAL_TITLE`` skips the background Haiku title request in
+#:    headless/subagent runs (the SDLC pipeline spawns many subagents).
+#:  - ``autoCompactEnabled`` is already the Claude Code default; set explicitly because the kit's
+#:    CONTINUITY-survives-compaction design depends on auto-compaction staying on.
+#:  - ``maxSkillDescriptionChars`` bounds the per-turn skill listing; 1100 sits above the kit's
+#:    longest current skill description (~973 chars) so nothing truncates today while capping growth.
+_TOKEN_BUDGET: dict[str, Any] = {
+    "env": {"CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"},
+    "autoCompactEnabled": True,
+    "maxSkillDescriptionChars": 1100,
+}
+
 #: Event ordering for a stable, readable settings.json.
 _EVENT_ORDER = (
     "SessionStart",
@@ -362,6 +379,7 @@ def build_settings(
     ]
     return {
         "$comment": comment or _INSTALLED_COMMENT,
+        **_TOKEN_BUDGET,
         "hooks": _hooks_block(specs),
     }
 

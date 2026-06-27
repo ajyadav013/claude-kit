@@ -1,5 +1,10 @@
 {
   "$comment": "Recommended Claude Code settings installed by claude-kit. Hooks wire the SDLC working-memory, learnings, guardrails, and quality checks to the scripts in .claude/hooks/. Merge with your existing settings.json as needed.",
+  "env": {
+    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
+  },
+  "autoCompactEnabled": true,
+  "maxSkillDescriptionChars": 1100,
   "hooks": {
     "SessionStart": [
       {

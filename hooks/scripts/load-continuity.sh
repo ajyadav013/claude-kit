@@ -29,7 +29,23 @@ fi
 
 echo "## Working memory (.claude/CONTINUITY.md) — read before acting; write back before the turn ends:"
 echo
-cat "$LIVE"
+
+# Bound the injected size. This file is dumped into context on EVERY session start, and a mature
+# CONTINUITY.md can grow to tens of KB. Cap it to a digest that keeps BOTH ends — the top
+# (Current Phase / Active Tasks) and the bottom (Next Steps / Blocked / Test-Build Status) — and trims
+# only the middle (the unbounded Completed / Decisions / Modified-Files lists). The full file is always
+# on disk; agents open it directly when they need the trimmed detail. Small files are emitted unchanged.
+CAP=8000          # ~2,000 tokens
+SIZE=$(wc -c <"$LIVE" 2>/dev/null || echo 0)
+SIZE=${SIZE//[!0-9]/}
+SIZE=${SIZE:-0}
+if [ "$SIZE" -le "$CAP" ]; then
+  cat "$LIVE"
+else
+  head -c 5500 "$LIVE"
+  printf '\n\n...[middle of CONTINUITY.md trimmed to save context — %s bytes total; open .claude/CONTINUITY.md for the full working memory]...\n\n' "$SIZE"
+  tail -c 2000 "$LIVE"
+fi
 echo
 echo "Resume from \"Next Steps\". If you change phase or finish work, update CONTINUITY.md before ending the turn. Promote durable lessons to .claude/agent-memory/ via the remember skill."
 

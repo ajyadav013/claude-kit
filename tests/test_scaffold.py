@@ -964,3 +964,30 @@ def test_readme_is_user_editable_not_clobbered(tmp_path, payload):
     install(payload, target)  # second pass, force=False
     assert readme.read_text(encoding="utf-8") == "MY OWN README\n"
     assert (target / "README.claude-sdlc.md.claude-kit").is_file()
+
+
+def test_token_budget_keys_in_installed_settings(tmp_path, payload):
+    """The token-budget defaults (env terminal-title off, autoCompact, skill-listing cap) land in the
+    pip-installed .claude/settings.json across profiles — and match the no-pip starter template, so the
+    two install paths can't silently diverge on token settings."""
+    from claude_kit import hooks
+
+    for profile in ("lean", "standard", "enterprise"):
+        target = tmp_path / profile
+        install(payload, target, profile=profile)
+        s = json.loads(
+            (target / ".claude" / "settings.json").read_text(encoding="utf-8")
+        )
+        assert s["env"]["CLAUDE_CODE_DISABLE_TERMINAL_TITLE"] == "1"
+        assert s["autoCompactEnabled"] is True
+        assert (
+            s["maxSkillDescriptionChars"]
+            == hooks._TOKEN_BUDGET["maxSkillDescriptionChars"]
+        )
+
+    # Parity: the no-pip starter template carries the identical token-budget block.
+    starter = json.loads(
+        (payload / "templates" / "settings.json").read_text(encoding="utf-8")
+    )
+    for key, val in hooks._TOKEN_BUDGET.items():
+        assert starter[key] == val, f"starter settings.json missing token key {key!r}"

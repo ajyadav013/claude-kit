@@ -21,7 +21,20 @@ ENTRIES=${ENTRIES:-0}
 
 echo "## Accumulated learnings (from .claude/agent-memory/) — apply these before relevant work:"
 echo
-cat "$INDEX"
+
+# Bound the injected index. It is dumped into context on EVERY session start and grows with each
+# learning; cap it so an aged repo's index can't quietly become a per-session tax. The full index is
+# always on disk (.claude/agent-memory/MEMORY.md); the consolidation nudge below keeps it lean.
+CAP=8000          # ~2,000 tokens
+ISIZE=$(wc -c <"$INDEX" 2>/dev/null || echo 0)
+ISIZE=${ISIZE//[!0-9]/}
+ISIZE=${ISIZE:-0}
+if [ "$ISIZE" -le "$CAP" ]; then
+  cat "$INDEX"
+else
+  head -c "$CAP" "$INDEX"
+  printf '\n\n...[learnings index trimmed to save context — %s bytes total; open .claude/agent-memory/MEMORY.md for the full index]...\n' "$ISIZE"
+fi
 echo
 echo "Before design or implementation, open the category file whose \"applies when\" matches the current task and follow it. New learnings are captured automatically; you may also use the /remember skill."
 

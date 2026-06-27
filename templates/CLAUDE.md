@@ -5,8 +5,9 @@ agent-driven software development lifecycle (SDLC): every change moves through s
 review → implementation → code review → testing → security → delivery, with quality
 gates between phases.
 
-> Installed by **claude-kit**. The full pipeline, agents, skills, and rule details live in
-> `.claude/rules/`, `.claude/agents/`, and `.claude/skills/`. This file is the entry point.
+> Installed by **claude-kit**. This file is the entry point and is loaded into context every
+> session, so it is kept lean — the full pipeline, gating rules, agent roles, and rule details
+> live on-demand in `.claude/rules/`, `.claude/agents/`, and `.claude/skills/` (cited inline below).
 
 ---
 
@@ -76,165 +77,75 @@ require constant clarification.
 
 ---
 
-## 1) Spec-first rule
-Do not write implementation code until a written spec exists.
+## The SDLC pipeline
 
-Before coding:
-- identify whether a relevant spec already exists
-- if not, draft one first
-- if the task changes, update the spec before continuing
+Every non-trivial change moves through these phases, each **gated** (a gate passes only with zero open
+Critical/High/Medium findings). This is the map only — the **full** step-by-step pipeline (agent roles,
+gating rules, parallel-lane handling, the defect-loop protocol) lives in
+`.claude/rules/mandatory-workflow.md`, and the severity/review/gate model lives in
+`.claude/rules/quality-gates.md`. Read those before driving a phase.
 
-A task is not ready for implementation until the spec is explicit enough to review.
+1. **Spec first** — no implementation code until a written spec exists; update the spec if the task
+   changes. (Spec & Doc Writer; for UI work the UI Designer drafts a design spec first — screen states,
+   interactions, empty/loading/error states, responsive behavior, accessibility.)
+2. **Review chain** — Senior Developer → Technical Architect → Engineering Manager review the spec
+   before any code. Independent work streams (the canonical example is a backend lane and a frontend
+   lane, but it applies to any split) run their review chains **in parallel**, joined by a Merge
+   Reviewer at shared-contract / integration points.
+3. **Implementation** — only after reviews pass; one isolated worktree per parallel stream, each with
+   its own Code Reviewer.
+4. **Testing** — Tester → Senior Tester (parallel lanes for multi-stream work), then a test-coverage
+   merge review confirming every acceptance criterion is covered with no gaps.
+5. **Security** — the `security-reviewer` dispatches `secret-scanner`, `dependency-scanner`,
+   `owasp-reviewer`, and `policy-validator`, and gates **Security Clear**.
+6. **Delivery & operability** — for deployable/observable changes, `devops-engineer` (Pipeline Green)
+   and `observability-engineer` (Observability Ready) run after testing and before the PR Raiser.
 
-## 2) Review workflow before implementation
-Before writing code, follow this workflow:
+**Defect loop:** on any failure / regression / spec-mismatch, document and classify it by work stream,
+update the spec if expected behavior is unclear, then re-run **only the affected stream(s)** through
+their chain → merge review → Tester → Senior Tester. Don't patch defects outside the process; don't
+re-run unaffected lanes.
 
-1. **Spec & Doc Writer** writes specification + developer documentation in a single pass
-2. **UI Designer** (if UI work) — drafts and self-reviews the design spec
-3. Spec is reviewed by the appropriate **Senior Developer** (per work stream)
-4. Spec is reviewed by the **Technical Architect** — validates system design, scalability, integration
-5. Spec is reviewed by the **Engineering Manager** — final strategic and completeness check
-6. **Implementation** starts only after all reviews are complete
+**Roles** map to agents in `.claude/agents/` (Spec & Doc Writer, UI Designer, Senior Developer,
+Technical Architect, Engineering Manager, Developer, Code Reviewer, Tester, Senior Tester, Unit/E2E
+Tester, Security Reviewer + sub-scanners, Devil's Advocate, Merge Reviewer, DevOps Engineer,
+Observability Engineer, PR Raiser, Orchestrator). The Orchestrator coordinates and gates — it never
+writes code. State which role is being simulated at each stage when it helps clarity.
 
-At any stage, reviewers may request corrections. If anything is missing, update the spec
-and re-run the affected review.
+**Fast-track:** for bug fixes, typos, single-component changes, or config updates (< 5 files), skip the
+spec/design/review chain and go straight to Developer → Code Reviewer → Tester → PR Raiser. If asked
+for speed on larger work, you may compress the process but must preserve the sequence and outputs.
 
-### Parallel execution for multi-stream work
-When a task spans two or more **independent work streams** (the canonical example is a
-backend lane and a frontend lane, but it applies to any split — service A vs. service B,
-API vs. client, data layer vs. UI):
+## Quality bar & documentation
 
-- Each stream's review chain (Senior Developer → Technical Architect → EM) runs **in parallel**.
-- After all review chains pass, a **Merge Reviewer** verifies cross-stream consistency
-  (shared contracts, data models, shared state).
-- Implementation then runs **in parallel**, one stream per isolated worktree, each with
-  its own **Code Reviewer**.
-- After all implementations pass code review and unit tests, the **Merge Reviewer** verifies
-  integration compatibility.
-- Only then does integration testing proceed.
+- **Optimize for:** simplicity, correctness, scalability, reliability, maintainability, observability,
+  testability, security, and user experience.
+- **Documentation is mandatory** for every change: a module/file header on every new/modified source
+  file, a docstring on every public function (arguments, return value, errors), full type annotations
+  on public signatures, named typed structures over opaque maps, API metadata on every endpoint where
+  applicable, and a README update when endpoints, env vars, structure, or architecture change. See
+  `.claude/rules/documentation.md`.
 
-Independent work streams must never block each other. Merge-reviewer gates ensure
-consistency at join points.
+## Working memory, self-check & gates
 
-## 3) Design-first workflow for UI changes
-For any frontend, UI, UX, or interaction change:
+- **Working memory:** read/write `.claude/CONTINUITY.md` every turn and at each stage transition so
+  work survives context compaction and new sessions. Distinct from `.claude/agent-memory/` (durable
+  learnings). See `.claude/rules/continuity.md`.
+- **RARV:** every agent runs Reason → Act → Reflect → Verify and shows a green Verify before handoff.
+  See `.claude/rules/rarv-cycle.md`.
+- **Severity & review:** classify every finding Critical/High/Medium/Low/Cosmetic; a gate passes only
+  with zero Critical/High/Medium open. A unanimous PASS triggers the `devils-advocate` agent before the
+  gate counts. See `.claude/rules/quality-gates.md`.
+- **DevOps & Observability gates** run after testing and before the PR for deployable/observable
+  surfaces. See `.claude/rules/devops-observability.md`.
 
-1. the **UI Designer** drafts a design spec (includes self-review against a quality checklist)
-2. the design spec describes: screen states, interactions, component behavior,
-   empty/loading/error states, responsive behavior, accessibility
-3. UI implementation begins only after the design spec is complete
+## Compact instructions
 
-Do not start UI implementation from a vague request when a design spec is required.
-
-## 4) Required roles
-Each role maps to a dedicated agent in `.claude/agents/`:
-
-**Spec & Documentation:** Spec & Doc Writer · UI Designer
-**Review chain (per work stream):** Senior Developer · Technical Architect · Engineering Manager
-**Implementation & code review:** Developer · Code Reviewer
-**Testing:** Tester · Senior Tester · Unit Tester · E2E Tester
-**Security:** Security Reviewer + sub-scanners (Secret · Dependency · OWASP · Policy)
-**Review rigor:** Devil's Advocate (anti-sycophancy, on a unanimous PASS)
-**Integration:** Merge Reviewer
-**Delivery & operability:** DevOps Engineer · Observability Engineer · PR Raiser
-**Coordination:** Orchestrator (never writes code — only delegates and gates)
-
-State which role is being simulated at each stage when it helps clarity.
-
-## 5) Testing workflow
-After implementation, testing runs in parallel lanes for multi-stream work:
-
-- **Tester phase (parallel):** API/contract tester · UI tester · integration (end-to-end) tester
-- **Senior Tester phase (parallel, after testers):** each independently verifies a tester's
-  coverage and findings
-- **Test-coverage merge review:** the Merge Reviewer confirms every acceptance criterion is
-  covered across lanes, with no gaps and no contradictions
-
-For single-stream or small features, a single Tester + single Senior Tester is sufficient.
-Testing is not complete until senior verification AND the coverage merge review pass.
-
-## 6) Defect loop
-If any failure, defect, regression, or spec mismatch is found:
-
-1. document the issue clearly and classify it by work stream
-2. update the spec if expected behavior is unclear
-3. re-run **only the affected stream(s)** through their chain
-4. re-run the Merge Reviewer for cross-stream consistency
-5. then re-run Tester → Senior Tester for the affected lanes only
-
-Do not patch defects informally outside the process. Do not re-run unaffected lanes.
-
-## 7) Output expectations
-For each meaningful task, produce outputs in this order unless explicitly overridden:
-
-1. feature spec + developer documentation
-2. design spec (if UI work)
-3. review notes (senior developer → technical architect → EM, per stream)
-4. merge review (spec consistency) — multi-stream only
-5. implementation / code changes
-6. code review notes (per stream)
-7. merge review (code integration) — multi-stream only
-8. tester reports → senior tester verification → test-coverage merge review
-9. security review (Security Clear)
-10. DevOps (Pipeline Green) + Observability (Observability Ready) — for deployable/observable changes
-11. final summary with open issues, if any
-
-## 8) Quality bar
-Optimize for: simplicity, correctness, scalability, reliability, maintainability,
-observability, testability, security, and user experience.
-
-## 9) Documentation standard
-Every change must maintain or improve documentation. See `.claude/rules/documentation.md`.
-
-Mandatory for every change:
-- **Module/file docstring or header** in every new/modified source file
-- **Docstring on every public function** (arguments, return value, errors/exceptions raised)
-- **Full type annotations** where the language supports them — no untyped public signatures
-- **No bare/loose container types** — prefer named, typed structures over opaque maps
-- **README updated** when endpoints, env vars, project structure, or architecture change
-- **API metadata** (summary, response schema, status codes) on every endpoint, where applicable
-
-## 10) Guardrails
-Do not:
-- skip the spec + dev-doc stage
-- skip the design flow for UI work
-- skip the senior developer, technical architect, or EM review
-- skip the code review
-- mark work complete without tester validation
-- mark testing complete without senior tester verification
-- skip the merge reviewer at join points for multi-stream work
-- submit code with missing docstrings or type annotations
-- submit code without updating the README when endpoints or architecture changed
-
-If the user asks for speed, you may compress the process but must preserve the sequence
-and outputs.
-
-**Fast-track mode:** For bug fixes, typos, single-component changes, or config updates
-(< 5 files), skip the spec/design/review chain and go straight to:
-Developer → Code Reviewer → Tester → PR Raiser.
-
-See `.claude/rules/mandatory-workflow.md` for the full step-by-step pipeline with agent
-roles, gating rules, and the defect-loop protocol.
-
----
-
-## 11) Working memory, self-check & quality gates
-
-- **Working memory:** read/write `.claude/CONTINUITY.md` every turn and at each stage
-  transition so work survives context compaction and new sessions. Distinct from
-  `.claude/agent-memory/` (durable learnings). See `.claude/rules/continuity.md`.
-- **RARV:** every agent runs Reason → Act → Reflect → Verify and shows a green Verify
-  before handoff. See `.claude/rules/rarv-cycle.md`.
-- **Severity model:** classify every finding Critical/High/Medium/Low/Cosmetic; a gate
-  passes only with zero Critical/High/Medium open. See `.claude/rules/quality-gates.md`.
-- **Blind review + Devil's Advocate:** parallel reviewers assess independently; a unanimous
-  PASS triggers the `devils-advocate` agent before the gate counts. See `.claude/rules/quality-gates.md`.
-- **Security review:** the `security-reviewer` dispatches `secret-scanner`,
-  `dependency-scanner`, `owasp-reviewer`, and `policy-validator`, and gates **Security Clear**
-  before delivery. See `.claude/rules/quality-gates.md`.
-- **DevOps & Observability:** for changes touching a deployable/observable surface, the
-  `devops-engineer` (Pipeline Green) and `observability-engineer` (Observability Ready)
-  gates run after testing and before the PR. See `.claude/rules/devops-observability.md`.
+When compacting this conversation, preserve: the current phase and which gate is open, the contents of
+`.claude/CONTINUITY.md` (working memory), unresolved Critical/High/Medium findings, the active spec and
+its acceptance criteria, and any in-flight defect loop. Keep auto-compaction enabled — the
+working-memory protocol above is what lets a compacted or fresh session resume exactly where the last
+one left off.
 
 ---
 

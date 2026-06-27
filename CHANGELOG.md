@@ -4,6 +4,36 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.44.0] — 2026-06-27
+
+**Token-economy pass** — cut claude-kit's eager per-session context cost without removing any SDLC
+capability. Grounded in the official Claude Code cost/settings/hooks/memory docs and a measured audit
+of the kit's own footprint; full state stays on disk, full pipeline detail stays in the on-demand
+rules, and **no** model/effort/thinking levers were changed (every gate keeps its current model).
+
+- **SessionStart hooks no longer dump whole files into context.** `hooks/scripts/load-continuity.sh`
+  replaced its unbounded `cat CONTINUITY.md` (the single largest eager cost — a mature working-memory
+  file ran ~33 KB / ~8,300 tokens **every** session) with a bounded head+tail digest that preserves
+  both ends (Current Phase / Active Tasks at the top, Next Steps / Blocked / Test-Build Status at the
+  bottom) and trims only the unbounded middle; a 49 KB file now injects ~7.9 KB. Small files are
+  emitted unchanged. `load-learnings.sh` gained the same cap on the learnings index. The full files
+  stay on disk and are pointed to in the trimmed output.
+- **The scaffolded `settings.json` now ships token-budget defaults** (added in `build_settings()`, so
+  both the pip-installed file and the no-pip `templates/settings.json` starter carry them, enforced by
+  a new parity test): `env.CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1` (skips a background Haiku title call
+  in headless/subagent runs), explicit `autoCompactEnabled: true` (the kit's
+  CONTINUITY-survives-compaction design depends on it), and `maxSkillDescriptionChars: 1100` (above the
+  longest current skill description of ~973 chars, so nothing truncates today while capping the
+  per-turn skill-listing as the catalog grows). Deliberately **not** baked in:
+  `model`/`fallbackModel`/`effortLevel`/`MAX_THINKING_TOKENS` — those would silently lower reasoning on
+  judgment-heavy gates (left for an explicit opt-in profile later).
+- **`templates/CLAUDE.md` trimmed 246 → 157 lines** (~3.2 KB off the one file loaded in full every
+  session). The pipeline prose that merely restated `mandatory-workflow.md` / `quality-gates.md`
+  (already read on-demand by the agents) is collapsed to a tight phase index that defers to those
+  rules; every `.claude/rules/*.md` citation is kept, the per-task "Coding Behavior" guidance is kept
+  verbatim, and a `## Compact instructions` section was added so auto-compaction preserves the
+  resume-critical state. Meets the official sub-200-line CLAUDE.md guideline.
+
 ## [0.43.0] — 2026-06-26
 
 **New `otel-tracing` collection skill** — vendor-neutral distributed tracing with OpenTelemetry and
