@@ -4,6 +4,27 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.45.0] — 2026-06-27
+
+**Adopt `library-skills` as a referenced companion** — [`library-skills`](https://library-skills.io)
+(MIT) is a tool (`uvx library-skills` / `npx library-skills`) that installs a dependency's
+*author-shipped, version-synced* skills into `.claude/skills/` (via managed symlinks) so an agent uses
+a library's **current** API instead of stale training-data patterns. It is the same root defense as
+`dependency-verification` (the model's memory of an API is a *claim*, not a fact), one step later in
+the dependency lifecycle — so it is wired in **reuse-first** (referenced, never vendored; no new skill,
+since it would duplicate the existing Context7 live-docs MCP):
+
+- **`dependency-verification`** gains a *"use its current API"* layer in its supply-chain-lifecycle
+  diagram (between install and the post-install CVE audit), naming `library-skills` (for libraries that
+  ship skills today) and Context7 (live docs for the rest) as the two ways to ground usage in the
+  source rather than the model's memory.
+- **`library-review`** notes the post-adopt step (once you adopt, pull the library's current skills/docs)
+  and adds a `library-skills` entry to its Related list.
+- **`catalog/mcp.yaml`** documents `library-skills` as the no-MCP companion to the Context7 docs server.
+
+No new skills/agents and no count changes; honest about the tool being nascent (it only helps for the
+growing set of libraries that ship skills).
+
 ## [0.44.0] — 2026-06-27
 
 **Token-economy pass** — cut claude-kit's eager per-session context cost without removing any SDLC

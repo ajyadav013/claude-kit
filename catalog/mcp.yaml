@@ -65,6 +65,12 @@ servers:
     config:
       type: http
       url: "https://mcp.context7.com/mcp"
+    # Companion (no MCP needed): `library-skills` (https://library-skills.io, MIT) installs a
+    # dependency's *author-shipped, version-synced* skills into `.claude/skills/` via managed symlinks
+    # (`uvx library-skills` / `npx library-skills`) so the agent uses a library's CURRENT API instead of
+    # stale training-data patterns — for the (growing) set of libraries that ship skills; Context7 above
+    # covers everything else with live docs. Both are referenced (not bundled). See the
+    # `dependency-verification` and `library-review` skills for where this sits in the dependency lifecycle.
   # Sentry (github.com/getsentry/sentry-mcp) — official, vendor-maintained MCP for production error
   # monitoring / issue triage: top unresolved issues, stacktraces, performance & trace data, and Seer
   # root-cause analysis. Fills the error-monitoring gap the `incident-responder` + `observability-engineer`

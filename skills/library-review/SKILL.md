@@ -71,7 +71,9 @@ scanning / signed releases · small focused surface · typings available · seve
 
 Conclude explicitly — never let a dependency slip in undecided:
 
-1. **Adopt** — passes every dimension; pin sensibly and move on.
+1. **Adopt** — passes every dimension; pin sensibly and move on. Then use its *current* API, not the
+   model's memory of it: pull the library's author-shipped, version-synced skills with `library-skills`
+   (or its live docs via Context7) — see the `dependency-verification` "use its current API" layer.
 2. **Adopt behind a seam** — acceptable but with real lock-in/risk → wrap it behind a thin interface
    so it can be swapped, and note the exit path.
 3. **Reject** — a disqualifier fires, or a cheaper §2a.5 rung wins → record what you'll do instead.
@@ -100,6 +102,7 @@ worth recording too, so the question isn't re-litigated.
 - `.claude/rules/mandatory-workflow.md` (§2a.5 Reuse & YAGNI Gate) — the gate that decides *whether* a dep is needed
 - `over-engineering-review` — reactive twin of §2a.5; stdlib/native/yagni lenses
 - `dependency-verification` — the *pre-install* name check (does this package name even exist / is it a typosquat) that runs before this evaluation
+- [`library-skills`](https://library-skills.io) (MIT) — *after* you adopt, installs the library's author-shipped, version-synced skills into `.claude/skills/` so the agent uses its current API rather than stale training-data patterns (complements the Context7 live-docs MCP); for libraries that ship skills today
 - `dependency-scanner` agent — audits *already-installed* deps for CVEs + lockfile/artifact integrity (this skill's post-add counterpart)
 - `code-review-and-quality` (Dependency Discipline) — the quick 5-point form of this evaluation
 - `documentation-and-adrs` — record a consequential adopt/reject as an ADR
