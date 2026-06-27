@@ -76,6 +76,30 @@ honest:
 > which gate caught each defect), the claude-kit repo ships a fill-in template — `docs/eval-harness.md`
 > — that builds the with/without comparison on top of this section's median-of-N method.
 
+## 7. Stage the eval: sequential gates, leak-resistant, objectively anchored
+
+When the thing under eval is generated code (or any artifact with a hard correctness floor), structure
+the eval as **ordered gates where each must pass before the next is even measured**, and isolate
+generation from grading so the model can't see what it's graded against.
+
+- **Sequential gating.** Run the cheap, decisive checks first and let each gate the next: does it
+  **build/compile** → does it produce the **correct result** → only then, how **efficient** is it. A
+  solution that fails an earlier gate scores zero on the later ones — you never report a performance
+  number for output that doesn't run. This stops early (saves cost) and kills the classic false win of
+  optimizing an answer that was never correct (mirrors §6's "a measurement is not a gate").
+- **Leak-resistant separation.** The model must not be able to read what it is graded against. Keep
+  generation and grading in **separate sessions / working directories**, and **strip** expected
+  outputs, reference solutions, baselines, and grader source from anything the model can see before it
+  generates. An eval the model can read the answer to measures retrieval, not capability.
+- **Anchor to an objective baseline, not self-assessment.** Score against an **external, pre-computed
+  reference** — a known-good output, a measured baseline, or a theoretical limit (e.g. a
+  roofline/speed-of-light bound) — rather than letting the model grade its own work. Cache the baseline
+  so the comparison is stable run-to-run (the same stability §6's median-of-N gives the score).
+
+> Stack-agnostic adaptation of the staged-evaluator pattern in the Apache-2.0
+> [`alibaba/atrex-bench`](https://github.com/alibaba/atrex-bench) (compile→correctness→performance
+> gating, generate/eval session isolation, cached roofline baselines). Re-derived in prose; not vendored.
+
 ## Rules
 
 1. **No prompt/rule/tool/model change ships without an eval run** that covers the affected behavior.

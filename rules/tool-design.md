@@ -78,6 +78,35 @@ spend each only where it returns value.
   needs. Density, not coldness — and never at the cost of truthful status
   (`.claude/rules/agent-guardrails.md` §2).
 
+## 8. Design the tool *set* for orchestration, not just each tool in isolation
+
+§1–§7 make one tool good; this makes a *collection* usable by an agent that must chain them toward a
+multi-step goal. The set needs four properties:
+
+- **Discoverable from a registry.** Expose the available tools (name + one-line contract, per §2–§3) as
+  something the agent can enumerate and select from, rather than a hard-coded call order. New tools
+  become usable without rewriting the caller.
+- **Plan before execute.** For a multi-step goal, let the agent sequence the calls it intends *first*,
+  then run them — not improvise one call at a time. A visible plan is reviewable and surfaces which
+  steps are independent (next bullet). (Mirrors `.claude/rules/reasoning-techniques.md`.)
+- **Run independent calls concurrently; order only the dependent ones.** Tools with no data dependency
+  fan out in parallel; chain only where one output feeds the next — within §7's Brooks's-law caution
+  (concurrency has coordination cost).
+- **Persist workflow state across turns/steps.** A flow that spans turns or agents needs durable state
+  (what's done, what's pending, intermediate results) so it survives a compaction or handoff — the role
+  `.claude/rules/continuity.md` plays for the session.
+
+**Write that state atomically.** When a tool or hook persists state to a file another process (a
+parallel agent, a concurrent hook) may read or write, **write to a temp file and rename into place** —
+a rename is atomic, a half-written direct write is not. Concurrent hooks/agents racing on a shared
+state file is a real failure mode; tmp-write-then-rename removes it.
+
+> Orchestration mechanics adapted (stack-agnostic) from the Apache-2.0
+> [`alibaba/app-controller`](https://github.com/alibaba/app-controller) (registry-based tool discovery,
+> plan-then-execute, concurrent calls, persisted task flows); the atomic state-write rationale from the
+> Apache-2.0 [`alibaba/loongsuite-js`](https://github.com/alibaba/loongsuite-js) hook instrumentation.
+> Re-derived in prose; not vendored.
+
 ## Rules
 
 1. **Design for the agent, not a human dashboard** — text-first, token-aware, self-describing.
@@ -87,11 +116,15 @@ spend each only where it returns value.
 4. **Eval your tools too** — a tool's effect on agent success is measurable; see `.claude/rules/evals.md`.
 5. **Spend in proportion to value** — agents, sourcing calls, and output length are finite context;
    over-dispatching and over-sourcing burn budget without returning it (§7).
+6. **Design the tool *set* for orchestration** — discoverable registry, plan-before-execute, concurrent
+   independent calls, durable cross-turn state written atomically (tmp-write-then-rename) (§8).
 
 ## Relationship to other rules
 
 - **`.claude/rules/agent-guardrails.md`** — tools as privilege boundary; least privilege; gating.
-- **`.claude/rules/mandatory-workflow.md`** — the parallel-lane model that §7's Brooks's-law caution applies to.
+- **`.claude/rules/mandatory-workflow.md`** — the parallel-lane model that §7's Brooks's-law caution
+  applies to, and the durable cross-turn state §8 calls for.
+- **`.claude/rules/continuity.md`** — durable workflow state across turns/handoffs (§8).
 - **`.claude/rules/reasoning-techniques.md`** / **`model-tiers.md`** — tool use is part of how an agent reasons.
 - **`.claude/rules/evals.md`** — measure whether a tool change actually helps.
 - **`catalog/mcp.yaml`** (kit authors) — where MCP servers are declared and wired into a project.

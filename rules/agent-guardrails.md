@@ -101,6 +101,35 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
 > threats (goal/instruction hijacking, tool misuse, identity/privilege abuse, supply-chain, etc.).
 > Source for this section: "From Clawdbot to OpenClaw — practical lessons in building secure agents."
 
+## 5. Operation authorization — every action traces to an authorizing identity
+
+Least privilege (§3) limits *which tools* an agent holds; this layer governs *on whose authority* each
+action runs, and proves it afterward. An autonomous agent acting "as itself" with broad standing
+credentials is the agentic equivalent of a shared root account — when something goes wrong there is no
+one to trace it to.
+
+- **Carry the delegation chain.** An action should be attributable across **user → agent → operation**:
+  the human (or upstream system) the agent acts for, the agent identity, and the specific operation.
+  Don't collapse this into one all-powerful service identity; preserve who authorized what.
+- **Scope credentials per request, not per agent lifetime.** Prefer short-lived, operation-scoped
+  credentials minted for a task over a long-lived key the agent holds for everything. A misused
+  per-request credential has a small blast radius; a standing one does not (reinforces §4's
+  "no plaintext credentials").
+- **Keep a verifiable audit trail.** Record what was done, on whose behalf, and under what
+  authorization, in a form that can be checked later — not a log line the agent could have fabricated
+  (ties to §2's truthful-status rule). Destructive/outward-facing actions (§3,
+  `.claude/rules/human-in-the-loop.md`) especially must leave a trail.
+- **Authorization policy is data, updatable without a redeploy.** What an agent may do should be a
+  policy you can tighten at runtime — revoke a capability, narrow a scope — the moment a risk appears,
+  not a constant baked into the agent. The active `.claude/rules/autonomy-levels.md` tier and
+  `.claude/rules/risk-classification.md` are such runtime controls.
+
+> Stack-agnostic adaptation of the delegated-authorization model in the Apache-2.0
+> [`alibaba/open-agent-auth`](https://github.com/alibaba/open-agent-auth) (user→workload→operation
+> token chain, per-request isolation, verifiable-credential audit, runtime-updatable authz policy;
+> built on IETF / W3C-VC drafts). Re-derived in prose; not vendored — product/protocol names stay out
+> of this core rule.
+
 ## Rules
 
 1. **Layered, not single-point.** Input validation *and* output validation *and* least privilege *and*
@@ -110,6 +139,9 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
    progress) — do not quietly comply or quietly drop it.
 3. **Guardrails evolve.** New manipulation patterns get promoted to `agent-memory/` via `remember` so
    future sessions recognize them.
+4. **Every action traces to an authorizing identity.** Run on a delegated user→agent→operation
+   authority with per-request, revocable scope and a verifiable trail — never as a standing
+   all-powerful identity (§5).
 
 ## Relationship to other rules
 
@@ -117,3 +149,5 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
 - **`.claude/rules/agent-resilience.md`** — malformed/hostile input often coincides with failures;
   the two rules are applied together.
 - **`.claude/rules/quality-gates.md`** — product-security severity & the secret = auto-Critical rule.
+- **`.claude/rules/autonomy-levels.md`** / **`risk-classification.md`** — the runtime controls that
+  tighten or revoke operation authorization (§5).
