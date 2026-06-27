@@ -4,6 +4,27 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.48.0] — 2026-06-27
+
+**Adopt the partition-for-coverage review methodology from `alibaba/open-code-review`** (Apache-2.0,
+re-derived in prose — not vendored). A detailed read of open-code-review showed most of its methodology
+(multi-axis dimensions, line-level grounding + re-verify, severity, multi-model review) was already in
+the kit; the one genuine gap was **complete file coverage on large changesets**, where AI reviewers
+silently skip files. The kit's existing guidance covered *depth allocation* (hotspots) but not
+*coverage guarantee*.
+
+- **`skills/code-review-and-quality`** — new "Cover Every Changed File: Partition, Plan, Then Weight
+  Depth" section: enumerate changed files deterministically (the diff is the checklist of record),
+  bundle related files into one review unit, review each bundle in isolated context concurrently,
+  plan-before-deep-pass on big diffs, and reconcile so every file gets a verdict. The existing hotspot
+  section is reframed as the *depth* step that follows coverage. New coverage item in the review
+  checklist.
+- **`agents/sdlc-code-reviewer`** — "Cover Before You Score" note + a Coverage checklist category
+  (every changed file accounted for; related files reviewed as bundles).
+
+Coverage = every file accounted for; depth = how hard you looked, allocated next. No count/anchor
+changes (skill + agent extended, none added). Version 0.47.0 → 0.48.0.
+
 ## [0.47.0] — 2026-06-27
 
 **Adopt 5 verified agentic-engineering patterns from an exhaustive review of the Alibaba GitHub org**

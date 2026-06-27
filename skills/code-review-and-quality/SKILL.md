@@ -80,9 +80,45 @@ For detailed profiling and optimization, see `performance-optimization`. Does th
 - Any missing pagination on list endpoints?
 - Any large objects created in hot paths?
 
+## Cover Every Changed File: Partition, Plan, Then Weight Depth
+
+On a large changeset the signature failure of an AI reviewer is **silently skipping files** —
+reviewing a plausible subset while implying the whole. Coverage is a *mechanical* property: guarantee
+it with engineering, not model discretion, **before** deciding where to spend depth (next section).
+
+- **Enumerate deterministically.** Take the changed-file list from the diff itself and treat it as the
+  checklist of record — every file is reviewed or explicitly marked out-of-scope with a reason. The
+  model never decides which files "seem worth" looking at.
+  ```bash
+  git diff --name-only <base>...<head>   # the coverage checklist — nothing falls off it
+  ```
+- **Bundle related files into one review unit.** Group files that must be understood together — a
+  function and its tests, an interface and its implementations, paired translation/config files
+  (`messages.en.json` + `messages.zh.json`), a schema and its migration. A bundle reviewed as a unit
+  catches cross-file contract breaks that a one-file-at-a-time pass misses.
+- **Review each bundle in isolated context, concurrently.** Give each bundle its own focused context
+  (its own sub-agent/lane) instead of streaming the whole changeset through one window —
+  divide-and-conquer keeps quality stable on very large changes and parallelizes naturally (the
+  `.claude/rules/mandatory-workflow.md` lane model, within the Brooks's-law caution in
+  `.claude/rules/tool-design.md` §7). Context gathered for one bundle is for *understanding only* — a
+  discovery in file B doesn't become a comment on the unrelated file A.
+- **Plan before the deep pass on a big diff.** For a large change, first emit a one-paragraph change
+  summary plus risk points ranked high→low and the context each needs, then review against that plan.
+  A cheap planning pass beats diving in file-by-file blind.
+- **Reconcile at the end.** Merge the per-bundle findings and confirm every file on the enumerated list
+  got a verdict. **Coverage = every file accounted for; depth = how hard you looked, allocated next.**
+
+> Partition-for-coverage (deterministic file selection, related-file bundling, isolated-context
+> concurrent review, plan-phase for large diffs) is a stack-agnostic adaptation of the hybrid
+> architecture in the Apache-2.0
+> [`alibaba/open-code-review`](https://github.com/alibaba/open-code-review) — engineering guarantees
+> coverage, the model supplies judgment. Re-derived in prose; not vendored.
+
 ## Where to Focus: Change Hotspots & Coupling
 
-You can't give every line equal attention — on a large change or an unfamiliar codebase, spend the most scrutiny where defects actually cluster. The project's own git history surfaces this for free, no special tooling required:
+Once every changed file is accounted for (above), allocate *depth* — you can't give every line equal
+attention; on a large change or an unfamiliar codebase, spend the most scrutiny where defects actually
+cluster. The project's own git history surfaces this for free, no special tooling required:
 
 - **Hotspots (churn × complexity).** Files that change *often* **and** are *large/complex* carry the most risk. List the frequently-changed files and weight review toward the complex ones among them — a rarely-touched file is usually stable, while a hotspot edited in *this* change deserves extra correctness and test scrutiny.
   ```bash
@@ -306,6 +342,7 @@ For a full pre-add evaluation of a specific candidate (maintenance/bus-factor, l
 
 ### Context
 - [ ] I understand what this change does and why
+- [ ] Every changed file is accounted for — reviewed or explicitly marked out-of-scope (no silent skips)
 - [ ] For a large/unfamiliar change, I focused review on the riskiest files (hotspots, coupled files)
 
 ### Correctness

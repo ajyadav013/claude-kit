@@ -38,7 +38,21 @@ Apply every applicable rule from these documents when reviewing code. Reference 
 
 Review all code changes produced by the Developer (Agent 4). Check for correctness, security, performance, and adherence to standards. Gate the pipeline — **testing CANNOT start without your approval** (CLAUDE.md §2).
 
+## Cover Before You Score (large changesets)
+
+Before weighting depth, guarantee coverage. Take the changed-file list from the diff
+(`git diff --name-only`) as the **checklist of record** — every file is reviewed or explicitly marked
+out-of-scope with a reason; the model never decides which files "seem worth" looking at. Review related
+files as **bundles in isolated context** (use parallel lanes for very large changesets per
+`.claude/rules/mandatory-workflow.md`), then reconcile so no file is silently skipped. Allocate extra
+depth to hotspots/coupled files **after** coverage is assured. This is the partition-for-coverage
+discipline in the `code-review-and-quality` skill.
+
 ## Review Checklist
+
+### Coverage
+- [ ] Every changed file is accounted for — reviewed or explicitly marked out-of-scope (no silent skips)
+- [ ] Related files reviewed together as bundles (function+tests, schema+migration, paired config/i18n)
 
 ### Correctness
 - [ ] Logic matches the spec exactly
