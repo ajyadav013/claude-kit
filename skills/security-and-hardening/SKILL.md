@@ -533,6 +533,34 @@ All config is read via the project's settings framework — never scattered envi
 git diff --cached | grep -iE "password|secret|api_key|token|SECRET_KEY|DATABASE_URL"
 ```
 
+## Continuous Least-Privilege (usage-based permission pruning)
+
+Granting least privilege *up front* is necessary but not sufficient — permissions only ever accrete.
+Roles, scopes, service accounts, API keys, and DB grants get a permission "just in case," the feature
+ships, and the grant is never removed. Over months every principal drifts toward over-privilege, and the
+blast radius of a compromised credential grows silently. Least privilege is not a one-time grant; it's a
+**decay loop** that tightens over time.
+
+- **Audit what was actually used.** For each principal, collect which granted permissions/scopes/roles
+  were *exercised* over a trailing window (e.g. 60–90 days) from access logs / "last used" telemetry /
+  audit trails — not what was *requested*.
+- **Revoke the unused past a threshold.** Permissions unused for the whole window are removed
+  automatically (or proposed for removal in a review). Schedule it to run **periodically**, not once.
+- **Keep a fast, auditable rollback.** Snapshot each policy *before* pruning and version the history, so
+  a false positive (a permission used only quarterly, say) is re-granted in seconds with a clear audit
+  trail. Without a cheap undo, no one will trust automated pruning.
+- **Maintain an exempt-list.** Break-glass roles, rarely-but-critically-used grants, and
+  compliance-mandated permissions are explicitly excluded from auto-pruning — pruning must never be able
+  to lock out emergency access.
+- **Stack-agnostic.** The loop (measure usage → remove unused → snapshot for rollback → repeat) applies
+  to cloud IAM, OAuth scopes, Kubernetes RBAC, database grants, and application roles alike. Pair it with
+  the up-front least-privilege defaults in *Broken Access Control* above; this is the ongoing complement.
+
+> Stack-agnostic adaptation of continuous, usage-based least-privilege (audit exercised permissions over
+> a trailing window → auto-revoke the unused → versioned snapshots for safe rollback → exempt-list) from
+> the Apache-2.0 [`Netflix/repokid`](https://github.com/Netflix/repokid). Re-derived in prose; not
+> vendored — the decay loop generalizes beyond AWS IAM to any grant/scope/role system.
+
 ## LLM / AI Feature Security (OWASP LLM Top 10) — opt-in
 
 Applies **only when your product builds an LLM/AI feature** — it sends user (or tool/RAG) input to a

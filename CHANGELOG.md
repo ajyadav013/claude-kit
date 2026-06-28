@@ -4,6 +4,76 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.53.0] — 2026-06-28
+
+**Adopt the verified wins from an exhaustive review of three GitHub orgs — `Netflix`, `aws`, and
+`apple`** (all **1,214** public repos: Netflix 234 · aws 549 · apple 431). Every repo was surveyed (34
+agents over every page across the three orgs — no repo skipped), candidates deep-read for license +
+transferable practice, and the shortlist **adversarially verified** against the live source. These orgs
+are overwhelmingly SDKs, CLIs, cloud-product code, and running services with nothing transferable to a
+config scaffolder — but the review surfaced a real **gap**: the kit had `agent-resilience` (the coding
+agent's own retries) yet **no service-level resilience rule at all**. **7 adoptions across the three
+orgs; 1 new rule (`resilience-engineering`), the rest extensions to existing files — 0 new
+agents/skills** (skill counts unchanged at 104/56/48; MCP fragments unchanged at 17; **core rules
+23 → 24**). Everything re-derived **in prose, never vendored**; all sources Apache-2.0 or MIT/Apache-2.0.
+
+A note on method: the per-repo deep-dive initially skipped several famous repos on "the source is a
+library/tool, not documentation" grounds — but the kit ships *prose*, so a Java library or a C++ database
+is a perfectly valid *source* for a re-derived discipline. The adversarial-verify pass (one skeptic per
+item, reading the live README + license) judged the **discipline**, not the artifact type, and confirmed
+all seven hold, are stack-agnostic, genuinely new, and permissively licensed.
+
+Rules:
+
+- **`resilience-engineering.md`** (NEW — the kit's first service-level resilience rule, explicitly
+  distinct from `agent-resilience.md`, which is about the coding agent's own machinery). Three sections:
+  (1) **stability patterns** at every remote-call boundary — timeout + deadline budget, retry with
+  budget/jitter, circuit breaker, bulkhead/isolation, backpressure, load shedding, graceful
+  degradation — plus **adaptive concurrency limiting** (TCP-congestion-control + Little's Law to find the
+  limit from latency instead of hand-tuning it, server- and client-side, with priority partitioning;
+  from the Apache-2.0 `Netflix/concurrency-limits`); (2) **distributed-time correctness** — never compare
+  raw wall-clocks across nodes; treat "now" as a `[earliest, latest]` interval and commit-wait for
+  cross-node ordering (from the MIT/Apache-2.0 `aws/clock-bound` + Google TrueTime); (3) **chaos
+  engineering** — steady-state hypothesis, vary real-world events, minimize blast radius with an automated
+  abort, prefer production, run continuously (from the Apache-2.0 `Netflix/chaosmonkey` + Principles of
+  Chaos).
+- **`devops-observability.md`** — a **failure-domain-aware progressive rollout** section: update one
+  failure domain (zone/region/rack/cell/shard) at a time to contain blast radius, accelerate in
+  exponential batches with a readiness gate between them, roll back newest-first to escape a bad revision
+  fastest, and pause-on-alarm automatically (from the Apache-2.0 `aws/zone-aware-controllers-for-k8s`).
+- **`testing.md`** — a **Deterministic Simulation Testing** section for concurrency/distributed-system
+  bugs: funnel all nondeterminism (clock, RNG, scheduling, IO, network) through injectable seams, drive
+  the system from a single seed in single-threaded virtual time so a failing run replays bit-for-bit, and
+  inject faults aggressively in-sim (the "buggify" idea); complements fuzzing + property-based testing
+  (from the Apache-2.0 `apple/foundationdb`).
+
+Skills:
+
+- **`spec-driven-development`** — a third proposal mode beyond full-spec and delta-spec: an **RFC track**
+  for one-way-door changes (public/cross-service APIs). Adds working-backwards artifacts (write the future
+  CHANGELOG/README first), a designated API **bar-raiser** with interface veto, a staged lifecycle
+  (feedback → final-comment → API sign-off → implementation planning), and separation of API approval from
+  implementation approval (from the Apache-2.0 `aws/aws-cdk-rfcs`).
+- **`security-and-hardening`** — a **Continuous Least-Privilege** section: least privilege is a decay
+  loop, not a one-time grant — periodically audit which grants/scopes/roles were *actually exercised* over
+  a trailing window, auto-revoke the unused, snapshot policies for fast rollback, and keep an exempt-list
+  for break-glass access (from the Apache-2.0 `Netflix/repokid`).
+
+Docs/counts: core rules **23 → 24** across `README.md` (5 anchors), `CLAUDE.md`, and
+`docs/architecture.md`; `agent-resilience.md` cross-links the new service-level rule (and vice versa); a
+new Influences row + depth blurb (kept to the latest three reviews — the microsoft 0.50 blurb rolls off).
+
+What we **did not** add (already covered, or fails the bar): `Netflix/chaosmonkey`-the-tool,
+`Netflix/dispatch` (archived incident-management *app* — covered by `incident-postmortem` +
+`incident-responder`), `Netflix/maestro` (a workflow-orchestration *platform*, like Airflow/Temporal —
+a tool to use, not a practice), `Netflix/security-bulletins` (disclosure output, covered by the security
+layer); the AWS service/SDK material — `aws-sam-cli`, `aws-pdk`, `aws-lakeformation-best-practices`,
+`aws-networking-best-practices`, `aws-sam-cli-pipeline-init-templates`, `device-storelibrary-cpp`,
+`mcp-proxy-for-aws` (AWS-IAM auth transport, not a tool-exposing MCP server); and `apple`'s
+`apple-root-program` (PKI/CA policy, no license), `batch-processing-gateway` (a Spark-on-K8s service), and
+`pkl-evolution` (a language-evolution RFC — redundant with the richer `aws-cdk-rfcs` RFC track adopted
+above).
+
 ## [0.52.0] — 2026-06-28
 
 **Adopt the verified wins from an exhaustive review of the entire `facebook` (Meta) GitHub org** (all
