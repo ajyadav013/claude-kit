@@ -11,11 +11,14 @@ governed traditional systems for decades.
 > Adapted from *Agentic Design Patterns* (A. Gulli), Ch. 12 "Exception Handling and Recovery" (and the
 > "treat agents as software" thesis of Ch. 18). Concepts paraphrased for this kit.
 
-This is **distinct** from two neighbors:
+This is **distinct** from three neighbors:
 - `.claude/rules/quality-gates.md` owns *gate* retry **budgets** (a review/test failing on its merits
   and looping the lane). This rule is about *operational* failures of the tooling, not failed verdicts.
 - The `debugging-and-error-recovery` skill finds the root cause of a bug in the **product**. This rule
   is about the **agent's own run** surviving a transient or hard failure.
+- `.claude/rules/resilience-engineering.md` applies the same vocabulary (circuit-breaker, fallback,
+  backpressure, graceful degradation) to the **product's services** — how the system you build survives
+  *its* dependencies. This rule is the **agent machinery**; that rule is the **shipped system**.
 
 ## When an operation fails
 

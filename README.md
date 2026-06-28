@@ -54,7 +54,7 @@ Quick start) for the full breakdown of any row.
 | 🔁 **Pipeline & quality gates** | Gate-enforced progression (zero open Critical/High/Medium to advance), per-profile gate sets, a fast-track for small changes, and an anti-sycophancy `devils-advocate` pass |
 | 🤖 **Agent roster** | **28** tiered agents + per-database overlays + **6** org personas, led by an Orchestrator that never writes code |
 | 🔍 **Self-verification & review** | RARV green-Verify (real commands, not imagined), blind parallel review, and read-only risk classification |
-| 📐 **Rules & skills** | **23** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
+| 📐 **Rules & skills** | **24** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
 | 🧱 **Stacks & overlays** | Stack-agnostic core + **10** overlay rule sets (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
@@ -248,7 +248,7 @@ need.
 
 <br>
 
-- **23 stack-agnostic core rules** in [`rules/`](rules/) — `mandatory-workflow`, `quality-gates`,
+- **24 stack-agnostic core rules** in [`rules/`](rules/) — `mandatory-workflow`, `quality-gates`,
   `rarv-cycle`, `continuity`, plus eight agent-operation rules and `autonomy-levels` +
   `risk-classification` (see [`docs/agentic-patterns.md`](docs/agentic-patterns.md)).
 - **104 on-demand skills** in [`skills/`](skills/) (56 core + 48 stack-collection) — spec-driven dev, planning, TDD, debugging, code
@@ -407,7 +407,7 @@ owned gates, and the rule that **no gate passes on an unproven verdict**.
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | A **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | The same coverage-gate idea (the `story-planner` 1f gate + `task-tracker-sync`) **absorbed into a broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | **Portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 23 rules, 28 agents, 104 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 24 rules, 28 agents, 104 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
 
 **Choose claude-kit when** you want a consistent, reviewable, **gate-enforced** autonomous-SDLC setup
 that's the same across every repo and stack, installs in seconds, ships nothing you have to run, and
@@ -490,6 +490,7 @@ non-duplicative gaps**, minimally and catalog-wired.
 | **[microsoft](https://github.com/microsoft) org review** (all 8,147 repos) | OWASP Agentic Top-10 (ASI01–ASI10) agent threats; agent-aware evals (multi-judge panels, multi-turn degradation, tool-vs-response grading); validator-in-the-loop + Medprompt prompting; sandbox policy schema & layered prompt-injection defense; approval-gate implementation; security-lint layer & SBOM; operationalized GenAI red-teaming; priority-based prompt pruning; quantified-lines PR sizing; first-party MCP servers | Extensions across `agent-guardrails` (ASI01–ASI10 + sandbox policy + injection layers), `evals` (§3 panels, §8 multi-turn), `reasoning-techniques`, `human-in-the-loop`, `linting-and-formatting`, `threat-model`, `security-and-hardening` (SBOM), `context-engineering`, `code-review-and-quality` + 4 MCP fragments (Azure · Azure DevOps · MS Learn · Wassette) — **0 new agents/skills/rules** (from agent-governance-toolkit · mxc · llmail-inject-challenge · lost_in_conversation · llm-as-judge · EvalsforAgentsInterop · promptbase · dsl-copilot · agents-humanoversight · PyRIT · eslint-plugin-sdl · sbom-tool · vscode-prompt-tsx · PullRequestQuantifier) | `0.50.0` |
 | **[google](https://github.com/google) org review** (all 2,881 repos) | Reproducible-build verification & source-level missing-patch detection; secure-by-construction injection defense; archive-extraction & ReDoS hardening; multi-party authorization / breakglass; coverage-guided & continuous fuzzing; parameterized + semantic-equality + parallel/flaky testing; compile-time logic-bug & license-header lint layers + deterministic block sorting; multi-window burn-rate alerting & log rate-limiting; long-document extraction; prompt-as-code; statistical browser benchmarking; durable atomic writes; record-replay API testing; first-party SecOps MCP servers | Prose extensions across `security-and-hardening` (reproducible-build · missing-patch · secure-by-construction · archive · ReDoS), `human-in-the-loop` (MPA/breakglass), `testing` (fuzzing · parameterized · semantic-equality · parallel/flaky), `linting-and-formatting` (logic-bug + license-header layers · block sorting), `devops-observability` (burn-rate · log rate-limit), `context-engineering` (long-doc extraction), `reasoning-techniques` (prompt-as-code), `performance-optimization` (statistical benchmarking), `tool-design` (durable atomic writes), `api-integration` (record-replay) + **4 first-party SecOps MCP fragments** (Chronicle SIEM · GTI · SCC · SOAR) — **0 new agents/skills/rules** (from oss-rebuild · vanir · safe-active-record/mug · safearchive · re2 · building-secure-and-reliable-systems · patrick · go-cmp · atheris/honggfuzz/clusterfuzzlite · gtest-parallel · error-prone · addlicense · keep-sorted · prometheus-slo-burn · flogger · langextract · dotprompt · tachometer · renameio · test-server · mcp-security) | `0.51.0` |
 | **[facebook](https://github.com/facebook) (Meta) org review** (all 168 repos) | Interprocedural taint / data-flow security analysis (source→sink across functions); continuous A/B performance-regression CI gate; defense-in-depth agent-sandbox enforcement (argument validation + OS-level backstop) | Prose extensions to `linting-and-formatting` (taint/data-flow layer), `devops-observability` (perf-regression gate), `agent-guardrails` (§4 layered sandbox enforcement) — **0 new agents/skills/rules** (from pyre-check/Pysa · mariana-trench · FAI-PEP · mcpguard-dynamic; the org is mostly libraries/frameworks, so the verify pass *dropped* the rest — `DNE-TaaC`, `mbt`, plus already-covered `infer`/`mariana-trench`-as-tool, `fbt`, `memlab`, …) | `0.52.0` |
+| **[Netflix](https://github.com/Netflix) · [aws](https://github.com/aws) · [apple](https://github.com/apple) org review** (all **1,214** repos) | Service-level resilience the kit lacked entirely — stability patterns (timeout/retry-budget/circuit-breaker/bulkhead) + adaptive concurrency limiting, chaos engineering, and bounded-clock distributed time; failure-domain-aware progressive rollout; deterministic simulation testing; a formal RFC process (working-backwards + API bar-raiser); continuous usage-based least-privilege | The **new `resilience-engineering` rule** (chaos + stability patterns + bounded clocks, from `Netflix/concurrency-limits` · `Netflix/chaosmonkey` · `aws/clock-bound`); plus prose extensions to `devops-observability` (failure-domain rollout, from `aws/zone-aware-controllers-for-k8s`), `testing` (deterministic simulation testing, from `apple/foundationdb`), `spec-driven-development` (RFC track, from `aws/aws-cdk-rfcs`), and `security-and-hardening` (continuous least-privilege, from `Netflix/repokid`) — **1 new rule, 0 new agents/skills** (the orgs are overwhelmingly SDKs/CLIs/services, so the survey kept only 7 of 1,214) | `0.53.0` |
 
 > Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
 > deliberately **did not** add because the kit already covered it.
@@ -498,21 +499,6 @@ non-duplicative gaps**, minimally and catalog-wired.
 <summary><b>The latest three reviews, in a bit more depth</b></summary>
 
 <br>
-
-**🟦 microsoft org review → agentic-AI hardening (0.50.0).** We reviewed **all 8,147 repos** in the
-Microsoft org (165 survey agents over every page → deep-dive the top candidates → adversarially verify
-the shortlist). The vast majority — SDKs, samples, Azure-product code, ML infra, OS/editor — carried
-nothing transferable, and the verify pass *dropped* two plausible picks (`ToolTalk`, whose
-ground-truth-sequence grading contradicts `evals`' "grade outcomes, not paths"; and `prompty`, an
-LLM-app product, not an SDLC practice). Eighteen survived — all **prose extensions to existing files**,
-zero new agents/skills/rules: the OWASP **Agentic Top-10 (ASI01–ASI10)** mapping, a sandbox **policy
-schema**, and layered prompt-injection defense in `agent-guardrails`; agent-aware evals (multi-judge
-panels in §3, multi-turn degradation in §8) in `evals`; validator-in-the-loop + Medprompt in
-`reasoning-techniques`; approval-gate implementation in `human-in-the-loop`; a security-lint layer in
-`linting-and-formatting`; operationalized GenAI red-teaming in `threat-model`; SBOM generation in
-`security-and-hardening`; priority-based prompt pruning in `context-engineering`; quantified-lines PR
-sizing in `code-review-and-quality`; and **4 first-party MCP fragments** (Azure · Azure DevOps · MS
-Learn · Wassette).
 
 **🔴 google org review → 21 hardening & testing patterns (0.51.0).** We reviewed **all 2,881 repos** in
 the Google org (60 survey agents over every page → deep-dive the top ~300 candidates → adversarially
@@ -549,6 +535,27 @@ across functions — distinct from single-line lint) in `linting-and-formatting`
 to cancel environment noise, gate on the relative delta) in `devops-observability` (from `FAI-PEP`); and
 **defense-in-depth agent-sandbox enforcement** (argument-validation layer + OS-level eBPF/seccomp backstop
 *below* the existing declarative policy) in `agent-guardrails` §4 (from `mcpguard-dynamic`).
+
+**⬛🟧 Netflix · aws · apple org review → resilience engineering & more (0.53.0).** We reviewed **all
+1,214 repos** across the three orgs (34 survey agents over every page → deep-dive the candidates →
+adversarially verify the shortlist). The orgs are overwhelmingly SDKs, CLIs, cloud-product code, and
+running services — almost nothing transferable to a config scaffolder — and the verify pass scrutinized
+each survivor against the live README + license. **Seven** genuine, stack-agnostic, permissively-licensed
+disciplines survived. The biggest finding was a real **gap**: the kit had `agent-resilience` (the coding
+agent's own retries) but **no service-level resilience rule at all**, so this review adds the kit's
+**first new rule in many releases — `resilience-engineering`**: stability patterns
+(timeout/retry-budget/circuit-breaker/bulkhead/load-shedding/fallback) + **adaptive concurrency limiting**
+(TCP-congestion-control + Little's Law, from `Netflix/concurrency-limits`), **chaos engineering**
+(steady-state hypothesis, blast-radius control, automated abort, from `Netflix/chaosmonkey`), and
+**bounded-clock distributed time** (timestamps as `[earliest, latest]` + commit-wait, from
+`aws/clock-bound`). The other four are prose extensions to existing files: **failure-domain-aware
+progressive rollout** (one zone/region/cell at a time, exponential batches, reverse-order rollback) in
+`devops-observability` (from `aws/zone-aware-controllers-for-k8s`); **deterministic simulation testing**
+(single-seed control of all nondeterminism + in-sim fault injection) in `testing` (from
+`apple/foundationdb`); a formal **RFC track** for one-way-door API changes (working-backwards artifacts +
+API bar-raiser + staged sign-off) in `spec-driven-development` (from `aws/aws-cdk-rfcs`); and
+**continuous, usage-based least-privilege** (audit exercised grants → auto-revoke the unused → versioned
+rollback) in `security-and-hardening` (from `Netflix/repokid`).
 
 </details>
 
@@ -603,7 +610,7 @@ to cancel environment noise, gate on the relative delta) in `devops-observabilit
 
 ## Rules & skills
 
-**Rules** ([`rules/`](rules/)) are the 23 stack-agnostic contracts every agent obeys — the
+**Rules** ([`rules/`](rules/)) are the 24 stack-agnostic contracts every agent obeys — the
 `mandatory-workflow` pipeline, `quality-gates`, `rarv-cycle`, `continuity`, `documentation`,
 `testing`, the eight agent-operation rules (`reasoning-techniques`, `agent-guardrails`,
 `agent-resilience`, `goal-setting-and-monitoring`, `human-in-the-loop`, `model-tiers`, `evals`,
@@ -754,7 +761,7 @@ build attestations** for supply-chain provenance. Report vulnerabilities private
 ```
 claude-kit/
 ├── .claude-plugin/        plugin.json + marketplace.json
-├── agents/                28 SDLC agents          rules/        23 engineering rules
+├── agents/                28 SDLC agents          rules/        24 engineering rules
 ├── skills/                on-demand skills        templates/    CLAUDE.md, settings, artifacts, memory seeds
 ├── commands/              /claude-kit:* commands  hooks/        hooks.json + scripts/
 ├── catalog/         stacks·profiles·mcp·org       templates/stacks/  per-stack overlay rules + agents

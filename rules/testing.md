@@ -515,6 +515,42 @@ As a suite grows, two things matter beyond correctness: it must run **fast** and
 > Apache-2.0 [`google/gtest-parallel`](https://github.com/google/gtest-parallel). Re-derived in prose;
 > not vendored.
 
+## Deterministic Simulation Testing (concurrency & distributed-system bugs)
+
+Fuzzing and property-based testing explore *inputs*; they don't reliably find **concurrency and
+distributed-system** bugs — races, message reordering, partition-then-heal, crash-at-the-wrong-moment —
+because those depend on *timing and interleaving*, which a normal test run can't control or reproduce.
+A race that shows up once in 10,000 runs is undebuggable when you can't replay the run that failed.
+
+**Deterministic simulation testing (DST)** makes those bugs reproducible: run the system (or a seam of
+it) inside a simulation where **every source of nondeterminism is injected from a single seed**, so the
+same seed replays the same execution bit-for-bit.
+
+- **Funnel all nondeterminism through injectable seams.** Time/clock, random numbers, thread/task
+  scheduling, network, and disk I/O must come from interfaces the test controls — not from the OS
+  directly. This is an **architecture requirement** (dependency-inject the clock, the RNG, the
+  transport), and it's the main cost of DST; design for it up front on systems that need it.
+- **Drive it from one seed, in virtual time.** A single-threaded scheduler advances a *logical* clock
+  and chooses the next event, so there's no wall-clock waiting and no real concurrency — yet it exercises
+  real interleavings. The seed *is* the reproduction: a failing seed replays identically every time, and
+  goes straight into the suite as a regression test.
+- **Inject faults aggressively (the "buggify" idea).** Within the simulation, randomly kill and restart
+  processes, partition and heal the network, delay/reorder/drop messages, fail disk writes, and skew
+  clocks — at decision points seeded by the run. Searching the fault space deterministically surfaces, in
+  minutes, edge cases that would take months of real-cluster runtime to hit.
+- **Scope it.** DST earns its architectural cost for **stateful concurrent/distributed** components
+  (consensus, replication, schedulers, queues, transaction logic). *Skip (note why in `CONTINUITY.md`)*
+  for stateless request/response code and pure functions — fuzzing + property-based testing cover those.
+
+It complements, not replaces, the techniques above (fuzzing = untrusted-input crashes; property-based =
+invariants over inputs; DST = interleaving/fault bugs in stateful systems) and the *real*-environment
+fault injection of chaos engineering (`.claude/rules/resilience-engineering.md`).
+
+> Stack-agnostic adaptation of deterministic simulation testing (single-seed control of all
+> nondeterminism, single-threaded virtual-time scheduling, aggressive in-sim fault injection) from the
+> Apache-2.0 [`apple/foundationdb`](https://github.com/apple/foundationdb). Re-derived in prose; not
+> vendored — the discipline applies to any system whose IO/time/scheduling can be made injectable.
+
 ## Integration with Workflow
 
 This file defines unit testing standards. Integration and end-to-end testing are covered separately:

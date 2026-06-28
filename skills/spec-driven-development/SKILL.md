@@ -21,6 +21,25 @@ Write a structured specification before writing any code. The spec is the shared
 
 **Full spec vs delta spec.** A brand-new project or feature gets a full spec (the `feature-spec.md` template). An *incremental change to a system that already has a spec* — modify existing behavior, add one route, deprecate a field — gets a **delta change-proposal** instead: capture only the `ADDED` / `MODIFIED` / `REMOVED` requirements against the base spec's stable ids, not a full rewrite. Use the `change-proposal.md` template (`.claude/templates/change-proposal.md`). It keeps the base spec authoritative, makes the diff reviewable, and still feeds the stage-1f coverage gate (every new or changed acceptance criterion maps to a story). Externally-exposed API contract deltas additionally get an `api-change-report.md`.
 
+**A third mode for major changes — the RFC track (see below).** When a change introduces or breaks a **public API / cross-service contract**, or is large and cross-cutting enough that getting the *interface* wrong is expensive to undo, a full or delta spec isn't enough governance. Run the heavier-weight **RFC process** instead.
+
+## RFC track for major / cross-cutting changes
+
+Some changes are **one-way doors**: a public API, a wire/schema contract, a shared library's surface, or an architectural commitment that downstream consumers will build on and that is costly to reverse once shipped. For these, escalate from a spec to a structured **RFC (Request for Comments)** so the interface is debated and signed off *before* implementation — not discovered in code review.
+
+The RFC track adds four things on top of a normal spec:
+
+1. **Work backwards from the result.** Before designing the mechanism, write the artifacts as if the feature already shipped: the future **CHANGELOG entry**, the **README/usage docs** a consumer would read, and a short "press release" of the user-visible win. If you can't write a crisp, compelling "after," the change isn't ready to design — and the working-backwards docs *become* the acceptance target.
+2. **A designated API reviewer ("bar raiser") with veto over the interface.** Name one reviewer — independent of the author — who is accountable for the **public-interface quality** specifically (naming, consistency, extensibility, backward-compatibility) and can block on interface grounds alone. This is distinct from the EM/architecture review of the *plan*; it guards the *contract*.
+3. **A multi-stage lifecycle with explicit gates.** Track the RFC through states, each a gate that must close before the next opens:
+   `proposed → feedback period (open comment) → final-comment period (last call, default-accept) → API sign-off → implementation planning → implementing → shipped`.
+   Record the current state in the RFC document (and link it from `CONTINUITY.md`); a stalled RFC is visible, not silently abandoned.
+4. **Separate API approval from implementation approval.** The interface is signed off (gate 4) *before* the implementation plan is built (gate 5). Approving *what the contract is* is a different decision from approving *how/when it's built* — conflating them is how bad interfaces ship under schedule pressure.
+
+**When to use the RFC track (vs. a plain spec):** a new or changed **public/cross-service API**, a data/wire format other teams depend on, a shared-library surface, a security/privacy-relevant contract, or any architectural one-way door. **When NOT to:** internal-only changes behind a stable interface, anything a delta change-proposal already covers — don't bureaucratize a two-file change. The RFC is the proposal artifact; once API sign-off lands, implementation still follows the gated workflow below.
+
+> Stack-agnostic adaptation of a formal RFC process (working-backwards artifacts, a designated API "bar raiser" with interface veto, a staged feedback → final-comment → API-sign-off lifecycle, and API approval separated from implementation approval) from the Apache-2.0 [`aws/aws-cdk-rfcs`](https://github.com/aws/aws-cdk-rfcs). Re-derived in prose; not vendored — the process is about review governance, independent of any language or framework.
+
 ## The Gated Workflow
 
 Spec-driven development has four phases. Do not advance to the next phase until the current one is validated.

@@ -114,6 +114,36 @@ on every change:
 > control/treatment runs to isolate code from environment; gate on the relative delta) from the
 > Apache-2.0 [`facebook/FAI-PEP`](https://github.com/facebook/FAI-PEP). Re-derived in prose; not vendored.
 
+### Failure-domain-aware progressive rollout (contain the blast radius)
+
+A new revision is the most likely cause of the next outage, so **never deploy it everywhere at once**.
+Roll it out progressively, and make the rollout *respect the system's failure boundaries* so a bad
+revision can only ever take down one of them:
+
+- **One failure domain at a time.** Identify the unit of correlated failure — an availability zone, a
+  region, a rack, a data center, a shard, a cell — and **update only one at a time, never several
+  simultaneously**. If the new revision is poison, at most one domain is affected and the rest keep
+  serving. (This is orthogonal to canary/feature-flags: canary picks *how much* traffic sees the
+  change; this picks *which blast-radius boundary* it's confined to.)
+- **Accelerate as confidence builds.** Within a domain, update in **exponentially growing batches**
+  (e.g. 1 → 2 → 4 …, capped by a max-unavailable bound), with a **readiness/health gate between
+  batches** — proceed only once the just-updated units are healthy. Slow where it's risky (the first
+  units), fast where it's proven.
+- **Roll back in reverse order, newest-first.** On failure, undo the **most-recently-updated units
+  first** — they're the ones running the bad revision, so reversing chronologically escapes it fastest
+  instead of waiting out the units that were never touched.
+- **Pause on the alarm automatically.** Wire the rollout to the SLO signals above (burn-rate alert,
+  canary error-rate/latency breach) so a regression **halts progression** without a human in the loop;
+  a breach is **High** (`.claude/rules/quality-gates.md`) and routes the fix back to the dev lane.
+- **Scope it.** Worth the machinery for a multi-domain / SLO-bearing service; *skip (note why in
+  `CONTINUITY.md`)* for a single-instance or non-critical surface.
+
+> Stack-agnostic adaptation of zone-aware progressive rollout (one failure domain at a time, exponential
+> batches with readiness gates, reverse-order rollback, pause-on-alarm) from the Apache-2.0
+> [`aws/zone-aware-controllers-for-k8s`](https://github.com/aws/zone-aware-controllers-for-k8s).
+> Re-derived in prose; not vendored — the discipline applies to zones/regions/racks/cells/shards on any
+> platform, not just Kubernetes.
+
 ---
 
 ## Notes
