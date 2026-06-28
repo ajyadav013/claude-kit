@@ -4,6 +4,57 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.50.0] — 2026-06-28
+
+**Adopt the verified wins from an exhaustive review of the entire `microsoft` GitHub org** (all **8,147**
+repos). Every repo was surveyed (165 agents, one per 100-repo page — no repo skipped), the top candidates
+deep-read for license + transferable practice, and the shortlist **adversarially verified** against the
+live source. The signal concentrated in agentic-AI engineering, exactly where the kit's agent-operation
+rules were thinnest. Everything is re-derived **in prose, never vendored**, all sources MIT (one
+CC-BY-4.0 doc, concept-only). **18 adoptions, all extensions to existing files — 0 new agents/skills/rules**
+(skill counts unchanged at 104/56/48); only the **MCP fragment count rises 9 → 13**.
+
+Rules:
+
+- **`agent-guardrails.md`** — expanded the one-line OWASP stub into the full **Agentic Top-10
+  (ASI01–ASI10, 2026)** taxonomy mapped to the kit's existing layers (from `microsoft/agent-governance-toolkit`);
+  turned "sandbox shell/code execution" into a declarative **sandbox policy schema** (fs/network/resource
+  scope, fail-closed, runtime-updatable — from `microsoft/mxc`); added **layered prompt-injection defense**
+  (spotlighting/delimiter-marking, signature screen, task-drift check — from `microsoft/llmail-inject-challenge`).
+- **`evals.md`** — §3 gains **multi-judge assemblies + super-judge** aggregation and the
+  **tool-use-vs-response-quality** split (from `microsoft/llm-as-judge` · `microsoft/EvalsforAgentsInterop`);
+  new §8 **"Evaluate multi-turn behavior"** (task-sharding, single-vs-multi-turn degradation — from
+  `microsoft/lost_in_conversation`).
+- **`reasoning-techniques.md`** — added **validator-in-the-loop** (generate → run the real checker → feed
+  errors back) and **dynamic few-shot + Medprompt ensembling** (from `microsoft/dsl-copilot` · `microsoft/promptbase`).
+- **`human-in-the-loop.md`** — a new **"Implementing the gate"** section (declarative approval gates,
+  resumable/out-of-band approval, fail-safe timeout, audit trail — from `microsoft/agents-humanoversight`).
+- **`linting-and-formatting.md`** — a **Security Lint Layer** (ban dynamic-eval, raw-HTML sinks, insecure
+  randomness, disabled-TLS, shell-from-input as pre-commit errors — from `microsoft/eslint-plugin-sdl`).
+
+Skills:
+
+- **`threat-model`** — a **"Red-team the model feature"** section: multi-turn adversarial strategies,
+  scorer-driven Attack-Success-Rate, continuous re-runs (from `microsoft/PyRIT`).
+- **`security-and-hardening`** — an **SBOM generation** practice (SPDX/CycloneDX as a release artifact,
+  distinct from CVE audit — from `microsoft/sbom-tool`).
+- **`context-engineering`** — a 4th primitive, **priority-based prompt composition/pruning** (from
+  `microsoft/vscode-prompt-tsx`).
+- **`code-review-and-quality`** — **quantified-lines PR sizing** (exclude generated/whitespace/comment
+  lines, weight by reviewability, calibrate to the repo — from `microsoft/PullRequestQuantifier`).
+
+Catalog — 4 first-party MCP fragments added to `catalog/mcp.yaml` (9 → 13):
+
+- **MS Learn Docs** (`ms_learn`, hosted HTTP, no auth) · **Azure** (`@azure/mcp`) · **Azure DevOps**
+  (`@azure-devops/mcp`) · **Wassette** (WASM-sandboxed tool execution — the concrete backend for the
+  guardrails sandbox requirement).
+
+**Deliberately NOT added** (the verify pass earned its keep): `ToolTalk` (its ground-truth-tool-sequence
+grading *contradicts* `evals`' "grade outcomes, not paths"); `prompty` (an LLM-app product, not a
+transferable SDLC practice); `markitdown`, `autogen` (maintenance-mode + CC-BY-4.0), and `playwright-mcp`
+(already in the catalog). New **Rust** (`oxidizer`) and **.NET/WinUI** (`win-dev-skills`) stack overlays
+were surfaced and deferred to their own future PRs. Version 0.49.0 → 0.50.0.
+
 ## [0.49.0] — 2026-06-27
 
 **Docs: bring the README "Influences & what we adopted" table current.** The table had drifted —

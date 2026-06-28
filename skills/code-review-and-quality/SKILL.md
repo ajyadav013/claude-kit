@@ -141,6 +141,27 @@ Small, focused changes are easier to review, faster to merge, and safer to deplo
 ~1000 lines changed  → Too large. Split it.
 ```
 
+**Count *quantified* lines, not raw diff lines.** A raw `+N/-M` overstates review burden — a thousand
+lines of regenerated lockfile or a vendored snapshot is not a thousand lines to *read*. Before judging a
+change against the thresholds above, normalize:
+
+- **Exclude what needs no line-by-line review** — generated/auto-formatted output, lockfiles, vendored
+  code, large fixtures/snapshots, pure moves/renames. Verify these by *intent*, not by line (see "When
+  large changes are acceptable").
+- **Weight by reviewability, not character count** — whitespace, import reordering, and comment-only
+  edits cost little attention; new branching logic costs a lot. Two diffs with the same `+/-` can be a
+  10-minute review and a 2-hour one.
+- **Calibrate "large" to the repo, not an absolute** — the same line count is routine in one codebase
+  and alarming in another; read the thresholds as percentiles of *this* project's typical change.
+
+The point is to size by **how much a reviewer must actually reason about**, so the split decision
+tracks real review load rather than a misleading raw number.
+
+> The quantified-lines methodology (exclude generated/whitespace/comment lines, weight by reviewability,
+> calibrate to repository context) is a stack-agnostic adaptation of the MIT
+> [`microsoft/PullRequestQuantifier`](https://github.com/microsoft/PullRequestQuantifier). Re-derived in
+> prose; not vendored.
+
 **What counts as "one change":** A single self-contained modification that addresses one thing, includes related tests, and keeps the system functional after submission. One part of a feature — not the whole feature.
 
 **Splitting strategies when a change is too large:**

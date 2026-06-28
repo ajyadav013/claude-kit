@@ -41,6 +41,34 @@ authenticated user, admin, service).
    in `.claude/skills/security-and-hardening/SKILL.md` → *LLM / AI Feature Security* (opt-in; state any
    bypass as a residual risk).
 
+## Red-team the model feature (offensive verification)
+
+The STRIDE/LLM walk above is *design-time* and *defensive* — it enumerates threats and names
+mitigations. For an LLM/AI feature, pair it with an **offensive** pass that actually attacks the
+deployed feature, because model-layer defenses are probabilistic: "we added an input filter" is a claim
+until something tries to get past it.
+
+- **Run multi-turn adversarial strategies, not just single-shot prompts.** The strong attacks are
+  *conversational* — gradual escalation that never asks for the harmful thing directly (Crescendo),
+  tree-of-attack search over rephrasings, role-play/persona framing, many-shot priming. A one-line
+  "ignore your instructions" test proves almost nothing.
+- **Cover the risk categories** your product cares about (prompt-injection / data exfiltration,
+  jailbreak to disallowed content, PII leakage, unsafe tool invocation) — each with attack variants
+  (encoding, obfuscation, indirect injection via retrieved/tool content).
+- **Score with Attack Success Rate (ASR).** Make safety a *number* — the fraction of adversarial
+  attempts that produced a policy violation — using a scorer (rule-based or LLM-judge, per `evals.md`
+  §3) rather than eyeballing. Track ASR over time; it is the canonical metric for this failure class.
+- **Make it continuous.** Red-teaming is not one-and-done — re-run on model/prompt/tool changes (wire it
+  into the `evals.md` discipline; a rising ASR fails the gate).
+
+This is a *verification* activity, so it runs after build alongside `security-verification` /
+`zap-vapt-scanning` (which cover the non-model attack surface); this skill stays the design-time entry
+point that decides *what* to red-team.
+
+> Stack-agnostic adaptation of the operationalized GenAI red-teaming methodology (multi-turn attack
+> strategies, scorer-driven evaluation, Attack Success Rate) in the MIT
+> [`microsoft/PyRIT`](https://github.com/microsoft/PyRIT). Re-derived in prose; not vendored.
+
 ## Agents to delegate to
 `security-reviewer` (+ `owasp-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`)
 for deep review; `risk-classifier` to confirm the tier.

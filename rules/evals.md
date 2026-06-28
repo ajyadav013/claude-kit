@@ -36,6 +36,24 @@ strategies. (Mirror of the RARV "verify the result" stance in `.claude/rules/rar
   rubric for *grading*; the pipeline's pass/fail **gate** stays binary (§6, `quality-gates.md`).
 - **Human** grading for the highest-stakes or subjective cases; use it to keep the automated graders honest.
 
+Two refinements when one judge isn't enough:
+
+- **Panel of judges for multi-dimensional or high-stakes scoring.** Instead of one judge rating
+  everything on a vague scale, run a small **assembly** of specialized judges (each with its own narrow
+  rubric, optionally its own model) in parallel and **aggregate** — report the median and the
+  inter-judge agreement, and add a **mediator** ("super-judge") pass to reconcile genuine disagreement
+  into one verdict. Diverse judges catch failure modes a single judge is blind to (the eval-side mirror
+  of multi-agent blind review in `.claude/rules/quality-gates.md`).
+- **Grade tool-use and response-quality on separate axes (agentic features).** An agent run can call
+  the right tools but answer poorly, or answer plausibly via a wrong/unsafe path. Score the two as
+  **independent** pass/fail dimensions so a good final answer can't mask bad tool behavior, and vice
+  versa — don't collapse them into one number.
+
+> Multi-judge assembly + super-judge mediation, and the tool-use-vs-response-quality split, are
+> stack-agnostic adaptations of the MIT [`microsoft/llm-as-judge`](https://github.com/microsoft/llm-as-judge)
+> and [`microsoft/EvalsforAgentsInterop`](https://github.com/microsoft/EvalsforAgentsInterop).
+> Re-derived in prose; not vendored.
+
 ## 4. Report non-determinism honestly
 
 - **pass@k** — probability of ≥1 success in k tries. Rises with k. Use when the user can retry.
@@ -99,6 +117,30 @@ generation from grading so the model can't see what it's graded against.
 > Stack-agnostic adaptation of the staged-evaluator pattern in the Apache-2.0
 > [`alibaba/atrex-bench`](https://github.com/alibaba/atrex-bench) (compile→correctness→performance
 > gating, generate/eval session isolation, cached roofline baselines). Re-derived in prose; not vendored.
+
+## 8. Evaluate multi-turn behavior, not just single-shot answers
+
+A model that scores well on one-shot prompts can still **degrade sharply across a conversation** —
+accuracy measured turn-by-turn drops well below the single-turn number once the task is delivered
+piecemeal, context accumulates, and the model commits early to a wrong assumption it never revisits.
+A single-turn eval will not catch this; claude-kit's own agents run over long multi-turn sessions
+(plan → implement → review), so it matters here.
+
+- **Shard a single-turn case into turns.** Take a task you already grade single-shot and split its
+  requirements across several user turns (reveal constraints incrementally). Run both forms and compare
+  the final-state score — the **single-turn vs multi-turn gap** is the degradation metric.
+- **Watch for early lock-in.** The dominant failure is the model latching onto an early, under-specified
+  guess and never correcting as later turns add information. An eval that surfaces this tells you to add
+  a re-grounding step (re-read the accumulated requirement before acting) — the `context-engineering`
+  "compact/clash" fixes apply.
+- **Report it like §6.** Multi-turn runs are *more* non-deterministic, not less; use median-of-N and
+  report both single- and multi-turn numbers — a "90% single-turn" feature that is "55% multi-turn" is
+  two different claims.
+
+> Stack-agnostic adaptation of the conversation-degradation measurement (task-sharding,
+> single-vs-multi-turn comparison) in the MIT
+> [`microsoft/lost_in_conversation`](https://github.com/microsoft/lost_in_conversation). Re-derived in
+> prose; not vendored.
 
 ## Rules
 

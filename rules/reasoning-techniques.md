@@ -21,6 +21,28 @@ heavier techniques.
 | High-stakes, ambiguous, or multiple plausible designs | **Tree-of-Thought / Self-consistency** | Sketch 2–3 distinct approaches, reason about each, then converge on the best with stated trade-offs. Be ready to **backtrack** when a branch hits a wall instead of forcing it. |
 | Hard problem, correctness > speed | **Extended thinking (effort budget)** | Spend more deliberation proportional to difficulty (the "more thinking time → better output" effect). Budget effort to the stakes; don't burn deep reasoning on boilerplate. |
 | You're stuck on the literal framing | **Step-back** | Ask the more general question first ("what kind of problem is this?"), answer that, then return to the specific case. |
+| Generating code or structured output a tool can check | **Validator-in-the-loop** | Generate → run the real validator (compiler / linter / parser / schema check) → feed the **actual** errors back → regenerate. Never hand off a generated artifact you never ran the checker against; the checker's output, not your confidence, is the signal. |
+| Hard, example-rich task where the *choice* of examples matters | **Dynamic few-shot + ensembling** | Pick few-shot exemplars *similar to this specific input* (not a fixed set); let the model produce its own reasoning chain; for closed-choice decisions, sample a few times with the option order shuffled and take the majority — order-bias and one-shot variance both wash out. |
+
+### Advanced prompting & validation loops
+
+Two techniques earn their cost on hard, repeated tasks:
+
+- **Validator-in-the-loop** turns a stochastic generator into a self-correcting one: the tool that will
+  judge the output (compiler, linter, parser, schema/type checker, test) runs *inside* the loop, and
+  its errors drive the next attempt. This is ReAct specialized to generation — "observe the real result
+  before the next move" applied to your own artifact — and it is the single biggest lever against
+  confidently-wrong generated code.
+- **Dynamic few-shot + self-generated chain-of-thought + choice-shuffle ensembling** (the "Medprompt"
+  family) beats static prompting when accuracy matters more than latency: retrieve input-similar
+  exemplars, have the model write the reasoning rather than hand-authoring it, and average several
+  shuffled samples. Reserve it for the consequential cases — it multiplies calls (cost: §"Resource-aware
+  effort").
+
+> Validator-in-the-loop and the dynamic-few-shot/ensembling techniques are stack-agnostic adaptations
+> of the MIT [`microsoft/dsl-copilot`](https://github.com/microsoft/dsl-copilot) (compiler/validator
+> feedback loop) and [`microsoft/promptbase`](https://github.com/microsoft/promptbase) (Medprompt).
+> Re-derived in prose; not vendored.
 
 ## Reasoning hygiene
 
