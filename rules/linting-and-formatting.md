@@ -109,6 +109,39 @@ of eyes in review.
 > enforced lint errors). Re-derived in prose; not vendored — the patterns generalize beyond any one
 > linter.
 
+### Compile-Time Logic-Bug Analysis (error)
+
+A style linter checks formatting and idiom; a *type checker* checks types. Between them sits a third,
+higher-value layer: **static analyzers that catch real logic bugs the type checker accepts** — code
+that compiles and is type-correct but is almost certainly wrong. Examples (stack-agnostic):
+
+- an equality/`==` check that can never be true because the operands are incompatible types;
+- a format string whose placeholders don't match its arguments;
+- a returned value or `Future`/`Promise` that is silently dropped (forgotten `await`);
+- a collection mutated while iterated; a `@CheckReturnValue`/`#[must_use]` result ignored.
+
+Enable your stack's analyzer for this class and treat its findings as build-breaking, distinct from
+both the type checker and the security-lint layer above: Error Prone (Java), `clippy` (Rust),
+`staticcheck`/`go vet` (Go), type-aware ESLint rules (TypeScript), Infer / clang-analyzer (C/C++),
+Pyright/mypy strict + Ruff's bug-prone (`B`) rules (Python). The point is the *category* — "find bugs,
+not style" — not any one tool.
+
+> Stack-agnostic adaptation of compile-time logic-bug analysis as a distinct enforcement layer (beyond
+> style + type checking) from the Apache-2.0 [`google/error-prone`](https://github.com/google/error-prone).
+> Re-derived in prose; not vendored — every major ecosystem has an equivalent analyzer.
+
+### License-Header Enforcement (error)
+
+Where the project (or its org) requires source files to carry a copyright + SPDX license header, make
+it a **mechanical, enforced check**, not a manual review item: a CI / pre-commit step verifies every
+source file has the expected header and **fails the build** on a missing or malformed one (a `--check`
+mode that exits non-zero), with an auto-fix mode that inserts the header locally. This keeps license
+hygiene from rotting silently as new files are added.
+
+> Stack-agnostic adaptation of license-header enforcement as a check-mode CI/pre-commit gate from the
+> Apache-2.0 [`google/addlicense`](https://github.com/google/addlicense). Re-derived in prose; not
+> vendored.
+
 ## Framework-Specific Hook Rules (if applicable)
 
 For reactive frameworks (React, Vue, Svelte, SolidJS, etc.), enforce hook/reactivity rules:
@@ -203,6 +236,30 @@ cd frontend && <run frontend linter>
 - As a separate pre-commit step
 
 **Formatting is not negotiable.** Configure your editor to format on save, or rely on pre-commit hooks. Never commit unformatted code.
+
+### Deterministic Block Sorting
+
+Lists that many contributors append to — dependency arrays, import groups, enum/constant lists, config
+allowlists — are a recurring source of **merge conflicts** (two branches both append to the end) and of
+"is X already here?" scanning cost. Keep such blocks **deterministically sorted** so additions land in a
+predictable place and diffs stay minimal. A language-agnostic, marker-comment formatter does this
+without needing the surrounding file to be machine-sortable:
+
+```
+# keep-sorted start
+  alpha
+  bravo
+  charlie
+# keep-sorted end
+```
+
+The tool re-sorts only between the markers (with options for grouping, case, and numeric ordering) and
+runs in the same pre-commit / CI auto-fix step as the formatter. Apply it to frequently-edited lists;
+don't impose it on sequences whose order is meaningful.
+
+> Stack-agnostic adaptation of marker-comment deterministic block sorting (reduce merge conflicts on
+> append-heavy lists) from the Apache-2.0 [`google/keep-sorted`](https://github.com/google/keep-sorted).
+> Re-derived in prose; not vendored.
 
 ## Ignored Paths
 

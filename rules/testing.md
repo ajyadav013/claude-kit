@@ -419,6 +419,102 @@ For component-based UI frameworks:
 
 See `.claude/rules/responsive-and-accessibility.md` for UI-specific accessibility requirements.
 
+## Parameterized / Table-Driven Tests
+
+When the *same* assertion logic runs across many input/expectation pairs, don't copy-paste the test
+body — drive one test template from a table of cases. It cuts duplication, makes the covered cases
+visible at a glance, and makes adding a case a one-line change. Use your framework's mechanism:
+`@pytest.mark.parametrize` (Python), `it.each` / `test.each` (Jest/Vitest), JUnit `@ParameterizedTest`,
+Go table-driven subtests (`for _, tc := range cases { t.Run(... ) }`), RSpec shared examples.
+
+```python
+@pytest.mark.parametrize("raw, expected", [
+    (1234.5, "$1,234.50"),   # positive
+    (0,      "$0.00"),       # zero
+    (-500,   "-$500.00"),    # negative
+])
+def test_format_currency(raw, expected):
+    assert format_currency(raw) == expected
+```
+
+- **Name each case** (or include the input in the assertion message) so a failure says *which* row
+  failed, not just "case 3."
+- Reach for it especially on pure functions, validators, and boundary tables (see *Cover edge cases*).
+
+> Stack-agnostic adaptation of parameterized/table-driven testing (one template, many input/expectation
+> rows) from the Apache-2.0 [`google/patrick`](https://github.com/google/patrick). Re-derived in prose;
+> not vendored — the pattern is supported natively across test frameworks.
+
+## Semantic Equality and Structured Assertions
+
+Asserting deep equality with the default operator is brittle: floating-point results need *tolerance*,
+some fields are legitimately unordered, and a raw "expected != actual" failure on a big struct is
+unreadable. Assert on the *meaning*, and surface a readable diff:
+
+- **Use tolerant comparison for floats** (`abs(a-b) < eps` / `pytest.approx` / `assertAlmostEqual`),
+  and define explicit equality for domain types (NaN handling, set-vs-list, ignore server-set
+  timestamps/ids) rather than comparing raw representations.
+- **Prefer a structured diff** on failure — assert with a matcher that prints *what differs*
+  (field-by-field), not two opaque blobs. Most ecosystems have one (`assertEqual` deep-diff,
+  `jest`'s object diff, `deepdiff` in Python, custom comparers).
+- **Don't snapshot-compare to dodge this** — a tolerant, intention-revealing comparator beats a
+  brittle golden file (see *Never Test → Snapshot tests*).
+
+> Stack-agnostic adaptation of semantic-equality testing (custom comparators with float tolerance /
+> domain equality, structured diffs over raw deep-equality) from the BSD-3-Clause
+> [`google/go-cmp`](https://github.com/google/go-cmp). Re-derived in prose; not vendored.
+
+## Fuzzing (and continuous fuzzing in CI)
+
+Example-based and even property-based tests (see the property-based testing section in
+`.claude/skills/test-driven-development`) only exercise inputs you *thought of*. **Fuzzing** generates
+inputs you didn't — it mutates a seed corpus under **coverage feedback**, steering toward new code
+paths, and flags any input that crashes, hangs, or trips an assertion/sanitizer. It is the highest-value
+technique for code that parses or decodes **untrusted input** (parsers, deserializers, protocol/codec
+handlers, anything taking bytes from the network or a file) and complements the ReDoS / input-validation
+hardening in `.claude/skills/security-and-hardening`.
+
+- **Write a fuzz target:** a single entry point that takes an arbitrary byte string / structured input
+  and feeds it through the code under test. Most ecosystems ship a coverage-guided fuzzer — Go
+  `testing.F`, Rust `cargo-fuzz`, Python `atheris`, JS `jazzer.js`, JVM `Jazzer`, C/C++ libFuzzer/AFL++.
+- **Seed and grow a corpus.** Start from valid example inputs; the fuzzer evolves them. Keep the corpus
+  (and any crash reproducers) in the repo so findings are reproducible and regressions are caught.
+- **Structure-aware fuzzing for structured inputs.** For inputs behind a schema (protobuf, JSON Schema,
+  a typed AST), generate *semantically valid* inputs from the schema so the fuzzer spends its budget on
+  logic, not on getting past the parser.
+- **Make it continuous, as a CI gate.** Run a short, code-change-scoped fuzz pass on each PR (catches
+  regressions cheaply — a few minutes), and a longer batch run on a schedule to build the corpus and
+  reach deeper bugs. Every crash becomes a regression test. (Wire the PR pass into
+  `.claude/rules/ci-cd-and-automation.md` alongside lint/test.)
+
+> Stack-agnostic adaptation of coverage-guided fuzzing and **continuous fuzzing as a CI gate**
+> (PR-scoped code-change runs + scheduled batch + corpus/crash management) from the Apache-2.0
+> [`google/atheris`](https://github.com/google/atheris),
+> [`google/honggfuzz`](https://github.com/google/honggfuzz), and
+> [`google/clusterfuzzlite`](https://github.com/google/clusterfuzzlite). Re-derived in prose; not
+> vendored — the discipline maps onto each ecosystem's native fuzzer.
+
+## Parallel Execution and Flakiness Detection
+
+As a suite grows, two things matter beyond correctness: it must run **fast** and it must be
+**deterministic**.
+
+- **Run tests in parallel.** Shard across workers (≈ CPU cores) — most runners do this with a flag
+  (`pytest -n auto`, `go test` package parallelism + `t.Parallel()`, `jest`/`vitest` default workers).
+  Parallelism is only safe if tests are **isolated**: no shared mutable global, DB row, temp file, or
+  port between tests (see *No test interdependence*). Flakiness that appears *only* under parallelism is
+  a hidden shared-state bug — fix the isolation, don't serialize to hide it.
+- **Hunt flakiness deliberately.** A test that passes 99 % of the time is a latent failure. Periodically
+  **repeat** the suite (or a suspect test) many times and treat any nondeterministic result as a defect
+  to fix, not a flake to retry. Run with repetition and randomized ordering (`--count=N` /
+  `pytest-repeat` / `--shuffle`) so order-dependence and timing races surface in CI, not in production.
+- The usual root causes: time/clock assumptions (use the condition-waiting discipline in *Async/
+  Event-Loop Systems*, never `sleep`), order dependence, shared fixtures, and unawaited async work.
+
+> Stack-agnostic adaptation of parallel test sharding + repeated-run flakiness detection from the
+> Apache-2.0 [`google/gtest-parallel`](https://github.com/google/gtest-parallel). Re-derived in prose;
+> not vendored.
+
 ## Integration with Workflow
 
 This file defines unit testing standards. Integration and end-to-end testing are covered separately:

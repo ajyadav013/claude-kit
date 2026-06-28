@@ -138,3 +138,49 @@ servers:
       type: stdio
       command: repowise
       args: ["mcp", "${REPOWISE_PROJECT_ROOT}", "--transport", "stdio"]
+  # Google Security Operations cluster (github.com/google/mcp-security, Apache-2.0) — four first-party
+  # Google MCP servers covering the SOC/operational-security domain the catalog otherwise has no entry
+  # for (Sentry above is error-monitoring, not threat-intel/SIEM/SOAR/CSPM):
+  #   • secops      — Chronicle SIEM: search/UDM events, detections, IoC matches, case context
+  #   • gti         — Google Threat Intelligence (VirusTotal): file/URL/domain/IP reputation & relationships
+  #   • scc         — Security Command Center: cloud-security posture, findings, asset risk
+  #   • secops_soar — SecOps SOAR (Siemplify): cases, playbooks, response actions
+  # These are Python servers run with `uvx` (install `uv` first: https://docs.astral.sh/uv/), pinned to
+  # exact PyPI versions (snapshot 2026-06-28; do not float). NOT bundled — claude-kit only references
+  # them. Each needs a PAID Google SecOps/Chronicle (or VirusTotal) backend and its own credentials —
+  # auth is via Application Default Credentials (`gcloud auth application-default login`, or a
+  # GOOGLE_APPLICATION_CREDENTIALS service-account file) plus the per-server env vars below; no
+  # credentials are generated here. Enable only the server(s) whose backend you actually have.
+  secops:
+    label: "Google SecOps / Chronicle SIEM (paid Chronicle backend + ADC required)"
+    config:
+      type: stdio
+      command: uvx
+      args: ["--from", "google-secops-mcp==0.7.0", "secops_mcp"]
+      env:
+        CHRONICLE_PROJECT_ID: "${CHRONICLE_PROJECT_ID}"
+        CHRONICLE_CUSTOMER_ID: "${CHRONICLE_CUSTOMER_ID}"
+        CHRONICLE_REGION: "${CHRONICLE_REGION}"
+  gti:
+    label: "Google Threat Intelligence / VirusTotal (needs VT_APIKEY)"
+    config:
+      type: stdio
+      command: uvx
+      args: ["--from", "gti-mcp==0.1.2", "gti_mcp"]
+      env:
+        VT_APIKEY: "${VT_APIKEY}"
+  scc:
+    label: "Security Command Center — cloud security posture (ADC required)"
+    config:
+      type: stdio
+      command: uvx
+      args: ["--from", "scc-mcp==0.1.0", "scc_mcp"]
+  secops_soar:
+    label: "Google SecOps SOAR / Siemplify (paid SOAR backend; needs SOAR_URL + SOAR_APP_KEY)"
+    config:
+      type: stdio
+      command: uvx
+      args: ["--from", "secops-soar-mcp==0.1.1", "secops_soar_mcp"]
+      env:
+        SOAR_URL: "${SOAR_URL}"
+        SOAR_APP_KEY: "${SOAR_APP_KEY}"

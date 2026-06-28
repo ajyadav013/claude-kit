@@ -65,6 +65,38 @@ pause for a human — so the pause is enforced by the system, not left to the ag
 > [`microsoft/agents-humanoversight`](https://github.com/microsoft/agents-humanoversight). Re-derived in
 > prose; not vendored.
 
+## Multi-party authorization for the highest-stakes actions (MPA · breakglass)
+
+For most stops a *single* human approval is right. But the most dangerous actions — deleting production
+data, changing access control, deploying to a regulated system, rotating root credentials — should not
+be unlockable by **one** person (or one person + a coerced/compromised agent). Raise the bar past a
+single gate:
+
+- **Multi-party authorization (MPA): require two.** A high-stakes action needs a *second independent
+  approver* who is not the requester — the "two-person rule." Beyond stopping a single bad actor, it
+  forces the requester to articulate the action clearly enough that a peer will sign it, which catches
+  honest mistakes. Make the second approval a real review (the approver sees *what* will run), not a
+  rubber stamp.
+- **Bind approval to context, not just identity.** Stronger still: tie sensitive operations to a
+  trusted device/role/environment, so an approval also proves *where* and *how* it was given — not only
+  *who* gave it. (The principle behind "multi-factor / multi-channel" authorization: don't let one
+  stolen credential be sufficient.)
+- **Breakglass, with auditing.** Keep a deliberate emergency override for when the normal path is down
+  (the on-call can't reach a second approver during an incident) — but make it *loud*: it requires a
+  written justification, it is heavily logged, and it triggers a **mandatory after-the-fact review**.
+  Breakglass is an exception that must be accounted for, never a quiet bypass.
+- **Least privilege + separation of duties make MPA affordable.** The fewer actions that *need* two
+  approvers, the more meaningful each one is. Reserve MPA for genuinely irreversible / high-blast-radius
+  operations (see reversibility below); don't dilute it across routine changes.
+
+These map onto the gate mechanics above: MPA is "the declarative gate, but the policy requires N≥2
+distinct approvals," and breakglass is "the timeout/absence path, made auditable instead of fail-open."
+
+> Stack-agnostic adaptation of multi-party / multi-factor authorization, breakglass-with-auditing, and
+> separation-of-duties from *Building Secure & Reliable Systems* (Google/O'Reilly, CC-BY-4.0;
+> [`google/building-secure-and-reliable-systems`](https://github.com/google/building-secure-and-reliable-systems)),
+> Ch. 5 ("Design for Least Privilege") & Ch. 21. Concept-only (CC-BY); re-derived in prose, not vendored.
+
 ## Gate the depth of review to reversibility
 
 Not every stop deserves the same ceremony. Before a consequential decision, classify it by how hard it

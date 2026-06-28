@@ -49,6 +49,46 @@ Ensures the feature is **operable in production**: you can tell when it breaks a
 
 Findings classified by `.claude/rules/quality-gates.md` severity; Critical/High/Medium block.
 
+### Multi-window burn-rate alerting (alert on the error budget, not raw error rate)
+
+A static "error rate > X%" alert forces a bad trade-off: tight enough to catch a real outage means it
+pages on every transient blip; loose enough to be quiet means slow burns go unnoticed until the budget
+is gone. The SRE pattern is to alert on **how fast the SLO's error budget is burning**, across
+**multiple time windows** at once:
+
+- **Burn rate = (observed error ratio) ÷ (1 − SLO target).** A burn rate of 1 exactly exhausts the
+  budget over the SLO window; 14.4 exhausts it in ~2 % of the window.
+- **Fast-burn (page):** a high burn rate confirmed over a **short *and* a medium** window (e.g. 14.4×
+  over 1h **and** 5m) — catches acute outages fast while the second window suppresses single-spike
+  false positives.
+- **Slow-burn (ticket, not page):** a lower burn rate over **longer** windows (e.g. 6× over 6h/30m,
+  3× over 24h/2h, 1× over 3d/6h) — catches a steady leak that would otherwise quietly drain the budget.
+- Require **both** windows of a tier to fire (the long window detects, the short window confirms it's
+  still happening) so an alert clears quickly once the issue stops. Tie each tier's severity/owner to
+  the "Alerts" gate item above.
+
+> Stack-agnostic adaptation of multi-window, multi-burn-rate SLO alerting (per the Google SRE Workbook)
+> from the Apache-2.0
+> [`google/prometheus-slo-burn-example`](https://github.com/google/prometheus-slo-burn-example).
+> Re-derived in prose; not vendored — the windows/multipliers are a starting point to tune per SLO.
+
+### High-volume logging: rate-limit and defer
+
+Logging on a hot path or in an error burst can become its own incident — the log call dominates CPU, or
+a flood of identical lines buries the signal and runs up ingestion cost. Two patterns keep logging cheap
+under load:
+
+- **Rate-limit repetitive log statements at the call site** — emit "at most every N seconds" or "1 in
+  every N" for a given line, rather than once per iteration, so a tight loop or a sustained error
+  doesn't flood. (Aggregate the suppressed count so you still know the true volume.)
+- **Defer the cost of expensive log arguments** until logging is *known to be enabled* at that level —
+  pass a lazily-evaluated value (a thunk/lambda), not an eagerly-built expensive string, so a disabled
+  `debug` log costs nothing. This pairs with the "no secrets/PII" structured-logging gate item above.
+
+> Stack-agnostic adaptation of log rate-limiting (`atMostEvery`) and lazy argument evaluation from the
+> Apache-2.0 [`google/flogger`](https://github.com/google/flogger). Re-derived in prose; not vendored —
+> the patterns apply to any logging framework.
+
 ---
 
 ## Notes

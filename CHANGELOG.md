@@ -4,6 +4,72 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.51.0] — 2026-06-28
+
+**Adopt the verified wins from an exhaustive review of the entire `google` GitHub org** (all **2,881**
+repos). Every repo was surveyed (60 agents over every page — no repo skipped), the top ~300 candidates
+deep-read for license + transferable practice, and the shortlist **adversarially verified** against the
+live source. The verify pass *dropped a third* of the shortlist: `deps.dev` (a REST/gRPC API, **not** an
+MCP server), `licensecheck` (license *classification*, not the claimed compatibility gate), the
+Go/Rust/C++-locked tools `capslock` · `rust-crate-audits` · `fuzztest` · `libprotobuf-mutator` (not
+re-derivable stack-agnostic), `sqlcommenter` (archived → donated to OpenTelemetry), and `ax` (too early —
+"major breaking changes prior to stable"). Everything is re-derived **in prose, never vendored**; all
+sources Apache-2.0 / BSD-3-Clause / MIT except one CC-BY-4.0 book (concept-only). **21 adoptions, all
+extensions to existing files — 0 new agents/skills/rules** (skill counts unchanged at 104/56/48); only the
+**MCP fragment count rises 13 → 17**.
+
+Rules:
+
+- **`human-in-the-loop.md`** — a new **multi-party authorization** section: the two-person rule for the
+  highest-stakes actions, context-bound (multi-factor) approval, and **breakglass-with-auditing** (loud
+  emergency override + mandatory after-the-fact review), extending the simple approval gate beyond a
+  single approver (concept-only from the CC-BY-4.0 *Building Secure & Reliable Systems*,
+  `google/building-secure-and-reliable-systems`).
+- **`testing.md`** — four techniques beyond example-based tests: **parameterized/table-driven** tests
+  (`google/patrick`); **semantic-equality & structured-diff** assertions, float tolerance over brittle
+  deep-equality (`google/go-cmp`); a **Fuzzing** section — coverage-guided + structure-aware + **continuous
+  fuzzing as a CI gate** (`google/atheris` · `google/honggfuzz` · `google/clusterfuzzlite`); and
+  **parallel execution + repeated-run flakiness detection** (`google/gtest-parallel`).
+- **`linting-and-formatting.md`** — a **compile-time logic-bug analysis** layer (find bugs the type
+  checker accepts — `google/error-prone`), **license-header enforcement** as a check-mode CI gate
+  (`google/addlicense`), and **deterministic block sorting** via marker comments to cut merge conflicts
+  (`google/keep-sorted`).
+- **`devops-observability.md`** — **multi-window burn-rate alerting** (alert on error-budget burn across
+  paired short/long windows, not raw error rate — `google/prometheus-slo-burn-example`) and **high-volume
+  logging** patterns (call-site rate-limiting + lazy argument evaluation — `google/flogger`).
+- **`reasoning-techniques.md`** — **prompt-as-code**: treat a reusable prompt as a versioned, schema-validated,
+  testable artifact (`google/dotprompt`).
+- **`tool-design.md`** — the §8 atomic-state note gains the **atomicity-vs-durability** nuance
+  (fsync-before-rename, same-filesystem, temp cleanup — `google/renameio`).
+
+Skills:
+
+- **`security-and-hardening`** — **reproducible-build verification** (independent rebuild → normalize
+  benign differences → attest equivalence — `google/oss-rebuild`); **source-level missing-patch detection**
+  for vendored/forked code via OSV-derived signatures (`google/vanir`); **secure-by-construction injection
+  defense** (compile-time-constant query text + typed trusted/untrusted wrappers — `google/safe-active-record`
+  · `google/mug`); **archive-extraction safety** (zip-slip / symlink — `google/safearchive`); and **ReDoS
+  defense** for untrusted regex input (`google/re2`).
+- **`context-engineering`** — a **Long-Document Extraction** section: overlapping chunks → parallel
+  schema-constrained passes → source-interval grounding → multi-pass recall (`google/langextract`).
+- **`performance-optimization`** — a **statistical browser benchmarking** discipline: interleaved repeated
+  sampling, 95 % confidence intervals, auto-sample-until-significance (`google/tachometer`).
+- **`api-integration`** — a **record-replay** pattern for deterministic external-API tests (record real
+  responses with secrets redacted → replay offline → re-record on drift — `google/test-server`).
+
+Catalog:
+
+- **`catalog/mcp.yaml`** — **4 first-party Google Security Operations MCP fragments** (one upstream repo,
+  `google/mcp-security`, Apache-2.0): **secops** (Chronicle SIEM), **gti** (Google Threat Intelligence /
+  VirusTotal), **scc** (Security Command Center / cloud posture), **secops_soar** (SecOps SOAR) — the
+  SOC/operational-security capability domain the catalog had no entry for. Run via pinned `uvx`; each needs
+  a paid Google SecOps backend + ADC and is **referenced, never bundled** (like `sentry`/`repowise`).
+
+What we **did not** add (already covered, or fails the bar): property-based testing (already in
+`test-driven-development` §property-based, 0.38) — the new Fuzzing section builds on it; pre-add dependency
+evaluation (already `library-review` + `dependency-verification`); SBOM/CVE supply-chain (already
+`security-and-hardening`, 0.39/0.50); the dropped shortlist items above.
+
 ## [0.50.0] — 2026-06-28
 
 **Adopt the verified wins from an exhaustive review of the entire `microsoft` GitHub org** (all **8,147**

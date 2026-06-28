@@ -79,6 +79,29 @@ const query = `SELECT * FROM users WHERE email = '${email}'`;
 const user = await db.query('SELECT * FROM users WHERE email = $1', [email]);
 ```
 
+**Secure-by-construction (defense in depth beyond "use parameters").** "Always parameterize" relies on
+every developer remembering, every time — one string-built query slips through review and you have an
+injection. The stronger discipline is to make the unsafe path *unrepresentable*: ban the raw
+string-accepting API in app code (via lint/type rules) and route construction through types that are
+**provably safe by construction**.
+
+- **Compile-time-constant query text.** Require the static part of a query (the SQL/command template) to
+  be a *compile-time constant* the developer wrote — never a runtime-assembled string. Untrusted values
+  can then only enter as bound parameters, so a literal like `"... WHERE id = " + userInput` won't even
+  compile/lint. (Where the language supports it, an annotation/type such as a "trusted constant string"
+  enforces this.)
+- **Typed trust wrappers.** Wrap values in distinct types that encode their trust — a `TrustedString`
+  the API accepts vs. an `UntrustedString` it rejects at the boundary — so "this came from the user"
+  is carried in the type, not in a comment, and the compiler/linter rejects mixing them.
+- This generalizes past SQL to every injection sink: shell/command construction, file paths, HTML, and
+  template rendering. The same idea underlies framework "safe HTML" / "trusted types" wrappers.
+
+> Stack-agnostic adaptation of secure-by-construction injection defense (compile-time-constant query
+> text + typed trusted/untrusted wrappers, banning the raw string API outright) from the Apache-2.0
+> [`google/safe-active-record`](https://github.com/google/safe-active-record) and
+> [`google/mug`](https://github.com/google/mug) (`SafeSql`/`@CompileTimeConstant`). Re-derived in prose;
+> not vendored.
+
 ### 2. Broken Authentication
 
 ```python
@@ -320,6 +343,62 @@ def validate_upload(content_type: str, size: int) -> None:
     # Don't trust the extension — verify magic bytes if it matters
 ```
 
+### Archive Extraction Safety (zip-slip / symlink)
+
+Extracting an uploaded or downloaded archive (`.zip`, `.tar`, `.tar.gz`, …) is a classic
+remote-code/overwrite vector: the archive controls the *paths* of the files it writes. Two attacks:
+
+- **Path traversal ("zip-slip"):** an entry named `../../etc/cron.d/x` or an absolute path escapes the
+  extraction directory and overwrites files anywhere the process can write.
+- **Symlink attack:** the archive contains a symlink pointing outside the target (or at a sensitive
+  file), then a later entry writes *through* it.
+
+Harden extraction — don't trust any entry name:
+
+```python
+import os
+
+def safe_extract_path(dest_dir: str, member_name: str) -> str:
+    # Resolve the final path and confirm it stays inside dest_dir (defeats ../ and absolute paths)
+    dest = os.path.realpath(dest_dir)
+    target = os.path.realpath(os.path.join(dest, member_name))
+    if not (target == dest or target.startswith(dest + os.sep)):
+        raise ValueError(f"unsafe archive entry escapes target: {member_name!r}")
+    return target
+```
+
+- **Canonicalize then contain:** resolve each entry to an absolute real path and reject anything not
+  under the target directory (covers `..`, absolute paths, and `..`-laden symlink targets).
+- **Refuse or sanitize symlinks/hardlinks** in untrusted archives unless you explicitly need them — and
+  if you do, validate their targets the same way.
+- **Bound the output, too:** cap total uncompressed size and entry count to defeat decompression bombs
+  (a few KB inflating to GBs is a DoS — pair with the upload size limit above).
+- Prefer a safe-by-default extraction API/library over hand-rolled loops where your stack offers one.
+
+> Stack-agnostic adaptation of archive-extraction hardening (path-traversal containment, symlink-attack
+> prevention, safe-by-default extraction) from the Apache-2.0
+> [`google/safearchive`](https://github.com/google/safearchive). Re-derived in prose; not vendored.
+
+### Regex DoS (ReDoS) on untrusted input
+
+When a regular expression runs against attacker-controlled input — search filters, validators, log
+parsers, user-supplied patterns — a "catastrophic backtracking" pattern can take *exponential* time on a
+short crafted string and hang the request (a CPU denial of service). Nested quantifiers and overlapping
+alternations are the usual culprits (`(a+)+$`, `(\w+\s*)*`, `(.*)*`).
+
+- **Prefer a linear-time engine.** Some regex engines (RE2-family, Rust `regex`, Go's `regexp`) guarantee
+  linear-time matching with no backtracking — use one for any regex over untrusted input. In
+  backtracking engines (PCRE, Python `re`, JS `RegExp`, Java), this guarantee does **not** hold.
+- **Never compile a user-supplied pattern** in a backtracking engine without a linear-time engine, a
+  strict pattern allowlist, and/or a match **timeout/length cap**.
+- **Audit your own static regexes** for nested quantifiers; bound input length before matching.
+- This is the regex-specific case of the general rule: untrusted input must not be able to make the
+  server do unbounded work.
+
+> Stack-agnostic adaptation of linear-time regex matching as ReDoS defense from the BSD-3-Clause
+> [`google/re2`](https://github.com/google/re2). Re-derived in prose; not vendored — the principle
+> (linear-time engine / bounded matching for untrusted patterns) generalizes across regex libraries.
+
 ## Triaging Dependency Audit Results
 
 > **Supply-chain layers.** A CVE audit catches *known-vulnerable* versions — it does not catch a
@@ -368,6 +447,56 @@ incident traceable to the exact releases that shipped it.
 > Stack-agnostic adaptation of SBOM generation as a release-pipeline practice from the MIT
 > [`microsoft/sbom-tool`](https://github.com/microsoft/sbom-tool) (SPDX SBOM generation). Re-derived in
 > prose; not vendored — the practice generalizes across SBOM tools and formats.
+
+### Reproducible-build verification
+
+A CVE audit and an SBOM both reason about *what you declared you depend on*. Neither catches a
+**compromised build** — a published artifact that does not actually correspond to its source (a
+backdoored release, a poisoned build server, the xz-style attack). The defense is **reproducibility**:
+rebuild the artifact independently from its published source + metadata and verify the result is
+**equivalent** to what was shipped.
+
+- **Rebuild from declared inputs, in a clean environment.** Take the published source ref and build
+  recipe and produce the artifact yourself; you are checking that *source → artifact* is the claimed
+  mapping, not trusting the uploaded binary.
+- **Normalize benign nondeterminism before comparing.** Builds differ in ways that aren't tampering —
+  embedded timestamps, file ordering in archives, compression level, absolute build paths, locale.
+  Apply *stabilizers* that canonicalize these (e.g. `SOURCE_DATE_EPOCH`, sorted archive entries, fixed
+  paths) so a real divergence stands out instead of drowning in noise.
+- **Attest the equivalence.** When the independent rebuild matches, record a signed attestation
+  ("artifact X reproduces from source Y") and keep it with the release; a *mismatch* is a supply-chain
+  incident, not a flaky build. This pairs with build-provenance/SLSA attestation and the SBOM above:
+  SBOM says what's inside, provenance says where it came from, reproducibility *proves* the binary
+  matches the source.
+- **Where it fits:** a release-pipeline / periodic-verification step for the artifacts you publish *and*
+  (where feasible) a trust check on critical third-party dependencies before you pin them.
+
+> Stack-agnostic adaptation of reproducible-build verification (independent rebuild → stabilize benign
+> differences → attest equivalence) from the Apache-2.0
+> [`google/oss-rebuild`](https://github.com/google/oss-rebuild). Re-derived in prose; not vendored — the
+> practice generalizes across package ecosystems and build systems.
+
+### Missing-patch detection (source-level)
+
+A dependency CVE audit only sees *packaged* dependencies at their declared versions. It is blind to
+code you **vendored, forked, or copy-pasted** — a known-vulnerable function that was inlined into your
+tree, or a fork that never picked up an upstream security fix. Version metadata can't help here because
+the vulnerable code no longer carries a version. The complementary technique is **signature-based source
+scanning**:
+
+- **Derive signatures from the fix, not the version.** For a known vulnerability, the security patch
+  shows exactly which code changed; turn the *vulnerable* (pre-patch) code into resilient signatures —
+  line-level n-grams and function-level abstractions — so the match survives renaming, reformatting,
+  and minor edits in a fork.
+- **Scan your source for those signatures** (including vendored/third-party directories) and flag any
+  region that matches a vulnerable pattern *without* the corresponding fix. Public vulnerability
+  databases (OSV) provide the patch data to build signatures from at scale.
+- **Triage like any finding:** is the matched code reachable? is the fix already applied differently?
+  — then patch, re-vendor from a fixed upstream, or record a risk acceptance with a review date.
+
+> Stack-agnostic adaptation of signature-based missing-patch detection (OSV-derived line/function
+> signatures matched against source, metadata-agnostic) from the BSD-3-Clause
+> [`google/vanir`](https://github.com/google/vanir). Re-derived in prose; not vendored.
 
 ## Rate Limiting (Cache-backed)
 

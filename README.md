@@ -59,7 +59,7 @@ Quick start) for the full breakdown of any row.
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
 | 🛠️ **Hooks & guards** | **17** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
-| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **13** ready MCP fragments, and edit-preserving `upgrade` |
+| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **17** ready MCP fragments, and edit-preserving `upgrade` |
 | ♻️ **Reuse-first by design** | Adopt-only-the-new reviews, opt-in LLM/AI security (OWASP LLM Top 10), a worked example + self-test matrix |
 
 ---
@@ -166,7 +166,7 @@ config — nothing else:
 3. **Backend language** (default: Python) → **backend framework** (default: FastAPI)
 4. **Database** (PostgreSQL · MongoDB)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette) — a
+6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette · Google SecOps) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
 
 Non-interactive equivalents: `--defaults`, or `--config init.yaml` (flat or nested YAML). What lands:
@@ -326,7 +326,7 @@ need.
 - **Two channels, one source** — a first-class Claude Code **plugin** *and* a `pip` scaffolder
   (`claude-kit` / `ckit` / `claude-sdlc`) generate identical config.
 - **Catalog-driven extensibility** — adding a stack, framework, database, profile, MCP server, or org
-  pack is a [`catalog/`](catalog/) YAML edit, never a code change; 13 MCP server fragments ship ready.
+  pack is a [`catalog/`](catalog/) YAML edit, never a code change; 17 MCP server fragments ship ready.
 - **MCP servers are third-party** — each fragment runs an external package or hosted endpoint that
   claude-kit references but does not vendor or audit; the `npx` commands are **pinned to an exact
   version** (not `@latest`) for reproducible, supply-chain-aware installs. Review a server's source and
@@ -488,6 +488,7 @@ non-duplicative gaps**, minimally and catalog-wired.
 | **[alibaba](https://github.com/alibaba) org review** (all 542 repos) | Staged leak-resistant evals; agent-operation authorization; tool-set orchestration + atomic state; agent-run span-tree instrumentation; live-attach debugging | `evals` §7, `agent-guardrails` §5, `tool-design` §8, `goal-setting-and-monitoring` §4, and live-attach debugging in `debugging-and-error-recovery` (from atrex-bench · open-agent-auth · app-controller · loongsuite-js · arthas) | `0.47.0` |
 | **[alibaba/open-code-review](https://github.com/alibaba/open-code-review)** | Partition-for-coverage review — deterministic full-file coverage on large changesets, related-file bundling, plan-before-deep-pass | The "Cover Every Changed File" section in `code-review-and-quality` + a Coverage category in `sdlc-code-reviewer` | `0.48.0` |
 | **[microsoft](https://github.com/microsoft) org review** (all 8,147 repos) | OWASP Agentic Top-10 (ASI01–ASI10) agent threats; agent-aware evals (multi-judge panels, multi-turn degradation, tool-vs-response grading); validator-in-the-loop + Medprompt prompting; sandbox policy schema & layered prompt-injection defense; approval-gate implementation; security-lint layer & SBOM; operationalized GenAI red-teaming; priority-based prompt pruning; quantified-lines PR sizing; first-party MCP servers | Extensions across `agent-guardrails` (ASI01–ASI10 + sandbox policy + injection layers), `evals` (§3 panels, §8 multi-turn), `reasoning-techniques`, `human-in-the-loop`, `linting-and-formatting`, `threat-model`, `security-and-hardening` (SBOM), `context-engineering`, `code-review-and-quality` + 4 MCP fragments (Azure · Azure DevOps · MS Learn · Wassette) — **0 new agents/skills/rules** (from agent-governance-toolkit · mxc · llmail-inject-challenge · lost_in_conversation · llm-as-judge · EvalsforAgentsInterop · promptbase · dsl-copilot · agents-humanoversight · PyRIT · eslint-plugin-sdl · sbom-tool · vscode-prompt-tsx · PullRequestQuantifier) | `0.50.0` |
+| **[google](https://github.com/google) org review** (all 2,881 repos) | Reproducible-build verification & source-level missing-patch detection; secure-by-construction injection defense; archive-extraction & ReDoS hardening; multi-party authorization / breakglass; coverage-guided & continuous fuzzing; parameterized + semantic-equality + parallel/flaky testing; compile-time logic-bug & license-header lint layers + deterministic block sorting; multi-window burn-rate alerting & log rate-limiting; long-document extraction; prompt-as-code; statistical browser benchmarking; durable atomic writes; record-replay API testing; first-party SecOps MCP servers | Prose extensions across `security-and-hardening` (reproducible-build · missing-patch · secure-by-construction · archive · ReDoS), `human-in-the-loop` (MPA/breakglass), `testing` (fuzzing · parameterized · semantic-equality · parallel/flaky), `linting-and-formatting` (logic-bug + license-header layers · block sorting), `devops-observability` (burn-rate · log rate-limit), `context-engineering` (long-doc extraction), `reasoning-techniques` (prompt-as-code), `performance-optimization` (statistical benchmarking), `tool-design` (durable atomic writes), `api-integration` (record-replay) + **4 first-party SecOps MCP fragments** (Chronicle SIEM · GTI · SCC · SOAR) — **0 new agents/skills/rules** (from oss-rebuild · vanir · safe-active-record/mug · safearchive · re2 · building-secure-and-reliable-systems · patrick · go-cmp · atheris/honggfuzz/clusterfuzzlite · gtest-parallel · error-prone · addlicense · keep-sorted · prometheus-slo-burn · flogger · langextract · dotprompt · tachometer · renameio · test-server · mcp-security) | `0.51.0` |
 
 > Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
 > deliberately **did not** add because the kit already covered it.
@@ -496,15 +497,6 @@ non-duplicative gaps**, minimally and catalog-wired.
 <summary><b>The latest three reviews, in a bit more depth</b></summary>
 
 <br>
-
-**🧭 alibaba org review → 5 agentic patterns (0.47.0).** We reviewed **all 542 repos** in the Alibaba
-org (survey every repo → deep-dive every candidate → adversarially verify). The overwhelming majority —
-Java middleware, ML/inference, mobile, frontend frameworks — carried nothing transferable to a config
-scaffolder, and the verify pass *dropped* a sixth candidate (`p3c`) as unsubstantiated and already
-covered. Five survived: staged leak-resistant evals (`evals` §7), agent-operation authorization
-(`agent-guardrails` §5), tool-set orchestration + atomic state (`tool-design` §8), agent-run span-tree
-instrumentation (`goal-setting-and-monitoring` §4), and live-attach debugging
-(`debugging-and-error-recovery`).
 
 **🔍 alibaba/open-code-review → coverage-partition review (0.48.0).** A detailed read showed most of its
 methodology (multi-axis review, line-level grounding + re-verify, severity, multi-model) was *already*
@@ -528,6 +520,26 @@ panels in §3, multi-turn degradation in §8) in `evals`; validator-in-the-loop 
 `security-and-hardening`; priority-based prompt pruning in `context-engineering`; quantified-lines PR
 sizing in `code-review-and-quality`; and **4 first-party MCP fragments** (Azure · Azure DevOps · MS
 Learn · Wassette).
+
+**🔴 google org review → 21 hardening & testing patterns (0.51.0).** We reviewed **all 2,881 repos** in
+the Google org (60 survey agents over every page → deep-dive the top ~300 candidates → adversarially
+verify the shortlist). The vast majority — Android/Kotlin, C++ libraries, ML frameworks, language
+runtimes, GCP product code — carried nothing transferable, and the verify pass *dropped* a third of the
+shortlist: `deps.dev` (a REST/gRPC API, **not** an MCP server, despite the claim), `licensecheck`
+(license *classification*, not the claimed compatibility gate), the Go/Rust/C++-locked tools
+(`capslock`, `rust-crate-audits`, `fuzztest`, `libprotobuf-mutator` — can't be re-derived stack-agnostic),
+`sqlcommenter` (archived → donated to OpenTelemetry), and `ax` (too early — "major breaking changes
+prior to stable"). The survivors are **all prose extensions to existing files, zero new
+agents/skills/rules**: reproducible-build verification, source-level missing-patch detection,
+secure-by-construction injection defense, archive-extraction & ReDoS hardening in `security-and-hardening`;
+multi-party authorization / breakglass in `human-in-the-loop`; coverage-guided & continuous fuzzing,
+parameterized, semantic-equality, and parallel/flaky testing in `testing`; compile-time logic-bug &
+license-header lint layers plus deterministic block sorting in `linting-and-formatting`; multi-window
+burn-rate alerting & log rate-limiting in `devops-observability`; long-document extraction in
+`context-engineering`; prompt-as-code in `reasoning-techniques`; statistical browser benchmarking in
+`performance-optimization`; durable atomic writes in `tool-design`; record-replay API testing in
+`api-integration`; and **4 first-party Google Security Operations MCP fragments** (Chronicle SIEM · GTI ·
+SCC · SOAR).
 
 </details>
 
