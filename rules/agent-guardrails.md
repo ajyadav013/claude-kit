@@ -125,6 +125,28 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
 
   A ready WASM-sandboxed execution runtime ships as the optional `wassette` MCP server in
   `catalog/mcp.yaml` for projects that want an off-the-shelf containment backend.
+- **Enforce the policy in independent layers (defense in depth).** A declarative policy is necessary but
+  not sufficient: a misbehaving or compromised tool/MCP server can ignore an *advisory* policy, or smuggle
+  a forbidden action past it. So a high-risk tool call (especially one invoking an untrusted MCP server)
+  should pass **three independent checks**, each of which fails closed on its own:
+  - **L1 — policy decision.** The declarative policy above decides *is this call allowed at all* (which
+    tool, which scopes) before it runs.
+  - **L2 — argument validation at the boundary.** Validate the call's *arguments* against the policy:
+    **canonicalize** paths and resolve symlinks before the allow-check (so `../` and a symlinked path
+    can't escape an allowed prefix — mirrors the archive/path-traversal rule in `security-and-hardening`),
+    screen arguments for injection, and sanitize the tool's *response* before it re-enters the model
+    (it is untrusted content — §1).
+  - **L3 — runtime enforcement backstop.** Enforce the same scopes at the OS/runtime level —
+    seccomp / eBPF-LSM / container or microVM limits that intercept the actual `open`/`connect`/`exec`
+    syscalls — so a tool that ignored or hardcoded around L1/L2 *still* cannot touch a denied path,
+    host, or process. The backstop assumes the layers above it can be bypassed.
+
+  Log every denial to the §5 audit trail; an operator override is itself a scoped, audited action.
+
+  > Stack-agnostic adaptation of layered (defense-in-depth) MCP/agent tool-call sandboxing — declarative
+  > capability policy + argument-level validation + OS-level (eBPF-LSM/seccomp) enforcement backstop —
+  > from the MIT [`facebook/mcpguard-dynamic`](https://github.com/facebook/mcpguard-dynamic). Re-derived
+  > in prose; not vendored.
 - **Audit dependencies; don't auto-trust the ecosystem.** Treat third-party packages, MCP servers, and
   marketplace plugins as untrusted until reviewed — installing one grants it your agent's privileges.
 

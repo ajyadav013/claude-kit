@@ -89,6 +89,31 @@ under load:
 > Apache-2.0 [`google/flogger`](https://github.com/google/flogger). Re-derived in prose; not vendored —
 > the patterns apply to any logging framework.
 
+### Continuous performance-regression gate (A/B, not absolute thresholds)
+
+The Load-vs-SLO gate above is a *one-shot, pre-launch* check against an absolute budget. It won't catch a
+**gradual** regression — a change that quietly adds 15 ms per release until the SLO is blown six PRs
+later. For a hot / SLO-bearing path, add a **continuous** check that compares *this commit to a baseline*
+on every change:
+
+- **A/B the two commits to cancel environmental noise.** A single absolute number ("p95 = 210 ms") is
+  dominated by CI-runner variance, thermal throttling, and noisy neighbors — comparing today's run to
+  last week's run measures the *environment*, not the *code*. Instead run **control (baseline commit) and
+  treatment (the PR's commit) on the same machine, interleaved/concurrently**, and report the **relative
+  delta** (latency ratio, throughput delta), which cancels the shared environmental component.
+- **Gate on the delta, with a tolerance band.** Fail the check when the treatment is worse than control
+  by more than a stated margin (e.g. ">5 % p95 latency"); a band absorbs residual noise so the gate
+  isn't flaky. A breach is **High** (`.claude/rules/quality-gates.md`) — same severity as a Load-vs-SLO
+  breach — and routes the fix back to the dev lane.
+- **Scope it.** Run it for changes to a concurrency-sensitive or SLO-bearing path; *skip (note why in
+  `CONTINUITY.md`)* for changes with no performance surface. It complements, not replaces, the one-shot
+  Load-vs-SLO gate (absolute budget at launch) and frontend statistical benchmarking
+  (`.claude/skills/performance-optimization`).
+
+> Stack-agnostic adaptation of A/B continuous performance-regression detection (concurrent
+> control/treatment runs to isolate code from environment; gate on the relative delta) from the
+> Apache-2.0 [`facebook/FAI-PEP`](https://github.com/facebook/FAI-PEP). Re-derived in prose; not vendored.
+
 ---
 
 ## Notes

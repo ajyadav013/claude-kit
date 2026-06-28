@@ -489,6 +489,7 @@ non-duplicative gaps**, minimally and catalog-wired.
 | **[alibaba/open-code-review](https://github.com/alibaba/open-code-review)** | Partition-for-coverage review — deterministic full-file coverage on large changesets, related-file bundling, plan-before-deep-pass | The "Cover Every Changed File" section in `code-review-and-quality` + a Coverage category in `sdlc-code-reviewer` | `0.48.0` |
 | **[microsoft](https://github.com/microsoft) org review** (all 8,147 repos) | OWASP Agentic Top-10 (ASI01–ASI10) agent threats; agent-aware evals (multi-judge panels, multi-turn degradation, tool-vs-response grading); validator-in-the-loop + Medprompt prompting; sandbox policy schema & layered prompt-injection defense; approval-gate implementation; security-lint layer & SBOM; operationalized GenAI red-teaming; priority-based prompt pruning; quantified-lines PR sizing; first-party MCP servers | Extensions across `agent-guardrails` (ASI01–ASI10 + sandbox policy + injection layers), `evals` (§3 panels, §8 multi-turn), `reasoning-techniques`, `human-in-the-loop`, `linting-and-formatting`, `threat-model`, `security-and-hardening` (SBOM), `context-engineering`, `code-review-and-quality` + 4 MCP fragments (Azure · Azure DevOps · MS Learn · Wassette) — **0 new agents/skills/rules** (from agent-governance-toolkit · mxc · llmail-inject-challenge · lost_in_conversation · llm-as-judge · EvalsforAgentsInterop · promptbase · dsl-copilot · agents-humanoversight · PyRIT · eslint-plugin-sdl · sbom-tool · vscode-prompt-tsx · PullRequestQuantifier) | `0.50.0` |
 | **[google](https://github.com/google) org review** (all 2,881 repos) | Reproducible-build verification & source-level missing-patch detection; secure-by-construction injection defense; archive-extraction & ReDoS hardening; multi-party authorization / breakglass; coverage-guided & continuous fuzzing; parameterized + semantic-equality + parallel/flaky testing; compile-time logic-bug & license-header lint layers + deterministic block sorting; multi-window burn-rate alerting & log rate-limiting; long-document extraction; prompt-as-code; statistical browser benchmarking; durable atomic writes; record-replay API testing; first-party SecOps MCP servers | Prose extensions across `security-and-hardening` (reproducible-build · missing-patch · secure-by-construction · archive · ReDoS), `human-in-the-loop` (MPA/breakglass), `testing` (fuzzing · parameterized · semantic-equality · parallel/flaky), `linting-and-formatting` (logic-bug + license-header layers · block sorting), `devops-observability` (burn-rate · log rate-limit), `context-engineering` (long-doc extraction), `reasoning-techniques` (prompt-as-code), `performance-optimization` (statistical benchmarking), `tool-design` (durable atomic writes), `api-integration` (record-replay) + **4 first-party SecOps MCP fragments** (Chronicle SIEM · GTI · SCC · SOAR) — **0 new agents/skills/rules** (from oss-rebuild · vanir · safe-active-record/mug · safearchive · re2 · building-secure-and-reliable-systems · patrick · go-cmp · atheris/honggfuzz/clusterfuzzlite · gtest-parallel · error-prone · addlicense · keep-sorted · prometheus-slo-burn · flogger · langextract · dotprompt · tachometer · renameio · test-server · mcp-security) | `0.51.0` |
+| **[facebook](https://github.com/facebook) (Meta) org review** (all 168 repos) | Interprocedural taint / data-flow security analysis (source→sink across functions); continuous A/B performance-regression CI gate; defense-in-depth agent-sandbox enforcement (argument validation + OS-level backstop) | Prose extensions to `linting-and-formatting` (taint/data-flow layer), `devops-observability` (perf-regression gate), `agent-guardrails` (§4 layered sandbox enforcement) — **0 new agents/skills/rules** (from pyre-check/Pysa · mariana-trench · FAI-PEP · mcpguard-dynamic; the org is mostly libraries/frameworks, so the verify pass *dropped* the rest — `DNE-TaaC`, `mbt`, plus already-covered `infer`/`mariana-trench`-as-tool, `fbt`, `memlab`, …) | `0.52.0` |
 
 > Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
 > deliberately **did not** add because the kit already covered it.
@@ -497,14 +498,6 @@ non-duplicative gaps**, minimally and catalog-wired.
 <summary><b>The latest three reviews, in a bit more depth</b></summary>
 
 <br>
-
-**🔍 alibaba/open-code-review → coverage-partition review (0.48.0).** A detailed read showed most of its
-methodology (multi-axis review, line-level grounding + re-verify, severity, multi-model) was *already*
-in `code-review-and-quality`. The one genuine gap: **complete file coverage on large changesets** —
-where AI reviewers silently skip files. We added "Cover Every Changed File: Partition, Plan, Then
-Weight Depth" (enumerate from the diff as the checklist of record → bundle related files →
-isolated-context concurrent review → reconcile every file to a verdict), reframing the existing hotspot
-guidance as the *depth* step that follows coverage.
 
 **🟦 microsoft org review → agentic-AI hardening (0.50.0).** We reviewed **all 8,147 repos** in the
 Microsoft org (165 survey agents over every page → deep-dive the top candidates → adversarially verify
@@ -540,6 +533,22 @@ burn-rate alerting & log rate-limiting in `devops-observability`; long-document 
 `performance-optimization`; durable atomic writes in `tool-design`; record-replay API testing in
 `api-integration`; and **4 first-party Google Security Operations MCP fragments** (Chronicle SIEM · GTI ·
 SCC · SOAR).
+
+**🔵 facebook (Meta) org review → 3 hardening & reliability patterns (0.52.0).** We reviewed **all 168
+repos** in the Meta org (Meta long ago spun React, PyTorch, Jest, etc. into their own orgs, so the
+`facebook` org is small). The org is almost entirely libraries, frameworks, and language tooling with
+nothing transferable to a config scaffolder — and several famous repos were **already covered** (e.g.
+`infer` by the 0.51 compile-time-logic-bug lint layer; React by the kit's React overlay; testing by an
+already-deep `testing.md`). The verify pass *dropped* the weak picks: `DNE-TaaC` (datacenter
+network-device testing, 1★, overlaps the config-driven skills) and `mbt` (a 0★ Meta-service-specific
+binary-transparency client — that practice belongs to Sigstore/Certificate-Transparency, not this org).
+Three genuine, stack-agnostic survivors, all **prose extensions, zero new agents/skills/rules**:
+**interprocedural taint / data-flow analysis** (declare sources/sinks/sanitizers, trace untrusted data
+across functions — distinct from single-line lint) in `linting-and-formatting` (from Pysa/`pyre-check` +
+`mariana-trench`); a **continuous A/B performance-regression CI gate** (concurrent control vs treatment
+to cancel environment noise, gate on the relative delta) in `devops-observability` (from `FAI-PEP`); and
+**defense-in-depth agent-sandbox enforcement** (argument-validation layer + OS-level eBPF/seccomp backstop
+*below* the existing declarative policy) in `agent-guardrails` §4 (from `mcpguard-dynamic`).
 
 </details>
 
