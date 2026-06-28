@@ -40,6 +40,31 @@ When you stop, give the human enough to decide in one read — don't make them d
 Use the `interview-me` skill when an ask is underspecified and you need to extract true intent one
 question at a time, rather than firing a wall of questions.
 
+## Implementing the gate (when you build the approval into a system)
+
+The list above is *when* to stop; this is *how* to wire a durable gate when an autonomous flow must
+pause for a human — so the pause is enforced by the system, not left to the agent's good intentions:
+
+- **Gate at the action, declaratively.** Mark the high-risk operations (delete, deploy, publish,
+  migration, outward send) so the gate fires *before* the call, not as an afterthought inside it. A
+  wrapper/decorator around the action — "this operation requires approval" as metadata on the operation
+  itself — keeps the policy in one place and impossible to forget at a call site.
+- **Make the request resumable, not blocking-forever.** Persist the pending decision (what, why,
+  proposed action, requested-by) and deliver it out-of-band where needed (the chat turn, or an
+  email/Slack/webhook for a long-running headless run). The run should be able to **suspend and resume**
+  on the answer rather than holding a live process hostage.
+- **Handle timeout and absence explicitly.** Decide the default when no human answers in time, and make
+  it **fail-safe**: a missing approval means *don't do the irreversible thing*, never "proceed because
+  no one objected." State the timeout and the default in the request.
+- **Record the decision in the audit trail.** Who approved/rejected, when, and on what proposed action —
+  in a form that can be checked later (ties to `.claude/rules/agent-guardrails.md` §5's verifiable
+  trail). An approval the agent could have fabricated is not an approval.
+
+> Stack-agnostic adaptation of the human-oversight implementation patterns (declarative approval gates,
+> async/out-of-band approval, timeout handling, audit trail) in the MIT
+> [`microsoft/agents-humanoversight`](https://github.com/microsoft/agents-humanoversight). Re-derived in
+> prose; not vendored.
+
 ## Gate the depth of review to reversibility
 
 Not every stop deserves the same ceremony. Before a consequential decision, classify it by how hard it

@@ -83,6 +83,32 @@ Linters can suggest higher-level patterns when they detect repetitive code:
 
 These are nudges, not hard blocks. Fix them when reasonable.
 
+### Security Lint Layer (error)
+
+Treat a class of security mistakes as **lint errors caught pre-commit**, not only as something the
+security review (the `security-and-hardening` skill / `security-reviewer` agent) finds later. Linting
+catches the mechanical, always-wrong patterns at the cheapest possible moment — at the keystroke,
+before the code is even committed — leaving review to focus on the judgment calls. Enable your stack's
+security lint plugin and treat its findings as build-breaking. The patterns are stack-agnostic even
+though the rule names differ:
+
+| Pattern (banned) | Why |
+|------------------|-----|
+| Dynamic code execution from data (`eval`, `Function(...)`, `exec`, deserializing untrusted input) | Arbitrary code execution (OWASP A03/A08). |
+| Raw-HTML injection sinks (`innerHTML`, `dangerouslySetInnerHTML`, `v-html`, template `\| safe`) without sanitization | XSS. |
+| Insecure randomness for security values (`Math.random()`, non-CSPRNG) for tokens/ids/keys | Predictable secrets. |
+| Disabled transport security (`NODE_TLS_REJECT_UNAUTHORIZED=0`, `verify=False`, `rejectUnauthorized:false`) | MITM (mirrors `security-and-hardening` *Outbound TLS*). |
+| Shell/command construction from interpolated input | Command injection. |
+
+A suppression here follows the same rule as any other (§"Suppressing Rules"): a specific rule name plus
+a written justification — never a blanket disable — and a security suppression is worth a second pair
+of eyes in review.
+
+> Stack-agnostic adaptation of the security-linting layer in the MIT
+> [`microsoft/eslint-plugin-sdl`](https://github.com/microsoft/eslint-plugin-sdl) (SDL security rules as
+> enforced lint errors). Re-derived in prose; not vendored — the patterns generalize beyond any one
+> linter.
+
 ## Framework-Specific Hook Rules (if applicable)
 
 For reactive frameworks (React, Vue, Svelte, SolidJS, etc.), enforce hook/reactivity rules:

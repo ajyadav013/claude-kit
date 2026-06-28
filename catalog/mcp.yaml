@@ -71,6 +71,47 @@ servers:
     # stale training-data patterns — for the (growing) set of libraries that ship skills; Context7 above
     # covers everything else with live docs. Both are referenced (not bundled). See the
     # `dependency-verification` and `library-review` skills for where this sits in the dependency lifecycle.
+  ms_learn:
+    label: "Microsoft Learn Docs (official learn.microsoft.com docs search/fetch)"
+    # First-party Microsoft-hosted MCP (github.com/MicrosoftDocs/mcp) exposing fresh official docs
+    # (microsoft_docs_search / _fetch / code-sample search) over a hosted HTTP endpoint — no auth, no
+    # credentials generated. Complements the Context7 `docs` entry (general libraries) with
+    # Microsoft-specific documentation. Server content is CC-BY-4.0; this references only the hosted
+    # service. Snapshot 2026-06-28.
+    config:
+      type: http
+      url: "https://learn.microsoft.com/api/mcp"
+  azure:
+    label: "Azure (cloud resource management — 200+ tools across Azure services)"
+    # First-party Azure MCP Server (github.com/microsoft/mcp, @azure/mcp, MIT). Authenticates via
+    # DefaultAzureCredential — run `az login` first; no token is stored in this config. Pinned to an
+    # exact version (the package's current `latest` is a 3.0 beta — review the changelog before bumping;
+    # do not switch to `@latest`). Snapshot 2026-06-28.
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@azure/mcp@3.0.0-beta.21", "server", "start"]
+  azure_devops:
+    label: "Azure DevOps (work items, repos, pipelines, wikis, test plans)"
+    # First-party Azure DevOps MCP Server (github.com/microsoft/azure-devops-mcp, @azure-devops/mcp,
+    # MIT) — the Azure-DevOps counterpart to the github/jira/linear issue trackers above. The first arg
+    # is your ADO organization name; authenticates via the Azure CLI (`az login`). Snapshot 2026-06-28.
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@azure-devops/mcp@2.7.0", "${AZURE_DEVOPS_ORG}"]
+  # Wassette (github.com/microsoft/wassette, MIT) — a first-party Microsoft MCP server that runs tools
+  # as WASM components in a Wasmtime sandbox (browser-grade isolation: per-component filesystem/network
+  # policy). A concrete containment backend for the "sandbox shell/code execution" requirement in
+  # `.claude/rules/agent-guardrails.md` §4. NOT an npx package — install the `wassette` binary first
+  # (one-liner: `curl -fsSL https://raw.githubusercontent.com/microsoft/wassette/main/install.sh | bash`,
+  # or Homebrew/Nix/Docker/Windows per the repo's installation guide), then it runs over stdio.
+  wassette:
+    label: "Wassette (WASM-sandboxed tool execution; needs the `wassette` binary installed)"
+    config:
+      type: stdio
+      command: wassette
+      args: ["run"]
   # Sentry (github.com/getsentry/sentry-mcp) — official, vendor-maintained MCP for production error
   # monitoring / issue triage: top unresolved issues, stacktraces, performance & trace data, and Seer
   # root-cause analysis. Fills the error-monitoring gap the `incident-responder` + `observability-engineer`

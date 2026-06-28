@@ -59,7 +59,7 @@ Quick start) for the full breakdown of any row.
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
 | 🛠️ **Hooks & guards** | **17** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
-| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **9** ready MCP fragments, and edit-preserving `upgrade` |
+| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **13** ready MCP fragments, and edit-preserving `upgrade` |
 | ♻️ **Reuse-first by design** | Adopt-only-the-new reviews, opt-in LLM/AI security (OWASP LLM Top 10), a worked example + self-test matrix |
 
 ---
@@ -166,7 +166,7 @@ config — nothing else:
 3. **Backend language** (default: Python) → **backend framework** (default: FastAPI)
 4. **Database** (PostgreSQL · MongoDB)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP integrations** (GitHub · Jira/Linear · Postgres/Mongo · Playwright · Docs) — a
+6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
 
 Non-interactive equivalents: `--defaults`, or `--config init.yaml` (flat or nested YAML). What lands:
@@ -326,7 +326,7 @@ need.
 - **Two channels, one source** — a first-class Claude Code **plugin** *and* a `pip` scaffolder
   (`claude-kit` / `ckit` / `claude-sdlc`) generate identical config.
 - **Catalog-driven extensibility** — adding a stack, framework, database, profile, MCP server, or org
-  pack is a [`catalog/`](catalog/) YAML edit, never a code change; 9 MCP server fragments ship ready.
+  pack is a [`catalog/`](catalog/) YAML edit, never a code change; 13 MCP server fragments ship ready.
 - **MCP servers are third-party** — each fragment runs an external package or hosted endpoint that
   claude-kit references but does not vendor or audit; the `npx` commands are **pinned to an exact
   version** (not `@latest`) for reproducible, supply-chain-aware installs. Review a server's source and
@@ -487,6 +487,7 @@ non-duplicative gaps**, minimally and catalog-wired.
 | **[murphytrueman/design-system-ops](https://github.com/murphytrueman/design-system-ops)** | Operating a design system *over time* — token architecture, drift, health/maturity, governance, adoption, AI-readiness | `design-system-ops` collection skill (the operations layer, distinct from the build-time UI skills) | `0.46.0` |
 | **[alibaba](https://github.com/alibaba) org review** (all 542 repos) | Staged leak-resistant evals; agent-operation authorization; tool-set orchestration + atomic state; agent-run span-tree instrumentation; live-attach debugging | `evals` §7, `agent-guardrails` §5, `tool-design` §8, `goal-setting-and-monitoring` §4, and live-attach debugging in `debugging-and-error-recovery` (from atrex-bench · open-agent-auth · app-controller · loongsuite-js · arthas) | `0.47.0` |
 | **[alibaba/open-code-review](https://github.com/alibaba/open-code-review)** | Partition-for-coverage review — deterministic full-file coverage on large changesets, related-file bundling, plan-before-deep-pass | The "Cover Every Changed File" section in `code-review-and-quality` + a Coverage category in `sdlc-code-reviewer` | `0.48.0` |
+| **[microsoft](https://github.com/microsoft) org review** (all 8,147 repos) | OWASP Agentic Top-10 (ASI01–ASI10) agent threats; agent-aware evals (multi-judge panels, multi-turn degradation, tool-vs-response grading); validator-in-the-loop + Medprompt prompting; sandbox policy schema & layered prompt-injection defense; approval-gate implementation; security-lint layer & SBOM; operationalized GenAI red-teaming; priority-based prompt pruning; quantified-lines PR sizing; first-party MCP servers | Extensions across `agent-guardrails` (ASI01–ASI10 + sandbox policy + injection layers), `evals` (§3 panels, §8 multi-turn), `reasoning-techniques`, `human-in-the-loop`, `linting-and-formatting`, `threat-model`, `security-and-hardening` (SBOM), `context-engineering`, `code-review-and-quality` + 4 MCP fragments (Azure · Azure DevOps · MS Learn · Wassette) — **0 new agents/skills/rules** (from agent-governance-toolkit · mxc · llmail-inject-challenge · lost_in_conversation · llm-as-judge · EvalsforAgentsInterop · promptbase · dsl-copilot · agents-humanoversight · PyRIT · eslint-plugin-sdl · sbom-tool · vscode-prompt-tsx · PullRequestQuantifier) | `0.50.0` |
 
 > Each adoption is detailed in the [CHANGELOG](CHANGELOG.md) — including, for every review, what we
 > deliberately **did not** add because the kit already covered it.
@@ -495,14 +496,6 @@ non-duplicative gaps**, minimally and catalog-wired.
 <summary><b>The latest three reviews, in a bit more depth</b></summary>
 
 <br>
-
-**🎨 murphytrueman/design-system-ops → operations layer (0.46.0).** The kit already covered *building*
-components (`component-design`, `radix-tailwind-component-patterns`) and *verifying one screen*
-(`ui-ux-design`); the gap was operating the system **over time**. The new `design-system-ops`
-collection skill adds the operations lifecycle (audit → govern → document → validate → communicate)
-with five references — three-tier token architecture, seven-dimension health & five maturity stages,
-the drift taxonomy, governance & adoption measurement, and AI-readiness / Component Challenge Rating —
-re-derived stack-agnostic with attribution.
 
 **🧭 alibaba org review → 5 agentic patterns (0.47.0).** We reviewed **all 542 repos** in the Alibaba
 org (survey every repo → deep-dive every candidate → adversarially verify). The overwhelming majority —
@@ -520,6 +513,21 @@ where AI reviewers silently skip files. We added "Cover Every Changed File: Part
 Weight Depth" (enumerate from the diff as the checklist of record → bundle related files →
 isolated-context concurrent review → reconcile every file to a verdict), reframing the existing hotspot
 guidance as the *depth* step that follows coverage.
+
+**🟦 microsoft org review → agentic-AI hardening (0.50.0).** We reviewed **all 8,147 repos** in the
+Microsoft org (165 survey agents over every page → deep-dive the top candidates → adversarially verify
+the shortlist). The vast majority — SDKs, samples, Azure-product code, ML infra, OS/editor — carried
+nothing transferable, and the verify pass *dropped* two plausible picks (`ToolTalk`, whose
+ground-truth-sequence grading contradicts `evals`' "grade outcomes, not paths"; and `prompty`, an
+LLM-app product, not an SDLC practice). Eighteen survived — all **prose extensions to existing files**,
+zero new agents/skills/rules: the OWASP **Agentic Top-10 (ASI01–ASI10)** mapping, a sandbox **policy
+schema**, and layered prompt-injection defense in `agent-guardrails`; agent-aware evals (multi-judge
+panels in §3, multi-turn degradation in §8) in `evals`; validator-in-the-loop + Medprompt in
+`reasoning-techniques`; approval-gate implementation in `human-in-the-loop`; a security-lint layer in
+`linting-and-formatting`; operationalized GenAI red-teaming in `threat-model`; SBOM generation in
+`security-and-hardening`; priority-based prompt pruning in `context-engineering`; quantified-lines PR
+sizing in `code-review-and-quality`; and **4 first-party MCP fragments** (Azure · Azure DevOps · MS
+Learn · Wassette).
 
 </details>
 

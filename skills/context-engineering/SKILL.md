@@ -150,7 +150,7 @@ task). When you cross these, compact or split the work — don't push on and hop
 
 ## Advanced: progressive disclosure, compaction, offloading
 
-Three primitives keep long runs coherent:
+Four primitives keep long runs coherent:
 
 - **Progressive disclosure** — don't load everything up front. Expose names + one-line descriptions and
   load full detail only on use (how skills and well-designed tools work — see
@@ -163,9 +163,20 @@ Three primitives keep long runs coherent:
 - **Tool-output offloading** — don't dump large tool/command output into context. Keep a few signal
   lines inline and write the full output to a file the agent can open if needed (mirror of the output
   rules in `.claude/rules/tool-design.md`).
+- **Priority-based composition** — when assembling a prompt/context that may exceed the budget, assign
+  each piece a **priority** rather than packing in fixed order, and when the total would overflow, drop
+  the **lowest-priority** pieces first instead of truncating blindly at the end (which lops off whatever
+  happened to be last). Give the task instruction and the must-keep facts the highest priority and bulk,
+  optional, or already-summarized material the lowest — so what survives a tight budget is what matters
+  most, and pruning degrades gracefully instead of cliff-edging. (The structured counterpart to
+  compaction: compaction shrinks history; this decides *what to shed first* when even the compacted set
+  is too big.)
 
 > Source: "Agent Skills for Context Engineering"; "The Anatomy of an Agent Harness"; "Shell + Skills +
-> Compaction: tips for long-running agents." Paraphrased for this kit.
+> Compaction: tips for long-running agents." Paraphrased for this kit. The priority-based composition
+> primitive is a stack-agnostic adaptation of the MIT
+> [`microsoft/vscode-prompt-tsx`](https://github.com/microsoft/vscode-prompt-tsx) (priority-tree prompt
+> pruning under token budget); re-derived in prose, not vendored.
 
 ## Context Packing Strategies
 

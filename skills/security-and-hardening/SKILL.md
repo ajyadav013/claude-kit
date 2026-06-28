@@ -347,6 +347,28 @@ Vulnerability reported (dependency audit)
 
 Editing dependency manifests requires user approval — the `dependency-scanner` recommends, the developer lane applies. Document any deferral with a reason and a review date.
 
+### Software Bill of Materials (SBOM)
+
+A CVE audit answers *"are any of my dependencies known-vulnerable today?"*. An **SBOM** answers a
+different, complementary question: *"what exactly is in this build?"* — a machine-readable inventory of
+every component and version, emitted as a standard format (**SPDX** or **CycloneDX**) so it can be
+scanned, archived, and diffed later. It is a transparency/compliance artifact, increasingly required
+for regulated or enterprise software, and the substrate that makes a *future* CVE or a supply-chain
+incident traceable to the exact releases that shipped it.
+
+- **Generate it in the release pipeline**, not by hand: scan the project for components → emit an
+  SPDX/CycloneDX manifest → attach it to the release as an artifact. This is a build/release step,
+  distinct from the pre-merge CVE audit above (both belong in CI; they answer different questions).
+- **Version it with the release.** An SBOM is only useful if it corresponds to a specific build —
+  store it alongside the artifact it describes so "which versions were in release X?" is answerable
+  months later when a new CVE lands.
+- **Pairs with the rest of the supply-chain stack:** pre-install name check (`dependency-verification`)
+  → CVE + integrity audit (`dependency-scanner`) → **SBOM** for the shipped inventory.
+
+> Stack-agnostic adaptation of SBOM generation as a release-pipeline practice from the MIT
+> [`microsoft/sbom-tool`](https://github.com/microsoft/sbom-tool) (SPDX SBOM generation). Re-derived in
+> prose; not vendored — the practice generalizes across SBOM tools and formats.
+
 ## Rate Limiting (Cache-backed)
 
 Apply rate limiting to authentication and public endpoints:
