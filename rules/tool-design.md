@@ -99,7 +99,21 @@ multi-step goal. The set needs four properties:
 **Write that state atomically.** When a tool or hook persists state to a file another process (a
 parallel agent, a concurrent hook) may read or write, **write to a temp file and rename into place** —
 a rename is atomic, a half-written direct write is not. Concurrent hooks/agents racing on a shared
-state file is a real failure mode; tmp-write-then-rename removes it.
+state file is a real failure mode; tmp-write-then-rename removes it. Three gotchas make the difference
+between *looks* atomic and *is* durable:
+
+- **Atomicity ≠ durability.** Rename guarantees a reader never sees a half-written file; it does **not**
+  guarantee the bytes survive a crash. If the state must outlive a power loss, **`fsync` the temp file
+  before the rename** (otherwise a crash can leave the renamed file present but empty / zero-length —
+  the classic "0-byte file after crash" bug).
+- **Same filesystem.** The temp file must be on the *same* filesystem as the destination, or the
+  "rename" becomes a copy that is no longer atomic. Create the temp beside the target, not in `/tmp`.
+- **Track the temp for cleanup.** On the error path, remove the temp file you created — don't leak a
+  `.tmp-XXXX` next to every state file when a write fails partway.
+
+> Atomic-write durability nuances (atomicity-vs-durability, fsync-before-rename, same-fs, temp cleanup)
+> are a stack-agnostic adaptation of the Apache-2.0
+> [`google/renameio`](https://github.com/google/renameio). Re-derived in prose; not vendored.
 
 > Orchestration mechanics adapted (stack-agnostic) from the Apache-2.0
 > [`alibaba/app-controller`](https://github.com/alibaba/app-controller) (registry-based tool discovery,

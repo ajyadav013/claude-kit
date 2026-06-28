@@ -256,6 +256,28 @@ function VirtualList({ items }: { items: Item[] }) {
 - Use `loading="lazy"` for below-fold images
 - Consider using modern formats (WebP, AVIF) with fallbacks
 
+### D. Trustworthy measurement (statistical benchmarking)
+
+Frontend timings are *noisy* — GC pauses, JIT warmup, thermal throttling, and background load make any
+single run unreliable. A one-shot "before 210 ms → after 195 ms" comparison can easily be measuring
+noise, not your change. Before you claim a regression or an improvement, measure it like an experiment:
+
+- **Repeat and sample, don't run once.** Take many samples per variant, and **interleave** the
+  variants (A, B, A, B, … round-robin) rather than all-A-then-all-B, so a thermal/background drift
+  hits both equally instead of biasing one.
+- **Report a confidence interval, not a point.** Summarize each variant as a mean **with a 95 %
+  interval**, and decide based on whether the intervals **overlap**: overlapping → the difference is
+  not significant (don't claim it); cleanly separated → a real effect.
+- **Auto-sample until significant.** Keep sampling until the interval is tight enough to decide (or a
+  cap is hit), rather than trusting a fixed small N.
+- **Control the environment.** Same device/CPU throttle/network profile for both variants; close
+  background work; pin the comparison to one machine. Compare A vs B *under identical conditions*, not
+  across two casual runs. This is what makes the before/after table below honest.
+
+> Stack-agnostic adaptation of statistically rigorous browser benchmarking (interleaved repeated
+> sampling, 95 % confidence intervals, auto-sample-until-significance) from the BSD-3-Clause
+> [`google/tachometer`](https://github.com/google/tachometer). Re-derived in prose; not vendored.
+
 ---
 
 4. **Verify improvements**: Re-run analysis tools and compare against baseline.

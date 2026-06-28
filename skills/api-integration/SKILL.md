@@ -340,6 +340,30 @@ app/
 - Route handlers delegate to services
 - Typed request/response schemas
 
+## Deterministic Testing Against External APIs (record-replay)
+
+Tests that hit a live third-party API are slow, flaky, rate-limited, and fail when you're offline or the
+vendor has an incident — yet hand-written mocks drift out of sync with the real contract and quietly stop
+reflecting it. The **record-replay** pattern gets both fidelity and determinism:
+
+- **Record once against the real API**, capturing each request→response pair to a fixture (a "cassette"),
+  then **replay** from fixtures on every subsequent run — no network, fast, deterministic, CI-friendly.
+- **Redact secrets at record time.** Strip `Authorization`, API keys, cookies, and any PII from the
+  saved request/response before it lands in the repo — fixtures are committed and must never carry
+  credentials (ties to `.claude/skills/security-and-hardening` and `secret-scanner`).
+- **Match requests deliberately and re-record on drift.** Decide what identifies a recorded interaction
+  (method + path + significant query/body), and **periodically re-record** so the fixtures track the
+  live contract instead of rotting — a stale cassette is a mock in disguise. Pair with a real
+  contract/integration check on a schedule so drift is caught.
+- Most ecosystems have a record-replay library — VCR (Ruby), `vcrpy` / `pytest-recording` (Python),
+  Polly.js / `nock` back: recordings (JS), WireMock (JVM), or a standalone record-replay proxy in front
+  of the system under test. The *pattern* is the point, not any one tool.
+
+> Stack-agnostic adaptation of the record-replay proxy pattern for deterministic external-API testing
+> (record real responses with secrets redacted → replay offline → re-record on drift) from the
+> Apache-2.0 [`google/test-server`](https://github.com/google/test-server). Re-derived in prose; not
+> vendored — the pattern is implemented by record-replay libraries across ecosystems.
+
 ## References
 
 - HTTP client: Check the project's configuration (Axios, Fetch, httpx, requests)

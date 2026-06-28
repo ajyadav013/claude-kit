@@ -296,6 +296,36 @@ incomplete step rather than regenerating. This is the same reload-not-rerun disc
   which patterns to follow, and what gotchas to avoid? If not, the doc needs more substance.
 - Explain *why*, not just *what* — the layer is comprehension, not an API dump.
 
+## Long-Document Extraction (chunk · ground · multi-pass)
+
+Sometimes the task is the inverse of curating context: you must pull *specific structured facts* out of a
+document or corpus that is too large to fit, or too noisy to extract reliably in one shot — requirements
+from a 5,000-line spec, errors from a giant log, entities from a contract. A single "summarize this"
+pass over a huge input loses things in the middle (the lost-in-the-middle curve) and tends to
+hallucinate. Use a deliberate extraction pipeline instead:
+
+- **Chunk into overlapping windows.** Split the source into sized windows with a little overlap so a
+  fact that straddles a boundary isn't cut in half. Size windows to stay well inside the attention
+  budget (the degradation-zone thresholds above), not to the model's max.
+- **Extract against a schema, per chunk, in parallel.** Give each chunk the *same* explicit output
+  schema (the fields you want) and run the chunks independently/concurrently. A schema constrains the
+  model to the shape you need and makes the results mergeable.
+- **Ground every extraction to its source location.** Require each extracted item to carry *where it
+  came from* — the chunk plus the exact character span / line range. Grounding is what makes the output
+  **verifiable** instead of a plausible guess: you (or a reviewer) can jump to the source and confirm it,
+  and ungrounded items are a red flag to drop or re-extract.
+- **Multiple passes for recall.** One pass misses things; run additional passes (and/or independent
+  extractors) and union the grounded results, deduping by source span. Recall matters more than a single
+  clean pass when the cost of a missed requirement/finding is high.
+
+This is the read-side counterpart to the curation hierarchy above: curation decides *what to load*;
+this decides *how to reliably pull facts out of something too big to load whole*. It pairs with
+tool-output offloading (extract from the file on disk, keep only the grounded results in context).
+
+> Stack-agnostic adaptation of long-document extraction (overlapping chunks → parallel schema-constrained
+> passes → source-interval grounding → multi-pass recall) from the Apache-2.0
+> [`google/langextract`](https://github.com/google/langextract). Re-derived in prose; not vendored.
+
 ## MCP Integrations
 
 For richer context, use Model Context Protocol servers:

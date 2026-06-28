@@ -44,6 +44,32 @@ Two techniques earn their cost on hard, repeated tasks:
 > feedback loop) and [`microsoft/promptbase`](https://github.com/microsoft/promptbase) (Medprompt).
 > Re-derived in prose; not vendored.
 
+### Treat a reusable prompt as a versioned, testable artifact
+
+A prompt you rely on repeatedly — the instruction that drives an agent, a skill, or a recurring
+extraction/classification step — is **code**, and it deserves the same discipline. An ad-hoc string
+buried in a function is impossible to review, diff, or regression-test; the moment a prompt matters,
+lift it into a first-class artifact:
+
+- **Declare the contract, don't bury it.** Keep the model/config (model, temperature, etc.) and an
+  explicit **input and output schema** *with* the prompt text — so callers know what it expects and what
+  it returns, and the output can be **schema-validated** (pairs with validator-in-the-loop above:
+  reject/repair output that doesn't match the schema).
+- **Separate template from data.** Parameterize the prompt with named variables rather than
+  string-concatenating values in; this keeps the reusable logic stable and the per-call data explicit
+  (and avoids accidental injection of untrusted text into the instruction — see `agent-guardrails.md`).
+- **Version it and test it.** Store the prompt as a file under version control so changes are
+  reviewable and diffable, and write **evals** against it (`.claude/rules/evals.md`) so a "small wording
+  tweak" can't silently regress behavior. A prompt without a test is an untested code path.
+
+This is exactly what the kit's own agents and skills already are — Markdown with YAML frontmatter, under
+version control. The discipline generalizes: any prompt important enough to reuse is important enough to
+schema-check, version, and test.
+
+> Stack-agnostic adaptation of the prompt-as-code discipline (frontmatter model/config + schema-driven
+> I/O validation + templating + versioned, testable `.prompt` artifacts) from the Apache-2.0
+> [`google/dotprompt`](https://github.com/google/dotprompt). Re-derived in prose; not vendored.
+
 ## Reasoning hygiene
 
 1. **Make the reasoning inspectable.** A reviewer (or the next agent) should be able to follow *why*,
