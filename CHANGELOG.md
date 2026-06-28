@@ -4,6 +4,47 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.52.0] — 2026-06-28
+
+**Adopt the verified wins from an exhaustive review of the entire `facebook` (Meta) GitHub org** (all
+**168** repos — Meta long ago spun React, PyTorch, Jest, etc. into dedicated orgs, so the `facebook` org
+itself is small). Every repo was surveyed (7 agents over every page — no repo skipped), candidates
+deep-read for license + transferable practice, and the shortlist **adversarially verified** against the
+live source. The org is almost entirely libraries/frameworks/language-tooling with nothing transferable
+to a config scaffolder, and several famous repos were **already covered** (`infer` by the 0.51
+compile-time-logic-bug lint layer; React by the kit's React overlay; testing by an already-deep
+`testing.md`). The verify pass *dropped* the weak picks — `DNE-TaaC` (datacenter network-device testing,
+1★, overlaps the config-driven skills) and `mbt` (a 0★ Meta-service-specific binary-transparency client;
+that practice belongs to Sigstore/Certificate-Transparency, not this org). **3 adoptions, all extensions
+to existing rules — 0 new agents/skills/rules** (skill counts unchanged at 104/56/48; MCP fragments
+unchanged at 17). All sources MIT / Apache-2.0.
+
+Rules:
+
+- **`linting-and-formatting.md`** — a new **Interprocedural Taint / Data-Flow Analysis** layer: declare
+  untrusted **sources**, dangerous **sinks**, and **sanitizers**, then trace data flow *across function
+  boundaries* and flag any unsanitized source→sink path — distinct from the single-line Security-Lint
+  layer and the Compile-Time Logic-Bug layer, and the automated codebase-wide complement to
+  `security-and-hardening`'s secure-by-construction wrappers (from the MIT `facebook/pyre-check`/Pysa and
+  `facebook/mariana-trench`; engines: Pysa/Mariana Trench/CodeQL/Semgrep).
+- **`devops-observability.md`** — a **continuous performance-regression CI gate**: run the baseline
+  (control) and the PR commit (treatment) **concurrently on the same machine** to cancel environmental
+  variance, and gate on the **relative delta** (with a tolerance band) rather than an absolute number —
+  catching the gradual regressions the one-shot Load-vs-SLO gate misses (from the Apache-2.0
+  `facebook/FAI-PEP`).
+- **`agent-guardrails.md`** — extended §4's sandbox **policy** with **defense-in-depth enforcement**:
+  L1 policy decision (existing) + L2 argument validation at the boundary (path canonicalization,
+  injection screening, response sanitization) + L3 OS-level runtime backstop (eBPF-LSM/seccomp
+  intercepting `open`/`connect`/`exec`) so a tool that ignores the declarative policy still cannot escape
+  scope (from the MIT `facebook/mcpguard-dynamic`).
+
+What we **did not** add (already covered, or fails the bar): `infer`/`mariana-trench`-as-a-tool and
+`sapp` (the kit's compile-time-logic-bug + new taint layer cover the discipline); `fbt` i18n (JS-specific,
+archived); `memlab` (JS-only heap analysis); `Ax` (ML hyperparameter optimization, a library);
+`chef-cookbooks`/`IT-CPE`/`taste-tester` (Chef IaC / IT fleet management); `ThreatExchange`/`threat-research`
+(content-moderation / CTI data, out of SDLC scope); `akd`/`private_processing` (domain-specific crypto
+libraries); plus the dropped `DNE-TaaC` and `mbt`.
+
 ## [0.51.0] — 2026-06-28
 
 **Adopt the verified wins from an exhaustive review of the entire `google` GitHub org** (all **2,881**

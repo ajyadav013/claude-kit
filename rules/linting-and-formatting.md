@@ -130,6 +130,35 @@ not style" — not any one tool.
 > style + type checking) from the Apache-2.0 [`google/error-prone`](https://github.com/google/error-prone).
 > Re-derived in prose; not vendored — every major ecosystem has an equivalent analyzer.
 
+### Interprocedural Taint / Data-Flow Analysis (error, for security)
+
+The security-lint layer above catches *single-line* sink patterns (a literal `eval`, a raw `innerHTML`).
+It cannot see the dangerous case where untrusted data enters in one function and reaches a sink **several
+calls away** — request param → service method → repository → string-built SQL. **Taint analysis** closes
+that gap: it tracks data *flow* across function boundaries and flags any path from an untrusted **source**
+to a dangerous **sink** that isn't cleaned by a declared **sanitizer**.
+
+- **Model the three roles, then let the tool find the paths.** Declare **sources** (request bodies/params,
+  headers, env, file/network/queue input, deserialized data), **sinks** (SQL/NoSQL, shell/`exec`, `eval`,
+  file paths, outbound URLs, HTML/templates, log lines for sensitive data), and **sanitizers** (the
+  validator/escaper/parameterizer that makes tainted data safe). The analyzer then reports every
+  source→sink path with no sanitizer on it — interprocedurally, which point-in-code lint and the
+  type checker cannot do.
+- **Where it sits in the layers:** *security-lint* (mechanical single-line bans) → *compile-time
+  logic-bug* (correctness) → **taint/data-flow** (does untrusted input reach a sink?) → human security
+  review (`security-and-hardening` skill / `security-reviewer`). It is the automated, codebase-wide
+  complement to the **secure-by-construction typed wrappers** in `security-and-hardening` (which enforce
+  the same source/sink discipline *in the type system* at one boundary; taint analysis *discovers* the
+  unguarded flows across the whole tree).
+- **Run it in CI on a real engine**, treat a new unsanitized flow as build-breaking, and curate the
+  source/sink/sanitizer model over time (the model is the high-value artifact). Every ecosystem has an
+  engine: Pysa (Python), Mariana Trench (Java/Android), CodeQL or Semgrep (polyglot), and others.
+
+> Stack-agnostic adaptation of interprocedural taint / data-flow analysis (the source → sanitizer → sink
+> model) from the MIT [`facebook/pyre-check`](https://github.com/facebook/pyre-check) (Pysa) and
+> [`facebook/mariana-trench`](https://github.com/facebook/mariana-trench). Re-derived in prose; not
+> vendored — the model generalizes across taint engines.
+
 ### License-Header Enforcement (error)
 
 Where the project (or its org) requires source files to carry a copyright + SPDX license header, make
