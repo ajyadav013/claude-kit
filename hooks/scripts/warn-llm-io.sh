@@ -4,6 +4,7 @@
 # them. The LLM-security layer is OPT-IN and BYPASSABLE: this hook *informs*, it does not gate
 # (always exits 0). Degrades to a no-op without jq or a recognisable payload.
 command -v jq >/dev/null 2>&1 || exit 0
+[ -t 0 ] && exit 0  # no stdin (run by hand) → no-op instead of blocking on `cat`
 INPUT="$(cat)"
 FILE_PATH="$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_response.filePath // empty' 2>/dev/null || true)"
 CONTENT="$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // empty' 2>/dev/null || true)"

@@ -27,16 +27,12 @@ _RM_RF_GUARD = (
     "Move to trash or delete specific paths explicitly.' >&2; exit 2; fi"
 )
 
-# Block pushes whose *target* ref is main/master. The branch token must be bounded by a space or
-# ':' before and a space/end after, so legit branches that merely contain the substring
-# (maintenance, mainframe-fix, remaster-ui, domain-model) are NOT blocked.
-_PUSH_GUARD = (
-    "command -v jq >/dev/null 2>&1 || exit 0; "
-    "CMD=$(jq -r '.tool_input.command' 2>/dev/null || true); "
-    "if echo \"$CMD\" | grep -qE 'git[[:space:]]+push.*[[:space:]:](main|master)([[:space:]]|$)'; "
-    "then echo 'BLOCKED: refusing to push to main/master — use a feature branch and a PR.' >&2; "
-    "exit 2; fi"
-)
+# Block pushes whose *target* ref is main/master. This is a SCRIPT guard (guard-push-main.sh) rather
+# than an inline command because the matcher needs a small shell tokenizer: it normalizes the command
+# (stripping `git` + global options like `-c k=v` / `-C dir`) so those can't be used to evade it, and
+# widens the branch boundary so force-push refspecs (`+main`, `HEAD:refs/heads/main`) are caught too.
+# Legit branches that merely contain the substring (maintenance, main-feature, feature/main-ui) stay
+# spared. A single inline `grep` string can't express the multi-token normalization, hence the script.
 
 _SECRETS_GUARD = (
     "command -v jq >/dev/null 2>&1 || exit 0; "
@@ -106,8 +102,8 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
     "guard-push-main": {
         "event": "PreToolUse",
         "matcher": "Bash",
-        "entry": {"type": "command", "command": _PUSH_GUARD},
-        "script": None,
+        "entry": _script_entry("guard-push-main.sh"),
+        "script": "guard-push-main.sh",
     },
     "guard-destructive-git": {
         "event": "PreToolUse",

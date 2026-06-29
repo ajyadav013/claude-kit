@@ -14,6 +14,7 @@ auto-discovered ``./hooks/hooks.json`` makes the loader read the same file twice
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -181,12 +182,24 @@ def test_inline_guards_suppress_jq_errors() -> None:
     """
     from claude_kit import hooks
 
-    for name in ("_RM_RF_GUARD", "_PUSH_GUARD", "_SECRETS_GUARD"):
+    for name in ("_RM_RF_GUARD", "_SECRETS_GUARD"):
         guard = getattr(hooks, name)
         for segment in guard.split("$(jq")[1:]:
             call = segment.split(")")[0]
             assert "2>/dev/null" in call and "|| true" in call, (
                 f"{name}: inline jq call must use '2>/dev/null || true'"
+            )
+
+
+def test_script_git_guards_suppress_jq_errors() -> None:
+    """The script-backed git guards must also use the ``2>/dev/null || true`` safe jq pattern."""
+    scripts = REPO_ROOT / "hooks" / "scripts"
+    for name in ("guard-push-main.sh", "guard-destructive-git.sh", "guard-secrets.sh"):
+        text = (scripts / name).read_text(encoding="utf-8")
+        for segment in text.split("$(jq")[1:]:
+            call = segment.split(")")[0]
+            assert "2>/dev/null" in call and "|| true" in call, (
+                f"{name}: jq call must use '2>/dev/null || true'"
             )
 
 
@@ -274,3 +287,97 @@ def test_rm_rf_guard_blocks_recursive_force(command: str) -> None:
 def test_rm_rf_guard_spares_safe_commands(command: str) -> None:
     """A command that is not a recursive *and* forced rm is allowed (exit 0)."""
     assert _run_rm_rf_guard(command) == 0, command
+
+
+# --- functional git-guard behaviour: global-option + refspec bypass coverage (F1/F2) -----------
+
+_SCRIPTS_DIR = REPO_ROOT / "hooks" / "scripts"
+
+
+def _run_script_guard(script: str, command: str, project_dir: str | None = None) -> int:
+    """Pipe a PreToolUse JSON payload through a script-backed guard; return its exit code."""
+    payload = json.dumps({"tool_input": {"command": command}})
+    env = dict(os.environ)
+    if project_dir:
+        env["CLAUDE_PROJECT_DIR"] = project_dir
+    proc = subprocess.run(
+        ["bash", str(_SCRIPTS_DIR / script)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    return proc.returncode
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push origin main",
+        "git push -f origin master",
+        "git push --force origin main",
+        "git push origin HEAD:main",
+        "git push origin +main",  # '+' force-push prefix
+        "git push origin HEAD:refs/heads/main",  # fully-qualified refspec
+        "git push origin +refs/heads/master",
+        "git -c k=v push origin main",  # global option before subcommand
+        "git -C /some/dir push origin main",
+        "git --git-dir=/x/.git push origin main",
+        "deploy && git push origin main",  # compound segment
+    ],
+)
+def test_push_main_guard_blocks(command: str) -> None:
+    assert _run_script_guard("guard-push-main.sh", command) == 2, command
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git push origin feature-x",
+        "git push origin main-feature",  # boundary: main followed by '-'
+        "git push origin feature/main-ui",
+        "git push origin maintenance",  # substring, not the ref
+        "git -c k=v push origin develop",
+        "git commit -m 'fix main loop'",  # not a push at all
+        "echo main",  # not git
+    ],
+)
+def test_push_main_guard_spares(command: str) -> None:
+    assert _run_script_guard("guard-push-main.sh", command) == 0, command
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git reset --hard",
+        "git reset --hard HEAD~1",
+        "git clean -fd",
+        "git clean --force",
+        "git checkout .",
+        "git restore .",
+        "git -c k=v reset --hard",  # global option before subcommand
+        "git -C /some/dir clean -f",
+        "foo; git reset --hard",  # compound segment
+    ],
+)
+def test_destructive_git_guard_blocks(command: str) -> None:
+    assert _run_script_guard("guard-destructive-git.sh", command) == 2, command
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git clean -n",  # dry run
+        "git checkout mybranch",
+        "git checkout -- file.txt",  # single file, not '.'
+        "git reset HEAD",  # soft reset, not --hard
+        "git reset --soft HEAD~1",
+        "git status",
+    ],
+)
+def test_destructive_git_guard_spares(command: str) -> None:
+    assert _run_script_guard("guard-destructive-git.sh", command) == 0, command

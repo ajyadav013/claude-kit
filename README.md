@@ -58,7 +58,7 @@ Quick start) for the full breakdown of any row.
 | 🧱 **Stacks & overlays** | Stack-agnostic core + **10** overlay rule sets (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
-| 🛠️ **Hooks & guards** | **17** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
+| 🛠️ **Hooks & guards** | **18** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
 | 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **17** ready MCP fragments, and edit-preserving `upgrade` |
 | ♻️ **Reuse-first by design** | Adopt-only-the-new reviews, opt-in LLM/AI security (OWASP LLM Top 10), a worked example + self-test matrix |
 
@@ -308,7 +308,7 @@ need.
 
 <br>
 
-- **17 event hook scripts** in [`hooks/`](hooks/) enforce the pipeline outside the model —
+- **18 event hook scripts** in [`hooks/`](hooks/) enforce the pipeline outside the model —
   `guard-secrets`, `guard-destructive-git`, `lint-fix`, `type-check`, and `validate-settings` run
   deterministically.
 - **Advisory, never-blocking warnings** — `warn-llm-io`, `warn-large-edits`, `warn-missing-tests`, and

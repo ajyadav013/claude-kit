@@ -3,6 +3,7 @@
 # configuration whose change can ripple across the whole codebase. stdin: hook JSON.
 # Always exits 0 so the edit is not blocked — this is advisory only.
 
+[ -t 0 ] && exit 0  # no stdin (run by hand) → no-op instead of blocking on `cat`
 INPUT="$(cat)"
 FILE_PATH="$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_response.filePath // empty' 2>/dev/null || true)"
 
