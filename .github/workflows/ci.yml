@@ -75,6 +75,8 @@ jobs:
         run: python scripts/gen_hooks.py --check
       - name: Docs / version / count consistency
         run: python scripts/check_docs_consistency.py
+      - name: Skill/agent descriptions within picker cap (warn-only)
+        run: python scripts/check_skill_descriptions.py
       - name: Catalog referential integrity
         run: |
           python -c "import sys; from claude_kit import validator; ok, msgs = validator.check_catalog('.'); [print(m) for m in msgs]; sys.exit(0 if ok else 1)"

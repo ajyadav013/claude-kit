@@ -1,6 +1,6 @@
 ---
 name: accessibility-review
-description: Use when reviewing or building UI to check accessibility (WCAG) — keyboard operability, focus management, semantics/ARIA, color contrast, touch-target size, motion, and screen-reader labels. Produces prioritized findings with concrete fixes. Distinct from performance/visual review.
+description: UI accessibility (WCAG) review — keyboard operability, focus, ARIA semantics, color contrast, touch targets. Returns prioritized fixes. Distinct from performance/visual review.
 ---
 
 # Accessibility Review

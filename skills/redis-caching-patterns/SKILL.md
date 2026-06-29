@@ -1,6 +1,6 @@
 ---
 name: redis-caching-patterns
-description: Production Redis caching conventions covering multi-tenant namespacing, configurable TTL strategies, graceful degradation with in-memory fallback, safe SCAN-based invalidation, and BaseRedis abstraction. Use when implementing caching in multi-tenant services, designing cache invalidation strategies, handling Redis failures gracefully, or building cache managers with fallback behavior.
+description: Production Redis caching — multi-tenant namespacing, configurable TTL, in-memory fallback degradation, safe SCAN-based invalidation. Use when caching in multi-tenant services or handling Redis failures.
 ---
 
 Standardize Redis caching implementation with multi-tenant key isolation, TTL strategies, graceful degradation, and safe bulk invalidation patterns.

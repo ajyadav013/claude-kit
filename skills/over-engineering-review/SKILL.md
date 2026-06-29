@@ -1,6 +1,6 @@
 ---
 name: over-engineering-review
-description: Scans code for over-engineering ONLY and returns a terse delete-list — what to cut and what replaces it — without applying any change. Use when the user asks "what can we delete", "is this over-engineered", "find the bloat", "lean review", "trim this", or wants a complexity-only pass over a diff or a whole repo. Complements (does not replace) the multi-axis code-review-and-quality skill, and stops short of the refactoring that code-simplification performs.
+description: Scans code for over-engineering ONLY and returns a terse delete-list, applying nothing. Use for what can we delete, is this over-engineered, find the bloat, lean review, or a complexity-only pass over a diff.
 ---
 
 # Over-Engineering Review

@@ -1,6 +1,6 @@
 ---
 name: dockerfile-backend
-description: Writing multi-stage Dockerfiles for Python/FastAPI backend services — builder vs runtime stages, slim vs alpine base image trade-offs, system dependency patterns (libpq/librdkafka/krb5), dependency caching with layer optimization, non-root users, multi-mode entrypoints, and health checks. Use when containerizing Python backend services, optimizing Docker build times and image sizes, handling Kafka/Postgres/Kerberos system dependencies, or implementing secure production-ready container images.
+description: Multi-stage Dockerfiles for Python/FastAPI backends — builder vs runtime, slim vs alpine, system deps, layer caching, non-root users. Use when containerizing or optimizing Python backend images.
 ---
 
 # Dockerfile for Python Backend Services

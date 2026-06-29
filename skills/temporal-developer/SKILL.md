@@ -1,6 +1,6 @@
 ---
 name: temporal-developer
-description: Temporal fundamentals for durable execution across languages (Python, Go, TypeScript, Java, .NET, Ruby, Rust)—the workflow/activity/worker split, why workflows must be deterministic (history replay), signals/queries/updates, child workflows, saga/compensation, continue-as-new, timers, retry policies, cancellation/heartbeating, safe versioning of running workflows (patching, worker versioning), testing (time-skipping, replay tests, activity mocking), and the temporal CLI dev loop. Use when building or debugging Temporal workflows/activities/workers, fixing non-determinism errors, or deciding how to change running workflows safely. Do NOT use for this kit's config-driven worker-map / DAG-as-data orchestration engine (WORKER_MODE_CONFIG_MAP, _execute_dag, NODE_TYPE_MAP, schedule registration)—use temporal-config-driven for that.
+description: Temporal durable-execution fundamentals — workflow/activity/worker split and determinism. Use when building or debugging Temporal workflows. Do NOT use for the config-driven DAG engine (temporal-config-driven).
 ---
 
 # temporal-developer

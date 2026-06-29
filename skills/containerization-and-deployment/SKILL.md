@@ -1,6 +1,6 @@
 ---
 name: containerization-and-deployment
-description: Docker containerization patterns from production Python/FastAPI microservices — multi-stage builds, entrypoint.py MODE dispatch (server/consumer/worker/cron), cert/keytab writing from env vars + kinit, docker-compose for local dev (postgres/redis/kafka), health checks, and secrets hygiene. Use when containerizing Python services, implementing multi-role deployments from one image, setting up local dev infrastructure, handling Kerberos auth in containers, or deploying to Cloud Run/k8s with env-based secrets.
+description: Docker containerization for Python/FastAPI — multi-stage builds, entrypoint MODE dispatch (server/consumer/worker/cron), docker-compose local dev, cert/keytab from env vars, Cloud Run/k8s deploy.
 ---
 
 # Containerization and Deployment

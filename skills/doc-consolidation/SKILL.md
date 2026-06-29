@@ -1,6 +1,6 @@
 ---
 name: doc-consolidation
-description: Harvest the ephemeral report/analysis markdown that agent runs leave behind (REPORT/ANALYSIS/AUDIT/SUMMARY files, untracked scratch notes) into canonical, committed documentation — then delete the sources. Triage candidates → extract the durable knowledge → route each chunk to the right home (ADR, plan, changelog, existing doc) → get approval → merge → remove the originals. Stack-agnostic; operates on markdown, not code. Use when working-tree markdown artifacts have piled up, before raising a PR, or to preserve insights from a review/audit before they rot. Do NOT use to author a doc from scratch or write an ADR (use documentation-and-adrs), to judge prose quality (use documentation-and-adrs' generated-doc quality gate), or to consolidate code/config (this is markdown-only).
+description: Harvest ephemeral agent-run reports (REPORT/ANALYSIS/AUDIT/SUMMARY, scratch notes) into canonical committed docs, then delete sources. Do NOT use to author new docs or judge prose (use documentation-and-adrs).
 ---
 
 # Doc Consolidation (ephemeral reports → canonical docs)

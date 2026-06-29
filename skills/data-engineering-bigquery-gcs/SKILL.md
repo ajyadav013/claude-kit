@@ -1,6 +1,6 @@
 ---
 name: data-engineering-bigquery-gcs
-description: BigQuery data pipeline patterns — medallion architecture (bronze/silver/gold), BigQuery client query/load operations with parameterized queries, streaming inserts, in-memory DataFrame loads, dynamic schema evolution, MERGE upserts, time partitioning, reusable BigQueryUtils wrappers, Datastream CDC deduplication, and Temporal activity-based orchestration. Use when building batch ETL pipelines, implementing medallion data layers, designing BigQuery schemas with partitioning, orchestrating data sync jobs with Temporal, performing atomic upserts with MERGE, loading in-memory data to BigQuery, or evolving table schemas dynamically.
+description: BigQuery medallion architecture (bronze/silver/gold), parameterized queries, MERGE upserts, partitioning, CDC dedup, Temporal orchestration. Use when building batch ETL pipelines or BigQuery schemas.
 ---
 
 # Data Engineering: BigQuery & GCS Pipelines

@@ -1,6 +1,6 @@
 ---
 name: zustand-state-patterns
-description: Encodes production Zustand conventions covering typed stores with StateCreator slices, exported selector functions, async actions with API integration, status polling patterns with cleanup, HMR persistence wrappers, and devtools/persist middleware. Use when building or refactoring client state management, implementing async workflows with progress tracking, adding authentication or multi-tenant context stores, or optimizing component re-renders via granular selectors.
+description: Zustand production patterns — typed stores with StateCreator slices, exported selectors, async actions, status polling with cleanup, persist middleware. Use for client state or async workflows with progress.
 ---
 
 Standardize Zustand state management structure, async actions, polling patterns, and persistence following production frontend patterns.

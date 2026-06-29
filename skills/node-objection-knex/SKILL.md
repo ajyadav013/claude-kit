@@ -1,6 +1,6 @@
 ---
 name: node-objection-knex
-description: Encodes production Objection.js + Knex data layer patterns covering BaseModel with AJV validation, lifecycle hooks, bindKnex() per connection, Knex query builder, migration workflow, and Joi request validation middleware with standardized error envelopes. Use when building an Express service with Postgres, implementing request validation, defining Objection models, or managing database migrations with Knex.
+description: Objection.js + Knex data layer — BaseModel with AJV validation, lifecycle hooks, bindKnex() per connection, migrations, Joi validation middleware. Use when building an Express service with Postgres.
 ---
 
 Standardize Objection.js model definitions, Knex query patterns, migration workflow, and Joi validation middleware for Express services.

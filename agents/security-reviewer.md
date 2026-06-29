@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: "Security stage coordinator. Runs at Phase 5.4 (after test-coverage VERIFIED, before DevOps). Dispatches four sub-scanners in parallel — secret-scanner, dependency-scanner, owasp-reviewer, policy-validator — aggregates findings by severity, and owns the Security Clear gate. Read-only: routes fixes through the Orchestrator's defect loop."
+description: Security stage coordinator. Runs at Phase 5.4 (after test-coverage VERIFIED, before DevOps). Dispatches four sub-scanners in parallel — secret, dependency, owasp, policy — and owns the Security Clear gate.
 tools: Agent, Read, Glob, Grep, Bash, SendMessage
 permissionMode: plan
 model: sonnet

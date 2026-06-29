@@ -1,6 +1,6 @@
 ---
 name: configargparse-yaml-env-layering
-description: Three-layer service configuration hierarchy using YAML defaults, configargparse for CLI/env override, and Pydantic BaseSettings singleton. Use when setting up configuration for Python services with multiple runtime modes (server/consumer/temporal_worker/cron), when you need precedence-ordered config sources (YAML < env vars < CLI args), or when migrating from .env to structured config with mode-based entrypoint dispatch.
+description: Three-layer service config — YAML defaults, configargparse CLI/env override, Pydantic BaseSettings singleton. Use for Python services with multiple runtime modes and precedence-ordered config sources.
 ---
 
 Standardize service configuration using a three-layer hierarchy with YAML defaults, configargparse CLI/env merging, and a Pydantic BaseSettings singleton.

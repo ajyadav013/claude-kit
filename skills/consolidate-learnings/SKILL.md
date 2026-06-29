@@ -1,6 +1,6 @@
 ---
 name: consolidate-learnings
-description: Periodic maintenance pass over .claude/agent-memory/ that merges duplicate and overlapping learnings into one canonical entry and tidies the index. Use when the SessionStart hook nudges consolidation, when a category folder has grown large, or when the user says "consolidate/merge/clean up the learnings". Never deletes distinct, still-valid learnings — only merges true duplicates and overlaps.
+description: Merge duplicate and overlapping .claude/agent-memory/ learnings into one canonical entry per rule and rebuild the index. Use when the SessionStart hook nudges or user says consolidate/clean up learnings.
 ---
 
 # Consolidate Learnings — Duplicate Merge Pass

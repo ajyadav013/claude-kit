@@ -1,6 +1,6 @@
 ---
 name: shell-review
-description: Audits shell scripts (bash/POSIX sh) for correctness, safety, and portability — exit-code propagation (set -euo pipefail, pipefail, capture-output-and-status), POSIX-vs-bash portability + shebang choice, safety (quote & brace variables, fail on unset, cd inside a subshell, mktemp + trap cleanup), and structure (library vs executable, main(), shellcheck/shfmt). Use when reviewing or before committing CI / git-hook / build / wrapper shell scripts. Do NOT use for non-shell code (use code-review-and-quality) or to author a brand-new script from a blank file — this is a review lens for existing shell.
+description: Audits shell scripts (bash/POSIX sh) for correctness, safety, portability — exit-code propagation, shebang choice, quoting, mktemp+trap, shellcheck. Do NOT use for non-shell code (use code-review-and-quality).
 ---
 
 # Shell Script Review

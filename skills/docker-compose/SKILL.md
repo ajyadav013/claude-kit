@@ -1,6 +1,6 @@
 ---
 name: docker-compose
-description: Docker Compose patterns for local development and multi-service orchestration. Use when setting up local infrastructure (postgres/redis/kafka/zookeeper/temporal), implementing one-image-many-containers for different roles (server/worker/consumer/cron), configuring environment-specific compose files (.dev/.prod-test/.override), or wiring service dependencies with health checks and conditional startup.
+description: Docker Compose for local dev and multi-service orchestration. Use when setting up local infrastructure (postgres/redis/kafka/temporal), one-image-many-roles containers, or env-specific compose files.
 ---
 
 # Docker Compose for Local Development

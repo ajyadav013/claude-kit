@@ -1,6 +1,6 @@
 ---
 name: devils-advocate
-description: Anti-sycophancy adversarial reviewer. Invoked to critique a plan/spec before approval (standard+), and whenever a parallel review or test-coverage gate reaches a unanimous PASS. Assumes the work is guilty and hunts for what everyone else missed. Gates the pipeline — the artifact is not final until this agent returns CONFIRMED.
+description: Anti-sycophancy adversarial reviewer. Critiques a plan/spec before approval, and when a gate reaches unanimous PASS. Gates the pipeline — the artifact is not final until it returns CONFIRMED.
 tools: Read, Glob, Grep, Bash, SendMessage
 permissionMode: plan
 model: opus

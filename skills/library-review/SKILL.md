@@ -1,6 +1,6 @@
 ---
 name: library-review
-description: Structured pre-add evaluation of a candidate third-party dependency before you adopt it—need & fit, alternatives (stdlib/native/existing dep), maintenance & bus factor, adoption signals, license compatibility, security & supply-chain history, install weight & transitive deps, lock-in/exit cost, and a documented adopt/reject decision. Stack-agnostic (pip, npm, cargo, go modules, maven, gems, …). Use when proposing or choosing between new libraries, or when mandatory-workflow §2a.5 rung 5 ("can an existing dependency do it?") points at pulling in a new one. Do NOT use to decide whether you need a dependency at all (use the §2a.5 reuse/YAGNI gate + over-engineering-review) or to audit ALREADY-installed dependencies for CVEs (use the dependency-scanner agent).
+description: Structured pre-add evaluation of a third-party dependency before adopting it — need, alternatives, maintenance, license, security. NOT for deciding if you need a dependency or auditing installed deps for CVEs.
 ---
 
 # Library Review (pre-add dependency evaluation)

@@ -1,6 +1,6 @@
 ---
 name: spec-driven-development
-description: Creates specs before coding. Use when starting a new project, feature, or significant change and no specification exists yet. Use when requirements are unclear, ambiguous, or only exist as a vague idea. For an incremental change to an existing, already-specced system, write a delta change-proposal (ADDED/MODIFIED/REMOVED) rather than a full spec. Do NOT use when a spec or clear requirements already exist and you are ready to implement (use test-driven-development) or when you only need to pressure-test a decision that has already been made (use doubt-driven-development).
+description: Creates specs before coding. Use when starting a new project/feature with unclear or ambiguous requirements. NOT when a spec exists and you're ready to implement (use test-driven-development).
 ---
 
 # Spec-Driven Development

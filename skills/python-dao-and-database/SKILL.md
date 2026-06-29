@@ -1,6 +1,6 @@
 ---
 name: python-dao-and-database
-description: Encodes patterns for data access objects (DAO), async SQLAlchemy session lifecycle, eager loading, pagination, bulk operations, transactions, and MongoDB usage as observed in production Python/FastAPI services. Covers both SQLAlchemy 1.4 and 2.0 idioms, the BaseDao abstraction, ConnectionManager/ConnectionHandler session factory patterns, eager loading strategies (selectinload, joinedload) to prevent N+1 queries, query optimization, row-level locking, and the static-class MongoDB DAO. Use when implementing database access layers, setting up async sessions, building paginated queries, creating DAOs, debugging N+1 queries, optimizing slow queries, migrating SQLAlchemy versions, or integrating MongoDB.
+description: Data access patterns for async SQLAlchemy and MongoDB — BaseDao, session lifecycle, eager loading, pagination, transactions. Use when implementing DAOs, debugging N+1 queries, or integrating MongoDB.
 ---
 
 Standard DAO patterns and database session lifecycle for async SQLAlchemy and MongoDB.

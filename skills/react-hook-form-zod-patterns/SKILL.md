@@ -1,6 +1,6 @@
 ---
 name: react-hook-form-zod-patterns
-description: Encodes production patterns for type-safe forms using react-hook-form with Zod schema validation, covering multi-step flows, mode switching, field registration, error display, and schema composition. Use when building forms with runtime validation, creating multi-step signup/checkout flows, implementing password-change forms, or setting up edit-in-place patterns with conditional validation.
+description: Type-safe forms with react-hook-form and Zod validation — multi-step flows, mode switching, error display, schema composition. Use when building forms with runtime validation or multi-step signup/checkout.
 ---
 
 Standardize form handling in React applications using react-hook-form with zodResolver for type-safe runtime validation, ensuring consistent error display, schema reuse, and multi-step form orchestration.

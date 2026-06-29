@@ -1,6 +1,6 @@
 ---
 name: design-patterns-and-conventions
-description: Encodes the cross-cutting design patterns, naming conventions, folder layout, testing strategies, troubleshooting diagnostics, and catalogued anti-patterns observed across production Python/FastAPI backend services. Use when architecting new FastAPI services, refactoring code, reviewing structure, investigating technical debt, debugging session leaks or event loop blocks, setting up dependency injection, configuring multi-mode entrypoints (server/consumer/worker), implementing response envelopes, integrating Kafka or Temporal, organizing domain modules, or avoiding known anti-patterns (hardcoded secrets, CORS wildcards, sync clients in async code, unscoped sessions, deprecated lifecycle hooks). Also covers layered architecture (router/service/dao), the ConnectionManager singleton, CustomRequestRoute, naming standards (snake_case vs PascalCase), per-domain folder layout, and testing patterns (mocking, fixtures, TestClient).
+description: Cross-cutting design patterns, naming, folder layout, and anti-patterns for production Python/FastAPI backends. Use when architecting services, refactoring, reviewing structure, or debugging session leaks.
 ---
 
 Enforce consistent design patterns, naming conventions, and architectural decisions across FastAPI backends, derived from real-world production services.

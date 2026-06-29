@@ -1,6 +1,6 @@
 ---
 name: tanstack-react-query-patterns
-description: Encodes production TanStack Query (React Query) conventions covering query-key factories, typed custom hooks, QueryClient configuration, cache invalidation, optimistic updates with rollback, and computed selectors. Use when building data-fetching hooks, implementing mutations with cache updates, configuring pagination with placeholderData, setting up polling queries, or structuring cache invalidation strategies.
+description: Production TanStack Query (React Query) conventions — query-key factories, typed hooks, QueryClient config, cache invalidation, optimistic updates. Use when building data-fetching hooks or mutations.
 ---
 
 Standardize TanStack Query data fetching, caching, and mutations following production patterns for maintainable, type-safe React applications.

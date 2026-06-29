@@ -1,6 +1,6 @@
 ---
 name: pydantic-schema-patterns
-description: Pydantic usage patterns (v1 and v2) across production Python/FastAPI microservices. Covers BaseSettings singleton pattern with config_parser or env_file sources, request/response schemas, field validation, ORM mode configuration (from_attributes vs orm_mode), field aliasing, string Enums, and SettingsConfigDict. Use when implementing settings modules, API schemas, field validators, ORM serialization, migrating between Pydantic v1 and v2, or troubleshooting validation errors.
+description: Pydantic v1 and v2 patterns for Python/FastAPI — BaseSettings singleton, request/response schemas, field validation, ORM mode config, aliasing, Enums. Use for settings, API schemas, or version migration.
 ---
 
 # Pydantic schema patterns

@@ -1,6 +1,6 @@
 ---
 name: observability-and-logging
-description: Structured logging with structlog, PII/secret redaction processors, OpenTelemetry distributed tracing (OTLP export + FastAPI/asyncpg/Redis/Kafka instrumentation), Sentry error tracking, Prometheus RED metrics (inbound/outbound HTTP + middleware + file exporter), multi-mode service instrumentation (consumers/workers/cron), and liveness/readiness health probes across FastAPI backends. Use when adding observability to new services, instrumenting request/response pipelines, tracking external API calls, redacting PII and secrets from structured logs, implementing audit-log field allowlists, implementing health checks for Kubernetes deployments, setting up metrics for non-FastAPI processes (Kafka consumers, background workers, cron jobs), or configuring distributed tracing and metrics collection for production FastAPI applications.
+description: Structured logging (structlog), PII/secret redaction, OpenTelemetry tracing, Sentry, Prometheus RED metrics, and health probes for FastAPI backends. Use when adding observability or redacting PII from logs.
 ---
 
 # Observability and Logging

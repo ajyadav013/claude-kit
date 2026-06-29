@@ -1,6 +1,6 @@
 ---
 name: sdlc
-description: Run the autonomous SDLC pipeline on a task — the single entrypoint that drives spec → review → build → code review → test → security → delivery through the profile's quality gates. Use when asked to "run the SDLC", build/ship a feature end to end, or take a task through the full pipeline with gates.
+description: Run the autonomous SDLC pipeline on a task — the single entrypoint driving spec → review → build → test → security → delivery through the profile's quality gates. Use to run the SDLC or ship a feature.
 argument-hint: <feature or task description>
 ---
 

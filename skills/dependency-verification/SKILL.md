@@ -1,6 +1,6 @@
 ---
 name: dependency-verification
-description: Pre-install verification that a package NAME actually exists in its registry (PyPI/npm/crates.io/…) and is not a typosquat/slopsquat, before you run an install command or write it into a manifest. Defends against LLM-hallucinated package names — a measured 5–22% of model-suggested packages do not exist, and attackers pre-register the names that recur. Use before adding, installing, or recommending any dependency. Do NOT use to judge whether a real package is worth adopting (use library-review) or to audit ALREADY-installed dependencies for known CVEs (use the dependency-scanner agent) — this is the narrower "does this name even exist" check that runs first.
+description: Pre-install check that a package NAME exists in its registry and is not a typosquat. Use before adding any dependency. NOT for judging worth (use library-review) or CVE audits (use dependency-scanner).
 ---
 
 # Dependency Verification (pre-install name check)

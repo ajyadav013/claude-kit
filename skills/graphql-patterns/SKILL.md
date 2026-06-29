@@ -1,6 +1,6 @@
 ---
 name: graphql-patterns
-description: Tactical Strawberry GraphQL (backend) and Apollo Client (frontend) patterns from production FastAPI and React services. Use when implementing GraphQL filter/dropdown endpoints alongside REST in FastAPI, mounting Strawberry schemas with GraphQLRouter, setting up Apollo Client with JWT authentication and multi-tenancy headers, writing hand-typed gql queries/mutations without codegen, debugging Apollo link chains or InMemoryCache merge policies, or adding file upload support with apollo-upload-client. Note this is a limited-footprint pattern (used in ~2 apps) — not the organizational default.
+description: Tactical Strawberry GraphQL (backend) + Apollo Client (frontend) — filter/dropdown endpoints alongside REST, JWT auth, hand-typed gql queries. NOTE — limited-footprint pattern (~2 apps), not the org default.
 ---
 
 # GraphQL Patterns

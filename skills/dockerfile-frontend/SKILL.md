@@ -1,6 +1,6 @@
 ---
 name: dockerfile-frontend
-description: Multi-stage Dockerfile patterns for React/Vite/TypeScript frontends — node:alpine build stage with lockfile-first dependency caching, build-time VITE_* variables baked at image build, slim nginx runtime serving static dist with SPA history fallback (try_files $uri /index.html), envsubst for runtime backend URL configuration, and non-root security. Use when containerizing Vite/React/Next.js static frontends, implementing build-time vs runtime configuration, setting up nginx reverse proxy with SPA routing, or deploying frontend containers to k8s/Cloud Run.
+description: Multi-stage Dockerfile patterns for React/Vite/TypeScript frontends — node:alpine build, lockfile caching, build-time VITE_* vars, nginx SPA fallback, envsubst config. Use when containerizing static frontends.
 ---
 
 # Dockerfile for Frontend Applications

@@ -1,6 +1,6 @@
 ---
 name: gcp-cloud-run-github-actions
-description: Standardize GitHub Actions workflows for deploying containerized services to Google Cloud Run with authentication, image caching, multi-job pipelines (backend, worker, frontend), VPC/Cloud SQL integration, environment variables, and post-deploy validation. Use when building CI/CD pipelines for Cloud Run, setting up multi-service deployments with shared images, configuring VPC connectors and Cloud SQL instances, or adding deployment sanity checks.
+description: GitHub Actions workflows for deploying containerized services to Google Cloud Run — auth, image caching, multi-job pipelines, VPC/Cloud SQL, post-deploy checks. Use when building CI/CD pipelines for Cloud Run.
 ---
 
 Standardize GitHub Actions workflows for deploying containerized services to Google Cloud Run with authentication, image caching, multi-job pipelines, and post-deploy validation.
