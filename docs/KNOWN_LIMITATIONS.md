@@ -39,9 +39,14 @@ you, that's useful signal — open an issue.
 
 ## Command discovery is best-effort
 
-- `init` detects common package managers / task runners (npm·pnpm·yarn·bun, uv·poetry·pdm·hatch,
-  make·just·task) and wires your real commands into `CLAUDE.md`. Uncommon or bespoke setups may still
-  need explicit overrides via `--config` (or `--no-detect-commands` to keep the catalog defaults).
+- `init`/`upgrade` inspect a populated target for **unambiguous** package-manager signals and wire the
+  real commands into `CLAUDE.md`. Current scope: JavaScript (npm·pnpm·yarn·bun) → the install command
+  plus whichever `package.json` scripts exist (`dev`/`test`/`lint`/`build`/`typecheck`); Python
+  (uv·poetry·pdm·hatch) → the **install** command only. Task runners (make·just·task) and rewriting
+  Python *run/test/lint* commands are not yet detected — those keep the catalog defaults.
+- Discovery is fail-open and conservative (an empty target is a no-op, which keeps `init --dry-run` ≡ a
+  real install). Uncommon or bespoke setups may still need explicit overrides via `--config`; pass
+  `--no-detect-commands` to skip discovery entirely and keep the generic catalog commands.
 
 ## Planned commands are not yet implemented
 

@@ -31,6 +31,32 @@ def test_init_defaults_end_to_end(tmp_path):
     assert runner.invoke(app, ["validate", str(target)]).exit_code == 0
 
 
+def test_init_detect_commands_flag(tmp_path):
+    """`init` discovers a populated repo's commands by default; --no-detect-commands opts out."""
+
+    def claude_md(target):
+        return (target / "CLAUDE.md").read_text(encoding="utf-8")
+
+    # Default: a uv.lock in the target → `uv sync` is wired into CLAUDE.md.
+    on = tmp_path / "on"
+    on.mkdir()
+    (on / "uv.lock").write_text("", encoding="utf-8")
+    assert runner.invoke(app, ["init", str(on), "--defaults"]).exit_code == 0
+    assert "uv sync" in claude_md(on)
+
+    # --no-detect-commands keeps the generic catalog command (no `uv sync`).
+    off = tmp_path / "off"
+    off.mkdir()
+    (off / "uv.lock").write_text("", encoding="utf-8")
+    assert (
+        runner.invoke(
+            app, ["init", str(off), "--defaults", "--no-detect-commands"]
+        ).exit_code
+        == 0
+    )
+    assert "uv sync" not in claude_md(off)
+
+
 def test_init_config_mongo_enterprise(tmp_path):
     cfg = tmp_path / "init.yaml"
     cfg.write_text(

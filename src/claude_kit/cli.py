@@ -199,6 +199,13 @@ def init(
         "--json",
         help="with --dry-run, emit the resolved plan as JSON instead of text",
     ),
+    detect_commands: Optional[bool] = typer.Option(
+        None,
+        "--detect-commands/--no-detect-commands",
+        help="inspect the target repo for its real package-manager commands and use them in "
+        "CLAUDE.md (default: on; a no-op on an empty target). --no-detect-commands pins the "
+        "generic catalog commands.",
+    ),
 ) -> None:
     """Scaffold a Claude Code SDLC configuration into a project."""
     non_interactive = defaults or config is not None
@@ -219,6 +226,8 @@ def init(
         # existing-.claude handling and the install spine entirely.
         if dry_run:
             plan = _resolve_plan(src, config=config, defaults=defaults)
+            if detect_commands is not None:
+                plan.selection.detect_commands = detect_commands
             if json_out:
                 typer.echo(json.dumps(_dry_run_doc(src, target, plan), indent=2))
             else:
@@ -264,6 +273,8 @@ def init(
 
         # 3) Resolve the selection.
         plan = _resolve_plan(src, config=config, defaults=defaults)
+        if detect_commands is not None:
+            plan.selection.detect_commands = detect_commands
 
         # 4) Install. Merge mode reconciles non-destructively (preserving the user's own files);
         # fresh / overwrite / backup all go through the destructive install spine.

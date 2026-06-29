@@ -23,7 +23,7 @@ from typing import Any
 
 import yaml
 
-from claude_kit import __version__
+from claude_kit import __version__, detect
 from claude_kit import hooks as hooks_mod
 from claude_kit.models import FileRecord, InitOptions, ResolvedPlan
 from claude_kit.render import render_text
@@ -502,6 +502,7 @@ def _write_config(src: Path, target: Path, plan: ResolvedPlan, log: list[str]) -
         "gates": plan.gates,
         "mcp": list(plan.mcp_servers),
         "org": plan.org.to_dict() if plan.org else None,
+        "detected_commands": plan.detected_commands or {},
     }
     (config_dest / "stack-catalog.snapshot.yaml").write_text(
         yaml.safe_dump(snapshot, sort_keys=False), encoding="utf-8"
@@ -524,6 +525,7 @@ def install_sdlc(
     *,
     force: bool = False,
     log: list[str] | None = None,
+    detect_target: str | Path | None = None,
 ) -> list[str]:
     """Install a resolved claude-kit configuration into ``target``.
 
@@ -534,6 +536,9 @@ def install_sdlc(
         force: Overwrite user-editable files (CLAUDE.md, settings.json, .mcp.json) instead of
             writing ``.claude-kit`` sidecars.
         log: Optional list to append human-readable log lines to.
+        detect_target: Repo to inspect for real package-manager commands (defaults to ``target``).
+            The previewer passes the real project here while installing into a throwaway sandbox, so
+            a dry run reflects the repo's tooling rather than the empty sandbox.
 
     Returns:
         The log list, one line per installed component.
@@ -549,6 +554,17 @@ def install_sdlc(
     plan.context["agent_count"] = str(len(plan.agents) + len(plan.overlay_agents))
     plan.context["skill_count"] = str(len(plan.skills))
     plan.context["overlay_rules_list"] = ", ".join(plan.overlay_rules) or "none"
+
+    # Override generic catalog commands with the target repo's real package-manager commands.
+    # Keyed on detect_target (the REAL project) so a preview into a sandbox still reflects the repo;
+    # a no-op on an empty target keeps dry-run ≡ install.
+    if plan.selection.detect_commands:
+        detect_from = Path(detect_target) if detect_target is not None else target
+        overrides = detect.detect_commands(detect_from, plan.selection)
+        if overrides:
+            plan.context.update(overrides)
+            log.append(f"  • detected commands: {', '.join(sorted(overrides))}")
+        plan.detected_commands = overrides
 
     _install_rules(src, dest, plan, log)
     _write_claude_md(src, target, plan, force=force, log=log)
@@ -582,8 +598,9 @@ def preview_install(
 
     Args:
         src: Payload root (same as :func:`install_sdlc`).
-        target: The project that *would* be installed into — used only to label the render context
-            (project name); it is never read or written.
+        target: The project that *would* be installed into — used to label the render context
+            (project name) and inspected read-only for its real package-manager commands (see
+            ``detect_target``). It is never written to.
         plan: The resolved install plan.
 
     Returns:
@@ -595,7 +612,8 @@ def preview_install(
     plan.context.setdefault("project_name", target.name)
     with tempfile.TemporaryDirectory(prefix="claude-kit-dryrun-") as tmp:
         sandbox = Path(tmp)
-        log = install_sdlc(src, sandbox, plan, force=True)
+        # Detect from the REAL target, not the empty sandbox, so the preview matches a real install.
+        log = install_sdlc(src, sandbox, plan, force=True, detect_target=target)
         paths = sorted(
             str(p.relative_to(sandbox)) for p in sandbox.rglob("*") if p.is_file()
         )

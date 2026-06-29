@@ -40,6 +40,9 @@ class Selection:
         review_strictness: Review strictness (``light``/``standard``/``regulated``); ``regulated``
             adds extra gates/hooks. Prompted only in organization scope.
         org_packs: Whether to generate the reusable org capability packs (organization scope only).
+        detect_commands: Whether ``init``/``upgrade`` may inspect the target repo for its real
+            package-manager commands and override the catalog defaults in CLAUDE.md (default True;
+            a no-op on an empty target). Set False to keep the generic catalog commands.
     """
 
     frontend_framework: str
@@ -55,6 +58,7 @@ class Selection:
     autonomy: str = "assisted"
     review_strictness: str = "standard"
     org_packs: bool = True
+    detect_commands: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON/YAML-serialisable mapping of this selection."""
@@ -164,6 +168,8 @@ class ResolvedPlan:
         context: Flat string context for rendering ``CLAUDE.md`` / ``README`` (labels + commands).
         stack_dirs: Mapping of selected stack kind to its ``templates/stacks`` subdir.
         org: The resolved org capability layer, or ``None`` for individual/team scope.
+        detected_commands: ``*_cmd`` context overrides discovered in the target repo (or ``None`` if
+            discovery did not run); recorded in the stack snapshot for transparency.
     """
 
     selection: Selection
@@ -177,6 +183,7 @@ class ResolvedPlan:
     context: dict[str, str]
     stack_dirs: dict[str, str]
     org: OrgPlan | None = None
+    detected_commands: dict[str, str] | None = None
 
 
 @dataclass

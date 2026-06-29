@@ -137,7 +137,9 @@ def _compare(src: Path, target: str | Path) -> _Comparison | str:
     # Render the reference under the REAL project name so CLAUDE.md/README don't diff spuriously.
     plan.context["project_name"] = target.name
     ref_root = Path(tempfile.mkdtemp(prefix="claude-kit-ref-"))
-    scaffold.install_sdlc(src, ref_root, plan, force=True, log=[])
+    # Detect against the REAL target so the reference's commands match the installed ones (the
+    # reference itself is rendered into ref_root); otherwise discovered commands would diff.
+    scaffold.install_sdlc(src, ref_root, plan, force=True, log=[], detect_target=target)
 
     ref_opts = _load_init_options(ref_root / ".claude")
     ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
@@ -259,7 +261,11 @@ def merge_install(
     plan.context["project_name"] = target.name
     ref_root = Path(tempfile.mkdtemp(prefix="claude-kit-merge-"))
     try:
-        scaffold.install_sdlc(src, ref_root, plan, force=True, log=[])
+        # Detect against the REAL target so the reference's commands match what a real merge
+        # writes into the live tree (the reference itself is rendered into ref_root).
+        scaffold.install_sdlc(
+            src, ref_root, plan, force=True, log=[], detect_target=target
+        )
         ref_opts = _load_init_options(ref_root / ".claude")
         ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
         old = _load_init_options(target / ".claude")
