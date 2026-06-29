@@ -36,11 +36,24 @@ advance until each phase's quality gate passes**. You drive it all with one comm
 **`/sdlc <your task>`**.
 
 It ships **no application code and needs no Docker** — only the rules, agents, skills, and gates that
-govern *how* the work gets done. Choose your stack, rigor, and team scope at `init`; everything else
-adapts.
+govern *how* the work gets done. (Some skills *help Claude write* your Dockerfiles, CI, or k8s manifests
+when you ask — but the scaffolder itself installs none.) Choose your stack, rigor, and team scope at
+`init`; everything else adapts.
 
 > Inspired by the autonomous-SDLC idea, rebuilt from the ground up **for Claude Code**, and kept small
 > by a **reuse-first** policy — see [what we adopted](#influences--what-we-adopted) and from where.
+
+---
+
+## Who this is for
+
+**Use claude-kit if** you drive real repository changes with Claude Code and want a repeatable
+spec → review → test → security → PR workflow whose quality gates won't advance on an unproven verdict.
+
+**Skip it if** you want a small prompt pack, don't want project config written into your repo, or need a
+standalone runtime/daemon. claude-kit is **configuration for Claude Code**, not a separate runtime — and
+its guard hooks are convenience guardrails (they need `jq` + a POSIX shell and no-op without them), **not
+a hardened security boundary**. See [Known limitations](docs/KNOWN_LIMITATIONS.md).
 
 ---
 

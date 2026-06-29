@@ -1,6 +1,8 @@
 # Org capability pack manifest. References components by name; they install in the standard
 # auto-discovered .claude/ locations. `existing: true` = ships with claude-kit already (reused, not
-# duplicated); `existing: false` = added by the org layer (templates/org/).
+# duplicated); `existing: false` = added by the org layer (templates/org/). NOTE: the flag tracks
+# org *wiring*, not file presence — a few `existing:false` hooks ship a script in core but are only
+# activated (registered into settings) by the org layer, so they are not duplicates of a core hook.
 id: non-engineer-builder
 label: "Non-Engineer Builder"
 version: 0.1.0

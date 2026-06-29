@@ -20,7 +20,7 @@ distributed two ways from one source of truth:
 | `.claude-plugin/marketplace.json` | Marketplace entry so `/plugin marketplace add` works |
 | `agents/` | SDLC pipeline subagents (auto-discovered by the plugin); each carries a `tier:` field |
 | `skills/` | Agent skills (auto-discovered by the plugin); `skills/sdlc/` is the `/sdlc` entrypoint |
-| `commands/` | Slash commands: `/claude-kit:init`, `:sdlc`, `:status` (init prefers the pip CLI, falls back to `init.sh`; sdlc delegates to the `sdlc` skill) |
+| `commands/` | Slash commands: `/claude-kit:init`, `:sdlc`, `:status`, `:abort` (init prefers the pip CLI, falls back to `init.sh`; sdlc delegates to the `sdlc` skill; abort tears down an in-progress `/sdlc` run) |
 | `hooks/hooks.json` + `hooks/scripts/` | Event hooks (paths via `${CLAUDE_PLUGIN_ROOT}`) |
 | `rules/` | The 24-file stack-agnostic engineering rule set (scaffolded into `.claude/rules/`), including the agent-operation rules (reasoning, guardrails, resilience, goal-setting, human-in-the-loop, model-tiers, evals, tool-design — see `docs/agentic-patterns.md`), the service-level `resilience-engineering` rule, and the org-core rules `autonomy-levels` + `risk-classification` (see `docs/org-capabilities.md`) |
 | `catalog/` | **Data-driven registry** — `stacks.yaml` · `profiles.yaml` · `mcp.yaml` · `org.yaml`. The only thing that decides what `resolve()` installs. Adding a stack/profile/server/pack is a data change here. |
