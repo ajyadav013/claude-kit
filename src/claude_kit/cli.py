@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Optional
@@ -39,6 +40,16 @@ BANNER = r"""
 | (__| |__ / _ \| |_| | |) | _|  | ' < | |  | |
  \___|____/_/ \_\\___/|___/|___| |_|\_\___| |_|   autonomous SDLC config for Claude Code
 """
+
+# Shown after init when learning-capture is enabled, and mirrored in SECURITY.md / the project README.
+# Keep this wording in sync with those two (the "verbatim" privacy caveat).
+CAPTURE_PRIVACY_NOTICE = (
+    "Privacy — learning capture is ON: a background Claude job reads your session transcript and\n"
+    "changed files to record durable learnings under .claude/agent-memory/ (a committed store). It\n"
+    "skips secret-bearing files and redacts secret-shaped values, but transcripts can still hold\n"
+    "sensitive context — review new agent-memory entries before committing, and set\n"
+    "CLAUDE_KIT_NO_AUTOCAPTURE=1 to disable. Bound it with CLAUDE_KIT_CAPTURE_MAX_LINES/_MAX_BYTES."
+)
 
 app = typer.Typer(
     add_completion=False,
@@ -295,6 +306,14 @@ def init(
     typer.echo(
         "\nDone. Open the project in Claude Code and run `/sdlc <your task>` to start the pipeline."
     )
+    if plan.selection.capture_mode != "off":
+        typer.echo("\n" + CAPTURE_PRIVACY_NOTICE)
+    # The shell guard/notify hooks parse tool input with jq and no-op without it (see SECURITY.md).
+    if not shutil.which("jq"):
+        typer.echo(
+            "\nNote: `jq` is not on PATH — the shell hooks (guards + learning capture) will silently "
+            "no-op until you install it. The config, agents, skills, and CLI work regardless."
+        )
 
 
 @app.command()

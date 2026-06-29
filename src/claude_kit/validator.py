@@ -660,6 +660,17 @@ def doctor(target: str | Path, *, mcp: bool = False) -> tuple[bool, list[str]]:
                 f"WARN  {entry} not gitignored (runtime artifacts may be committed)"
             )
 
+    settings = claude / "settings.json"
+    if settings.is_file() and "capture-learnings" in settings.read_text(
+        encoding="utf-8"
+    ):
+        msgs.append(
+            "WARN  learning capture is enabled — a background job reads your session transcript and "
+            "writes durable notes to .claude/agent-memory/ (committed). Secret files are skipped and "
+            "secret-shaped values redacted; still review new entries before committing. Disable with "
+            "CLAUDE_KIT_NO_AUTOCAPTURE=1; bound with CLAUDE_KIT_CAPTURE_MAX_LINES/_MAX_BYTES."
+        )
+
     journal = claude / "config" / UPGRADE_JOURNAL
     if journal.is_file():
         detail = ""

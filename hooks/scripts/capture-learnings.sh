@@ -31,23 +31,23 @@ set -u
 
 MODE="${1:-end}"   # end | stop | catchup
 
-# --- opt-out + recursion guard -> silent no-op ---------------------------------------------------
-[ -n "${CLAUDE_KIT_NO_AUTOCAPTURE:-}" ] && exit 0
-command -v jq >/dev/null 2>&1 || exit 0
-command -v claude >/dev/null 2>&1 || exit 0
-
-INPUT=$(cat 2>/dev/null) || exit 0
-[ -n "$INPUT" ] || exit 0
-
-TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
-PROJ=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
-[ -n "$PROJ" ] || PROJ="${CLAUDE_PROJECT_DIR:-$PWD}"
-
-# Need the learnings store to write into, and a transcript path to locate work.
-[ -d "$PROJ/.claude/agent-memory" ] || exit 0
-[ -n "$TRANSCRIPT" ] || exit 0
-
 TMP="${TMPDIR:-/tmp}"
+
+# --- privacy: skip sensitive files, redact secret-shaped values, bound the payload --------------
+# Capture is ON by default and reads your session — so it must never carry credentials into
+# .claude/agent-memory/ (a committed store). Mirrors guard-secrets.sh: EXCLUDE secret-bearing file
+# paths from the changed-file list entirely, and REDACT leaked-credential VALUE shapes (not env var
+# NAMES) from anything handed to the background job. Bounds are env-overridable.
+_SENSITIVE_FILE_RE='(^|/)\.env($|\.)|\.(pem|key|p12|pfx)$|credentials?\.(json|ya?ml|md)$'
+_SECRET_VALUE_RE='-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{16,}|xox[baprs]-[0-9A-Za-z-]{10,}|gh[ps]_[0-9A-Za-z]{30,}'
+
+CAP_MAX_LINES="${CLAUDE_KIT_CAPTURE_MAX_LINES:-50}"
+case "$CAP_MAX_LINES" in '' | *[!0-9]*) CAP_MAX_LINES=50 ;; esac
+CAP_MAX_BYTES="${CLAUDE_KIT_CAPTURE_MAX_BYTES:-8000}"
+case "$CAP_MAX_BYTES" in '' | *[!0-9]*) CAP_MAX_BYTES=8000 ;; esac
+
+# Replace leaked-credential value shapes with [REDACTED] before a blob reaches the prompt/log.
+_redact() { sed -E "s/(${_SECRET_VALUE_RE})/[REDACTED]/g"; }
 
 # --- helpers -------------------------------------------------------------------------------------
 
@@ -75,7 +75,7 @@ changed_files() {
       | select(.name? == "Edit" or .name? == "Write" or .name? == "MultiEdit" or .name? == "NotebookEdit")
       | (.input?.file_path? // .input?.notebook_path? // empty)
     ] | unique | .[]
-  ' 2>/dev/null | head -n 50
+  ' 2>/dev/null | grep -ivE "$_SENSITIVE_FILE_RE" | head -n "$CAP_MAX_LINES"
 }
 
 line_count() { wc -l <"$1" 2>/dev/null | tr -d ' '; }
@@ -87,6 +87,9 @@ line_count() { wc -l <"$1" 2>/dev/null | tr -d ' '; }
 spawn_capture() {
   local transcript="$1" changed="$2" key="$3"
   local lock log today prompt
+  # Defence in depth: redact any leaked-credential value shapes and bound the size of the
+  # changed-file blob before it reaches the prompt or the log.
+  changed=$(printf '%s' "$changed" | _redact | head -c "$CAP_MAX_BYTES")
   lock="$TMP/claude-kit-capture-$(_safe "$key").lock"
   log="$TMP/claude-kit-capture-$(_safe "$key").log"
   today=$(date -u +%Y-%m-%d 2>/dev/null)
@@ -105,6 +108,10 @@ Today: ${today}
 You have ONLY the Read/Grep/Glob/Write/Edit tools — there is no shell. Create and update files DIRECTLY
 with the Write and Edit tools (do not attempt Bash/heredocs); writes under .claude/agent-memory/ are
 permitted.
+
+PRIVACY (mandatory): .claude/agent-memory/ is a committed store. NEVER record secrets, credentials,
+API keys, tokens, connection strings, or personal data into it. If a candidate learning can only be
+expressed by quoting such a value, skip it. Capture the durable lesson, never the secret.
 
 Steps:
 1. Read the changed files above and the tail of the transcript to understand WHAT changed and WHY.
@@ -143,7 +150,29 @@ Steps:
   ) </dev/null >/dev/null 2>&1 &
 }
 
-# --- dispatch ------------------------------------------------------------------------------------
+# --- main: opt-out, parse input, dispatch --------------------------------------------------------
+# When sourced (e.g. by the test suite) rather than executed, stop here so only the helper functions
+# above are defined — everything below has side effects (reads stdin, spawns a background job).
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
+
+# --- opt-out + recursion guard -> silent no-op ---------------------------------------------------
+[ -n "${CLAUDE_KIT_NO_AUTOCAPTURE:-}" ] && exit 0
+command -v jq >/dev/null 2>&1 || exit 0
+command -v claude >/dev/null 2>&1 || exit 0
+
+INPUT=$(cat 2>/dev/null) || exit 0
+[ -n "$INPUT" ] || exit 0
+
+TRANSCRIPT=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null)
+PROJ=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
+[ -n "$PROJ" ] || PROJ="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+# Need the learnings store to write into, and a transcript path to locate work.
+[ -d "$PROJ/.claude/agent-memory" ] || exit 0
+[ -n "$TRANSCRIPT" ] || exit 0
+
 case "$MODE" in
   end)
     # The session that just ended. Capture if it edited files; mark done either way so a later
