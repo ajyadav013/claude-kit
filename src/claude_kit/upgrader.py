@@ -21,14 +21,22 @@ contract shared by the other lifecycle commands.
 from __future__ import annotations
 
 import hashlib
+import json
 import shutil
 import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
-from claude_kit import catalog, scaffold
-from claude_kit.models import FileRecord, InitOptions, ResolvedPlan
+from claude_kit import __version__, catalog, scaffold
+from claude_kit.models import (
+    UPGRADE_JOURNAL,
+    FileRecord,
+    InitOptions,
+    ResolvedPlan,
+    UpgradeJournal,
+)
 from claude_kit.validator import _load_init_options, _read_init_options
 
 #: Sidecar suffix for a new version of a user-modified, protected file.
@@ -165,10 +173,36 @@ def _next_backup_dir(target: Path) -> Path:
     return target / f".claude-kit.bak-{n}"
 
 
+def _journal_path(target: Path) -> Path:
+    """Path to the transactional upgrade journal under ``.claude/config/``."""
+    return target / ".claude" / "config" / UPGRADE_JOURNAL
+
+
+def _write_journal(cmp: _Comparison) -> None:
+    """Record the planned actions + version transition BEFORE any file is mutated.
+
+    Written before the apply loop and removed only after the new baseline is in place, so its presence
+    means an upgrade was interrupted mid-flight. ``upgrade`` is convergent, so the next run finishes and
+    clears it; ``doctor`` surfaces it. Gitignored, so it is never committed.
+    """
+    journal = UpgradeJournal(
+        from_version=cmp.old.claude_kit_version if cmp.old else "(untracked)",
+        to_version=__version__,
+        started_at=datetime.now(timezone.utc).isoformat(),
+        actions=[{"rel": a.rel, "kind": a.kind, "owner": a.owner} for a in cmp.actions],
+    )
+    path = _journal_path(cmp.target)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(journal.to_dict(), indent=2) + "\n", encoding="utf-8")
+
+
+def _clear_journal(target: Path) -> None:
+    """Remove the upgrade journal once the upgrade has committed its new baseline."""
+    _journal_path(target).unlink(missing_ok=True)
+
+
 def _format_preview(cmp: _Comparison) -> list[str]:
     """Build the human-readable diff report from a comparison (no side effects)."""
-    from claude_kit import __version__
-
     msgs: list[str] = []
     old_ver = cmp.old.claude_kit_version if cmp.old else "(untracked)"
     if old_ver != __version__:
@@ -232,7 +266,7 @@ def upgrade(target: str | Path, *, force: bool = False) -> tuple[bool, list[str]
         if isinstance(result, str):
             return _explain_error(result, target)
         try:
-            return _apply(result, force=force)
+            return _apply(result, force=force, journal=True)
         finally:
             _cleanup(result.ref_root)
 
@@ -279,14 +313,31 @@ def merge_install(
         _cleanup(ref_root)
 
 
-def _apply(cmp: _Comparison, *, force: bool) -> tuple[bool, list[str]]:
-    """Carry out the planned actions and refresh ``init-options.json``."""
+def _apply(
+    cmp: _Comparison, *, force: bool, journal: bool = False
+) -> tuple[bool, list[str]]:
+    """Carry out the planned actions and refresh ``init-options.json``.
+
+    When ``journal`` is set (the ``upgrade`` path), a transactional marker is written under
+    ``.claude/config/`` before the first mutation and removed only after the new baseline is in place,
+    so an interrupted run leaves a visible journal that the next convergent ``upgrade`` clears. The
+    non-destructive ``merge_install`` path leaves it off.
+    """
     msgs: list[str] = []
     if not cmp.actions:
+        # Convergence: an upgrade interrupted *after* the baseline was written leaves a stale journal
+        # on an already-current tree. Re-running clears it even though there is no work left.
+        if journal and _journal_path(cmp.target).is_file():
+            _clear_journal(cmp.target)
+            msgs.append(
+                "INFO  cleared a leftover upgrade journal (work already complete)"
+            )
         msgs.append("OK    everything up to date — nothing to upgrade")
         return True, msgs
 
     target, ref_root = cmp.target, cmp.ref_root
+    if journal:
+        _write_journal(cmp)
     backup_dir = _next_backup_dir(target)
     backed_up = 0
 
@@ -346,6 +397,10 @@ def _apply(cmp: _Comparison, *, force: bool) -> tuple[bool, list[str]]:
     for name in ("init-options.json", "stack-catalog.snapshot.yaml"):
         if (ref_config / name).is_file():
             shutil.copy2(ref_config / name, dst_config / name)
+
+    # Commit point reached: the new baseline is in place, so the transaction is complete.
+    if journal:
+        _clear_journal(target)
 
     if backed_up:
         msgs.append(

@@ -25,7 +25,7 @@ import yaml
 
 from claude_kit import __version__, detect
 from claude_kit import hooks as hooks_mod
-from claude_kit.models import FileRecord, InitOptions, ResolvedPlan
+from claude_kit.models import UPGRADE_JOURNAL, FileRecord, InitOptions, ResolvedPlan
 from claude_kit.render import render_text
 
 #: Marker in the generic CLAUDE.md whose section is replaced with the stack-specific block.
@@ -40,6 +40,7 @@ GITIGNORE_ENTRIES = (
     # upgrade/merge artifacts written by `claude-kit upgrade` — never commit these
     ".claude-kit.bak-*/",
     "*.claude-kit",
+    f".claude/config/{UPGRADE_JOURNAL}",
 )
 
 

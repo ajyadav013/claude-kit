@@ -22,7 +22,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Callable
 
-from claude_kit.models import InitOptions
+from claude_kit.models import UPGRADE_JOURNAL, InitOptions, UpgradeJournal
 
 #: Claude Code hook event names. A settings.json hooks block keyed on anything else is suspect —
 #: a typo'd event silently never fires — so strict validation flags unknown events.
@@ -659,6 +659,21 @@ def doctor(target: str | Path, *, mcp: bool = False) -> tuple[bool, list[str]]:
             msgs.append(
                 f"WARN  {entry} not gitignored (runtime artifacts may be committed)"
             )
+
+    journal = claude / "config" / UPGRADE_JOURNAL
+    if journal.is_file():
+        detail = ""
+        try:
+            j = UpgradeJournal.from_dict(
+                json.loads(journal.read_text(encoding="utf-8"))
+            )
+            detail = f" ({j.from_version} -> {j.to_version}, started {j.started_at})"
+        except (ValueError, OSError):
+            detail = ""
+        msgs.append(
+            f"WARN  interrupted upgrade detected{detail} — re-run `claude-kit upgrade` to finish "
+            f"(upgrade is convergent; this clears the journal)"
+        )
 
     if mcp:
         _mcp_health(target, msgs)
