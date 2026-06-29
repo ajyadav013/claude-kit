@@ -1,6 +1,6 @@
 ---
 name: devops-engineer
-description: Delivery & operability agent. Owns the CI pipeline, build & packaging, release/rollback, environment & secret configuration, database migrations, and the local developer experience for any stack. Container-optional — works whether the project ships as containers, plain processes, managed services, or serverless.
+description: Delivery & operability agent. Owns the CI pipeline, build & packaging, release/rollback, environment & secrets, database migrations, and local dev experience for any stack. Container-optional.
 tools: Read, Write, Edit, Bash, Glob, Grep
 permissionMode: acceptEdits
 model: sonnet

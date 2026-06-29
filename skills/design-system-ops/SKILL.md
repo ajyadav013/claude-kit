@@ -1,15 +1,6 @@
 ---
 name: design-system-ops
-description: >-
-  Operate and maintain a design system as a living product over time — the work AFTER components are
-  built. Use for design-system drift detection (tokens/components decaying out of spec), three-tier
-  token architecture governance (primitive → semantic → component, DTCG-aligned), system-health and
-  maturity assessment (library-type classification, maturity stages, AI-readiness), adoption
-  measurement (coverage ≠ adoption), and the governance lifecycle (deprecation, decision records,
-  change communication). Stack-agnostic (React/Vue/Twig/Tailwind/SCSS/CSS vars/Style Dictionary). Do
-  NOT use to BUILD or style components or check per-screen design compliance (use component-design /
-  radix-tailwind-component-patterns / ui-ux-design / frontend-ui-engineering), nor for WCAG review of a
-  single UI (use accessibility-review) — this is the system-wide, over-time operations layer above them.
+description: Operate a design system over time — drift detection, token architecture, adoption, governance, AI-readiness. Use for system-wide health audits. Do NOT use to build/style components (use component-design).
 ---
 
 # Design System Ops

@@ -1,6 +1,6 @@
 ---
 name: multi-tenancy-patterns
-description: Multi-tenant isolation patterns from production Python/FastAPI services — tenant resolution (header/JWT/session), four isolation strategies (Postgres RLS, multi-pool, lazy connectors, schema-based), data-layer org_id tenancy, and tenant-scoped caching. Use when building multi-tenant SaaS architectures, designing tenant data isolation, implementing tenant context resolution, migrating from single-tenant to multi-tenant, partitioning shared databases for multi-org deployments, scoping cache keys by tenant, implementing row-level security, or designing per-tenant database pools.
+description: Multi-tenant isolation for Python/FastAPI — tenant resolution (header/JWT/session), four isolation strategies (Postgres RLS, multi-pool, lazy connectors, schema-based), org_id tenancy, tenant-scoped caching.
 ---
 
 # Multi-Tenancy Patterns

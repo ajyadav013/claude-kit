@@ -4,6 +4,64 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.54.0] — 2026-06-29
+
+**Safety, correctness, and capability hardening pass.** Two reviews (a fresh practical review and an
+external improvement brief) converged on a set of gaps; every premise was verified against the source
+before acting. No change to the core promise — configuration-only SDLC scaffolding for Claude Code, no
+application code, no Docker, stack-agnostic core, catalog-driven, evidence-backed gates, safe upgrades.
+**0 new agents/skills.**
+
+### Security
+
+- **Learning capture is privacy-hardened (still on by default).** `capture-learnings.sh` now excludes
+  secret-bearing files (`.env`, `*.pem`/`*.key`, `credentials.*`) from the changed-file list, redacts
+  leaked-credential value shapes (private keys, `AKIA…`, `sk_live_…`, Slack/GitHub tokens) from
+  anything handed to the background job, bounds the payload with env-overridable
+  `CLAUDE_KIT_CAPTURE_MAX_LINES` / `CLAUDE_KIT_CAPTURE_MAX_BYTES`, and instructs the job never to record
+  secrets/PII. `init` prints a privacy notice (and a jq-missing caveat); `doctor` warns while capture is
+  wired; the same caveat is documented in `SECURITY.md` and the project README.
+- **No raw slash-command argument interpolation.** `/claude-kit:init` no longer interpolates the
+  textually-substituted `$ARGUMENTS` into any executable shell block; the agent runs the CLI with the
+  user's arguments as separate, individually-quoted argv items. A CI test fails on `$ARGUMENTS` inside a
+  command's fenced code block.
+- **Git guards hardened** against global-option and refspec bypasses (`git -c …` / `git -C …`,
+  `+main`, refspec forms); manual-stdin guards no-op on a TTY.
+
+### Added
+
+- **Command discovery (`detect.py`).** `init`/`upgrade` inspect a populated target for unambiguous
+  package-manager signals and wire the real commands into `CLAUDE.md` — JavaScript (npm·pnpm·yarn·bun)
+  install + present `package.json` scripts, Python (uv·poetry·pdm·hatch) install. Fail-open and
+  conservative (an empty target is a no-op, preserving `init --dry-run` ≡ a real install).
+  `--detect-commands` / `--no-detect-commands` opt in/out; recorded in the stack snapshot.
+- **Transactional upgrade journal.** `upgrade` writes `.claude/config/upgrade-in-progress.json` before
+  mutating and clears it after the new baseline commits; combined with convergent render-and-compare, an
+  interrupted upgrade is finished and cleared by the next run. `doctor` warns while a journal is present;
+  it is gitignored. `merge_install` is not journaled.
+- **JSON Schema validation** for the catalog and persisted artifacts (`jsonschema` is an optional
+  `[schema]` extra; a no-op when absent). Wired into `validate --strict` and the catalog check.
+- **`--json` output** for `validate`, `doctor`, `diff`, `status`, `pipeline validate|status`, and
+  `init --dry-run` via a structured `report` module (human output unchanged).
+- **MCP pin freshness tooling** — an offline CI gate that fails on `@latest`/unpinned servers, plus a
+  scheduled workflow that opens a tracking issue when a pin falls behind the registry.
+
+### Changed
+
+- **`lint-fix.sh` scopes to changed files by default** (git diff vs HEAD + untracked), so a Stop hook
+  never reformats files the user didn't touch. `CLAUDE_KIT_AUTOFIX=1` restores whole-repo formatting;
+  falls back to whole-repo when git is unavailable.
+- **Planned CLI commands are hidden** from `--help` unless `CLAUDE_KIT_EXPERIMENTAL=1` (still marked
+  `[planned]`, still exit non-zero) so they can't be mistaken for working features.
+- **Skill/agent descriptions** front-load their triggers and fit the picker cap; a warn-only CI check
+  reports any that exceed it.
+
+### Docs
+
+- New `docs/KNOWN_LIMITATIONS.md` (guards are best-effort, not a security boundary; command discovery
+  scope; non-atomic first install; convergent/journalled upgrades) + a README "Who this is for" section
+  and reconciliation/reference fixes.
+
 ## [0.53.0] — 2026-06-28
 
 **Adopt the verified wins from an exhaustive review of three GitHub orgs — `Netflix`, `aws`, and

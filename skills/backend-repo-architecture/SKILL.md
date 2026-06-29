@@ -1,6 +1,6 @@
 ---
 name: backend-repo-architecture
-description: Canonical backend repository structure for Python/FastAPI services. Encodes the multi-mode entrypoint pattern (server/consumer/temporal_worker/cron), FastAPI application factory, ConnectionManager singleton, BaseDao, domain layout (flat vs versioned), config-driven router assembly, and deployment patterns (server-only/multi-mode/multi-deployment/monorepo). Use when scaffolding a new FastAPI service, reorganizing an existing Python backend, understanding a production-grade service archetype, choosing domain layout patterns, setting up multi-mode deployments, implementing ConnectionManager/BaseDao patterns, or structuring Kafka consumers or Temporal workers.
+description: Canonical backend repository structure for Python/FastAPI — multi-mode entrypoint, app factory, ConnectionManager, BaseDao, flat vs versioned layout. Use when scaffolding or reorganizing a FastAPI service.
 ---
 
 # Backend Repository Architecture

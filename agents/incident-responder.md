@@ -1,6 +1,6 @@
 ---
 name: incident-responder
-description: Production incident commander. Use when prod is broken — errors spiking, a latency/availability breach, a dependency down, or a bad deploy. Triages severity, gathers signals (health, logs, metrics, error tracking), drives mitigation (rollback/flag) FIRST, then root cause. Coordinates; routes code fixes to the dev lane.
+description: Production incident commander. Use when prod is broken — errors spiking, latency breach, dependency down, bad deploy. Triages severity, gathers signals, drives mitigation (rollback/flag) FIRST, then root cause.
 tools: Read, Glob, Grep, Bash, SendMessage
 permissionMode: plan
 model: sonnet

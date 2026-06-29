@@ -1,16 +1,6 @@
 ---
 name: zap-vapt-scanning
-description: >
-  Run an automated OWASP ZAP VAPT (Vulnerability Assessment & Penetration Testing) scan against an
-  API and render a finished PDF report, using the bundled single-file tool `scripts/zap_vapt.py`.
-  Covers: discovering/launching ZAP headless, reading its API key, replaying endpoints (curl, simple
-  METHOD/URL lines, or a Postman collection) through ZAP, passive scanning (and gated active
-  scanning), joining alerts to endpoints, and generating a branded VAPT report whose company name,
-  location, logo, and sign-off names are supplied at run time (never hardcoded). Use when asked to
-  run a ZAP scan, perform a VAPT or DAST pass on an API, security-test endpoints, generate a
-  vulnerability/penetration-test report, scan a Postman collection for security issues, or automate
-  OWASP ZAP from the command line. Only for systems the user is authorized to test. Do NOT use for
-  source-code-driven, exploit-by-proof white-box pentesting (use shannon-ai-pentest).
+description: Automated OWASP ZAP VAPT scan against an API, rendering a PDF report via bundled scripts/zap_vapt.py. Only for systems you are authorized to test. Do NOT use for white-box pentesting (use shannon-ai-pentest).
 ---
 
 # OWASP ZAP VAPT Scanning & Reporting

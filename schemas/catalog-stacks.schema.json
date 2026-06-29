@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalog-stacks",
+  "title": "claude-kit stack catalog (catalog/stacks.yaml)",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer"
+    },
+    "frontend": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "frameworks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/stackEntry"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "backend": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "languages": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/stackEntry"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "database": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/stackEntry"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "stackEntry": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "planned"
+          ]
+        },
+        "overlay_rules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "overlay_agents": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stack_dir": {
+          "type": "string"
+        },
+        "default_framework": {
+          "type": "string"
+        },
+        "languages": {
+          "type": "object"
+        },
+        "frameworks": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/stackEntry"
+          }
+        },
+        "commands": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "mcp_suggested": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

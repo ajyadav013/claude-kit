@@ -14,6 +14,12 @@ from typing import Any
 #: Schema version of the persisted ``.claude/config/init-options.json`` document.
 INIT_OPTIONS_SCHEMA = 1
 
+#: Filename (under ``.claude/config/``) of the transactional upgrade journal.
+UPGRADE_JOURNAL = "upgrade-in-progress.json"
+
+#: Schema version of the upgrade-journal document.
+UPGRADE_JOURNAL_SCHEMA = 1
+
 
 @dataclass
 class Selection:
@@ -40,6 +46,9 @@ class Selection:
         review_strictness: Review strictness (``light``/``standard``/``regulated``); ``regulated``
             adds extra gates/hooks. Prompted only in organization scope.
         org_packs: Whether to generate the reusable org capability packs (organization scope only).
+        detect_commands: Whether ``init``/``upgrade`` may inspect the target repo for its real
+            package-manager commands and override the catalog defaults in CLAUDE.md (default True;
+            a no-op on an empty target). Set False to keep the generic catalog commands.
     """
 
     frontend_framework: str
@@ -55,6 +64,7 @@ class Selection:
     autonomy: str = "assisted"
     review_strictness: str = "standard"
     org_packs: bool = True
+    detect_commands: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON/YAML-serialisable mapping of this selection."""
@@ -164,6 +174,8 @@ class ResolvedPlan:
         context: Flat string context for rendering ``CLAUDE.md`` / ``README`` (labels + commands).
         stack_dirs: Mapping of selected stack kind to its ``templates/stacks`` subdir.
         org: The resolved org capability layer, or ``None`` for individual/team scope.
+        detected_commands: ``*_cmd`` context overrides discovered in the target repo (or ``None`` if
+            discovery did not run); recorded in the stack snapshot for transparency.
     """
 
     selection: Selection
@@ -177,6 +189,7 @@ class ResolvedPlan:
     context: dict[str, str]
     stack_dirs: dict[str, str]
     org: OrgPlan | None = None
+    detected_commands: dict[str, str] | None = None
 
 
 @dataclass
@@ -232,4 +245,51 @@ class InitOptions:
             selection=Selection.from_dict(data.get("selection", {})),
             files=[FileRecord(**r) for r in data.get("files", [])],
             schema_version=int(data.get("schema_version", INIT_OPTIONS_SCHEMA)),
+        )
+
+
+@dataclass
+class UpgradeJournal:
+    """A transactional marker written *before* an upgrade mutates the tree, removed once it commits.
+
+    :func:`claude_kit.upgrader.upgrade` writes this under ``.claude/config/`` before touching any file
+    and deletes it only after the new baseline (``init-options.json``) is in place. Because ``upgrade``
+    is convergent — render-and-compare always recomputes the plan from the *live* tree — a journal left
+    behind by an interrupted run is harmless: the next ``upgrade`` finishes the work and clears it.
+    ``doctor`` warns when one is present so an interrupted upgrade stays visible (it is gitignored, so
+    it is never committed).
+
+    Attributes:
+        from_version: Kit version recorded in the install before the upgrade.
+        to_version: Kit version the upgrade is moving to.
+        started_at: ISO-8601 timestamp when the journal was written.
+        actions: Planned file actions (``{"rel", "kind", "owner"}``) for post-mortem inspection.
+        schema_version: Document schema version (:data:`UPGRADE_JOURNAL_SCHEMA`).
+    """
+
+    from_version: str
+    to_version: str
+    started_at: str
+    actions: list[dict[str, str]]
+    schema_version: int = UPGRADE_JOURNAL_SCHEMA
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serialisable mapping of this journal."""
+        return {
+            "schema_version": self.schema_version,
+            "from_version": self.from_version,
+            "to_version": self.to_version,
+            "started_at": self.started_at,
+            "actions": [dict(a) for a in self.actions],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> UpgradeJournal:
+        """Reconstruct :class:`UpgradeJournal` from a parsed journal mapping (tolerant of missing keys)."""
+        return cls(
+            from_version=str(data.get("from_version", "")),
+            to_version=str(data.get("to_version", "")),
+            started_at=str(data.get("started_at", "")),
+            actions=[dict(a) for a in data.get("actions", [])],
+            schema_version=int(data.get("schema_version", UPGRADE_JOURNAL_SCHEMA)),
         )

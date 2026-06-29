@@ -8,6 +8,9 @@ commands — ``validate``, ``doctor``, ``diff``, ``upgrade``, ``list-options``, 
 
 from __future__ import annotations
 
+import json
+import os
+import shutil
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Optional
@@ -19,11 +22,17 @@ from claude_kit import (
     catalog,
     pipeline,
     prompts,
+    report,
     scaffold,
     upgrader,
     validator,
 )
 from claude_kit.models import ResolvedPlan
+
+# Planned-but-unimplemented commands are hidden from `--help` by default so they
+# can't be mistaken for working features. Set CLAUDE_KIT_EXPERIMENTAL=1 to surface
+# them (still marked "[planned]" and still exit non-zero). Evaluated at import.
+_EXPERIMENTAL = bool(os.environ.get("CLAUDE_KIT_EXPERIMENTAL"))
 
 BANNER = r"""
   ___ _      _   _ ___  ___   _  _____ _____
@@ -31,6 +40,16 @@ BANNER = r"""
 | (__| |__ / _ \| |_| | |) | _|  | ' < | |  | |
  \___|____/_/ \_\\___/|___/|___| |_|\_\___| |_|   autonomous SDLC config for Claude Code
 """
+
+# Shown after init when learning-capture is enabled, and mirrored in SECURITY.md / the project README.
+# Keep this wording in sync with those two (the "verbatim" privacy caveat).
+CAPTURE_PRIVACY_NOTICE = (
+    "Privacy — learning capture is ON: a background Claude job reads your session transcript and\n"
+    "changed files to record durable learnings under .claude/agent-memory/ (a committed store). It\n"
+    "skips secret-bearing files and redacts secret-shaped values, but transcripts can still hold\n"
+    "sensitive context — review new agent-memory entries before committing, and set\n"
+    "CLAUDE_KIT_NO_AUTOCAPTURE=1 to disable. Bound it with CLAUDE_KIT_CAPTURE_MAX_LINES/_MAX_BYTES."
+)
 
 app = typer.Typer(
     add_completion=False,
@@ -80,6 +99,16 @@ def _print_report(ok: bool, messages: list[str]) -> None:
         raise typer.Exit(1)
 
 
+def _emit_report(ok: bool, messages: list[str], *, as_json: bool) -> None:
+    """Print a check report as text (default) or a structured JSON object; exit code unchanged."""
+    if as_json:
+        typer.echo(report.Report.from_lines(ok, messages).to_json())
+        if not ok:
+            raise typer.Exit(1)
+    else:
+        _print_report(ok, messages)
+
+
 def _resolve_plan(src: Path, *, config: Optional[str], defaults: bool) -> ResolvedPlan:
     """Resolve the user's selection (``--config`` / ``--defaults`` / interactive) into a plan."""
     try:
@@ -125,6 +154,36 @@ def _print_dry_run(src: Path, target: Path, plan: ResolvedPlan) -> None:
     typer.echo("\nDRY RUN — nothing was written.")
 
 
+def _dry_run_doc(src: Path, target: Path, plan: ResolvedPlan) -> dict:
+    """The same plan + would-write file list as :func:`_print_dry_run`, as a JSON-able dict."""
+    sel = plan.selection
+    _, paths = scaffold.preview_install(src, target, plan)
+    return {
+        "dry_run": True,
+        "target": str(target),
+        "profile": sel.profile,
+        "scope": sel.scope,
+        "stack": {
+            "frontend_framework": sel.frontend_framework,
+            "frontend_language": sel.frontend_language,
+            "backend_language": sel.backend_language,
+            "backend_framework": sel.backend_framework,
+            "database": sel.database,
+        },
+        "mcp": sorted(plan.mcp_servers),
+        "resolves": {
+            "agents": len(plan.agents),
+            "skills": len(plan.skills),
+            "overlay_rules": len(plan.overlay_rules),
+            "hooks": len(plan.hooks),
+            "gates": len(plan.gates),
+        },
+        "gates": list(plan.gates),
+        "would_write": [str(p) for p in paths],
+        "existing_claude": (target / ".claude").exists(),
+    }
+
+
 @app.command()
 def init(
     path: Optional[str] = typer.Argument(
@@ -146,9 +205,24 @@ def init(
         "--dry-run",
         help="preview the resolved plan and the files that would be written; write nothing",
     ),
+    json_out: bool = typer.Option(
+        False,
+        "--json",
+        help="with --dry-run, emit the resolved plan as JSON instead of text",
+    ),
+    detect_commands: Optional[bool] = typer.Option(
+        None,
+        "--detect-commands/--no-detect-commands",
+        help="inspect the target repo for its real package-manager commands and use them in "
+        "CLAUDE.md (default: on; a no-op on an empty target). --no-detect-commands pins the "
+        "generic catalog commands.",
+    ),
 ) -> None:
     """Scaffold a Claude Code SDLC configuration into a project."""
     non_interactive = defaults or config is not None
+    if json_out and not dry_run:
+        typer.echo("error: --json is only supported together with --dry-run", err=True)
+        raise typer.Exit(2)
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
 
@@ -163,7 +237,12 @@ def init(
         # existing-.claude handling and the install spine entirely.
         if dry_run:
             plan = _resolve_plan(src, config=config, defaults=defaults)
-            _print_dry_run(src, target, plan)
+            if detect_commands is not None:
+                plan.selection.detect_commands = detect_commands
+            if json_out:
+                typer.echo(json.dumps(_dry_run_doc(src, target, plan), indent=2))
+            else:
+                _print_dry_run(src, target, plan)
             return
 
         if not target.exists():
@@ -205,6 +284,8 @@ def init(
 
         # 3) Resolve the selection.
         plan = _resolve_plan(src, config=config, defaults=defaults)
+        if detect_commands is not None:
+            plan.selection.detect_commands = detect_commands
 
         # 4) Install. Merge mode reconciles non-destructively (preserving the user's own files);
         # fresh / overwrite / backup all go through the destructive install spine.
@@ -225,6 +306,14 @@ def init(
     typer.echo(
         "\nDone. Open the project in Claude Code and run `/sdlc <your task>` to start the pipeline."
     )
+    if plan.selection.capture_mode != "off":
+        typer.echo("\n" + CAPTURE_PRIVACY_NOTICE)
+    # The shell guard/notify hooks parse tool input with jq and no-op without it (see SECURITY.md).
+    if not shutil.which("jq"):
+        typer.echo(
+            "\nNote: `jq` is not on PATH — the shell hooks (guards + learning capture) will silently "
+            "no-op until you install it. The config, agents, skills, and CLI work regardless."
+        )
 
 
 @app.command()
@@ -235,9 +324,12 @@ def validate(
         "--strict",
         help="deep checks: hooks→installed scripts, .mcp.json shape, snapshot + catalog integrity",
     ),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON report instead of text"
+    ),
 ) -> None:
     """Structurally validate a scaffolded .claude/ configuration."""
-    _print_report(*validator.validate(path, strict=strict))
+    _emit_report(*validator.validate(path, strict=strict), as_json=json_out)
 
 
 @app.command()
@@ -248,17 +340,23 @@ def doctor(
         "--mcp",
         help="also check MCP servers: command on PATH, ${ENV} vars set, lockfile in sync",
     ),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON report instead of text"
+    ),
 ) -> None:
     """Run strict validation plus environment/health checks with fix hints."""
-    _print_report(*validator.doctor(path, mcp=mcp))
+    _emit_report(*validator.doctor(path, mcp=mcp), as_json=json_out)
 
 
 @app.command()
 def diff(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON report instead of text"
+    ),
 ) -> None:
     """Preview what an upgrade would change (no writes)."""
-    _print_report(*upgrader.diff(path))
+    _emit_report(*upgrader.diff(path), as_json=json_out)
 
 
 @app.command()
@@ -305,33 +403,62 @@ def list_options() -> None:
 @app.command()
 def status(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON summary instead of text"
+    ),
 ) -> None:
     """Show what's installed and the current working memory."""
     target = Path(path).expanduser().resolve()
     dest = target / ".claude"
+    installed = dest.is_dir()
+
+    # Collect the data once, then render as text (byte-identical to before) or JSON.
+    components: dict[str, Optional[int]] = {}
+    selection: Optional[dict] = None
+    continuity = dest / "CONTINUITY.md"
+    if installed:
+        for name in ("rules", "agents", "skills", "hooks"):
+            d = dest / name
+            components[name] = (
+                sum(1 for p in d.iterdir() if p.name != ".gitkeep")
+                if d.is_dir()
+                else None
+            )
+        options = dest / "config" / "init-options.json"
+        if options.is_file():
+            selection = json.loads(options.read_text(encoding="utf-8")).get(
+                "selection", {}
+            )
+
+    if json_out:
+        typer.echo(
+            json.dumps(
+                {
+                    "target": str(target),
+                    "installed": installed,
+                    "components": components,
+                    "selection": selection,
+                    "continuity": continuity.is_file(),
+                },
+                indent=2,
+            )
+        )
+        return
+
     typer.echo(f"claude-kit status for {target}")
-    if not dest.is_dir():
+    if not installed:
         typer.echo("  not installed — run `claude-kit init` here.")
         return
     for name in ("rules", "agents", "skills", "hooks"):
-        d = dest / name
-        if d.is_dir():
-            n = sum(1 for p in d.iterdir() if p.name != ".gitkeep")
-            typer.echo(f"  • {name}/: {n}")
-        else:
-            typer.echo(f"  • {name}/: (missing)")
-    options = dest / "config" / "init-options.json"
-    if options.is_file():
-        import json
-
-        data = json.loads(options.read_text(encoding="utf-8"))
-        sel = data.get("selection", {})
+        n = components[name]
+        typer.echo(f"  • {name}/: {n}" if n is not None else f"  • {name}/: (missing)")
+    if selection is not None:
+        sel = selection
         typer.echo(
             f"  • selection: {sel.get('frontend_framework')} + "
             f"{sel.get('backend_language')}/{sel.get('backend_framework')} + "
             f"{sel.get('database')} · profile={sel.get('profile')} · mcp={sel.get('mcp') or 'none'}"
         )
-    continuity = dest / "CONTINUITY.md"
     if continuity.is_file():
         typer.echo("\n  working memory (.claude/CONTINUITY.md):")
         for line in continuity.read_text(
@@ -348,7 +475,12 @@ def version() -> None:
     typer.echo(f"claude-kit {__version__}")
 
 
-@app.command("package-org-pack")
+@app.command(
+    "package-org-pack",
+    hidden=not _EXPERIMENTAL,
+    # \[ escapes the bracket so Rich renders a literal "[planned]" (not a markup tag).
+    help=r"\[planned] Package an org-pack into a reusable, versioned plugin-style directory.",
+)
 def package_org_pack(
     pack: str = typer.Argument(
         ..., help="org-pack id under .claude/org-packs/ (e.g. engineering-core)"
@@ -368,7 +500,11 @@ def package_org_pack(
     raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
-@app.command("install-org-pack")
+@app.command(
+    "install-org-pack",
+    hidden=not _EXPERIMENTAL,
+    help=r"\[planned] Install an approved org-pack into a repo or user-level Claude config.",
+)
 def install_org_pack(
     source: str = typer.Argument(
         ..., help="path or registry id of an approved org-pack"
@@ -388,7 +524,11 @@ def install_org_pack(
     raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
-@research_app.command("import-sources")
+@research_app.command(
+    "import-sources",
+    hidden=not _EXPERIMENTAL,
+    help=r"\[planned] Summarise explicit, license-cleared sources into original skill/agent proposals.",
+)
 def research_import_sources(
     sources: str = typer.Argument(
         ..., help="YAML file of explicit, license-cleared sources"
@@ -408,17 +548,23 @@ def research_import_sources(
 @pipeline_app.command("validate")
 def pipeline_validate(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON report instead of text"
+    ),
 ) -> None:
     """Check the pipeline snapshot's shape and gate/lane coherence (no writes)."""
-    _print_report(*pipeline.validate(path))
+    _emit_report(*pipeline.validate(path), as_json=json_out)
 
 
 @pipeline_app.command("status")
 def pipeline_status(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON report instead of text"
+    ),
 ) -> None:
     """Print a summary of the current pipeline run (stage, lanes, gate, findings, next)."""
-    _print_report(*pipeline.status(path))
+    _emit_report(*pipeline.status(path), as_json=json_out)
 
 
 @pipeline_app.command("close-gate")

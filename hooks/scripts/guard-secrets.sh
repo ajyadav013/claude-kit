@@ -2,9 +2,47 @@
 # PreToolUse(Bash): block git commits that would include secrets.
 # Pairs with the secret-scanner agent and the protect-secrets read-guard — this is the automatic,
 # every-commit guardrail. Degrades to a no-op when not a git commit or git/jq is unavailable.
+#
+# Hardened against the `git<space>commit` anchor: each ;|&-split segment is normalized first, dropping
+# a leading `git` plus any GLOBAL OPTIONS and their value tokens, so `git -c user.email=x commit` /
+# `git -C dir commit` can't slip a secret-bearing commit past the guard. Best-effort word-splitting.
+set -f
 command -v jq >/dev/null 2>&1 || exit 0
 CMD=$(jq -r '.tool_input.command // empty' 2>/dev/null || true)
-echo "$CMD" | grep -qE 'git[[:space:]]+commit' || exit 0
+
+# Normalize one ;|&-split segment: if it is a git invocation, echo "<subcommand> <args...>" with the
+# leading `git` and any global options (and their value tokens) stripped; echo nothing otherwise.
+_norm_git_segment() {
+  # shellcheck disable=SC2086  # intentional word-splitting of the segment into argv tokens
+  set -- $1
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      sudo | command | builtin) shift ;;
+      *=*) shift ;; # leading FOO=bar env assignment
+      *) break ;;
+    esac
+  done
+  case "${1:-}" in
+    git | git.exe | */git | */git.exe) shift ;;
+    *) return 0 ;;
+  esac
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -C | -c | --git-dir | --work-tree | --namespace | --super-prefix)
+        shift
+        [ "$#" -gt 0 ] && shift
+        ;;
+      --git-dir=* | --work-tree=* | --namespace=* | --super-prefix=*) shift ;;
+      --) shift; break ;;
+      -*) shift ;; # any other global flag → drop (conservative)
+      *) break ;;  # first non-option token = the subcommand
+    esac
+  done
+  [ "$#" -gt 0 ] && printf '%s\n' "$*"
+}
+
+NORM="$(printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r seg; do _norm_git_segment "$seg"; done)"
+printf '%s\n' "$NORM" | grep -qE '^commit([[:space:]]|$)' || exit 0
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 

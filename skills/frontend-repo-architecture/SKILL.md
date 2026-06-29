@@ -1,6 +1,6 @@
 ---
 name: frontend-repo-architecture
-description: Frontend repository structure patterns for React + Vite + TypeScript projects, covering three organizational models (module-scoped, feature-sliced, GraphQL-based), API layer strategies (axios+react-query, fetch+token-refresh, Apollo links), hand-written types convention, and state management (zustand + react-query/Apollo split). Derived from real-world production React services. Use when setting up a new React frontend, choosing a folder structure, designing the API layer, or architecting state management for a production SPA.
+description: Frontend repo structure for React + Vite + TypeScript — three organizational models, API layer patterns, hand-written types, state split. Use when setting up a React frontend or architecting state/API layers.
 ---
 
 # Purpose

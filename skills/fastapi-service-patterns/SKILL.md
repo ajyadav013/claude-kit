@@ -1,6 +1,6 @@
 ---
 name: fastapi-service-patterns
-description: Encodes production FastAPI conventions covering app factory, lifespan hooks, custom request routing, structured exception handling, dependency injection, middleware stack, and the ResponseData envelope pattern. Use when building a new FastAPI service, adding routes or middleware, implementing structured error handling, or configuring application startup and shutdown.
+description: Production FastAPI conventions — app factory, lifespan hooks, custom request routing, dependency injection, middleware, ResponseData envelope. Use when building a FastAPI service or adding routes/middleware.
 ---
 
 Standardize FastAPI application structure, routing, middleware, and dependency injection following production service patterns.

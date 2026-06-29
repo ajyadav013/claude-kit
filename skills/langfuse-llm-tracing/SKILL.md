@@ -1,6 +1,6 @@
 ---
 name: langfuse-llm-tracing
-description: Langfuse LLM observability for Python and TypeScript applications with lazy singleton initialization, environment-gated tracing (LANGFUSE_PUBLIC_KEY/SECRET_KEY/HOST), context manager for completion tracing with input/output/error recording, and graceful no-op when disabled. Use when adding LLM call tracing and observability to production services, tracking model performance and latency, debugging LLM failures with structured error capture, or implementing cost and usage analytics across Claude/OpenAI/other provider calls. Distinct from general observability-and-logging (structured logs/metrics/traces); cross-reference that for broader instrumentation patterns.
+description: Langfuse LLM observability for Python and TypeScript — lazy singleton init, env-gated tracing, no-op when disabled. Use for LLM call tracing and cost analytics. Distinct from general observability-and-logging.
 ---
 
 # Langfuse LLM Tracing

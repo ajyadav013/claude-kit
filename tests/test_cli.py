@@ -31,6 +31,32 @@ def test_init_defaults_end_to_end(tmp_path):
     assert runner.invoke(app, ["validate", str(target)]).exit_code == 0
 
 
+def test_init_detect_commands_flag(tmp_path):
+    """`init` discovers a populated repo's commands by default; --no-detect-commands opts out."""
+
+    def claude_md(target):
+        return (target / "CLAUDE.md").read_text(encoding="utf-8")
+
+    # Default: a uv.lock in the target → `uv sync` is wired into CLAUDE.md.
+    on = tmp_path / "on"
+    on.mkdir()
+    (on / "uv.lock").write_text("", encoding="utf-8")
+    assert runner.invoke(app, ["init", str(on), "--defaults"]).exit_code == 0
+    assert "uv sync" in claude_md(on)
+
+    # --no-detect-commands keeps the generic catalog command (no `uv sync`).
+    off = tmp_path / "off"
+    off.mkdir()
+    (off / "uv.lock").write_text("", encoding="utf-8")
+    assert (
+        runner.invoke(
+            app, ["init", str(off), "--defaults", "--no-detect-commands"]
+        ).exit_code
+        == 0
+    )
+    assert "uv sync" not in claude_md(off)
+
+
 def test_init_config_mongo_enterprise(tmp_path):
     cfg = tmp_path / "init.yaml"
     cfg.write_text(
@@ -196,6 +222,39 @@ def test_org_pack_stub_commands_are_planned(tmp_path):
     res = runner.invoke(app, ["research", "import-sources", "sources.yaml"])
     assert res.exit_code == 2, res.stdout
     assert "planned" in res.stdout.lower()
+
+
+def test_planned_commands_hidden_from_help_by_default():
+    """Planned commands are hidden from --help so they can't be mistaken for features."""
+    top = runner.invoke(app, ["--help"]).output
+    assert "package-org-pack" not in top
+    assert "install-org-pack" not in top
+    sub = runner.invoke(app, ["research", "--help"]).output
+    assert "import-sources" not in sub
+
+
+def test_planned_commands_visible_and_marked_with_experimental(monkeypatch):
+    """With CLAUDE_KIT_EXPERIMENTAL=1 the planned commands surface in --help, marked [planned]."""
+    import importlib
+
+    from claude_kit import cli as cli_mod
+
+    monkeypatch.setenv("CLAUDE_KIT_EXPERIMENTAL", "1")
+    try:
+        importlib.reload(cli_mod)
+        r = CliRunner()
+        top = r.invoke(cli_mod.app, ["--help"]).output
+        assert "package-org-pack" in top
+        assert "install-org-pack" in top
+        sub = r.invoke(cli_mod.app, ["research", "--help"]).output
+        assert "import-sources" in sub
+        # the "[planned]" marker lives in each command's own --help (the main
+        # listing truncates the help column, so assert it on the detail screen)
+        detail = r.invoke(cli_mod.app, ["package-org-pack", "--help"]).output
+        assert "[planned]" in detail
+    finally:
+        monkeypatch.delenv("CLAUDE_KIT_EXPERIMENTAL", raising=False)
+        importlib.reload(cli_mod)  # restore default (hidden) state for later tests
 
 
 def test_payload_dir_resolves_from_checkout():

@@ -1,6 +1,6 @@
 ---
 name: notifications-and-messaging
-description: Multi-provider notification delivery patterns for email and SMS, covering provider abstraction layers, auto-discovery, ENV-driven selection, fallback chains, template-driven messages (OTP, verification, calendar invites), dev-mode logging, and E.164 phone formatting. Use when building notification systems, integrating SendGrid/Nodemailer/Twilio or similar, implementing OTP delivery, sending calendar invites via email, or creating provider-agnostic messaging layers.
+description: Multi-provider notification delivery for email and SMS — provider abstraction, fallback chains, template-driven messages (OTP, verification, calendar invites). Use when building notification systems.
 ---
 
 Standardize multi-provider notification delivery across email (SendGrid, Nodemailer, AWS SES) and SMS (Twilio, provider-specific APIs) with provider abstraction, template-driven messages, and graceful degradation.

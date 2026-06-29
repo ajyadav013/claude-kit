@@ -1,6 +1,6 @@
 ---
 name: simplification-debt
-description: Harvests deliberately-deferred shortcuts from the codebase into one debt ledger, so "later" does not quietly become "never". Greps for TODO/FIXME/HACK markers and inline upgrade-path notes, groups them by file, and flags any shortcut that names no upgrade trigger as a silent-rot risk. Use when the user says "what did we defer", "list the shortcuts", "tech-debt ledger", "what's marked to do later", or "simplification debt". Reports only — changes nothing unless asked to persist the ledger.
+description: Harvests deferred shortcuts (TODO/FIXME/HACK and inline upgrade-path notes) into one debt ledger, flagging any with no upgrade trigger as silent-rot risk. Use for 'what did we defer' or 'tech-debt'.
 ---
 
 # Simplification Debt

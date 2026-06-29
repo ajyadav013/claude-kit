@@ -1,6 +1,6 @@
 ---
 name: remember
-description: Capture a durable learning so future sessions reuse it automatically. Use whenever the user corrects Claude, states a preference or rule (UX, code style, architecture, API behavior), shares a hard-won debugging insight, or explicitly says "remember this" / "note this for next time" / "don't make this mistake again". Writes a structured entry into .claude/agent-memory/ and updates the index. Pairs with the SessionStart hook that loads these learnings back into context each session.
+description: Capture a durable learning so future sessions reuse it automatically. Use when the user corrects Claude, states a preference or rule, shares a debugging insight, or says 'remember this'. Writes to agent-memory.
 ---
 
 # Remember — Durable Learning Capture

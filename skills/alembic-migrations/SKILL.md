@@ -1,6 +1,6 @@
 ---
 name: alembic-migrations
-description: Alembic migration setup and patterns for async SQLAlchemy — async engine + run_sync in env.py, target_metadata from Base, revision file naming (sequential/timestamp-hash/auto-hash), autogenerate workflow, include_object filtering, compare_type for column changes, and RLS/multi-tenant migration patterns. Use when setting up Alembic (alembic init), writing database migrations (create table, alter column, add index, foreign keys), configuring async PostgreSQL migrations (asyncpg, postgresql+asyncpg), implementing schema changes for multi-tenant applications (RLS policies, tenant_id isolation), debugging migration errors (can't locate revision, multiple heads, down_revision chains, asyncpg errors), or converting sync migrations to async (async_engine_from_config).
+description: Alembic migration setup and patterns for async SQLAlchemy — async engine + run_sync in env.py, autogenerate, RLS/multi-tenant migrations. Use for alembic init, writing migrations, or debugging migration errors.
 ---
 
 # Alembic Migrations

@@ -1,6 +1,6 @@
 ---
 name: file-export-and-reporting
-description: Production patterns for Excel/CSV file generation and download endpoints in FastAPI services. Covers pandas to_excel with openpyxl/xlsxwriter for multi-sheet workbooks and column formatting, CSV streaming via StreamingResponse and generators, BytesIO/StringIO buffering, Content-Disposition headers, base64 encoding for JSON responses, presigned GCS download URLs, and UploadFile handling for reading uploaded spreadsheets. Use when building report export endpoints, file download APIs, handling spreadsheet uploads, or generating formatted Excel reports with multiple sheets and auto-sized columns.
+description: Excel/CSV generation and download endpoints in FastAPI — pandas to_excel, multi-sheet workbooks, CSV streaming, presigned GCS URLs, UploadFile parsing. Use when building report exports or file downloads.
 ---
 
 Production patterns for generating and serving Excel and CSV file downloads from FastAPI endpoints, plus reading uploaded spreadsheets.

@@ -1,6 +1,6 @@
 ---
 name: safety-critical-patterns
-description: High-reliability coding lens adapted from NASA's Power of 10 — bounded loops & recursion, assertion density at boundaries/invariants, minimal variable scope, check every return value, restrained metaprogramming, strictest warnings — applied with rigor MATCHED TO CONSEQUENCE (full for money movement, medical, data-integrity, auth, irreversible actions; selective for core business logic; light for scripts/prototypes). Use when writing or reviewing code whose failure is expensive. Do NOT use as a general style/quality pass (use code-review-and-quality) or to scan for complexity to delete (use over-engineering-review) — this is the reliability lens, gated by consequence so it never over-applies to ordinary CRUD.
+description: High-reliability coding lens from NASA's Power of 10 — bounded loops, assertions, check every return value — rigor matched to consequence. Do NOT use as a general style pass (use code-review-and-quality).
 ---
 
 # Safety-Critical Coding Patterns

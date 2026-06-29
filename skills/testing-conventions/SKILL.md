@@ -1,6 +1,6 @@
 ---
 name: testing-conventions
-description: Testing conventions from production Python/FastAPI and React services — pytest + pytest-asyncio, conftest.py fixtures (session event loop, async session, authenticated client, dependency overrides, cleanup), AsyncMock for Kafka/Temporal/HTTP, factory.Factory + factory.Faker patterns, Vitest + jsdom for frontend, security-regression tests (negative authz, cross-tenant/RLS isolation, IDOR, login lockout, signed-header trust), and honest coverage gaps. Use when writing or reviewing tests, setting up pytest infrastructure, implementing async test fixtures, mocking external dependencies, writing security-regression tests for access control and tenant isolation, establishing testing baselines for services with thin coverage, configuring Vitest for React/TypeScript, or auditing test quality. Do NOT use to drive the red-green-refactor loop itself (use test-driven-development) or to critique a test plan before tests are written (use test-plan-review).
+description: Testing conventions for Python/FastAPI and React — pytest, async fixtures, AsyncMock, Vitest, and security-regression tests (authz, tenant isolation). Do NOT use for the TDD loop (use test-driven-development).
 ---
 
 # Testing Conventions

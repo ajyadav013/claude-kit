@@ -34,6 +34,7 @@ _CONFIG_KEYS = {
     "review_strictness",
     "org",
     "org_packs",
+    "detect_commands",
     "frontend_framework",
     "frontend_language",
     "backend_language",
@@ -281,4 +282,8 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     if packs is None:
         packs = org.get("packs")
     flat["org_packs"] = True if packs is None else bool(packs)
+    # detect_commands: accept an explicit bool, else default True (inspect the target repo for its
+    # real package-manager commands). Set False in config to pin the generic catalog commands.
+    detect = data.get("detect_commands")
+    flat["detect_commands"] = True if detect is None else bool(detect)
     return Selection.from_dict(flat, strict=True)

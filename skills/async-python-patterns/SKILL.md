@@ -1,6 +1,6 @@
 ---
 name: async-python-patterns
-description: Async programming patterns derived from production Python/FastAPI codebases. Covers async handlers and sessions (FastAPI lifespan, AsyncSession over asyncpg), asyncio.gather for concurrency, sync/async boundary bridges (to_thread, run_coroutine_threadsafe), the sync-cloud-client trap (BigQuery/GCS blocking the event loop), graceful shutdown with signal handlers, and async HTTP clients. Use when implementing async endpoints, Temporal workers, Kafka consumers, database access patterns, diagnosing event loop blocking or performance issues, optimizing concurrent I/O operations, or multi-service orchestration requiring concurrent tasks.
+description: Async Python for high-performance services. Use when implementing FastAPI/Temporal/Kafka async handlers, AsyncSession database access, asyncio.gather concurrency, or diagnosing event loop blocking.
 ---
 
 Async programming patterns for high-performance Python services.

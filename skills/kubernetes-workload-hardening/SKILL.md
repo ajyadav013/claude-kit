@@ -1,6 +1,6 @@
 ---
 name: kubernetes-workload-hardening
-description: Runtime and manifest-layer Kubernetes security — pod/container securityContext (runAsNonRoot, non-zero UID, allowPrivilegeEscalation=false, drop ALL capabilities, readOnlyRootFilesystem, seccomp RuntimeDefault), default-deny NetworkPolicy with explicit allows, digest-pinned images, resource requests/limits, restricted PodSecurity admission, least-privilege ServiceAccount/RBAC, and secrets via secretRef not baked in. Use when writing or reviewing Kubernetes Deployment/StatefulSet/DaemonSet manifests or Helm charts, adding securityContext, locking down pod networking, pinning images, or enforcing PodSecurity standards. This is the runtime layer — image-build hardening lives in the Dockerfile skills. Do NOT use to harden application code against injection/authn/data-handling vulnerabilities (use security-and-hardening) or to threat-model a feature before building (use threat-model).
+description: Runtime/manifest-layer Kubernetes security — securityContext, NetworkPolicy, digest-pinned images, PodSecurity. Use for Deployment/Helm manifests. Do NOT use for app-code vulns (use security-and-hardening).
 ---
 
 # Kubernetes Workload Hardening

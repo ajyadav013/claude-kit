@@ -1,14 +1,6 @@
 ---
 name: otel-tracing
-description: >-
-  Vendor-neutral distributed tracing with OpenTelemetry exported to Grafana Tempo. Covers the
-  OTel trace data model, the OTLP/Collector/Tempo pipeline, the standard env-var contract,
-  context propagation, sampling, TraceQL, service graphs, trace-to-logs/metrics correlation.
-  Do NOT use for app-side observability setup (structured logging, PII redaction, error tracking,
-  RED metrics, liveness/readiness, framework auto-instrumentation wiring) — that is
-  'observability-and-logging'. Do NOT use for LLM call tracing (prompts, tokens, cost) — that is
-  'langfuse-llm-tracing'. The neutral policy lives in .claude/rules/devops-observability.md; the
-  role is the observability-engineer agent.
+description: Vendor-neutral distributed tracing with OpenTelemetry exported to Grafana Tempo (OTel model, Collector pipeline, sampling, TraceQL). Do NOT use for app-side observability setup or LLM call tracing.
 ---
 
 # Distributed Tracing with OpenTelemetry and Grafana Tempo

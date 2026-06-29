@@ -1,6 +1,6 @@
 ---
 name: bug-hunt
-description: Proactively hunt for latent defects across a whole feature or module by reading its source and tracing data flow — no failing test, error, or bug report required. Use to discover bugs before they ship (edge cases, unhandled error paths, state/concurrency hazards, rendering glitches, authorization/scoping gaps), as distinct from debugging a known failure (debugging-and-error-recovery) or reviewing a specific diff (code-review-and-quality).
+description: Proactively hunt latent defects across a feature/module by reading source and tracing data flow. Use to find bugs before they ship. Distinct from debugging a known failure or reviewing a diff.
 ---
 
 # Bug Hunt

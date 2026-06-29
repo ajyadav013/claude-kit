@@ -1,6 +1,6 @@
 ---
 name: kubectl-operations
-description: Operating Kubernetes workloads with kubectl — the full command surface (get/describe/explain, apply/create/edit/patch, logs/exec/port-forward/cp/debug/events/top, rollout/scale/autoscale, config/contexts/namespaces, auth can-i, jobs & cronjobs, node cordon/drain) plus output formatting (-o jsonpath/custom-columns/go-template), label/field selectors, dry-run + diff, and day-2 debugging playbooks (CrashLoopBackOff, ImagePullBackOff, Pending, OOMKilled, a cron that didn't fire, a Service with no endpoints). Context/namespace safety first. Use when running kubectl against a cluster, inspecting or changing a Deployment/Job/CronJob/StatefulSet/pod, tailing logs, exec-ing into a container, port-forwarding, rolling out or rolling back, checking RBAC, formatting kubectl output, or debugging why a workload is unhealthy.
+description: Kubernetes kubectl command surface — get/describe, apply/edit/patch, logs/exec/port-forward, rollout/scale, jobs & cronjobs, output formatting, and day-2 debugging playbooks. Context/namespace safety first.
 ---
 
 # kubectl Operations

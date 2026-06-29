@@ -1,6 +1,6 @@
 ---
 name: test-plan-review
-description: Review a proposed test plan or test-infrastructure design BEFORE the tests are written. Use when someone has drafted a testing strategy, fixture/factory approach, or coverage plan and you need to find weaknesses early — weak data generation, shallow validation, test-infra failure modes, missing layers — as distinct from verifying already-written tests on a running app (senior-tester) or writing tests yourself (test-driven-development).
+description: Review a proposed test plan or test-infra design BEFORE tests are written, to find weaknesses early — weak data generation, shallow validation, missing layers. Distinct from verifying or writing tests.
 ---
 
 # Test Plan Review

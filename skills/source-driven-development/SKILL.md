@@ -1,6 +1,6 @@
 ---
 name: source-driven-development
-description: Grounds every implementation decision in official documentation. Use when you want authoritative, source-cited code free from outdated patterns. Use when building with any framework or library where correctness matters. Do NOT use to drive the red-green-refactor implementation loop itself (use test-driven-development) or to author requirements before any code exists (use spec-driven-development).
+description: Grounds implementation decisions in official docs — fetches current docs, verifies against detected versions, cites sources. Do NOT use to drive the red-green-refactor loop (use test-driven-development).
 ---
 
 # Source-Driven Development

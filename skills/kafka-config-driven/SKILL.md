@@ -1,6 +1,6 @@
 ---
 name: kafka-config-driven
-description: Config-driven Kafka consumer/producer implementation patterns from production Python/FastAPI services. Covers consumer config maps with topic-to-handler routing, producer config with idempotence guarantees, eventbridge wrapper library (AsyncEventEmitter), and SASL_SSL+GSSAPI Kerberos authentication. Use when implementing Kafka consumers with batch or per-message processing, setting up Kafka producers with exactly-once semantics, organizing Kafka code under services/kafka/ directory structure, configuring SASL_SSL Kerberos authentication with keytabs and certificates, or integrating with an eventbridge library for Kafka abstraction.
+description: Config-driven Kafka consumer/producer patterns from production Python services. Use when implementing consumers with topic-to-handler routing, producers with idempotence, or SASL_SSL+GSSAPI Kerberos auth.
 ---
 
 # kafka-config-driven

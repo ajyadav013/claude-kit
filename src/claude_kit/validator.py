@@ -22,7 +22,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from typing import Callable
 
-from claude_kit.models import InitOptions
+from claude_kit.models import UPGRADE_JOURNAL, InitOptions, UpgradeJournal
 
 #: Claude Code hook event names. A settings.json hooks block keyed on anything else is suspect —
 #: a typo'd event silently never fires — so strict validation flags unknown events.
@@ -262,6 +262,38 @@ def _strict_checks(
     if snap.is_file():
         _strict_snapshot(claude, snap, fail, good)
 
+    lock = claude.parent / ".mcp.lock.json"
+    if lock.is_file():
+        _strict_schema_artifact(lock, "mcp-lock", fail, good)
+
+    psnap = claude / "state" / "pipeline-snapshot.json"
+    if psnap.is_file():
+        _strict_schema_artifact(psnap, "pipeline-snapshot", fail, good)
+
+
+def _strict_schema_artifact(
+    path: Path,
+    schema_name: str,
+    fail: Callable[[str], None],
+    good: Callable[[str], None],
+) -> None:
+    """Validate a persisted JSON artifact against its JSON Schema (no-op without ``jsonschema``)."""
+    from claude_kit import schemas
+
+    if not schemas.available():
+        return  # optional layer; referential checks already ran
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        fail(f"{path.name} is invalid JSON: {exc}")
+        return
+    with ExitStack() as stack:
+        errs = schemas.validate_doc(doc, schema_name, stack)
+    if errs:
+        fail(f"{path.name} fails its JSON Schema: " + "; ".join(errs[:6]))
+    else:
+        good(f"{path.name} matches the {schema_name} schema")
+
 
 def _strict_settings_hooks(
     claude: Path,
@@ -461,7 +493,66 @@ def check_catalog(payload_root: str | Path | None = None) -> tuple[bool, list[st
         if org_path.is_file():
             _check_org_catalog(payload_root, catalog, agent_set, cfail, cgood)
 
+        _check_catalog_schemas(payload_root, catalog, stack, cfail, cgood, msgs)
+
     return ok, msgs
+
+
+def _check_catalog_schemas(
+    payload_root: Path,
+    catalog,  # noqa: ANN001 - the module, imported lazily by the caller
+    stack: ExitStack,
+    cfail: Callable[[str], None],
+    cgood: Callable[[str], None],
+    msgs: list[str],
+) -> None:
+    """Structurally validate catalog files + org pack manifests against their JSON Schemas.
+
+    Optional: a no-op (one advisory line) when ``jsonschema`` is not installed.
+    """
+    from claude_kit import schemas
+
+    if not schemas.available():
+        msgs.append(
+            "OK    catalog: jsonschema not installed — skipped JSON Schema checks "
+            "(pip install claude-kit[schema])"
+        )
+        return
+
+    cat_dir = catalog.catalog_dir(payload_root)
+    file_schemas = [
+        ("stacks", "stacks.yaml"),
+        ("profiles", "profiles.yaml"),
+        ("mcp", "mcp.yaml"),
+        ("capture", "capture.yaml"),
+    ]
+    if (cat_dir / "org.yaml").is_file():
+        file_schemas.append(("org", "org.yaml"))
+    for sname, fn in file_schemas:
+        if not (cat_dir / fn).is_file():
+            continue
+        errs = schemas.validate_doc(catalog._load(payload_root, fn), sname, stack)
+        if errs:
+            cfail(f"{fn} fails its JSON Schema: " + "; ".join(errs[:6]))
+        else:
+            cgood(f"{fn} matches its JSON Schema")
+
+    import yaml
+
+    packs_dir = payload_root / "templates" / "org" / "packs"
+    pack_files = sorted(packs_dir.glob("*/pack.yaml")) if packs_dir.is_dir() else []
+    pack_bad = False
+    for pf in pack_files:
+        doc = yaml.safe_load(pf.read_text(encoding="utf-8"))
+        errs = schemas.validate_doc(doc, "org-pack", stack)
+        if errs:
+            cfail(
+                f"{pf.parent.name}/pack.yaml fails its JSON Schema: "
+                + "; ".join(errs[:6])
+            )
+            pack_bad = True
+    if pack_files and not pack_bad:
+        cgood(f"{len(pack_files)} org pack manifest(s) match the org-pack schema")
 
 
 def _check_org_catalog(
@@ -568,6 +659,32 @@ def doctor(target: str | Path, *, mcp: bool = False) -> tuple[bool, list[str]]:
             msgs.append(
                 f"WARN  {entry} not gitignored (runtime artifacts may be committed)"
             )
+
+    settings = claude / "settings.json"
+    if settings.is_file() and "capture-learnings" in settings.read_text(
+        encoding="utf-8"
+    ):
+        msgs.append(
+            "WARN  learning capture is enabled — a background job reads your session transcript and "
+            "writes durable notes to .claude/agent-memory/ (committed). Secret files are skipped and "
+            "secret-shaped values redacted; still review new entries before committing. Disable with "
+            "CLAUDE_KIT_NO_AUTOCAPTURE=1; bound with CLAUDE_KIT_CAPTURE_MAX_LINES/_MAX_BYTES."
+        )
+
+    journal = claude / "config" / UPGRADE_JOURNAL
+    if journal.is_file():
+        detail = ""
+        try:
+            j = UpgradeJournal.from_dict(
+                json.loads(journal.read_text(encoding="utf-8"))
+            )
+            detail = f" ({j.from_version} -> {j.to_version}, started {j.started_at})"
+        except (ValueError, OSError):
+            detail = ""
+        msgs.append(
+            f"WARN  interrupted upgrade detected{detail} — re-run `claude-kit upgrade` to finish "
+            f"(upgrade is convergent; this clears the journal)"
+        )
 
     if mcp:
         _mcp_health(target, msgs)

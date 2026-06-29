@@ -1,6 +1,6 @@
 ---
 name: incident-postmortem
-description: Write a blameless postmortem after a production incident. Use when an incident is resolved and needs a root-cause writeup, when conducting an RCA, or when the user says "postmortem", "RCA", "writeup the incident", or "what went wrong". Produces a timeline, 5-whys root cause, contributing factors, and tracked action items.
+description: Write a blameless postmortem after a production incident is resolved. Use for an RCA, or when the user says postmortem/RCA/writeup. Produces timeline, 5-whys root cause, and tracked action items.
 ---
 
 # Incident Postmortem (blameless)

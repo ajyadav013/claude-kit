@@ -1,6 +1,6 @@
 ---
 name: auth-and-rbac
-description: FastAPI authentication and authorization patterns — session-based and JWT auth chains (Depends(require_auth), require_sys_admin, require_org_admin_or_above), password hashing with argon2id, TOTP/Email OTP with pyotp, role-based access control, x-user-data header forwarding from API gateways, and hierarchical org access checks. Use when building FastAPI auth dependencies, implementing MFA, designing role hierarchies, or integrating with an API gateway that forwards user identity as JSON headers.
+description: FastAPI auth patterns — session/JWT chains, argon2id hashing, pyotp TOTP/Email OTP, role-based access control, x-user-data gateway forwarding. Use when building auth dependencies, MFA, or role hierarchies.
 ---
 
 # Auth and RBAC

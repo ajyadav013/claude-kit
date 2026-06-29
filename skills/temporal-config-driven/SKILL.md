@@ -1,6 +1,6 @@
 ---
 name: temporal-config-driven
-description: Encodes Temporal workflow orchestration patterns derived from production Python/FastAPI services—config-driven worker maps, workflow/activity definitions, retry policies, idempotency via activity_id, cron-based schedules, and DAG-based config-as-data orchestration. Use when implementing or debugging this kit's config-driven Temporal architecture (WORKER_MODE_CONFIG_MAP, _execute_dag/NODE_TYPE_MAP, schedule registration), worker bootstrap with graceful shutdown, or DAG-based config-as-data orchestration systems. Do NOT use for Temporal fundamentals (determinism/history replay, safe versioning of running workflows, testing, signals/queries/updates) or non-Python SDKs—use temporal-developer for those.
+description: Temporal config-driven orchestration for Python/FastAPI — worker maps (WORKER_MODE_CONFIG_MAP), retry/idempotency, cron schedules, DAG config-as-data. Do NOT use for fundamentals (use temporal-developer).
 ---
 
 # temporal-config-driven

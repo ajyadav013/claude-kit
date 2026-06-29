@@ -1,6 +1,6 @@
 ---
 name: modernization-and-migration
-description: Migration patterns from legacy (Pydantic v1 + SQLAlchemy 1.4) to modern (Pydantic v2 + SQLAlchemy 2.0 Mapped) stack, plus shared-library extraction for duplicated core infrastructure. Use when modernizing legacy Python backends, planning Pydantic v1→v2 or SQLAlchemy 1.4→2.0 upgrades, migrating @validator to @field_validator, replacing declarative_base with DeclarativeBase, converting Column to Mapped/mapped_column, extracting shared internal libraries from copy-pasted infrastructure code (BaseDao/ConnectionHandler/routing), eliminating duplicated core/ directories across microservices, or establishing a golden reference service template.
+description: Migrate legacy Pydantic v1 + SQLAlchemy 1.4 to modern v2 + 2.0 Mapped, plus shared-library extraction. Use when modernizing Python backends, planning upgrades, or extracting duplicated core/ dirs.
 ---
 
 # Modernization and Migration

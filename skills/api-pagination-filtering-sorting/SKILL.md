@@ -1,6 +1,6 @@
 ---
 name: api-pagination-filtering-sorting
-description: HTTP query parameter conventions for pagination (page/page_size vs limit/offset), multi-value filtering (comma-separated lists, hierarchical filters), sorting (sort_by/order_by/direction), and multi-field search with standardized response metadata (total_records, total_pages, has_next). Use when designing list endpoints, implementing pagination and filtering, or building repository layers that translate query params to SQL.
+description: HTTP query parameter conventions for pagination, filtering, sorting, and search with standardized response metadata. Use when designing list endpoints or building repositories that turn query params into SQL.
 ---
 
 Standardize HTTP query parameter conventions and response metadata for paginated, filtered, and sorted list endpoints.

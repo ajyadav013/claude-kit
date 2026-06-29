@@ -484,8 +484,8 @@ hardening in `.claude/skills/security-and-hardening`.
   logic, not on getting past the parser.
 - **Make it continuous, as a CI gate.** Run a short, code-change-scoped fuzz pass on each PR (catches
   regressions cheaply — a few minutes), and a longer batch run on a schedule to build the corpus and
-  reach deeper bugs. Every crash becomes a regression test. (Wire the PR pass into
-  `.claude/rules/ci-cd-and-automation.md` alongside lint/test.)
+  reach deeper bugs. Every crash becomes a regression test. (Wire the PR pass into CI with the
+  `.claude/skills/ci-cd-and-automation/SKILL.md` skill alongside lint/test.)
 
 > Stack-agnostic adaptation of coverage-guided fuzzing and **continuous fuzzing as a CI gate**
 > (PR-scoped code-change runs + scheduled batch + corpus/crash management) from the Apache-2.0

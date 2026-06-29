@@ -1,6 +1,6 @@
 ---
 name: docker-shared
-description: Shared Docker building blocks — base images with pre-installed dependencies published to private registries, .dockerignore conventions, and compose fragment reuse (YAML anchors, x- extension fields, external networks/volumes). Use when creating a base image to share heavy system dependencies across multiple services, setting up .dockerignore to exclude secrets/tests/build artifacts, or sharing compose configuration fragments across service stacks.
+description: Shared Docker building blocks — base images for private registries, .dockerignore conventions, compose fragment reuse with YAML anchors. Use when creating base images shared across multiple services.
 ---
 
 # Shared Docker Building Blocks

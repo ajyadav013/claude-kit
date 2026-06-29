@@ -1,0 +1,64 @@
+name: MCP pin freshness
+
+# Advisory, scheduled check: are the exact MCP pins in catalog/mcp.yaml behind the npm/PyPI latest?
+# This does NOT gate merges (the offline pin check in CI does). It probes the registries monthly and
+# opens/updates a single tracking issue when a pin has fallen behind, so bumps stay deliberate.
+
+on:
+  schedule:
+    - cron: "7 9 1 * *" # 09:07 UTC on the 1st of each month
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Probe npm/PyPI for newer MCP versions
+        run: |
+          python -m pip install --upgrade pip pyyaml
+          python scripts/check_mcp_pins.py --check-latest | tee mcp-freshness.txt
+          cat mcp-freshness.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Open or update a tracking issue when pins are stale
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '';
+            try { report = fs.readFileSync('mcp-freshness.txt', 'utf8'); } catch (e) { return; }
+            if (!report.includes('pins behind the registry latest')) {
+              core.info('All MCP pins are current — no issue needed.');
+              return;
+            }
+            const title = 'MCP pins behind upstream (monthly freshness check)';
+            const body = [
+              'The monthly MCP freshness check found pins behind the npm/PyPI latest.',
+              'Bump deliberately (review each changelog) and re-pin in `catalog/mcp.yaml`.',
+              '',
+              '```',
+              report.trim(),
+              '```',
+            ].join('\n');
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'mcp-freshness',
+            });
+            if (existing.data.length) {
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: existing.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['mcp-freshness'],
+              });
+            }

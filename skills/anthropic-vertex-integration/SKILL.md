@@ -1,6 +1,6 @@
 ---
 name: anthropic-vertex-integration
-description: Encodes production patterns for calling Claude on Vertex AI via the AnthropicVertex SDK, including lazy client initialization with Application Default Credentials, project-ID and region resolution from env-var fallback chains, async generate helpers with exponential-backoff retry, system-prompt composition, JSON extraction, and optional Langfuse tracing. Use when integrating Claude via Vertex AI (not the direct Anthropic API), building async LLM helpers for one-shot completions or JSON extraction, or adding observability via Langfuse to Claude calls.
+description: Claude on Vertex AI via the AnthropicVertex SDK — lazy ADC client init, env-based project/region resolution, async helpers, backoff retry. Use when calling Claude via GCP Vertex AI (not direct Anthropic API).
 ---
 
 Integrate Claude on Vertex AI using the AnthropicVertex SDK with lazy authentication, resilient helpers, and optional tracing.

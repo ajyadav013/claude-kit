@@ -1,6 +1,6 @@
 ---
 name: gcs-file-storage-patterns
-description: Encodes production patterns for Google Cloud Storage blob operations including client initialization with credential refresh, single and bulk uploads via transfer_manager, signed URL generation with impersonated credentials, tabular file readers (CSV/Excel), gs:// URI parsing, and CDN path builders. Use when implementing file upload/download endpoints, generating time-limited access URLs, reading data files from GCS buckets, or building a file storage layer for a service. Distinct from data-engineering-bigquery-gcs (batch ETL) and file-export-and-reporting (HTTP downloads).
+description: Google Cloud Storage patterns — credential refresh, single/bulk uploads, signed URLs, CSV/Excel reads, gs URI parsing. Use when implementing file upload/download endpoints. Distinct from batch ETL.
 ---
 
 Standardize Google Cloud Storage file operations following production service patterns for uploads, downloads, signed URLs, and tabular data reads.

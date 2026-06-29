@@ -1,6 +1,6 @@
 ---
 name: radix-tailwind-component-patterns
-description: Design-system components built from Radix UI headless primitives with custom Tailwind styling (manual integration, not shadcn CLI). Covers variant-driven component APIs, the cn() helper (twMerge + clsx), Tailwind v4 @theme design tokens, asChild/Slot polymorphism, data-state animations, and prefers-reduced-motion. Use when building a custom design system from Radix primitives, implementing variant-based components without shadcn, or migrating to Tailwind v4 @theme tokens.
+description: Design-system components from Radix UI primitives with custom Tailwind styling (manual, not shadcn). Covers variant APIs, the cn() helper, Tailwind v4 @theme tokens, and asChild/Slot polymorphism.
 ---
 
 Standardize design-system component patterns using Radix UI headless primitives with custom Tailwind styling, variant-driven APIs, and Tailwind v4 @theme design tokens.

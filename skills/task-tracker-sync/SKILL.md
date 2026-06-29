@@ -1,6 +1,6 @@
 ---
 name: task-tracker-sync
-description: Mirrors an existing task or story breakdown into the project's issue tracker as issues, preserving dependencies. Use after planning/story breakdown when the user wants the plan pushed to GitHub / Linear / Jira (e.g. "create issues for these tasks", "sync the plan to the tracker"). Does not create the breakdown — it syncs one that already exists.
+description: Mirror an existing task or story breakdown into the project's issue tracker (GitHub/Linear/Jira), preserving dependencies. Use after planning to push the plan to the tracker. Does not create the breakdown.
 ---
 
 # Task Tracker Sync

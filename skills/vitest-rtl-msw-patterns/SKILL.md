@@ -1,6 +1,6 @@
 ---
 name: vitest-rtl-msw-patterns
-description: Encodes production frontend testing conventions with Vitest, React Testing Library, and MSW v2, including contract testing where frontend Zod schemas mirror backend Pydantic models validated against generated fixtures (full/minimal/meta). Use when setting up frontend test infrastructure, writing component tests with user interactions, mocking API requests, or ensuring frontend-backend schema compatibility through contract tests.
+description: Frontend testing with Vitest, React Testing Library, MSW v2, plus contract tests where Zod schemas mirror backend Pydantic models. Use for test infra setup, component tests, or mocking API requests.
 ---
 
 Standardize frontend testing with Vitest runner, React Testing Library, MSW v2 request mocking, and Zod-Pydantic contract testing.

@@ -1,6 +1,6 @@
 ---
 name: node-express-service
-description: Encodes production Express.js service patterns covering app factory, multi-mode server dispatch (platform/panel/internal/admin), convict hierarchical config, module-alias path mapping, swagger-jsdoc API docs, custom error-handling middleware with statusCode convention, Sentry/New Relic wiring, and the custom middleware suite (ingress header parser, request logger with nanoid IDs, connect-redis sessions, connect-timeout, basic-auth, passport). Use when building a Node.js backend service, structuring Express apps for multi-tenancy or role-based routing, implementing session management with Redis, setting up API documentation with Swagger, or migrating from a monolithic Express server to a mode-dispatched architecture.
+description: Production Express.js service patterns — app factory, multi-mode server dispatch (platform/panel/internal/admin), convict config, swagger-jsdoc, error middleware. Use when building a Node.js backend service.
 ---
 
 Standardize Express.js service architecture, mode-based server dispatch, hierarchical configuration, middleware composition, and error handling following production patterns.

@@ -1,17 +1,6 @@
 ---
 name: grafana-dashboards-and-alerts
-description: >
-  Build, organize, and maintain production-quality Grafana dashboards and unified alerting rules.
-  Covers dashboard JSON structure, template variables ($datasource, cascading label_values),
-  RED metrics PromQL (NGINX ingress, OTel span-metrics, pod utilization), Grafana unified alerting
-  (multi-stage rules, label-based routing, contact points), dashboard/alert provisioning as code,
-  Tempo service graphs and span-metrics, and anti-patterns (hardcoded datasource UIDs, editing
-  provisioned dashboards in the UI). Grounded in conventions from a production multi-cluster
-  observability stack. Use when building or editing Grafana dashboards, writing dashboard JSON or
-  PromQL queries, creating RED (Rate/Error/Duration) dashboards, configuring templating variables,
-  authoring Grafana unified alerting rules, setting up contact points and notification routing,
-  provisioning dashboards as code, working with Tempo span-metrics or service graphs, or improving
-  observability dashboards.
+description: Production Grafana dashboards and unified alerting. Use when editing dashboard JSON or PromQL, building RED dashboards, authoring alert rules and contact-point routing, or provisioning dashboards as code.
 ---
 
 # Grafana Dashboards and Alerts

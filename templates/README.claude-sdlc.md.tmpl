@@ -31,6 +31,17 @@ How Claude Code discovers it: `CLAUDE.md` is loaded as project context; `.claude
 `.claude/skills/*/SKILL.md`, and the hooks in `.claude/settings.json` are auto-discovered;
 `.mcp.json` (if present) registers MCP servers.
 
+## Privacy — learning capture
+
+Learning capture is **on by default**: a background Claude job reads your session transcript and
+changed files to record durable learnings under `.claude/agent-memory/` (a committed store). It skips
+secret-bearing files (`.env`, `*.pem`/`*.key`, `credentials.*`) and redacts secret-shaped values, but
+transcripts can still hold sensitive context — **review new `agent-memory/` entries before committing
+them**. Controls:
+
+- `CLAUDE_KIT_NO_AUTOCAPTURE=1` — disable capture entirely.
+- `CLAUDE_KIT_CAPTURE_MAX_LINES` / `CLAUDE_KIT_CAPTURE_MAX_BYTES` — bound what each run feeds the job.
+
 ## Start the workflow
 
 Open the project in Claude Code and run the pipeline entry point:

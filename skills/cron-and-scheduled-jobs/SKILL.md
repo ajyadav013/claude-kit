@@ -1,6 +1,6 @@
 ---
 name: cron-and-scheduled-jobs
-description: Scheduled / recurring jobs across the two mechanisms this stack uses — Kubernetes CronJobs (the schedule is declared in Helm values under a Crons block, and the app is invoked one-shot via MODE=cron + CRON_JOB into a Python cron registry) and Temporal Schedules (recurrence owned by the Temporal server via cron_expressions or interval specs, with overlap policy, pause-on-failure, and idempotent create-or-update registration run as a one-shot k8s Job). Covers how each is configured, how the schedule maps to the code that runs, concurrency/timezone/history, observability, and choosing between them. Use when adding a periodic or scheduled job, wiring a MODE=cron entrypoint and cron registry, declaring a CronJob in Helm values, registering or updating a Temporal schedule, or deciding between a Kubernetes CronJob and a Temporal Schedule.
+description: Scheduled jobs across two mechanisms — Kubernetes CronJobs (schedule in Helm values, MODE=cron) and Temporal Schedules. Use when adding periodic jobs or choosing between k8s and Temporal.
 ---
 
 # Cron & Scheduled Jobs
