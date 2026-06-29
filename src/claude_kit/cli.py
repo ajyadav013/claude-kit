@@ -8,6 +8,7 @@ commands — ``validate``, ``doctor``, ``diff``, ``upgrade``, ``list-options``, 
 
 from __future__ import annotations
 
+import os
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,11 @@ from claude_kit import (
     validator,
 )
 from claude_kit.models import ResolvedPlan
+
+# Planned-but-unimplemented commands are hidden from `--help` by default so they
+# can't be mistaken for working features. Set CLAUDE_KIT_EXPERIMENTAL=1 to surface
+# them (still marked "[planned]" and still exit non-zero). Evaluated at import.
+_EXPERIMENTAL = bool(os.environ.get("CLAUDE_KIT_EXPERIMENTAL"))
 
 BANNER = r"""
   ___ _      _   _ ___  ___   _  _____ _____
@@ -348,7 +354,12 @@ def version() -> None:
     typer.echo(f"claude-kit {__version__}")
 
 
-@app.command("package-org-pack")
+@app.command(
+    "package-org-pack",
+    hidden=not _EXPERIMENTAL,
+    # \[ escapes the bracket so Rich renders a literal "[planned]" (not a markup tag).
+    help=r"\[planned] Package an org-pack into a reusable, versioned plugin-style directory.",
+)
 def package_org_pack(
     pack: str = typer.Argument(
         ..., help="org-pack id under .claude/org-packs/ (e.g. engineering-core)"
@@ -368,7 +379,11 @@ def package_org_pack(
     raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
-@app.command("install-org-pack")
+@app.command(
+    "install-org-pack",
+    hidden=not _EXPERIMENTAL,
+    help=r"\[planned] Install an approved org-pack into a repo or user-level Claude config.",
+)
 def install_org_pack(
     source: str = typer.Argument(
         ..., help="path or registry id of an approved org-pack"
@@ -388,7 +403,11 @@ def install_org_pack(
     raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
-@research_app.command("import-sources")
+@research_app.command(
+    "import-sources",
+    hidden=not _EXPERIMENTAL,
+    help=r"\[planned] Summarise explicit, license-cleared sources into original skill/agent proposals.",
+)
 def research_import_sources(
     sources: str = typer.Argument(
         ..., help="YAML file of explicit, license-cleared sources"

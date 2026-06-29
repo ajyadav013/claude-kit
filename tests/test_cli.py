@@ -198,6 +198,39 @@ def test_org_pack_stub_commands_are_planned(tmp_path):
     assert "planned" in res.stdout.lower()
 
 
+def test_planned_commands_hidden_from_help_by_default():
+    """Planned commands are hidden from --help so they can't be mistaken for features."""
+    top = runner.invoke(app, ["--help"]).output
+    assert "package-org-pack" not in top
+    assert "install-org-pack" not in top
+    sub = runner.invoke(app, ["research", "--help"]).output
+    assert "import-sources" not in sub
+
+
+def test_planned_commands_visible_and_marked_with_experimental(monkeypatch):
+    """With CLAUDE_KIT_EXPERIMENTAL=1 the planned commands surface in --help, marked [planned]."""
+    import importlib
+
+    from claude_kit import cli as cli_mod
+
+    monkeypatch.setenv("CLAUDE_KIT_EXPERIMENTAL", "1")
+    try:
+        importlib.reload(cli_mod)
+        r = CliRunner()
+        top = r.invoke(cli_mod.app, ["--help"]).output
+        assert "package-org-pack" in top
+        assert "install-org-pack" in top
+        sub = r.invoke(cli_mod.app, ["research", "--help"]).output
+        assert "import-sources" in sub
+        # the "[planned]" marker lives in each command's own --help (the main
+        # listing truncates the help column, so assert it on the detail screen)
+        detail = r.invoke(cli_mod.app, ["package-org-pack", "--help"]).output
+        assert "[planned]" in detail
+    finally:
+        monkeypatch.delenv("CLAUDE_KIT_EXPERIMENTAL", raising=False)
+        importlib.reload(cli_mod)  # restore default (hidden) state for later tests
+
+
 def test_payload_dir_resolves_from_checkout():
     with ExitStack() as stack:
         root = scaffold.payload_dir(stack)
