@@ -28,3 +28,9 @@ zap-vapt-tool.zip
 # depth, and on case-insensitive filesystems (macOS default) it also swallows
 # rules/continuity.md — the tracked rule file.
 .claude/
+
+# Local-only working artifacts — generated during development, never part of the distributable kit.
+# (Review write-ups, ad-hoc patches, and locally-gathered reference data.)
+claude-kit-review*.md
+*.patch
+ai_repos_over_40k_stars.*
