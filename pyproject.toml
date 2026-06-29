@@ -42,6 +42,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Optional JSON Schema validation of catalog files + persisted artifacts. Keeps the runtime
+# install at three deps (typer/jinja2/pyyaml); install with `claude-kit[schema]` to enable.
+schema = [
+  "jsonschema>=4.0",
+]
 dev = [
   "pytest>=8.0",
   "build>=1.2",
@@ -49,6 +54,7 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.10",
   "shellcheck-py>=0.10",
+  "jsonschema>=4.0",
 ]
 
 [project.urls]
@@ -92,6 +98,7 @@ packages = ["src/claude_kit"]
 "commands" = "claude_kit/_payload/commands"
 "templates" = "claude_kit/_payload/templates"
 "catalog" = "claude_kit/_payload/catalog"
+"schemas" = "claude_kit/_payload/schemas"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -103,6 +110,7 @@ include = [
   "/commands",
   "/templates",
   "/catalog",
+  "/schemas",
   "/scripts",
   "/docs",
   "/.claude-plugin",

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "catalog-org",
+  "title": "claude-kit organization layer (catalog/org.yaml)",
+  "type": "object",
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer"
+    },
+    "default_scope": {
+      "type": "string"
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "teams": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "autonomy": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "levels": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "strictness": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string"
+        },
+        "levels": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "core_agents_added": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "new_skills": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "new_agents": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "new_rules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "packs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "teams": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

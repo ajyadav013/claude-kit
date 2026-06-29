@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pipeline-snapshot",
+  "title": "claude-kit runtime pipeline snapshot (pipeline-snapshot.json)",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "integer"
+    },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "lean",
+        "standard",
+        "enterprise"
+      ]
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "individual",
+        "team",
+        "organization"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "A",
+        "B",
+        "C",
+        "D"
+      ]
+    },
+    "lanes": {
+      "type": "object"
+    },
+    "findings": {
+      "type": "object"
+    },
+    "gate_evidence": {
+      "type": "object"
+    },
+    "last_gate_passed": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": true
+}
