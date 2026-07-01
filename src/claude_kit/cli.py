@@ -27,7 +27,8 @@ from claude_kit import (
     upgrader,
     validator,
 )
-from claude_kit.models import ResolvedPlan
+from claude_kit import export as exporter
+from claude_kit.models import ResolvedPlan, Selection
 
 # Planned-but-unimplemented commands are hidden from `--help` by default so they
 # can't be mistaken for working features. Set CLAUDE_KIT_EXPERIMENTAL=1 to surface
@@ -314,6 +315,110 @@ def init(
             "\nNote: `jq` is not on PATH — the shell hooks (guards + learning capture) will silently "
             "no-op until you install it. The config, agents, skills, and CLI work regardless."
         )
+
+
+def _plan_for_export(
+    src: Path, target_dir: Path, *, config: Optional[str], defaults: bool
+) -> ResolvedPlan:
+    """Resolve the plan to export: prefer the project's installed selection, else config/defaults/prompt.
+
+    ``export .`` in an installed project reads ``.claude/config/init-options.json`` so the export
+    matches what was scaffolded. ``--config`` / ``--defaults`` force a fresh resolution (useful for a
+    standalone export into a project that never ran ``init``); with neither and no install present, it
+    falls back to the interactive prompt via :func:`_resolve_plan`.
+    """
+    opts = target_dir / ".claude" / "config" / "init-options.json"
+    if config is None and not defaults and opts.is_file():
+        try:
+            data = json.loads(opts.read_text(encoding="utf-8"))
+            selection = Selection.from_dict(data.get("selection", {}))
+            return catalog.resolve(src, selection)
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            typer.echo(f"error: could not read installed selection: {exc}", err=True)
+            raise typer.Exit(2) from exc
+    return _resolve_plan(src, config=config, defaults=defaults)
+
+
+# Module-level singleton: a repeatable-list option can't be defined inline (ruff B008 flags a call in
+# a mutable-typed argument default), so the Option lives here and the command reads it as its default.
+_EXPORT_TARGET_OPTION = typer.Option(
+    None,
+    "--target",
+    "-t",
+    help="export target(s), repeatable: cursor | agents | copilot (default: cursor)",
+)
+
+
+@app.command()
+def export(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+    target: Optional[list[str]] = _EXPORT_TARGET_OPTION,
+    config: Optional[str] = typer.Option(
+        None,
+        "--config",
+        help="resolve the selection from a YAML file instead of the installed one",
+    ),
+    defaults: bool = typer.Option(
+        False,
+        "--defaults",
+        help="resolve from catalog defaults instead of the installed selection",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="overwrite existing exported files instead of writing .claude-kit sidecars",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="report the files that would be written; write nothing"
+    ),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit the written-file list as JSON instead of text"
+    ),
+) -> None:
+    """Export the config for Cursor / AGENTS.md / GitHub Copilot (editors that aren't Claude Code).
+
+    Projects the same resolved plan claude-kit installs under .claude/ into the formats a single-agent
+    editor reads natively — the full rule set + a project charter + the SDLC workflow as guidance, plus
+    MCP servers for Cursor. The enforced gates and reviewer subagents are Claude Code-only.
+    """
+    targets = list(dict.fromkeys(target or ["cursor"]))
+    unknown = [t for t in targets if t not in exporter.VALID_TARGETS]
+    if unknown:
+        typer.echo(
+            f"error: unknown export target(s): {', '.join(unknown)} "
+            f"(choices: {', '.join(exporter.VALID_TARGETS)})",
+            err=True,
+        )
+        raise typer.Exit(2)
+    with ExitStack() as stack:
+        src = scaffold.payload_dir(stack)
+        target_dir = Path(path).expanduser().resolve()
+        plan = _plan_for_export(src, target_dir, config=config, defaults=defaults)
+        written = exporter.export_targets(
+            src, target_dir, plan, targets, force=force, dry_run=dry_run
+        )
+
+    if json_out:
+        typer.echo(
+            json.dumps(
+                {
+                    "target": str(target_dir),
+                    "targets": targets,
+                    "dry_run": dry_run,
+                    "written": written,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    typer.echo(f"\nclaude-kit export → {', '.join(targets)}  ({target_dir})\n")
+    for w in written:
+        typer.echo(f"  {'+' if dry_run else '•'} {w}")
+    tail = "  (dry run — nothing written)" if dry_run else ""
+    typer.echo(
+        f"\n{'Would write' if dry_run else 'Wrote'} {len(written)} file(s).{tail}"
+    )
 
 
 @app.command()

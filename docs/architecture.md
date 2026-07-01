@@ -75,6 +75,17 @@ flowchart TB
 Adding a framework/database/profile/MCP server is a **catalog edit + a `templates/stacks/` folder** —
 never a change to `resolve()`.
 
+### Same plan, second target: `export` (for non-Claude-Code editors)
+
+The `ResolvedPlan` is the reuse seam. `claude-kit export` (`src/claude_kit/export.py`) takes the **same**
+plan and, instead of `scaffold.install_sdlc()` writing `.claude/`, projects it into the formats a
+single-agent editor reads natively — `.cursor/rules/*.mdc` + `.cursor/mcp.json` (Cursor), a root
+`AGENTS.md`, or `.github/copilot-instructions.md` (Copilot). It is a pure projection: it adds no stack
+knowledge, and `catalog.resolve()` gains no branches (golden rules #1 and #6). Fidelity is asymmetric
+and stated in every exported file — rules, the charter, and MCP port cleanly, while the *enforced*
+gates and reviewer subagents become single-agent guidance. See
+[cursor-export.md](cursor-export.md) for the full mapping.
+
 ---
 
 ## 3. The SDLC pipeline (run)

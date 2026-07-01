@@ -1,0 +1,77 @@
+# SDLC workflow guide (single-agent)
+
+> Exported by **claude-kit** for the **{{ profile_label }}** profile. In Claude Code this workflow
+> runs as a multi-agent pipeline with **enforced quality gates** and independent reviewer subagents.
+> Outside Claude Code you are a **single agent**, so treat the phases below as a **self-check
+> checklist you apply to your own work** — the discipline is the same even though nothing blocks you.
+
+Move every non-trivial change through these phases in order. A phase "passes" only when it has **zero
+open Critical/High/Medium issues** — if you find one, fix it and re-check before moving on.
+
+## 1. Spec first
+
+- Write down what you are building **before** writing code: the goal, the acceptance criteria, and the
+  edge/empty/error cases. For UI work, note the screen states (empty, loading, error, success),
+  interactions, responsive behavior, and accessibility.
+- State your assumptions explicitly. If there are multiple valid interpretations, surface them instead
+  of silently picking one.
+
+## 2. Self-review the plan (stand in for the review chain)
+
+Before implementing, challenge your own spec the way a Senior Developer → Architect → Engineering
+Manager chain would:
+
+- Is this the **simplest** approach that solves the problem? Remove anything speculative.
+- Does it fit the existing architecture and conventions? Any scalability or integration risks?
+- For work that splits into independent lanes (the canonical example is a backend lane and a frontend
+  lane), keep the **API contract** — request/response shapes and the types that consume them — in sync
+  across both.
+
+## 3. Implement
+
+- Only after the plan holds up. Make **surgical** changes — touch only what the task requires; match
+  the surrounding style; don't refactor unrelated code.
+- Document as you go: a header on each new/modified file, a docstring on each public function
+  (arguments, return, errors), and full type annotations on public signatures.
+
+## 4. Code-review your own change
+
+Re-read the diff as an independent reviewer would, looking for bugs, security issues, performance
+problems, and spec mismatches. Every changed line should trace directly to the spec.
+
+## 5. Tests green
+
+- Add tests for the happy path, the edge cases, and the error cases you listed in the spec.
+- Run the test suite and make it pass:
+{% if backend_test_cmd %}  - Backend: `{{ backend_test_cmd }}`
+{% endif %}{% if frontend_test_cmd %}  - Frontend: `{{ frontend_test_cmd }}`
+{% endif %}  - (Replace with your project's real test command if these don't match.)
+- Confirm every acceptance criterion in the spec is actually covered — no gaps.
+
+## 6. Lint, types, and a security pass
+
+- Run lint/format/type checks and fix what they report:
+{% if backend_lint_cmd %}  - Backend lint + types: `{{ backend_lint_cmd }}`
+{% endif %}{% if backend_format_cmd %}  - Backend format: `{{ backend_format_cmd }}`
+{% endif %}{% if frontend_lint_cmd %}  - Frontend lint: `{{ frontend_lint_cmd }}`{% if frontend_typecheck_cmd %} · types: `{{ frontend_typecheck_cmd }}`{% endif %}
+{% endif %}- Do a security self-check: no hardcoded secrets or keys, inputs validated at the boundary, access
+  control enforced, dependencies free of known-vulnerable versions.
+
+## 7. Ship
+
+- Build and verify:
+{% if backend_build_cmd %}  - Backend build: `{{ backend_build_cmd }}`
+{% endif %}{% if frontend_build_cmd %}  - Frontend build: `{{ frontend_build_cmd }}`
+{% endif %}- Write a clear commit/PR description: what changed, why, and how it was verified.
+
+## Defect loop
+
+On any failure, regression, or spec mismatch: document it, classify its severity, update the spec if
+the expected behavior was unclear, then re-run **only the affected part** back through the relevant
+phases above. Don't patch around the process.
+
+## Fast-track
+
+For a bug fix, typo, single-component change, or config update (roughly < 5 files), you may skip the
+spec/plan phases and go straight to Implement → self-review → tests → ship. Preserve the sequence and
+the outputs for anything larger.
