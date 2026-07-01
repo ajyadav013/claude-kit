@@ -6,8 +6,10 @@ the **React** frontend is selected; it complements `react-patterns.md`,
 design-review technique). This file is about **consistency**: make every screen look like it came from
 one system, by going through tokens and shared primitives instead of one-off styling.
 
-> The full token / component / pattern catalog is **`ui-design-system.md`** (with `ux-patterns.md` for
-> usage rules and `mobile-design-guidelines.md` for responsive/native) — all installed alongside this
+> The full token / component / pattern catalog is **`ui-design-system.md`** (foundations & index) plus
+> its companions **`ui-components.md`** (components) and **`ui-layout-and-motion.md`** (layout, motion,
+> accessibility, page blueprints) — with **`ux-patterns.md`** and **`ux-dashboard-patterns.md`** for
+> usage rules and `mobile-design-guidelines.md` for responsive/native. All are installed alongside this
 > file in `.claude/rules/`. Those are the source of truth; this file is the short, always-on
 > **enforcement** hook. If anything here ever conflicts with `ui-design-system.md`, that file wins.
 

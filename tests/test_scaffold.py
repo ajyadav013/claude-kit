@@ -891,10 +891,13 @@ def test_react_design_system_rule_set_installs_and_is_neutralized(tmp_path, payl
     install(payload, target, profile="standard")  # default frontend is React
     rules = target / ".claude" / "rules"
 
-    # The three design-system overlay rules install for React.
+    # The design-system overlay rules install for React (split under the 40k limit in 0.55.0).
     for name in (
         "ui-design-system.md",
+        "ui-components.md",
+        "ui-layout-and-motion.md",
         "ux-patterns.md",
+        "ux-dashboard-patterns.md",
         "mobile-design-guidelines.md",
     ):
         assert (rules / name).is_file(), f"{name} not installed for React"
@@ -912,7 +915,10 @@ def test_react_design_system_rule_set_installs_and_is_neutralized(tmp_path, payl
     # reads as generic design content, and negatively that no internal-looking source path slips back in.
     expected_generic = {
         "ui-design-system.md": ("token", "color"),
+        "ui-components.md": ("button",),
+        "ui-layout-and-motion.md": ("layout",),
         "ux-patterns.md": ("pattern",),
+        "ux-dashboard-patterns.md": ("chart",),
         "mobile-design-guidelines.md": ("mobile", "touch"),
     }
     for name, terms in expected_generic.items():

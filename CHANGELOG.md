@@ -4,6 +4,34 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.55.0] — 2026-07-01
+
+**React overlay rules split under Claude Code's 40k memory limit.** Two React design-system overlay
+rules shipped over the 40,000-character memory/rule-file limit, so every React scaffold saw the
+`over the 40.0k-char limit · /memory` warning and risked the rule loading only partially. They are now
+split by concern — 100% of content preserved verbatim — and a CI guard keeps any rule from regressing.
+No change to the core promise — configuration-only SDLC scaffolding for Claude Code, no application
+code, no Docker, stack-agnostic core, catalog-driven. **0 new agents/skills.**
+
+### Fixed
+
+- **Oversized React overlay rules split under the 40k limit.** `ui-design-system.md` (56.7k) → the
+  foundations/index `ui-design-system.md` + `ui-components.md` (cards, badges, buttons, form controls,
+  states, tooltips, KPI labels, data tables, compound components) + `ui-layout-and-motion.md` (page
+  layout, motion, accessibility, page blueprints, quick reference); `ux-patterns.md` (44.4k) → the
+  content/interaction `ux-patterns.md` + `ux-dashboard-patterns.md` (chart standards, tab bar, KPI-grid
+  layouts, global filter strip). Every shipped rule file is now well under the limit. The React
+  `overlay_rules` list (`catalog/stacks.yaml`) grows 5 → 8; cross-references in `react-patterns.md`,
+  `mobile-design-guidelines.md`, and `design-system-compliance.md`, and the `ui-ux-design` /
+  `component-design` skills + `ui-designer` agent, all repoint to the split files.
+
+### Added
+
+- **`scripts/check_rule_sizes.py` regression guard.** Scans every shipped rule file (`rules/*.md`,
+  `templates/stacks/**/rules/*.md`, `templates/org/rules/*.md`) and fails if any reaches 38,000
+  characters (2k of headroom under the 40k hard limit). Wired into CI next to the MCP-pin gate and
+  covered by `tests/test_rule_sizes.py`.
+
 ## [0.54.0] — 2026-06-29
 
 **Safety, correctness, and capability hardening pass.** Two reviews (a fresh practical review and an

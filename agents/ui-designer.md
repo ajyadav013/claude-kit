@@ -19,7 +19,7 @@ For any frontend, UI, or interaction work, produce a **complete, production-read
 Your project's frontend stack may vary. Before designing, identify:
 - The UI framework (e.g., React, Vue, Svelte, Angular, vanilla JS)
 - The styling approach (e.g., CSS modules, Tailwind, styled-components, CSS-in-JS)
-- Design system location (if one exists — check `.claude/rules/ui-design-system.md` (React overlay), `docs/references/ui/`, `design-system/`, or similar)
+- Design system location (if one exists — check `.claude/rules/ui-design-system.md` (React overlay; its `ui-components.md` / `ui-layout-and-motion.md` companions cover components and layout/motion/a11y), `docs/references/ui/`, `design-system/`, or similar)
 - Component library path (check `src/components/`, `lib/ui/`, or similar)
 
 ## MANDATORY: Read Before Designing
