@@ -4,6 +4,53 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.57.0] — 2026-07-03
+
+**Adoption & hardening — release automation, honest docs, and a credibility pass.** No new
+capability and no change to the core promise: configuration-only SDLC scaffolding for Claude Code, no
+application code, no Docker, stack-agnostic core, catalog-driven. This release closes the gap between
+"published to PyPI" and "tagged/released on GitHub," adds an honest release + road-to-1.0 policy, audits
+the skill surface, and tightens the README so every claim is verifiable. **0 new agents/skills/rules;
+`catalog.resolve()` and `catalog/*.yaml` untouched.**
+
+### Added
+
+- **Automated git tag + GitHub Release on publish.** `publish.yml` gains a `github-release` job that,
+  after a successful PyPI publish, creates the `vX.Y.Z` tag and a GitHub Release whose body is that
+  version's `CHANGELOG.md` section. Idempotent (a re-run over an already-released version is a no-op) and
+  downstream of `publish` (a Release is only cut once the wheel is actually on PyPI).
+- **`scripts/backfill-releases.sh` (`--dry-run`).** One-off, idempotent backfill that retroactively
+  creates the tag + Release for past versions that shipped via merge-to-main before the automation
+  existed. Anchors each tag to the commit that introduced that version into `pyproject.toml` (git
+  pickaxe), and skips — with a warning — any version whose release commit can't be located.
+- **[`docs/RELEASE-POLICY.md`](docs/RELEASE-POLICY.md).** Versioning, latest-only support, the
+  five-place version bump + CHANGELOG, and the publish/tag/Release automation, in one place.
+- **[`docs/launch/road-to-1.0.md`](docs/launch/road-to-1.0.md).** An honest, verifiable list of what
+  stands between the current `4 - Beta` and 1.0 (stack coverage, enforcement honesty, hook portability,
+  evidence base, export fidelity, API stability). The Development Status classifier stays `4 - Beta`.
+- **[`docs/skill-audit.md`](docs/skill-audit.md).** Core-vs-collection classification, the per-profile
+  install footprint (agents/skills/rules + an on-disk token estimate), and the finding that the
+  `enterprise` profile's `skills: all` installs every collection skill regardless of the chosen stack.
+  Documents and recommends; changes no profile (skills load on demand, so this is selection, not
+  always-resident context).
+- **Launch-prep assets under `docs/launch/`** (owner checklists, not code): `github-about.md`,
+  `demo-script.md`, `directory-submission.md`, `awesome-prs.md`, `posts.md`, and `seed-issues.md`.
+
+### Changed
+
+- **README credibility pass.** Strengthened the anti-sycophancy / evidence framing and added a
+  "What loads into your context" per-profile table (agents/skills/rules), so the footprint is explicit
+  before install. Counts remain pinned by `scripts/check_docs_consistency.py`.
+
+### Not adopted (deliberately)
+
+- **No version-parity CI addition** — `scripts/check_docs_consistency.py::check_versions()` already
+  enforces parity across the four manifests, `SECURITY.md`, and the latest CHANGELOG heading.
+- **No `profiles.yaml` change** for the `skills: all` finding — flagged and recommended in the audit;
+  any opt-in must stay a catalog/config change with no `resolve()` branching (golden rule #6).
+- **Development Status stays `4 - Beta`** — the classifier is not flipped until the road-to-1.0 gaps
+  are met.
+
 ## [0.56.0] — 2026-07-01
 
 **`export` command — carry the config to Cursor / VS Code / GitHub Copilot.** A teammate who works in
