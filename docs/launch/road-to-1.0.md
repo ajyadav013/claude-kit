@@ -154,15 +154,15 @@ Contributions that close the above gaps are welcome. High-value areas:
 4. **Expand mechanical enforcement** — parse test-runner output (exit codes, JUnit XML, coverage JSON) and merge it with agent verdicts.
 5. **Strengthen the API stability guarantee** — document the catalog schema stability promise and extend the existing `init-options.json` `schema_version` treatment to the catalog files.
 
-Seed issues tracking these gaps:
+Issues tracking these gaps (map 1:1 to the numbered gaps above):
 
-- [#TBD: Ship Vue/Svelte/Django/Express overlays](https://github.com/ajyadav013/claude-kit/issues)
-- [#TBD: Capture three real runs (React+FastAPI, Postgres migration, MongoDB schema)](https://github.com/ajyadav013/claude-kit/issues)
-- [#TBD: Improve hook portability (Windows, pure-Python guards)](https://github.com/ajyadav013/claude-kit/issues)
-- [#TBD: Mechanical gate enforcement (test-runner parsing)](https://github.com/ajyadav013/claude-kit/issues)
-- [#TBD: Catalog schema stability guarantee](https://github.com/ajyadav013/claude-kit/issues)
+1. Ship the planned stacks — [Vue #67](https://github.com/ajyadav013/claude-kit/issues/67) · [Svelte #68](https://github.com/ajyadav013/claude-kit/issues/68) · [Django #69](https://github.com/ajyadav013/claude-kit/issues/69) · [Express #70](https://github.com/ajyadav013/claude-kit/issues/70)
+2. [Capture three real /sdlc runs across stacks/profiles/scopes — #72](https://github.com/ajyadav013/claude-kit/issues/72)
+3. [Improve hook portability (Windows, pure-Python guards) — #73](https://github.com/ajyadav013/claude-kit/issues/73)
+4. [Expand mechanical gate enforcement (parse test-runner output) — #74](https://github.com/ajyadav013/claude-kit/issues/74)
+5. [Document the catalog schema stability guarantee — #75](https://github.com/ajyadav013/claude-kit/issues/75)
 
-(These issue links will be populated as the launch tasks progress. Check [the Issues tab](https://github.com/ajyadav013/claude-kit/issues) for live status.)
+Good first issue: [improve the catalog validator — add a duplicate-skill check #71](https://github.com/ajyadav013/claude-kit/issues/71). Check [the Issues tab](https://github.com/ajyadav013/claude-kit/issues) for live status.
 
 Before opening a PR, please read [`CONTRIBUTING.md`](../../CONTRIBUTING.md). The golden rules: keep the core stack-agnostic, never ship Docker/app-code, reference rules by their canonical `.claude/rules/` path, and extend via the catalog (not code).
 
