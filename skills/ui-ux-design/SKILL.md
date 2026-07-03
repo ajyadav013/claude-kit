@@ -9,9 +9,9 @@ Verify UI/UX design compliance for $ARGUMENTS.
 
 ## Steps
 
-1. **Read the design system**: Read `.claude/rules/ui-design-system.md` to load the full design rules — colors, typography, spacing, cards, icons, badges, components, and accessibility. (Installed as an overlay rule when the React stack is selected.) This file is **authoritative**: if the quick-check table below ever conflicts with it, follow the rule file.
+1. **Read the design system**: Read `.claude/rules/ui-design-system.md` (foundations & index — colors, typography, spacing, icons, tokens) and its companions `.claude/rules/ui-components.md` (cards, badges, buttons, form controls, states, compound components) and `.claude/rules/ui-layout-and-motion.md` (page layout, motion, accessibility, page blueprints). (Installed as overlay rules when the React stack is selected.) These files are **authoritative**: if the quick-check table below ever conflicts with them, follow the rule files.
 
-2. **Read the UX patterns doc**: Read `.claude/rules/ux-patterns.md` for status expression rules, empty state guidelines, breadcrumb conventions, page blueprints, and data color rules. For responsive/native specifics, also read `.claude/rules/mobile-design-guidelines.md`.
+2. **Read the UX patterns docs**: Read `.claude/rules/ux-patterns.md` for status expression rules, empty state guidelines, breadcrumb conventions, page blueprint selection, and data color rules, and `.claude/rules/ux-dashboard-patterns.md` for chart standards, tab-bar limits, KPI-grid layouts, and the global filter strip. For responsive/native specifics, also read `.claude/rules/mobile-design-guidelines.md`.
 
 3. **Identify the page archetype**: Determine if the target is a **List**, **Dashboard**, **Detail**, or **Config** page. Each archetype has specific compound components and hooks it should use.
 
@@ -64,8 +64,8 @@ Verify UI/UX design compliance for $ARGUMENTS.
 
 ## References
 
-- Design system: `.claude/rules/ui-design-system.md`
-- UX patterns: `.claude/rules/ux-patterns.md`
+- Design system: `.claude/rules/ui-design-system.md` (foundations), `.claude/rules/ui-components.md`, `.claude/rules/ui-layout-and-motion.md`
+- UX patterns: `.claude/rules/ux-patterns.md`, `.claude/rules/ux-dashboard-patterns.md`
 - Mobile / responsive: `.claude/rules/mobile-design-guidelines.md`
 - Sidebar navigation: `docs/references/ui/sidebar-navigation.md` (project-specific, if present)
 - UI components: `src/components/ui/index.ts`

@@ -77,7 +77,7 @@ Use Tailwind's mobile-first responsive prefixes. **Write mobile styles first, th
 </MetricGrid>
 
 // GOOD — dashboard KPI cards under tabs (cap + View more / View less toggle on mobile)
-// See ux-patterns.md §20 for the full spec
+// See ux-dashboard-patterns.md (Dashboard KPI Grid Pattern) for the full spec
 <DashboardKpiGrid>
   {kpis.map((k) => <MetricCard key={k.id} label={k.label} value={k.value} />)}
 </DashboardKpiGrid>
@@ -94,7 +94,7 @@ Use Tailwind's mobile-first responsive prefixes. **Write mobile styles first, th
 
 ### Dashboard KPI Grid
 
-KPI cards rendered inside `<TabsContent>` on persona-driven dashboards follow a special responsive pattern: max 4 cards per row on desktop (≥1024px) with fill-space behavior when count < 4, 2 per row + cap of 8 on larger mobile (430-1023px), 1 per row + cap of 4 on small mobile (<430px), and a "View more / View less" ghost button toggle on both mobile sizes (never on desktop). Use a dedicated `<DashboardKpiGrid>` component. See **Section 20** of `ux-patterns.md` for the full breakpoint table, ASCII wireframes, and anti-patterns.
+KPI cards rendered inside `<TabsContent>` on persona-driven dashboards follow a special responsive pattern: max 4 cards per row on desktop (≥1024px) with fill-space behavior when count < 4, 2 per row + cap of 8 on larger mobile (430-1023px), 1 per row + cap of 4 on small mobile (<430px), and a "View more / View less" ghost button toggle on both mobile sizes (never on desktop). Use a dedicated `<DashboardKpiGrid>` component. See the **Dashboard KPI Grid Pattern** in `ux-dashboard-patterns.md` for the full breakpoint table, ASCII wireframes, and anti-patterns.
 
 ### Sidebar & Navigation
 

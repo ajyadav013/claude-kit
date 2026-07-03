@@ -66,7 +66,7 @@ Rules of thumb:
 
 The concrete React/Tailwind/Radix accessibility rules — gray-scale text-contrast thresholds, the
 `p-3 -m-3` 44px touch-target technique, clickable-non-button keyboard requirements, focus rings, and
-icon-only-button labelling — live in **`ui-design-system.md`** (§Accessibility), with the generic WCAG
+icon-only-button labelling — live in **`ui-layout-and-motion.md`** (§Accessibility), with the generic WCAG
 technique in `.claude/rules/responsive-and-accessibility.md` and the `accessibility-review` skill. Two
 React-specific reminders that earn a review finding here:
 

@@ -26,11 +26,16 @@ def test_resolve_worked_example(payload):
 
     # Overlay rules from the three selected stacks (postgres carries a perf overlay too).
     # React also carries the design-system rule set (0.16.0): design tokens, UX patterns, mobile.
+    # The oversized UI/UX rule files are split under the 40k memory limit (0.55.0): ui-design-system.md
+    # -> +ui-components.md +ui-layout-and-motion.md; ux-patterns.md -> +ux-dashboard-patterns.md.
     assert set(plan.overlay_rules) == {
         "react-patterns.md",
         "design-system-compliance.md",
         "ui-design-system.md",
+        "ui-components.md",
+        "ui-layout-and-motion.md",
         "ux-patterns.md",
+        "ux-dashboard-patterns.md",
         "mobile-design-guidelines.md",
         "fastapi-patterns.md",
         "postgres-patterns.md",
