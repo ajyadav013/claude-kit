@@ -220,7 +220,15 @@ def test_cli_export_unknown_target_errors(tmp_path):
     assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
     result = runner.invoke(app, ["export", str(target), "-t", "bogus"])
     assert result.exit_code == 2
-    assert "unknown export target" in result.stderr.lower()
+    # Click <8.2 (resolved under Python 3.9) mixes stderr into ``output`` and
+    # makes ``result.stderr`` raise; Click >=8.2 (py3.10+) captures it as a
+    # separate stream. Read whichever holds the message so this is version-safe.
+    combined = result.output
+    try:
+        combined += result.stderr
+    except ValueError:
+        pass
+    assert "unknown export target" in combined.lower()
 
 
 def test_cli_export_json_output(tmp_path):
