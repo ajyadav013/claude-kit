@@ -4,6 +4,38 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.56.0] — 2026-07-01
+
+**`export` command — carry the config to Cursor / VS Code / GitHub Copilot.** A teammate who works in
+an editor that isn't Claude Code can't consume `.claude/` or run the gated `/sdlc` pipeline. `claude-kit
+export` projects the **same resolved plan** into the formats those single-agent editors read natively,
+so claude-kit's standards travel even where the pipeline can't. No change to the core promise —
+configuration-only SDLC scaffolding for Claude Code, no application code, no Docker, stack-agnostic
+core, catalog-driven. **0 new agents/skills**; `catalog.resolve()` untouched (a pure projection of the
+existing plan).
+
+### Added
+
+- **`claude-kit export [path] -t cursor|agents|copilot`.** Re-targets the resolved `ResolvedPlan` to:
+  - **`cursor`** — `.cursor/rules/*.mdc` (one per rule, with YAML frontmatter derived generically from
+    each rule: `description` = H1 + lead sentence; `alwaysApply: false` for the on-demand rule set;
+    overlay rules get `globs` keyed on the plan's *language/database* values — `typescript` →
+    `**/*.ts,**/*.tsx`, `python` → `**/*.py`, `postgres` → `**/*.sql`, …), an always-applied
+    `000-project.mdc` charter, and `.cursor/mcp.json` (the `type` discriminator stripped for Cursor).
+  - **`agents`** — a root `AGENTS.md` (charter + single-agent SDLC checklist + rule index + fidelity
+    note); read by both Cursor and Copilot.
+  - **`copilot`** — `.github/copilot-instructions.md` (the same synthesized document as `agents`).
+- **Honest fidelity, everywhere.** Rules, the project charter, and MCP port cleanly; the **enforced**
+  quality gates, independent reviewer subagents, and automated defect loop are Claude-Code-only and are
+  exported as a single-agent **self-check checklist**. Every exported document states this explicitly
+  (a "What ports from Claude Code — and what doesn't" note + the workflow guide's opening).
+- **Flags mirror `init`:** `--dry-run` (report, write nothing), `--force` (refresh in place; otherwise
+  a hand-edited file is preserved and the new version lands beside it as a `.claude-kit` sidecar),
+  `--config`/`--defaults` (resolve a fresh selection instead of the project's installed one), `--json`.
+- **New payload template** `templates/export/sdlc-workflow-guide.md.tmpl` (stack-agnostic; renders with
+  the project's real test/lint/build commands), plus `tests/test_export.py` and
+  [`docs/cursor-export.md`](docs/cursor-export.md) (usage + the full fidelity matrix).
+
 ## [0.55.0] — 2026-07-01
 
 **React overlay rules split under Claude Code's 40k memory limit.** Two React design-system overlay

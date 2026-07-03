@@ -203,6 +203,36 @@ README.claude-sdlc.md
 
 ---
 
+## Use in Cursor / VS Code / Copilot (export)
+
+A teammate who works in **Cursor**, **VS Code**, or **GitHub Copilot** can't consume `.claude/` or run
+the gated multi-agent `/sdlc` pipeline — those editors drive their own single agent. `claude-kit
+export` projects the **same resolved plan** into the formats those agents read natively, so the
+standards travel even when the pipeline can't:
+
+```bash
+claude-kit export .                              # → .cursor/ (default target)
+claude-kit export . -t cursor -t agents -t copilot   # all three at once
+claude-kit export . --dry-run                    # preview; writes nothing
+```
+
+| Target | Emits | What lands |
+|---|---|---|
+| `cursor` | `.cursor/rules/*.mdc` + `.cursor/mcp.json` | The full rule set (one on-demand `.mdc` each, overlays auto-attach by file glob), an always-applied `000-project.mdc` charter, and your MCP servers |
+| `agents` | `AGENTS.md` (repo root) | Project charter + single-agent SDLC checklist + rule index (read by Cursor **and** Copilot) |
+| `copilot` | `.github/copilot-instructions.md` | The same synthesized document as `agents` |
+
+**Fidelity is honest.** Rules, the project charter, and MCP servers port cleanly. The **enforced**
+quality gates, independent reviewer subagents, and automated defect loop are Claude-Code-only — the
+export carries the SDLC workflow as a **single-agent self-check checklist**, not enforced gates. Every
+exported document says so. Exports are regenerable projections: `--force` refreshes them in place, and
+without it a hand-edited file is preserved (the new version drops beside it as a `.claude-kit` sidecar).
+
+See **[docs/cursor-export.md](docs/cursor-export.md)** for the full fidelity matrix and the `.mdc`
+frontmatter mapping.
+
+---
+
 ## Feature details
 
 Each area from the [Features](#features) table, expanded — the README stays short; open only what you
@@ -691,6 +721,7 @@ everything available.
 | `validate [path] [--strict]` | Structurally validate an installed config; `--strict` adds hooks→script, `.mcp.json`-shape, snapshot, and catalog-integrity checks |
 | `doctor [path] [--mcp]` | Strict validate + environment/health checks; `--mcp` checks MCP commands, `${ENV}` vars, and lockfile drift |
 | `diff [path]` | Preview what an `upgrade` would change (no writes) |
+| `export [path] -t cursor\|agents\|copilot [--force] [--dry-run] [--json]` | Project the config into Cursor (`.cursor/`), a root `AGENTS.md`, or GitHub Copilot (`.github/copilot-instructions.md`) for editors that aren't Claude Code |
 | `upgrade [path] [--force]` | Refresh kit/overlay files; protect your edits; prune orphans |
 | `pipeline validate · status · close-gate · abort` | Inspect/mutate the `/sdlc` state files (gate/lane/evidence coherence); **does not run** the pipeline |
 | `list-options` | List available frontend/backend/database/profile/MCP options |
