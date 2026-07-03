@@ -8,6 +8,11 @@ name: Publish to PyPI
 # whether `pyproject.toml`'s version is already on PyPI: a new version publishes, an unchanged version
 # is skipped cleanly. Combined with the release rule (bump the version in all four manifests + the
 # CHANGELOG), this means "merge to main → publish" whenever — and only when — the version is bumped.
+#
+# After a successful publish, the `github-release` job creates the matching git tag `vX.Y.Z` and a
+# GitHub Release whose body is that version's CHANGELOG section — so the tag/Release ledger stays in
+# lockstep with PyPI automatically (no manual `git tag`). It is idempotent: a re-run over an
+# already-released version is a clean no-op.
 on:
   push:
     branches: ["main"]
@@ -87,3 +92,42 @@ jobs:
           # build attestations are re-enabled here for supply-chain provenance. If Rekor flakes again,
           # flip this back to false to unblock a release, then re-enable once it recovers.
           attestations: true
+
+  github-release:
+    name: Tag + GitHub Release
+    needs: [version-check, publish]
+    if: needs.version-check.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create the git tag and the GitHub Release
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create tag + Release from the CHANGELOG section
+        # `version` comes from version-check (parsed from pyproject.toml — repo-controlled, not event
+        # input) but is passed through `env` rather than interpolated into the script body as a matter of
+        # workflow-injection hygiene. GH_TOKEN authenticates the `gh` CLI to create the tag + Release.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version-check.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          # Idempotent: on a re-run the Release already exists, so do nothing (a second create would fail).
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::notice::Release $tag already exists — nothing to do."
+            exit 0
+          fi
+          # Pull this version's CHANGELOG section: the lines between its `## [x.y.z]` heading and the next
+          # `## [` heading (heading lines themselves excluded — the Release title already carries the tag).
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { capture = 1; next }
+            capture && index($0, "## [") == 1 { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ] || ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::warning::No CHANGELOG section found for $VERSION — using a generic Release note."
+            printf 'Release %s. See CHANGELOG.md for details.\n' "$tag" > release-notes.md
+          fi
+          # `gh release create` creates the annotated tag on the checked-out commit (main's merge commit)
+          # and publishes the Release in one step.
+          gh release create "$tag" --title "$tag" --notes-file release-notes.md
+          echo "::notice::Created git tag and GitHub Release $tag."

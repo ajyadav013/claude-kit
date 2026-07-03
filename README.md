@@ -10,6 +10,12 @@ assumed, or partial-output "it works" is itself an auto-Critical finding — so 
 checks actually ran. A Cookiecutter-style scaffolder, installed as **configuration only — no
 application code, no Docker.**
 
+<!-- DEMO PLACEHOLDER — a 60–90s terminal capture of a gated `/sdlc` run belongs here once recorded.
+     Shot list, timing, and which real assets to show: docs/launch/demo-script.md.
+     The recording replays the genuine run already in examples/real-run/ (the devils-advocate catching a
+     Medium bug a unanimous review missed, and the gate refusing to advance until it was fixed).
+     Until the GIF exists, that folder IS the evidence — linked from "How it works" and "The pipeline" below. -->
+
 [![PyPI](https://img.shields.io/pypi/v/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -329,6 +335,26 @@ need.
 - **7 capability packs + 10 org policy rules** under [`templates/org/`](templates/org/) (secrets, PII,
   compliance, production-data) install only in organization scope (see
   [`docs/org-capabilities.md`](docs/org-capabilities.md)).
+
+**What loads into your context** — the profile you pick decides how much lands in `.claude/`. Measured
+on a React + FastAPI + PostgreSQL project, individual scope:
+
+| Profile | Agents | Skills | Rules |
+|---------|-------:|-------:|------:|
+| `lean` | 8 | 14 | 35 |
+| `standard` (default) | 26 | 42 | 35 |
+| `enterprise` | 31 | 104 | 35 |
+
+- **Rules are profile-independent** — every profile installs the same 24 core rules + the selected
+  stack's overlays (11 for this stack = 35); rigor changes the *agents and gates*, not the rule set.
+- **Skills activate on demand** — they are installed and available, then pulled into context by task
+  relevance, not all held resident at once. The count is what's on disk, not a fixed context tax.
+- **Counts include stack overlays** — the numbers above already fold in the chosen stack (e.g. the
+  Postgres overlay adds 3 agents, which is why `enterprise` shows 31 against a 28-agent core roster). A
+  different stack shifts them by a few.
+- **`enterprise` installs the whole skill collection** (`skills: all`) — all 104 skills, including
+  collection skills for stacks you didn't select. That's disk/selection footprint, not always-resident
+  context, but if you want a tighter install prefer `standard`. See [`docs/skill-audit.md`](docs/skill-audit.md).
 
 </details>
 
