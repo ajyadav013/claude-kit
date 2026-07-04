@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
-# Agent-side half of the self-improving learnings loop — NON-BLOCKING. One script, three triggers,
+# Agent-side half of the self-improving learnings loop -- NON-BLOCKING. One script, three triggers,
 # chosen at init by `capture_mode` (catalog/capture.yaml); dispatched by $1:
 #
 #   end      (SessionEnd)   capture the session that just ended (the default mode).
 #   stop     (Stop)         per-task: capture only the file edits made SINCE the previous Stop.
-#   catchup  (SessionStart) capture any PRIOR session that ended without being captured — i.e. one
+#   catchup  (SessionStart) capture any PRIOR session that ended without being captured -- i.e. one
 #                           closed abruptly (Ctrl-C / kill / terminal close), where SessionEnd never
 #                           ran. This is what makes capture robust to abrupt close.
 #
 # In every mode: if there are file edits to learn from, fire a fully-detached background `claude` job
 # that reviews what changed and records any DURABLE learning into .claude/agent-memory/ (the store the
 # `remember` skill uses, auto-loaded next session by load-learnings.sh). The hook returns instantly and
-# never blocks the session or the next prompt — the work happens out-of-band in a reparented orphan.
+# never blocks the session or the next prompt -- the work happens out-of-band in a reparented orphan.
 #
 # Conservative + safe by construction:
 #   * Silent no-op without jq/claude, without a transcript, or when the project has no agent-memory.
 #   * Only spawns when there were actually file edits (chat-only sessions/turns cost nothing).
-#   * Opt out (or break recursion) with CLAUDE_KIT_NO_AUTOCAPTURE=1 — the one var serves both: a user
+#   * Opt out (or break recursion) with CLAUDE_KIT_NO_AUTOCAPTURE=1 -- the one var serves both: a user
 #     sets it to disable; the spawned child inherits it so its OWN hooks self-skip. Belt-and-suspenders:
 #     the child also runs with --settings '{"disableAllHooks":true}'.
-#   * The background job runs sandboxed (Read/Grep/Glob/Write/Edit only — NO shell/Bash) and inherits
+#   * The background job runs sandboxed (Read/Grep/Glob/Write/Edit only -- NO shell/Bash) and inherits
 #     the user's logged-in auth. Override the model with CLAUDE_KIT_CAPTURE_MODEL.
 #   * .claude/ is a Claude-Code-protected path that acceptEdits CANNOT write in a non-interactive
-#     (no-TTY) background context — even with a scoped allow-rule the agent reliably gives up. So the
+#     (no-TTY) background context -- even with a scoped allow-rule the agent reliably gives up. So the
 #     child runs with --permission-mode bypassPermissions. That is safe here: it has only file tools
 #     (no shell to run commands) and the prompt confines all writes to .claude/agent-memory/.
 #   * A per-transcript "done" marker in the temp dir lets `end`/`stop` tell `catchup` "already handled",
@@ -34,7 +34,7 @@ MODE="${1:-end}"   # end | stop | catchup
 TMP="${TMPDIR:-/tmp}"
 
 # --- privacy: skip sensitive files, redact secret-shaped values, bound the payload --------------
-# Capture is ON by default and reads your session — so it must never carry credentials into
+# Capture is ON by default and reads your session -- so it must never carry credentials into
 # .claude/agent-memory/ (a committed store). Mirrors guard-secrets.sh: EXCLUDE secret-bearing file
 # paths from the changed-file list entirely, and REDACT leaked-credential VALUE shapes (not env var
 # NAMES) from anything handed to the background job. Bounds are env-overridable.
@@ -102,10 +102,10 @@ record exactly one into this project's agent-memory. Act autonomously; do not as
 Files changed:
 ${changed}
 
-Session transcript (JSONL — read the last ~300 lines for the reasoning/context): ${transcript}
+Session transcript (JSONL -- read the last ~300 lines for the reasoning/context): ${transcript}
 Today: ${today}
 
-You have ONLY the Read/Grep/Glob/Write/Edit tools — there is no shell. Create and update files DIRECTLY
+You have ONLY the Read/Grep/Glob/Write/Edit tools -- there is no shell. Create and update files DIRECTLY
 with the Write and Edit tools (do not attempt Bash/heredocs); writes under .claude/agent-memory/ are
 permitted.
 
@@ -116,18 +116,18 @@ expressed by quoting such a value, skip it. Capture the durable lesson, never th
 Steps:
 1. Read the changed files above and the tail of the transcript to understand WHAT changed and WHY.
 2. Read .claude/agent-memory/MEMORY.md and skim the matching category folder to avoid duplicates.
-3. Decide with a STRICT bar: is there a learning a FUTURE session should follow — a correction,
+3. Decide with a STRICT bar: is there a learning a FUTURE session should follow -- a correction,
    preference, rule/convention, architecture decision, gotcha, API quirk, or performance insight? Do
    NOT record anything already visible in the code, standard framework behavior, or routine/one-off
    task state. MOST sessions yield nothing; if so, write nothing and stop.
-4. Only if there is a genuine durable learning, do BOTH of these — both are REQUIRED:
+4. Only if there is a genuine durable learning, do BOTH of these -- both are REQUIRED:
    (a) Write .claude/agent-memory/<category>/<kebab-slug>.md (category = one of ux, architecture,
        debugging, patterns, api, performance, gotchas), or refine a closely-matching existing file
        instead of duplicating. Use YAML frontmatter with: title, category, date (${today}), trigger;
        then sections: Context, Learning (capture the WHY, not just the what), Evidence, Apply when.
-   (b) Append ONE index line to .claude/agent-memory/MEMORY.md — under the matching '###' section if
-       one exists, otherwise at the end of the file — in exactly this form:
-       - [Title](category/filename.md) — one-line hook | applies when: <trigger>
+   (b) Append ONE index line to .claude/agent-memory/MEMORY.md -- under the matching '###' section if
+       one exists, otherwise at the end of the file -- in exactly this form:
+       - [Title](category/filename.md) -- one-line hook | applies when: <trigger>
    CRITICAL: step (b) is mandatory. The SessionStart loader reads ONLY MEMORY.md, so a learning that is
    not indexed there is INVISIBLE to every future session. After doing both, RE-READ MEMORY.md and
    confirm your index line is present; if it is missing, add it before you finish.
@@ -152,7 +152,7 @@ Steps:
 
 # --- main: opt-out, parse input, dispatch --------------------------------------------------------
 # When sourced (e.g. by the test suite) rather than executed, stop here so only the helper functions
-# above are defined — everything below has side effects (reads stdin, spawns a background job).
+# above are defined -- everything below has side effects (reads stdin, spawns a background job).
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
   return 0
 fi

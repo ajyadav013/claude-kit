@@ -7,7 +7,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 INPUT="$(cat)"
 THRESHOLD="${CLAUDE_LARGE_EDIT_LINES:-150}"
 
-# Write → whole new file content; Edit → the replacement text; MultiEdit → all edits joined.
+# Write -> whole new file content; Edit -> the replacement text; MultiEdit -> all edits joined.
 BODY="$(echo "$INPUT" | jq -r '
   .tool_input.content
   // .tool_input.new_string

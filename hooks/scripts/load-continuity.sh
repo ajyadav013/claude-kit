@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionStart hook: surface working memory (CONTINUITY.md) into context so the session resumes
-# exactly where the previous one left off — across token limits and context compaction.
+# exactly where the previous one left off -- across token limits and context compaction.
 #
 # Pairs with load-learnings.sh: CONTINUITY = ephemeral current-task state,
 # agent-memory = durable learnings. See .claude/rules/continuity.md.
@@ -27,12 +27,12 @@ fi
 
 [ -f "$LIVE" ] || exit 0
 
-echo "## Working memory (.claude/CONTINUITY.md) — read before acting; write back before the turn ends:"
+echo "## Working memory (.claude/CONTINUITY.md) -- read before acting; write back before the turn ends:"
 echo
 
 # Bound the injected size. This file is dumped into context on EVERY session start, and a mature
-# CONTINUITY.md can grow to tens of KB. Cap it to a digest that keeps BOTH ends — the top
-# (Current Phase / Active Tasks) and the bottom (Next Steps / Blocked / Test-Build Status) — and trims
+# CONTINUITY.md can grow to tens of KB. Cap it to a digest that keeps BOTH ends -- the top
+# (Current Phase / Active Tasks) and the bottom (Next Steps / Blocked / Test-Build Status) -- and trims
 # only the middle (the unbounded Completed / Decisions / Modified-Files lists). The full file is always
 # on disk; agents open it directly when they need the trimmed detail. Small files are emitted unchanged.
 CAP=8000          # ~2,000 tokens
@@ -43,7 +43,7 @@ if [ "$SIZE" -le "$CAP" ]; then
   cat "$LIVE"
 else
   head -c 5500 "$LIVE"
-  printf '\n\n...[middle of CONTINUITY.md trimmed to save context — %s bytes total; open .claude/CONTINUITY.md for the full working memory]...\n\n' "$SIZE"
+  printf '\n\n...[middle of CONTINUITY.md trimmed to save context -- %s bytes total; open .claude/CONTINUITY.md for the full working memory]...\n\n' "$SIZE"
   tail -c 2000 "$LIVE"
 fi
 echo

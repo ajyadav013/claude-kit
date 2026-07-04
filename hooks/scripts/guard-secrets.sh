@@ -1,6 +1,6 @@
 #!/bin/bash
 # PreToolUse(Bash): block git commits that would include secrets.
-# Pairs with the secret-scanner agent and the protect-secrets read-guard — this is the automatic,
+# Pairs with the secret-scanner agent and the protect-secrets read-guard -- this is the automatic,
 # every-commit guardrail. Degrades to a no-op when not a git commit or git/jq is unavailable.
 #
 # Hardened against the `git<space>commit` anchor: each ;|&-split segment is normalized first, dropping
@@ -34,7 +34,7 @@ _norm_git_segment() {
         ;;
       --git-dir=* | --work-tree=* | --namespace=* | --super-prefix=*) shift ;;
       --) shift; break ;;
-      -*) shift ;; # any other global flag → drop (conservative)
+      -*) shift ;; # any other global flag -> drop (conservative)
       *) break ;;  # first non-option token = the subcommand
     esac
   done
@@ -52,7 +52,7 @@ BAD_FILES=$(git diff --cached --name-only 2>/dev/null \
 
 # 2) Secret-like VALUES in the staged diff (added lines only).
 #    Detect real leaked-credential value shapes, NOT variable NAMES. Identifiers such as
-#    SECRET_KEY, API_KEY, or *PASSWORD* are not themselves secrets — flagging the names
+#    SECRET_KEY, API_KEY, or *PASSWORD* are not themselves secrets -- flagging the names
 #    false-positives on legitimate config/security documentation and code that merely
 #    references env-var names or CI secret bindings. Actual leaked credentials are values.
 BAD_CONTENT=$(git diff --cached -U0 2>/dev/null \
@@ -61,7 +61,7 @@ BAD_CONTENT=$(git diff --cached -U0 2>/dev/null \
 if [ -n "$BAD_FILES" ] || [ -n "$BAD_CONTENT" ]; then
   echo "BLOCKED: this commit appears to include secrets." >&2
   [ -n "$BAD_FILES" ] && { echo "  secret-like files staged:" >&2; echo "$BAD_FILES" | sed 's/^/    /' >&2; }
-  [ -n "$BAD_CONTENT" ] && echo "  secret-like content staged — move it to .env / a secret manager." >&2
+  [ -n "$BAD_CONTENT" ] && echo "  secret-like content staged -- move it to .env / a secret manager." >&2
   echo "  Unstage/rotate the secret, then retry. (guard-secrets.sh)" >&2
   exit 2
 fi

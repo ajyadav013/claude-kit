@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse(Bash): BLOCK pushing to main/master from an agent session — use a feature branch + PR.
+# PreToolUse(Bash): BLOCK pushing to main/master from an agent session -- use a feature branch + PR.
 #
 # Hardened against the naive `git<space>push` anchor that earlier inline guards used. It now:
 #   - normalizes each ;|&-split segment, dropping a leading `git` plus any GLOBAL OPTIONS and their
@@ -10,7 +10,7 @@
 # Legit branches that merely CONTAIN the substring are still spared (maintenance, main-feature,
 # feature/main-ui, remaster-ui).
 #
-# Best-effort word-splitting — a guard, not a shell parser. Threat model: it stops accidental/agent
+# Best-effort word-splitting -- a guard, not a shell parser. Threat model: it stops accidental/agent
 # pushes, not a determined operator deliberately crafting an obfuscated bypass (they own the machine
 # and can disable the hook). Degrades to a no-op (fail-open) without jq.
 set -f
@@ -42,7 +42,7 @@ _norm_git_segment() {
         ;;
       --git-dir=* | --work-tree=* | --namespace=* | --super-prefix=*) shift ;;
       --) shift; break ;;
-      -*) shift ;; # any other global flag → drop (conservative)
+      -*) shift ;; # any other global flag -> drop (conservative)
       *) break ;;  # first non-option token = the subcommand
     esac
   done
@@ -54,7 +54,7 @@ NORM="$(printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r seg; do _n
 
 PUSHLINES="$(printf '%s\n' "$NORM" | grep -E '^push([[:space:]]|$)' || true)"
 if [ -n "$PUSHLINES" ] && printf '%s\n' "$PUSHLINES" | grep -qE '(^|[[:space:]:/+])(main|master)([[:space:]]|$)'; then
-  echo "BLOCKED: refusing to push to main/master (incl. force-push refspecs like +main or HEAD:refs/heads/main, and 'git -c…'/'git -C…' forms) — use a feature branch and a PR." >&2
+  echo "BLOCKED: refusing to push to main/master (incl. force-push refspecs like +main or HEAD:refs/heads/main, and 'git -c...'/'git -C...' forms) -- use a feature branch and a PR." >&2
   exit 2
 fi
 exit 0

@@ -6,7 +6,7 @@
 #
 # Used by the /claude-kit:init slash command (plugin) and runnable directly from a checkout.
 # This is a degraded, no-resolution fallback: it copies the full payload as-is. The pip CLI
-# (`claude-kit init`) is the recommended installer — it is catalog-driven (stack/profile/MCP
+# (`claude-kit init`) is the recommended installer -- it is catalog-driven (stack/profile/MCP
 # resolution) and upgrade-safe (diff/upgrade), which this script does not do.
 #
 # Usage:  init.sh [TARGET_DIR] [--defaults] [--force] [--minimal] [--no-hooks]
@@ -58,29 +58,29 @@ copy_root_file() {  # src, dest, label
   local src="$1" dest="$2" label="$3"
   if [ -f "$dest" ] && [ "$FORCE" -ne 1 ]; then
     cp "$src" "${dest}.claude-kit"
-    echo "  • $label exists — wrote ${dest##*/}.claude-kit (use --force to overwrite)"
+    echo "  * $label exists -- wrote ${dest##*/}.claude-kit (use --force to overwrite)"
   else
-    cp "$src" "$dest"; echo "  • $label installed"
+    cp "$src" "$dest"; echo "  * $label installed"
   fi
 }
 
 # Rules + the generic CLAUDE.md are always installed.
-rm -rf "$DEST/rules"; cp -R "$SRC/rules" "$DEST/rules"; echo "  • rules/ ($(ls "$DEST/rules" | wc -l | tr -d ' ') files)"
+rm -rf "$DEST/rules"; cp -R "$SRC/rules" "$DEST/rules"; echo "  * rules/ ($(ls "$DEST/rules" | wc -l | tr -d ' ') files)"
 copy_root_file "$SRC/templates/CLAUDE.md" "$TARGET/CLAUDE.md" "CLAUDE.md"
 cp "$SRC/templates/CONTINUITY.template.md" "$DEST/CONTINUITY.template.md"
 
 if [ "$MINIMAL" -ne 1 ]; then
-  rm -rf "$DEST/agents"; cp -R "$SRC/agents" "$DEST/agents"; echo "  • agents/ ($(ls "$DEST/agents" | wc -l | tr -d ' ') files)"
-  rm -rf "$DEST/skills"; cp -R "$SRC/skills" "$DEST/skills"; echo "  • skills/ ($(ls -d "$DEST"/skills/*/ | wc -l | tr -d ' ') skills)"
+  rm -rf "$DEST/agents"; cp -R "$SRC/agents" "$DEST/agents"; echo "  * agents/ ($(ls "$DEST/agents" | wc -l | tr -d ' ') files)"
+  rm -rf "$DEST/skills"; cp -R "$SRC/skills" "$DEST/skills"; echo "  * skills/ ($(ls -d "$DEST"/skills/*/ | wc -l | tr -d ' ') skills)"
   if [ ! -d "$DEST/agent-memory" ]; then
-    cp -R "$SRC/templates/agent-memory" "$DEST/agent-memory"; echo "  • agent-memory/ seed"
+    cp -R "$SRC/templates/agent-memory" "$DEST/agent-memory"; echo "  * agent-memory/ seed"
   fi
 fi
 
 if [ "$MINIMAL" -ne 1 ] && [ "$NO_HOOKS" -ne 1 ]; then
   mkdir -p "$DEST/hooks"; cp "$SRC"/hooks/scripts/*.sh "$DEST/hooks/" 2>/dev/null || true
   chmod +x "$DEST"/hooks/*.sh 2>/dev/null || true
-  echo "  • hooks/ ($(ls "$DEST"/hooks/*.sh 2>/dev/null | wc -l | tr -d ' ') scripts)"
+  echo "  * hooks/ ($(ls "$DEST"/hooks/*.sh 2>/dev/null | wc -l | tr -d ' ') scripts)"
   copy_root_file "$SRC/templates/settings.json" "$DEST/settings.json" "settings.json"
 fi
 

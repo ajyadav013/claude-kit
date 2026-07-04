@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# PostToolUse(all tools): append a one-line local audit record (timestamp · tool · target) to
-# .claude/state/audit.log for organization / enterprise-controlled mode. LOCAL ONLY — it never sends
+# PostToolUse(all tools): append a one-line local audit record (timestamp | tool | target) to
+# .claude/state/audit.log for organization / enterprise-controlled mode. LOCAL ONLY -- it never sends
 # anything anywhere, never reads file contents, and always exits 0 (it must not affect the tool).
 # Degrades to a no-op without jq. The log lives under the gitignored .claude/state/ dir.
 command -v jq >/dev/null 2>&1 || exit 0
