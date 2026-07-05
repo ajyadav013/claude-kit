@@ -398,6 +398,32 @@ def _iter_stack_entries(stacks: dict) -> list[tuple[dict, str]]:
     return out
 
 
+def _check_duplicate_skills(
+    profiles: dict,
+    cfail: Callable[[str], None],
+    cgood: Callable[[str], None],
+) -> None:
+    """No profile may list the same skill twice in its own raw ``skills:`` list.
+
+    Checks each profile's un-inherited list (not the resolved union, which dedupes by design), so it
+    catches an accidental copy-paste in ``catalog/profiles.yaml``. The ``skills: all`` sentinel (a
+    string) and any non-list value are skipped.
+    """
+    from collections import Counter
+
+    dupes = False
+    for name, prof in (profiles.get("profiles") or {}).items():
+        skills = prof.get("skills") if isinstance(prof, dict) else None
+        if not isinstance(skills, list):
+            continue  # `all` sentinel or absent
+        for skill, count in Counter(skills).items():
+            if count > 1:
+                dupes = True
+                cfail(f"profile {name!r} has duplicate skill {skill!r} in skills list")
+    if not dupes:
+        cgood("no profile lists a duplicate skill")
+
+
 def check_catalog(payload_root: str | Path | None = None) -> tuple[bool, list[str]]:
     """Check the kit catalog is referentially consistent (used by ``validate --strict`` / CI).
 
@@ -462,6 +488,8 @@ def check_catalog(payload_root: str | Path | None = None) -> tuple[bool, list[st
                 f"{len(profiles.get('profiles', {}))} profiles reference only existing "
                 "agents/skills/hooks"
             )
+
+        _check_duplicate_skills(profiles, cfail, cgood)
 
         overlay_missing: set[str] = set()
         stack_skill_missing: set[str] = set()

@@ -160,7 +160,7 @@ def test_check_catalog_clean_on_bundled_payload(payload):
     assert any("profiles reference only existing" in m for m in messages)
 
 
-def _minimal_payload(root, *, profile_agents, overlay_rules=()):
+def _minimal_payload(root, *, profile_agents, overlay_rules=(), profile_skills=()):
     """Build a tiny payload tree just sufficient for check_catalog to run."""
     (root / "catalog").mkdir(parents=True)
     (root / "agents").mkdir()
@@ -191,7 +191,7 @@ def _minimal_payload(root, *, profile_agents, overlay_rules=()):
         "version: 1\ndefault: lean\nprofiles:\n"
         "  lean:\n"
         f"    agents: [{', '.join(profile_agents)}]\n"
-        "    skills: []\n"
+        f"    skills: [{', '.join(profile_skills)}]\n"
         "    gates: []\n"
         "    hooks: [load-continuity]\n",
         encoding="utf-8",
@@ -211,6 +211,24 @@ def test_check_catalog_detects_missing_stack_overlay(tmp_path):
     assert not ok
     assert any(
         "overlay files missing" in m and "nope-patterns.md" in m for m in messages
+    )
+
+
+def test_check_catalog_detects_duplicate_skill_in_profile(tmp_path):
+    _minimal_payload(
+        tmp_path,
+        profile_agents=[],
+        profile_skills=["api-integration", "api-integration"],
+    )
+    skill = tmp_path / "skills" / "api-integration"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: api-integration\ndescription: x\n---\n", encoding="utf-8"
+    )
+    ok, messages = validator.check_catalog(tmp_path)
+    assert not ok
+    assert any("duplicate skill" in m and "api-integration" in m for m in messages), (
+        "\n".join(messages)
     )
 
 
