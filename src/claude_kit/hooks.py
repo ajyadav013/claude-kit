@@ -7,7 +7,7 @@ into (a) the set of ``.sh`` scripts to copy into ``.claude/hooks/`` and (b) an a
 (to build settings) share it without duplication.
 
 Hooks are deliberately **conservative**: guardrails block obviously dangerous actions; the quality
-hooks only *suggest* running tools. Script-backed hooks reference ``$CLAUDE_PROJECT_DIR`` so they
+hooks only *suggest* running tools. Script-backed hooks reference ``${CLAUDE_PROJECT_DIR}`` so they
 work in a scaffolded project (the plugin variant uses ``${CLAUDE_PLUGIN_ROOT}``).
 """
 
@@ -52,7 +52,7 @@ def _script_entry(name: str, arg: str = "") -> dict[str, str]:
         arg: Optional single positional argument appended to the command (e.g. a dispatch mode like
             ``end``/``stop``/``catchup`` so several hook ids can share one script).
     """
-    command = f'bash "$CLAUDE_PROJECT_DIR/.claude/hooks/{name}"'
+    command = f'bash "${{CLAUDE_PROJECT_DIR}}/.claude/hooks/{name}"'
     if arg:
         command += f" {arg}"
     return {"type": "command", "command": command}
@@ -355,7 +355,7 @@ def build_settings(
 
     Groups the selected hooks by event and matcher, preserving registry order, into the schema
     Claude Code expects (``{"hooks": {EVENT: [{"matcher": …, "hooks": [entry, …]}]}}``). Uses the
-    project-relative script paths (``$CLAUDE_PROJECT_DIR/.claude/hooks/…``).
+    project-relative script paths (``${CLAUDE_PROJECT_DIR}/.claude/hooks/…``).
 
     Args:
         hook_ids: Hook ids to enable.

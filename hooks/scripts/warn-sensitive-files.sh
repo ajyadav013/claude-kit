@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# PreToolUse(Edit|Write): warn (never block) before editing security-sensitive surfaces —
+# PreToolUse(Edit|Write): warn (never block) before editing security-sensitive surfaces --
 # authentication, authorization, payments/billing, database migrations, infrastructure, or
 # security controls. Advisory only (always exits 0); pairs with the autonomy + risk rules.
 # Degrades to a no-op without jq or a recognisable file path.
 command -v jq >/dev/null 2>&1 || exit 0
-[ -t 0 ] && exit 0  # no stdin (run by hand) → no-op instead of blocking on `cat`
+[ -t 0 ] && exit 0  # no stdin (run by hand) -> no-op instead of blocking on `cat`
 INPUT="$(cat)"
 FILE_PATH="$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_response.filePath // empty' 2>/dev/null || true)"
 [ -z "$FILE_PATH" ] || [ "$FILE_PATH" = "null" ] && exit 0

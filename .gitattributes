@@ -1,0 +1,11 @@
+# Shell scripts MUST use LF — CRLF breaks bash (shebang lines, inline commands, path interpolation)
+*.sh text eol=lf
+
+# JSON hooks/config — CRLF embeds \r in inline bash commands in hooks.json / settings.json
+*.json text eol=lf
+
+# Python scripts at the repo root need LF (shebang lines: gen_hooks.py, init.sh helpers)
+scripts/*.py text eol=lf
+
+# Windows batch scripts, if any ever added, must stay CRLF
+# *.bat text eol=crlf

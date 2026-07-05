@@ -5,13 +5,13 @@
 # 2. Periodically nudges Claude to run the consolidate-learnings skill so the
 #    knowledge base merges duplicates and stays lean.
 
-MEM_DIR="$CLAUDE_PROJECT_DIR/.claude/agent-memory"
+MEM_DIR="${CLAUDE_PROJECT_DIR}/.claude/agent-memory"
 INDEX="$MEM_DIR/MEMORY.md"
 
 [ -f "$INDEX" ] || exit 0
 
 # Number of real learning entries in the index (lines like "- [Title](...)").
-# grep -c prints "0" and exits 1 when there are no matches, so guard with `|| true` — NOT `|| echo 0`,
+# grep -c prints "0" and exits 1 when there are no matches, so guard with `|| true` -- NOT `|| echo 0`,
 # which would append a second line and make the integer test below fail with "integer expected".
 ENTRIES=$(grep -cE '^\s*- \[' "$INDEX" 2>/dev/null || true)
 ENTRIES=${ENTRIES:-0}
@@ -19,7 +19,7 @@ ENTRIES=${ENTRIES:-0}
 # Nothing recorded yet -> stay silent.
 [ "$ENTRIES" -gt 0 ] || exit 0
 
-echo "## Accumulated learnings (from .claude/agent-memory/) — apply these before relevant work:"
+echo "## Accumulated learnings (from .claude/agent-memory/) -- apply these before relevant work:"
 echo
 
 # Bound the injected index. It is dumped into context on EVERY session start and grows with each
@@ -33,7 +33,7 @@ if [ "$ISIZE" -le "$CAP" ]; then
   cat "$INDEX"
 else
   head -c "$CAP" "$INDEX"
-  printf '\n\n...[learnings index trimmed to save context — %s bytes total; open .claude/agent-memory/MEMORY.md for the full index]...\n' "$ISIZE"
+  printf '\n\n...[learnings index trimmed to save context -- %s bytes total; open .claude/agent-memory/MEMORY.md for the full index]...\n' "$ISIZE"
 fi
 echo
 echo "Before design or implementation, open the category file whose \"applies when\" matches the current task and follow it. New learnings are captured automatically; you may also use the /remember skill."

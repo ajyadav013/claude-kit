@@ -3,7 +3,7 @@
 
 claude-kit ships hooks through three channels, but only one should ever be hand-maintained:
 
-* the **installed** ``.claude/settings.json`` — built per-profile by ``hooks.build_settings`` at init;
+* the **installed** ``.claude/settings.json`` -- built per-profile by ``hooks.build_settings`` at init;
 * the auto-discovered **plugin** ``hooks/hooks.json`` (``${CLAUDE_PLUGIN_ROOT}`` paths);
 * the thin no-pip **starter** ``templates/settings.json`` (``$CLAUDE_PROJECT_DIR`` paths).
 
@@ -56,7 +56,7 @@ def main(argv: list[str]) -> int:
     if check:
         if drift:
             print(
-                "hooks drift: FAIL — run `python scripts/gen_hooks.py` to regenerate:"
+                "hooks drift: FAIL -- run `python scripts/gen_hooks.py` to regenerate:"
             )
             for path in drift:
                 print(f"  - {path.relative_to(ROOT)}")

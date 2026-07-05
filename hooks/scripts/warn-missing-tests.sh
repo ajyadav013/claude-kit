@@ -19,6 +19,6 @@ esac
 # Only nudge for recognisable source files.
 case "$low" in
   *.py|*.ts|*.tsx|*.js|*.jsx|*.go|*.rs|*.rb|*.java|*.kt|*.cs|*.php|*.swift|*.scala|*.c|*.cc|*.cpp|*.h|*.hpp)
-    echo "REMINDER: code changed ($FILE_PATH) — add or update tests before marking work complete (.claude/rules/testing.md)." >&2 ;;
+    echo "REMINDER: code changed ($FILE_PATH) -- add or update tests before marking work complete (.claude/rules/testing.md)." >&2 ;;
 esac
 exit 0

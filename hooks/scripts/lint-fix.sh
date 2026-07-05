@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stop hook: auto-fix lint/format issues using whatever tooling the project already has.
-# Stack-detecting and best-effort — NEVER blocks (always exits 0). No-op if no tooling is found.
+# Stack-detecting and best-effort -- NEVER blocks (always exits 0). No-op if no tooling is found.
 #
 # Scope (P0-3): by DEFAULT only the files changed in this repo are formatted, so a Stop never rewrites
 # files the user never touched. Set CLAUDE_KIT_AUTOFIX=1 to restore whole-repo formatting. When git is
@@ -39,7 +39,7 @@ if [ "$SCOPED" = 1 ]; then
   )
 fi
 
-# JavaScript / TypeScript — the project's own "lint" script (can't be scoped per-file generically, so
+# JavaScript / TypeScript -- the project's own "lint" script (can't be scoped per-file generically, so
 # in scoped mode run it only when JS/TS actually changed).
 if [ -f package.json ] && command -v npm >/dev/null 2>&1 && grep -q '"lint"' package.json 2>/dev/null; then
   if [ "$SCOPED" = 0 ] || [ "${#js[@]}" -gt 0 ]; then
@@ -47,7 +47,7 @@ if [ -f package.json ] && command -v npm >/dev/null 2>&1 && grep -q '"lint"' pac
   fi
 fi
 
-# Python — ruff (fix + format)
+# Python -- ruff (fix + format)
 if command -v ruff >/dev/null 2>&1; then
   if [ "$SCOPED" = 1 ]; then
     if [ "${#py[@]}" -gt 0 ]; then
@@ -69,7 +69,7 @@ if command -v gofmt >/dev/null 2>&1; then
   fi
 fi
 
-# Rust — rustfmt per changed file when scoped; cargo fmt (whole crate) when unscoped.
+# Rust -- rustfmt per changed file when scoped; cargo fmt (whole crate) when unscoped.
 if [ "$SCOPED" = 1 ]; then
   if command -v rustfmt >/dev/null 2>&1 && [ "${#rs[@]}" -gt 0 ]; then
     rustfmt "${rs[@]}" 2>/dev/null || true
@@ -80,7 +80,7 @@ fi
 
 # Surface unresolved lint problems back to Claude so it can fix them.
 if [ -n "${out:-}" ] && echo "$out" | grep -qiE 'error|warning|problem'; then
-  echo "Linter reported issues — fix before finishing:"
+  echo "Linter reported issues -- fix before finishing:"
   echo "$out" | tail -30
 fi
 

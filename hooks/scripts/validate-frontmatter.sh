@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse(Write): when writing an agent (.claude/agents/*.md) or skill (.../skills/*/SKILL.md),
 # check the YAML frontmatter carries the fields Claude Code needs (agents: name + description;
-# skills: description). Advisory only (always exits 0) — it warns so a malformed component is caught
+# skills: description). Advisory only (always exits 0) -- it warns so a malformed component is caught
 # before it silently fails to auto-discover, without blocking iterative authoring.
 # Degrades to a no-op without jq or for non-agent/skill paths.
 command -v jq >/dev/null 2>&1 || exit 0

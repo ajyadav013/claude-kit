@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop hook: run the project's type checker, if it has one. Best-effort — NEVER blocks (exits 0).
+# Stop hook: run the project's type checker, if it has one. Best-effort -- NEVER blocks (exits 0).
 # Detection: npm "typecheck" script, then tsconfig.json (tsc), then mypy (Python).
 set -u
 ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -16,7 +16,7 @@ elif command -v mypy >/dev/null 2>&1 && [ -f pyproject.toml ] && grep -q 'mypy' 
 fi
 
 if [ "$ec" -ne 0 ] && [ -n "$out" ]; then
-  echo "Type checker found issues — fix before finishing:"
+  echo "Type checker found issues -- fix before finishing:"
   echo "$out" | tail -30
 fi
 

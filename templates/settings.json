@@ -12,15 +12,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/load-continuity.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/load-continuity.sh\""
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/load-learnings.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/load-learnings.sh\""
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/capture-learnings.sh\" catchup"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/capture-learnings.sh\" catchup"
           }
         ]
       }
@@ -35,7 +35,7 @@
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-push-main.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-push-main.sh\""
           }
         ]
       },
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/warn-shared-modules.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/warn-shared-modules.sh\""
           }
         ]
       }
@@ -55,11 +55,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/lint-fix.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-fix.sh\""
           },
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/type-check.sh\""
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/type-check.sh\""
           }
         ]
       }
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/capture-learnings.sh\" end"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/capture-learnings.sh\" end"
           }
         ]
       }
