@@ -73,7 +73,7 @@ Quick start) for the full breakdown of any row.
 | 🔁 **Pipeline & quality gates** | Gate-enforced progression (zero open Critical/High/Medium to advance), per-profile gate sets, a fast-track for small changes, and an anti-sycophancy `devils-advocate` pass |
 | 🤖 **Agent roster** | **28** tiered agents + per-database overlays + **6** org personas, led by an Orchestrator that never writes code |
 | 🔍 **Self-verification & review** | RARV green-Verify (real commands, not imagined), blind parallel review, and read-only risk classification |
-| 📐 **Rules & skills** | **24** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
+| 📐 **Rules & skills** | **25** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
 | 🧱 **Stacks & overlays** | Stack-agnostic core + **10** overlay rule sets (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
@@ -297,8 +297,8 @@ need.
 
 <br>
 
-- **24 stack-agnostic core rules** in [`rules/`](rules/) — `mandatory-workflow`, `quality-gates`,
-  `rarv-cycle`, `continuity`, plus eight agent-operation rules and `autonomy-levels` +
+- **25 stack-agnostic core rules** in [`rules/`](rules/) — `mandatory-workflow`, `quality-gates`,
+  `rarv-cycle`, `continuity`, `wave-orchestration`, plus eight agent-operation rules and `autonomy-levels` +
   `risk-classification` (see [`docs/agentic-patterns.md`](docs/agentic-patterns.md)).
 - **104 on-demand skills** in [`skills/`](skills/) (56 core + 48 stack-collection) — spec-driven dev, planning, TDD, debugging, code
   review, threat modeling, and more — activated by context and led by the `sdlc` entrypoint.
@@ -345,7 +345,7 @@ on a React + FastAPI + PostgreSQL project, individual scope:
 | `standard` (default) | 26 | 42 | 35 |
 | `enterprise` | 31 | 104 | 35 |
 
-- **Rules are profile-independent** — every profile installs the same 24 core rules + the selected
+- **Rules are profile-independent** — every profile installs the same 25 core rules + the selected
   stack's overlays (11 for this stack = 35); rigor changes the *agents and gates*, not the rule set.
 - **Skills activate on demand** — they are installed and available, then pulled into context by task
   relevance, not all held resident at once. The count is what's on disk, not a fixed context tax.
@@ -476,7 +476,7 @@ owned gates, and the rule that **no gate passes on an unproven verdict**.
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | A **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | The same coverage-gate idea (the `story-planner` 1f gate + `task-tracker-sync`) **absorbed into a broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | **Portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 24 rules, 28 agents, 104 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 25 rules, 28 agents, 104 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
 
 **Choose claude-kit when** you want a consistent, reviewable, **gate-enforced** autonomous-SDLC setup
 that's the same across every repo and stack, installs in seconds, ships nothing you have to run, and
@@ -679,7 +679,7 @@ rollback) in `security-and-hardening` (from `Netflix/repokid`).
 
 ## Rules & skills
 
-**Rules** ([`rules/`](rules/)) are the 24 stack-agnostic contracts every agent obeys — the
+**Rules** ([`rules/`](rules/)) are the 25 stack-agnostic contracts every agent obeys — the
 `mandatory-workflow` pipeline, `quality-gates`, `rarv-cycle`, `continuity`, `documentation`,
 `testing`, the eight agent-operation rules (`reasoning-techniques`, `agent-guardrails`,
 `agent-resilience`, `goal-setting-and-monitoring`, `human-in-the-loop`, `model-tiers`, `evals`,
@@ -831,7 +831,7 @@ build attestations** for supply-chain provenance. Report vulnerabilities private
 ```
 claude-kit/
 ├── .claude-plugin/        plugin.json + marketplace.json
-├── agents/                28 SDLC agents          rules/        24 engineering rules
+├── agents/                28 SDLC agents          rules/        25 engineering rules
 ├── skills/                on-demand skills        templates/    CLAUDE.md, settings, artifacts, memory seeds
 ├── commands/              /claude-kit:* commands  hooks/        hooks.json + scripts/
 ├── catalog/         stacks·profiles·mcp·org       templates/stacks/  per-stack overlay rules + agents

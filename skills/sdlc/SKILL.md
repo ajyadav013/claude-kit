@@ -24,6 +24,9 @@ Before doing anything, read:
 - `.claude/rules/quality-gates.md` — the severity model (zero Critical/High/Medium to pass a gate)
   and the blind-review + Devil's Advocate protocol.
 - `.claude/rules/rarv-cycle.md` — the Reason → Act → Reflect → Verify self-check every agent runs.
+- `.claude/rules/wave-orchestration.md` — the program-mode contract (audit manifest, risk-ordered
+  waves, disjoint boundaries, inventory approval) — required whenever the work classifies as
+  program-scale.
 
 Then read `.claude/CONTINUITY.md` (the `load-continuity` SessionStart hook has already printed it into
 context). **Detect an in-progress run:** if **Current Phase** is not idle and **Active Tasks** names a
@@ -65,20 +68,30 @@ Spawn the `orchestrator` agent via the Agent tool with: the task ($ARGUMENTS), t
 and the stack selection. Instruct it to:
 
 1. **Classify** the work — bug fix vs. feature; single-stream vs. parallel lanes (backend/frontend);
-   fast-track (< 5 files) vs. full pipeline. Fast-track collapses to the lean gate set regardless of
-   profile.
+   fast-track (< 5 files) vs. full pipeline vs. **program-scale** (> ~20 files / multiple subsystems,
+   or any irreversible step: production data, schema migration, deletion sweep). Fast-track collapses
+   to the lean gate set regardless of profile. Program-scale work runs **Mode E — wave
+   orchestration** per `.claude/rules/wave-orchestration.md`: parallel read-only audits → one frozen
+   scope manifest (UNKNOWN = stop and ask) → risk-ordered waves with disjoint file boundaries →
+   gate-runner agents between waves → inventory approval before irreversible steps → a knowledge
+   closeout wave.
 2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
    survives compaction — update it at every phase transition), and mirror the gate-precise state into
    the structured snapshot `.claude/state/pipeline-snapshot.json`. On resume, reload the snapshot as
    *context* and re-enter at the first gate *after* `last_gate_passed` — re-running only un-passed or
    defect-affected lanes, never re-running setup or re-applying committed edits.
-3. **Run each active phase with its gate**, in order, using only the profile's agents:
+3. **Route skills and models explicitly.** Every agent the orchestrator spawns is told which
+   skill(s) to load for its stage (the orchestrator's Skill Routing table; only skills actually
+   installed under `.claude/skills/`) and runs on the model tier its work deserves
+   (`.claude/rules/model-tiers.md`) — cheap for audits/scans, standard for build/review, top tier
+   only for orchestration and hard reasoning.
+4. **Run each active phase with its gate**, in order, using only the profile's agents:
    spec & dev-docs → story planning → (design, if UI) → senior/architect/EM review →
    implementation (one worktree per lane) → code review → unit + e2e tests → test-coverage merge →
    security clear → pipeline-green + observability-ready (enterprise) → acceptance (enterprise) → PR.
-4. **Enforce gates** with the `quality-gates.md` severity model and a green RARV Verify before each
+5. **Enforce gates** with the `quality-gates.md` severity model and a green RARV Verify before each
    handoff. On a unanimous PASS, run the `devils-advocate` agent before the gate counts.
-5. **Run the defect loop** when a gate fails: document, re-run only the affected lane(s), re-merge,
+6. **Run the defect loop** when a gate fails: document, re-run only the affected lane(s), re-merge,
    re-test — never patch informally around the process.
 
 If the `orchestrator` agent is unavailable in this session, act as the orchestrator yourself,

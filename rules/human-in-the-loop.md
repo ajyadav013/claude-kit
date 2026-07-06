@@ -40,6 +40,17 @@ When you stop, give the human enough to decide in one read — don't make them d
 Use the `interview-me` skill when an ask is underspecified and you need to extract true intent one
 question at a time, rather than firing a wall of questions.
 
+### Destructive work: approve the inventory, not the idea
+
+For destructive or irreversible actions (data mutation/deletion, schema migration, file sweeps),
+the ask must be **inventory-shaped**: the agent proposes the **precise list** of what it will touch
+— the exact rows/files/keys and their counts, produced by a dry run where possible — the human
+approves *that list*, and the agent then executes **exactly the approved inventory** and re-verifies
+the counts afterwards. A vague "may I run the migration?" is not an askable question; "these 1,204
+rows in these 3 tables, counts attached" is. Deviations discovered during execution stop the action
+and re-enter this protocol. (Program-scale runs apply this per wave — see
+`.claude/rules/wave-orchestration.md` §5.)
+
 ## Implementing the gate (when you build the approval into a system)
 
 The list above is *when* to stop; this is *how* to wire a durable gate when an autonomous flow must

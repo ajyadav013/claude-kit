@@ -54,7 +54,7 @@ Measured on a `react + fastapi + postgres` project with `--scope individual`:
 
 - Skill counts are skill *directories* (those containing a `SKILL.md`) — matching `_count_skills()` and the README's "What loads into your context" table. A raw `ls .claude/skills | wc -l` reads one higher (15 / 43 / 105) because each install also copies the shared `_references/` support directory, which is **not** a skill; `_count_skills()` deliberately excludes it. This is a counting convention, not duplicated content.
 - Agent counts exceed the raw profile agent list because the PostgreSQL DB overlay unions in 3 additional agents (`postgres-specialist`, `migration-specialist`, `db-performance-reviewer`).
-- Rules are profile-independent: 24 core rules + 11 selected stack-overlay rules = 35 for all three profiles.
+- Rules are profile-independent: 25 core rules + 11 selected stack-overlay rules = 36 for all three profiles.
 - Token estimates are approximate (bytes ÷ 4) and count on-disk **skill** bytes only, not always-resident context (see Finding below). The finding stands: enterprise installs every skill in the payload via `skills: all`.
 
 ---

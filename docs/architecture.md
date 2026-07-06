@@ -219,7 +219,7 @@ claude-kit/
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-* / validate-* / audit-log
-├── rules/                     # 24 stack-agnostic engineering rules (incl. agent-operation + org-core rules)
+├── rules/                     # 25 stack-agnostic engineering rules (incl. agent-operation + org-core rules)
 ├── catalog/                   # stacks.yaml · profiles.yaml · mcp.yaml · org.yaml (the resolver's data)
 ├── templates/
 │   ├── CLAUDE.md · CLAUDE.stack.md.tmpl · README.claude-sdlc.md.tmpl
