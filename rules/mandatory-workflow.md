@@ -17,6 +17,7 @@ fork/join logic applies to any set of independent work streams.
 |-----------|----------|
 | Bug fix, defect, regression, crash, broken behavior | **Bug Fix Workflow** |
 | New feature, enhancement, new page/component, refactor | **Feature Workflow — SDLC Agent Pipeline** |
+| Migration / repo-wide refactor / many subsystems / any irreversible step (production data, schema, deletion sweep) | **Wave Orchestration** — `.claude/rules/wave-orchestration.md` (each unit inside a wave still runs one of the two workflows above) |
 
 If unclear whether a task is a bug fix or feature, ask the user.
 

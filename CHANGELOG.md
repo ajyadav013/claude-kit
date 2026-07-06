@@ -4,6 +4,53 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.58.0] — 2026-07-06
+
+**Wave orchestration — program-scale runs, explicit skill routing, and the inventory-approval
+pattern.** Adopts the program-management patterns from Ryan Carson's public writeup of a
+40-session orchestrated migration (one pure orchestrator, audit-first frozen manifest, risk-ordered
+waves, disjoint file boundaries, gate-runner sessions, propose-inventory/human-approves,
+stop-and-report escalation, docs-as-final-wave) into the `/sdlc` pipeline. Stack-agnostic,
+catalog untouched. **+1 core rule (24 → 25); 0 new agents/skills.**
+
+### Added
+
+- **`rules/wave-orchestration.md`** (new core rule, installed by every profile). Program mode for
+  migration-scale work: Wave 0 parallel read-only audits synthesized into **one frozen scope
+  manifest** committed to the repo (every unit gets a verdict + wave number; `UNKNOWN` = stop and
+  ask; no worker re-litigates scope); waves sequenced by **risk, not convenience** (irreversible
+  steps last, restore-point git tags); **disjoint file boundaries** stated in every parallel worker
+  prompt; **gate-runner workers** between waves (regression suite on an isolated branch, backup
+  audit + fresh snapshot before destructive waves); the **inventory pattern** for irreversible steps
+  (approve the list, not the idea); a pre-declared **escalation path** (workers stop and report,
+  never improvise); and a mandatory **knowledge-closeout wave** (docs/rules/skills/agent memory
+  updated to the new state of the world).
+- **`orchestrator` Mode E — Program / Wave Mode.** New classification (`program-scale`: > ~20
+  files / multiple subsystems, or any irreversible step) and the wave pipeline above, plus three new
+  orchestrator sections: **Skill Routing** (every spawn prompt names the skill(s) the worker must
+  load for its stage — spec → `spec-driven-development`, implementation → `incremental-implementation`
+  + lane overlays, closeout → `refresh-docs`/`remember`/`consolidate-learnings`, etc.; absent skills
+  drop silently), **Model Tiering** (cheap tier for audits/sweeps/scans, standard for build/review/
+  gates, top tier only for orchestration/hard reasoning, per `rules/model-tiers.md`), and an
+  **Escalation Protocol for Workers** (stop, report to the orchestrator, don't improvise; overrides
+  recorded in the manifest/CONTINUITY). Orchestrator rules 19–23 pin all of it.
+- **`rules/human-in-the-loop.md` — "approve the inventory, not the idea."** Destructive/irreversible
+  asks must be inventory-shaped: dry-run list + counts proposed, the human approves that exact list,
+  the agent executes exactly it and re-verifies counts; deviations stop and re-enter the protocol.
+
+### Changed
+
+- **`skills/sdlc/SKILL.md`** — classification now includes `program-scale` → Mode E;
+  `wave-orchestration.md` added to the load-the-contract list; new step 3 makes skill routing and
+  per-worker model tiering an explicit orchestrator instruction on every run.
+- **`rules/mandatory-workflow.md`** — the "Which Workflow?" table routes migration-scale /
+  irreversible work to `wave-orchestration.md` (units inside a wave still run the bug-fix or
+  feature workflow).
+- **`orchestrator` parallelism rules** — explicit **disjoint file boundaries are now mandatory for
+  every parallel spawn in every mode**, not just an early-intervention health signal.
+- Docs/counts: README, `CLAUDE.md`, `docs/architecture.md`, `docs/skill-audit.md` updated for the
+  25-rule core.
+
 ## [0.57.0] — 2026-07-03
 
 **Adoption & hardening — release automation, honest docs, and a credibility pass.** No new

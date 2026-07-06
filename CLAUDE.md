@@ -67,7 +67,7 @@ The kit's central data flow is **Selection → catalog.resolve() → ResolvedPla
 | `skills/` | Agent skills (auto-discovered by the plugin); `skills/sdlc/` is the `/sdlc` entrypoint |
 | `commands/` | Slash commands: `/claude-kit:init`, `:sdlc`, `:status`, `:abort` (init prefers the pip CLI, falls back to `init.sh`; sdlc delegates to the `sdlc` skill; abort tears down an in-progress `/sdlc` run) |
 | `hooks/hooks.json` + `hooks/scripts/` | Event hooks (paths via `${CLAUDE_PLUGIN_ROOT}`) |
-| `rules/` | The 24-file stack-agnostic engineering rule set (scaffolded into `.claude/rules/`), including the agent-operation rules (reasoning, guardrails, resilience, goal-setting, human-in-the-loop, model-tiers, evals, tool-design — see `docs/agentic-patterns.md`), the service-level `resilience-engineering` rule, and the org-core rules `autonomy-levels` + `risk-classification` (see `docs/org-capabilities.md`) |
+| `rules/` | The 25-file stack-agnostic engineering rule set (scaffolded into `.claude/rules/`), including the agent-operation rules (reasoning, guardrails, resilience, goal-setting, human-in-the-loop, model-tiers, evals, tool-design — see `docs/agentic-patterns.md`), the program-scale `wave-orchestration` rule, the service-level `resilience-engineering` rule, and the org-core rules `autonomy-levels` + `risk-classification` (see `docs/org-capabilities.md`) |
 | `catalog/` | **Data-driven registry** — `stacks.yaml` · `profiles.yaml` · `mcp.yaml` · `org.yaml`. The only thing that decides what `resolve()` installs. Adding a stack/profile/server/pack is a data change here. |
 | `templates/` | `CLAUDE.md`, `CLAUDE.stack.md.tmpl`, `README.claude-sdlc.md.tmpl`, `CONTINUITY.template.md`, `settings.json`, `artifacts/`, `agent-memory/` seed |
 | `templates/stacks/<kind>/<id>/` | Per-stack **overlay** content: `rules/` (+ `agents/` for DB stacks). **No application code, no Docker** — the only place stack-specific content lives. |
@@ -94,7 +94,7 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
    and is wired up via `catalog/stacks.yaml` — never leak it into the agnostic core, and never add
    application code or Docker anywhere.
 2. **Reference rules by their canonical filename** under `.claude/rules/…` (that's where they
-   land in a user project). The current core rule set is the 24 files in `rules/` (org policy/vibe
+   land in a user project). The current core rule set is the 25 files in `rules/` (org policy/vibe
    rules under `templates/org/rules/` install only in organization scope).
 3. **Plugin components live at the repo root**, never inside `.claude-plugin/` (only the
    manifest goes there).
