@@ -164,6 +164,18 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **`upgrade --force` now actually does what it documents** (found by writing round-2 R7's
+  crash-path tests; reproduced empirically first). The docstring and CLI promised "overwrite
+  user-modified user-editable files instead of writing sidecars", but a user-edited user-editable
+  file always produces a `keep` action, and `_apply`'s keep branch ignored `force` — the flag was
+  a no-op for exactly the files it exists for (the force-guarded `update` condition was
+  unreachable). The keep branch now honors force: the user's copy is backed up to
+  `.claude-kit.bak-N/`, the canonical file restored, no sidecar. Default (no-force) behavior
+  unchanged and pinned by a control test. R7's other gaps are covered too: a **mid-apply crash**
+  (via a counting shutil shim confined to the upgrader module — the tree is left genuinely
+  half-upgraded, the journal stays open, and a plain re-run converges) and a **cross-version
+  upgrade** (consistent aged install: old content + matching old record → silent refresh, no
+  backups, version transition surfaced).
 - **`guard-secrets.sh` no longer blocks committing `.env.example`-style placeholder files**
   (surfaced by writing the guard's first behavioral tests, R2; reproduced empirically first).
   The filename pattern `\.env($|\.)` — written to catch `.env.local`/`.env.production`, which do

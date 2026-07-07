@@ -376,12 +376,19 @@ def _apply(
                 _copy_ref(act.rel)
                 msgs.append(f"  ✓ {act.rel}")
         elif act.kind == "keep":
-            shutil.copy2(
-                ref_root / act.rel, live.with_name(live.name + _SIDECAR_SUFFIX)
-            )
-            msgs.append(
-                f"  ~ {act.rel} (kept; new version -> {live.name}{_SIDECAR_SUFFIX})"
-            )
+            if force:
+                # --force: the documented contract is "overwrite user-modified user-editable
+                # files instead of writing sidecars" — with the user's copy backed up first.
+                _backup(act.rel)
+                _copy_ref(act.rel)
+                msgs.append(f"  ✓ {act.rel} (forced; your edits backed up)")
+            else:
+                shutil.copy2(
+                    ref_root / act.rel, live.with_name(live.name + _SIDECAR_SUFFIX)
+                )
+                msgs.append(
+                    f"  ~ {act.rel} (kept; new version -> {live.name}{_SIDECAR_SUFFIX})"
+                )
         elif act.kind == "remove":
             _backup(act.rel)
             live.unlink(missing_ok=True)

@@ -130,3 +130,65 @@ def test_merge_install_does_not_write_a_journal(tmp_path, payload, monkeypatch):
     with pytest.raises(RuntimeError):
         upgrader.merge_install(payload, tmp_path, plan)
     assert not _journal(tmp_path).exists()
+
+
+class _CrashingShutil:
+    """Delegate to the real shutil but raise on the Nth copy2 call.
+
+    Patching the ``upgrader.shutil`` *attribute* (not the shared shutil module itself) confines
+    the crash to the upgrader's own calls — scaffold's reference build, which runs earlier inside
+    ``upgrade()``, keeps the real module and stays intact. This is how a crash *inside* the
+    ``_apply`` mutation loop is simulated, unlike ``_next_backup_dir`` which crashes before any
+    file is touched.
+    """
+
+    def __init__(self, real, crash_after: int) -> None:
+        self._real = real
+        self._copies = 0
+        self._crash_after = crash_after
+
+    def copy2(self, *a, **k):
+        self._copies += 1
+        if self._copies > self._crash_after:
+            raise RuntimeError("simulated crash mid-apply")
+        return self._real.copy2(*a, **k)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_mid_apply_crash_leaves_partial_state_then_resumes(
+    tmp_path, payload, monkeypatch
+):
+    """Crash AFTER the first file was mutated (not before, like the _next_backup_dir test):
+    the tree is genuinely half-upgraded, the journal is on disk, and a plain re-run converges."""
+    import shutil as real_shutil
+
+    install(payload, tmp_path)
+    rule_a = tmp_path / ".claude" / "rules" / "continuity.md"
+    rule_b = tmp_path / ".claude" / "rules" / "testing.md"
+    pristine_a = rule_a.read_text(encoding="utf-8")
+    pristine_b = rule_b.read_text(encoding="utf-8")
+    rule_a.write_text("DRIFTED\n", encoding="utf-8")
+    rule_b.write_text("DRIFTED\n", encoding="utf-8")
+
+    # Two drifted kit files -> actions sorted by path: [continuity, testing], each doing
+    # copy2 twice (backup, then restore). crash_after=2 = die on testing.md's backup:
+    # continuity.md is already healed, testing.md still drifted.
+    monkeypatch.setattr(upgrader, "shutil", _CrashingShutil(real_shutil, crash_after=2))
+    with pytest.raises(RuntimeError, match="mid-apply"):
+        upgrader.upgrade(tmp_path)
+    monkeypatch.undo()
+
+    assert _journal(tmp_path).exists()  # transaction visibly open
+    assert rule_a.read_text(encoding="utf-8") == pristine_a  # first mutation landed
+    assert rule_b.read_text(encoding="utf-8") == "DRIFTED\n"  # second never ran
+
+    # Convergent resume: a plain re-run finishes the remaining work and commits.
+    ok, msgs = upgrader.upgrade(tmp_path)
+    assert ok, msgs
+    assert not _journal(tmp_path).exists()
+    assert rule_b.read_text(encoding="utf-8") == pristine_b
+    # And a third run is a clean no-op.
+    ok, msgs = upgrader.upgrade(tmp_path)
+    assert ok and any("nothing to upgrade" in m for m in msgs)
