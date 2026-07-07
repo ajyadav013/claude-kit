@@ -225,6 +225,14 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **MCP pin freshness (issue #63)** — the two pins the monthly check flagged were bumped after
+  changelog review, per the pins' own bump-deliberately contract: `@playwright/mcp`
+  0.0.76 → **0.0.77** (tag diff verified: five housekeeping commits — dev-dep bump, docs, engine
+  roll; no tool/invocation changes; no GitHub release exists for it yet, so the npm publish +
+  `v0.0.76...v0.0.77` compare was the review) and `@azure/mcp` 3.0.0-beta.21 → **3.0.0-beta.23**
+  (beta.22 argument cleanup + fixes, beta.23 adds read-only Resilience/Terraform toolsets; the
+  `server start` invocation shape unchanged). Pin-snapshot date refreshed to 2026-07-07;
+  `check_mcp_pins.py --check-latest` now reports all pins at the registry latest.
 - **Round-2 low block (R13–R17) — five small truthfulness fixes, each reproduced before touching:**
   (R13) `export` said "Wrote 39 file(s)" on a re-export that wrote nothing (mtime-proved) —
   `export_targets` now returns `(written, already_current)` and only files that touched disk count
