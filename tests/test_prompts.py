@@ -50,3 +50,189 @@ def test_malformed_yaml_is_a_friendly_valueerror(tmp_path, payload):
     cfg = _write(tmp_path, "profile: standard\n  backend: [unclosed\n")
     with pytest.raises(ValueError, match="not valid YAML"):
         prompts.from_config(cfg, payload)
+
+
+# --- interactive parsers (R5): the paths a real human hits ---------------------------------
+#
+# Before these, only the EOFError->default branch was executed (proved with a line tracer in
+# the round-2 review); the numeric-selection, re-prompt, multi-select, and yes/no parsing that
+# an actual interactive `init` exercises had zero coverage.
+
+
+def _feed(monkeypatch, answers: list[str]) -> None:
+    """Monkeypatch input() to return the answers in order; fail loudly if over-consumed."""
+    it = iter(answers)
+
+    def fake_input(prompt: str = "") -> str:
+        try:
+            return next(it)
+        except StopIteration:  # pragma: no cover - a failure aid, not a path under test
+            pytest.fail(
+                f"input() called more times than answers provided (at {prompt!r})"
+            )
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+
+def test_ask_strips_and_defaults(monkeypatch):
+    _feed(monkeypatch, ["  spaced  ", ""])
+    assert prompts._ask("q", "dflt") == "spaced"
+    assert prompts._ask("q", "dflt") == "dflt"
+
+
+def test_choose_one_accepts_number_and_id(monkeypatch):
+    options = [{"id": "alpha", "label": "Alpha"}, {"id": "beta", "label": "Beta"}]
+    _feed(monkeypatch, ["2"])
+    assert prompts._choose_one("T", options, "alpha") == "beta"
+    _feed(monkeypatch, ["beta"])
+    assert prompts._choose_one("T", options, "alpha") == "beta"
+
+
+def test_choose_one_reprompts_until_valid(monkeypatch, capsys):
+    options = [{"id": "alpha", "label": "Alpha"}, {"id": "beta", "label": "Beta"}]
+    _feed(
+        monkeypatch, ["bogus", "99", "1"]
+    )  # unknown id, out-of-range number, then valid
+    assert prompts._choose_one("T", options, "beta") == "alpha"
+    out = capsys.readouterr().out
+    assert out.count("please enter one of the listed ids or numbers") == 2
+
+
+def test_choose_one_planned_options_are_visible_but_not_selectable(monkeypatch, capsys):
+    options = [
+        {"id": "live-one", "label": "Live"},
+        {"id": "soon", "label": "Soon", "status": "planned"},
+    ]
+    # Choosing the planned id is rejected; numbering covers live options only, so "1" = live-one.
+    _feed(monkeypatch, ["soon", "1"])
+    assert prompts._choose_one("T", options, "live-one") == "live-one"
+    out = capsys.readouterr().out
+    assert "(coming soon)" in out
+    assert "2)" not in out  # the planned entry got no selectable number
+
+
+@pytest.mark.parametrize(
+    ("resp", "expected"),
+    [
+        ("y", True),
+        ("yes", True),
+        ("TRUE", True),
+        ("1", True),
+        ("n", False),
+        ("no", False),
+        ("False", False),
+        ("0", False),
+    ],
+)
+def test_ask_bool_recognised_answers(monkeypatch, resp, expected):
+    _feed(monkeypatch, [resp])
+    assert prompts._ask_bool("q", default=not expected) is expected
+
+
+def test_ask_bool_garbage_falls_back_to_default(monkeypatch):
+    _feed(monkeypatch, ["maybe", "maybe"])
+    assert prompts._ask_bool("q", default=True) is True
+    assert prompts._ask_bool("q", default=False) is False
+
+
+def test_choose_many_empty_and_none_mean_no_selection(monkeypatch):
+    options = [{"id": "github", "label": "GitHub"}]
+    _feed(monkeypatch, [""])
+    assert prompts._choose_many("T", options) == []
+    _feed(monkeypatch, ["none"])
+    assert prompts._choose_many("T", options) == []
+
+
+def test_choose_many_mixed_ids_numbers_dedup_and_unknowns(monkeypatch, capsys):
+    options = [
+        {"id": "github", "label": "GitHub"},
+        {"id": "linear", "label": "Linear"},
+        {"id": "jira", "label": "Jira"},
+    ]
+    # id + number + duplicate id + unknown token, comma/space separated.
+    _feed(monkeypatch, ["github, 2 github bogus"])
+    assert prompts._choose_many("T", options) == ["github", "linear"]
+    assert "ignoring unknown selection: bogus" in capsys.readouterr().out
+
+
+def test_interactive_full_flow_numbers_and_ids(monkeypatch, payload):
+    """Drive the whole question sequence the way a human would: numbers AND ids.
+
+    Live menu numbering (planned lanes get no number): frontend 1) none 2) react;
+    backend 1) none 2) python 3) go.
+    """
+    _feed(
+        monkeypatch,
+        [
+            "2",  # frontend framework -> react (numeric)
+            "typescript",  # frontend language (id)
+            "2",  # backend language -> python (numeric)
+            "",  # backend framework -> default (fastapi)
+            "postgres",  # database (id)
+            "enterprise",  # profile (id)
+            "",  # learning capture -> profile default
+            "github linear",  # MCP multi-select
+            "individual",  # usage scope (no org questions follow)
+        ],
+    )
+    sel = prompts.interactive(payload)
+    assert sel.frontend_framework == "react"
+    assert sel.frontend_language == "typescript"
+    assert sel.backend_language == "python"
+    assert sel.backend_framework == "fastapi"
+    assert sel.database == "postgres"
+    assert sel.profile == "enterprise"
+    assert sel.capture_mode == "session-end-catchup"  # non-lean default
+    assert sel.mcp == ["github", "linear"]
+    assert sel.scope == "individual"
+
+
+def test_interactive_none_frontend_skips_language_question(monkeypatch, payload):
+    """The `none` lane declares no languages, so no language question consumes an answer."""
+    _feed(
+        monkeypatch,
+        [
+            "none",  # frontend framework -> the lane-less entry
+            "3",  # backend language -> go (if a language Q leaked in, alignment breaks here)
+            "",  # backend framework -> default (net-http)
+            "none",  # database
+            "lean",  # profile
+            "",  # learning capture -> lean defaults to off
+            "",  # MCP -> none
+            "individual",  # scope
+        ],
+    )
+    sel = prompts.interactive(payload)
+    assert sel.frontend_framework == "none"
+    assert sel.frontend_language == "none"
+    assert sel.backend_language == "go"
+    assert sel.backend_framework == "net-http"
+    assert sel.capture_mode == "off"  # lean's intentionally-minimal default
+    assert sel.mcp == []
+
+
+def test_interactive_organization_scope_asks_the_org_questions(monkeypatch, payload):
+    _feed(
+        monkeypatch,
+        [
+            "",  # frontend -> default (react)
+            "",  # language -> default (typescript)
+            "",  # backend -> default (python)
+            "",  # framework -> default (fastapi)
+            "",  # database -> default (postgres)
+            "",  # profile -> default (standard)
+            "",  # capture -> default
+            "",  # MCP -> none
+            "organization",  # scope -> unlocks the org block
+            "engineering, product",  # teams (multi)
+            "autonomous-pr",  # autonomy
+            "regulated",  # review strictness
+            "n",  # org packs -> declined
+        ],
+    )
+    sel = prompts.interactive(payload)
+    assert sel.scope == "organization"
+    assert sel.teams == ["engineering", "product"]
+    assert sel.autonomy == "autonomous-pr"
+    assert sel.review_strictness == "regulated"
+    assert sel.org_packs is False

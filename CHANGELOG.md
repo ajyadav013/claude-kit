@@ -140,6 +140,17 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Added (continued — round-2 test-gap closure)
 
+- **The interactive `init` parsers finally have tests that answer questions** (round-2 R5; a
+  line-tracer proof showed only the EOFError→default branch ever executed — the numeric-selection,
+  re-prompt, multi-select, and yes/no paths a real human hits had zero coverage). 18 new cases in
+  `tests/test_prompts.py` monkeypatch `input()`: `_choose_one` by number and by id, re-prompt-until-
+  valid (bad id, out-of-range number), planned lanes visible-but-unselectable with live-only
+  numbering; `_ask_bool`'s eight recognised answers plus garbage→default; `_choose_many` empty/
+  `none`, mixed ids+numbers, order-preserving dedup, unknown-token warnings; and three end-to-end
+  `interactive()` flows — the full default path driven by numbers and ids, the `none` frontend
+  lane proving the language question is skipped (answer alignment breaks if it leaks back), and
+  the organization scope unlocking the teams/autonomy/strictness/packs block.
+
 - **Behavioral tests for the eleven remaining never-executed hook scripts** (round-2 R4; the
   verifier had proved only 4 of 18 scripts were ever run by tests). New `tests/test_hook_scripts.py`
   (31 cases) executes each script against real stdin JSON, temp project dirs, and live git repos:
