@@ -124,6 +124,33 @@ Announce the spend before it happens: the manifest states the worker count per w
 orchestrator repeats that count (and its model tiers) when opening each wave — scale is vetoable
 before the tokens go out, not after.
 
+## Native dynamic workflows as the wave substrate
+
+Claude Code ≥ 2.1.154 ships a native **dynamic-workflows engine**: Claude writes a JavaScript
+orchestration script and a background runtime executes it — dozens to hundreds of subagents per
+run, intermediate results held in script variables instead of anyone's context, per-agent progress
+and token spend in `/workflows`, and in-session resume (completed agents return cached results).
+That engine and this rule solve different problems, and they compose:
+
+- **This rule is the contract; the engine is a substrate.** The manifest, risk-ordered waves,
+  gate-runner verdicts, and human approvals are not replaced by the engine — it provides execution
+  capacity, not governance.
+- **One workflow run per wave.** The runtime accepts **no mid-run user input**; its own docs'
+  advice for sign-off between stages is to run each stage as its own workflow. That maps exactly
+  onto this rule: a wave's worker fan-out may run as one workflow run (Wave 0's parallel read-only
+  audits are the canonical fit; so is a bulk middle wave over disjoint boundaries), and everything
+  human — gate-verdict review, inventory approval (§5), `UNKNOWN` rulings — happens **between
+  runs**, in the conversation. Never place an irreversible step inside a run: nothing can pause
+  the runtime to ask.
+- **The committed artifacts stay the durable record.** Resume is session-scoped (a run does not
+  survive exiting the session), so the manifest, wave state, and restore-point tags — not the run —
+  remain the source of truth, exactly as this rule already requires.
+
+Availability is not guaranteed: the engine needs a paid plan (opt-in on Pro via `/config`), and
+users or orgs can disable it (`"disableWorkflows"`, `CLAUDE_CODE_DISABLE_WORKFLOWS=1`, managed
+settings). Plan the program under this rule first; pick the substrate per wave — ordinary parallel
+subagents or a workflow run — based on what the session actually has.
+
 ## Relationship to other rules
 
 - **`.claude/rules/mandatory-workflow.md`** — the feature pipeline each worker still follows *inside*

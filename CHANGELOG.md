@@ -18,6 +18,21 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Added
 
+- **Native dynamic workflows routed against the wave pattern** (verified against the official
+  workflows doc + the Claude Code changelog: engine introduced **2.1.154**, trigger keyword renamed
+  `workflow` → `ultracode` at 2.1.160, size guideline setting at 2.1.202). The round-2 review found
+  all four program-scale routing sites silent on Claude Code's in-product dynamic-workflows engine —
+  a reader could think the wave pattern competes with it. Now `rules/wave-orchestration.md` gains a
+  "Native dynamic workflows as the wave substrate" section built on the docs' own constraint (the
+  runtime accepts **no mid-run user input**; its advice for sign-off between stages is one workflow
+  per stage — which maps one-to-one onto *one workflow run per wave, humans between runs*): the rule
+  is the **contract** (manifest, gate-runners, inventory approval), the engine is an **execution
+  substrate** a wave's fan-out may run on; irreversible steps never go inside a run; committed
+  artifacts stay the durable record because resume is session-scoped; and availability is never
+  assumed (paid-plan-gated, Pro opt-in, org-disableable) so Agent-tool fan-out remains the default.
+  The orchestrator's Mode E, the `/sdlc` classification step, and the `mandatory-workflow.md`
+  "Which Workflow?" table each gain a short pointer (the table's is a naming disambiguation:
+  dynamic workflows are not a fourth row).
 - **The stack→collection-skill mapping, measured** — `docs/skill-audit.md` gains the classification
   the audit's own "evaluate `skills: stack-relevant`" item called for: all 48 collection skills
   classified against the lanes actually selectable today. Headline: **22 of 48 are

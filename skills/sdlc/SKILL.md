@@ -74,7 +74,10 @@ and the stack selection. Instruct it to:
    orchestration** per `.claude/rules/wave-orchestration.md`: parallel read-only audits → one frozen
    scope manifest (UNKNOWN = stop and ask) → risk-ordered waves with disjoint file boundaries →
    gate-runner agents between waves → inventory approval before irreversible steps → a knowledge
-   closeout wave.
+   closeout wave. (Where the session has Claude Code's native dynamic-workflows engine
+   (≥ 2.1.154), a wave's fan-out may execute as one workflow run — the wave contract, gates, and
+   human approvals are unchanged; see that rule's "Native dynamic workflows as the wave
+   substrate".)
 2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
    survives compaction — update it at every phase transition), and mirror the gate-precise state into
    the structured snapshot `.claude/state/pipeline-snapshot.json`. On resume, reload the snapshot as

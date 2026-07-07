@@ -223,6 +223,14 @@ manifest, the wave state, and the scope rulings; write zero code. Scope surprise
 YOU as manifest overrides — workers stop and report, never improvise (see Escalation Protocol for
 Workers below).
 
+**Substrate choice per wave:** on Claude Code ≥ 2.1.154 a wave's worker fan-out may run as one
+native **dynamic-workflow** run (background runtime; results stay out of context; in-session
+resume) — but the runtime takes no mid-run user input, so gate verdicts, inventory approvals, and
+UNKNOWN rulings always sit **between** runs, with you; never place an irreversible step inside a
+run. The engine is plan-gated and disableable, so ordinary parallel Agent-tool workers remain the
+default substrate. See `.claude/rules/wave-orchestration.md` → "Native dynamic workflows as the
+wave substrate".
+
 ---
 
 ## Execution Protocol
