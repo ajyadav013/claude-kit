@@ -35,6 +35,23 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Fixed
 
+- **Orchestrator: gate set now conditions on the installed profile, ghosts removed, three
+  installed-but-never-spawned agents wired in** (every claim verified against the files first):
+  a **lean** install ships 5 agents (`orchestrator, developer, sdlc-code-reviewer, tester,
+  pr-raiser`) yet the orchestrator's NEVER-skip rules mandated ui-designer / technical-architect /
+  em-reviewer / merge-reviewer / senior-tester stages that don't exist there — every lean run had
+  to either violate a NEVER rule or stall. New **Active Gate Set** section: derive the run's gate
+  set from the installed roster + profile at Stage 0 (`SKIPPED (not in profile)` is noted, never
+  silent, never PASS; everything active stays mandatory), matching the `sdlc` skill's existing
+  profile table. Removed the ghost **Design Specialist** (D2) and the separate **Spec
+  Writer/Dev Doc Writer** stages from the diagram, feedback loops, comms pattern, state examples,
+  and rule 5 — the roster has only the combined `ui-designer` and `spec-doc-writer` (same ghost
+  fixed in `em-reviewer.md`). Wired in the three standard+ agents the pipeline never spawned:
+  `unit-tester` authors the 4c unit suites per lane, `e2e-tester` is a conditional 4th testing
+  lane (never installs frameworks), and `acceptance-reviewer` is new **Stage 5.6** gating on the
+  enterprise `acceptance` token — which `rules/quality-gates.md` line 116 already assumed runs.
+  New **Gate ↔ Stage Map** table gives `pipeline-snapshot.json` its canonical
+  `last_gate_passed` tokens (aligned with `catalog/profiles.yaml` + the `sdlc` skill).
 - **Agent executability bundle** (each defect verified against the file before fixing):
   `sdlc-code-reviewer` gains `Bash` — its own protocol names `git diff --name-only` "the checklist
   of record" but its tool list couldn't run git. `auditor` drops its `tools:` allowlist (it excluded
@@ -92,6 +109,11 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Not adopted (deliberately)
 
+- **Compressing the orchestrator prompt to ~350 lines** (suggested by the review alongside the
+  gate-set fix) — refused: the verified defects were ghosts, missing wiring, and unconditioned
+  gates, not length. Every remaining section is load-bearing (wave mode, defect loop, health
+  monitoring, skill routing); the fix *added* ~60 lines of correctness rather than deleting
+  content to hit an arbitrary number.
 - **Granting Write to the security scanners/reviewers** so they could keep writing their own
   reports — read-only gates are a design asset (a reviewer that can edit the code it reviews is a
   weaker gate); the scribe pattern preserves the artifact trail without weakening the boundary.
