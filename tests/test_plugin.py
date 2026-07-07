@@ -425,3 +425,128 @@ def test_kubectl_delete_guard_blocks(command: str) -> None:
 )
 def test_kubectl_delete_guard_spares(command: str) -> None:
     assert _run_script_guard("guard-kubectl-delete.sh", command) == 0, command
+
+
+# --- functional guard-secrets behaviour: staged files + staged values (R2) ----------------------
+#
+# The secret-shaped VALUES below are assembled by concatenation so the shape never appears
+# literally in this file: the kit dogfoods guard-secrets.sh on its own commits, and a literal
+# AKIA…/ghp_… string in the staged diff would block the commit that adds these tests.
+# All parts are fake or canonical documentation examples.
+
+_NEED_GIT = pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+
+
+def _staged_repo(tmp_path: Path, files: dict[str, str]) -> Path:
+    """Init a throwaway git repo with ``files`` written and staged (never committed)."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    for name, content in files.items():
+        p = repo / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    return repo
+
+
+@_NEED_JQ
+@_NEED_GIT
+@pytest.mark.parametrize(
+    "fname",
+    [
+        ".env",
+        ".env.production",
+        "server.pem",
+        "deploy.key",
+        "credentials.json",
+        "cfg/credentials.yaml",
+    ],
+)
+def test_secrets_guard_blocks_secretlike_staged_files(
+    tmp_path: Path, fname: str
+) -> None:
+    repo = _staged_repo(tmp_path, {fname: "placeholder\n"})
+    assert (
+        _run_script_guard(
+            "guard-secrets.sh", "git commit -m msg", project_dir=str(repo)
+        )
+        == 2
+    ), fname
+
+
+@_NEED_JQ
+@_NEED_GIT
+@pytest.mark.parametrize(
+    "value",
+    [
+        "aws_key = "
+        + "AKIA"
+        + "IOSFODNN7EXAMPLE",  # AWS docs' canonical example key id
+        "-----BEGIN RSA " + "PRIVATE KEY-----",
+        "token = " + "ghp_" + "a1B2c3D4" * 5,  # 40 chars after the prefix
+        "stripe = " + "sk_live_" + "x9" * 12,
+        "slack = " + "xoxb-" + "123456789012-abcdefghij",
+    ],
+)
+def test_secrets_guard_blocks_secret_values_in_staged_diff(
+    tmp_path: Path, value: str
+) -> None:
+    repo = _staged_repo(tmp_path, {"settings.py": value + "\n"})
+    assert (
+        _run_script_guard(
+            "guard-secrets.sh", "git commit -m msg", project_dir=str(repo)
+        )
+        == 2
+    )
+
+
+@_NEED_JQ
+@_NEED_GIT
+def test_secrets_guard_blocks_through_git_global_options(tmp_path: Path) -> None:
+    """`git -c user.email=x commit` cannot slip a secret-bearing commit past the normalizer."""
+    repo = _staged_repo(tmp_path, {".env": "placeholder\n"})
+    cmd = "git -c user.email=x commit -m msg"
+    assert _run_script_guard("guard-secrets.sh", cmd, project_dir=str(repo)) == 2
+
+
+@_NEED_JQ
+@_NEED_GIT
+def test_secrets_guard_spares_names_without_values(tmp_path: Path) -> None:
+    """Env-var NAMES (SECRET_KEY, API_KEY) are not secrets — only value shapes block."""
+    repo = _staged_repo(
+        tmp_path,
+        {
+            "app.py": 'SECRET_KEY = os.environ["SECRET_KEY"]\n',
+            "README.md": "Set API_KEY and DATABASE_PASSWORD in your environment.\n",
+        },
+    )
+    assert (
+        _run_script_guard(
+            "guard-secrets.sh", "git commit -m msg", project_dir=str(repo)
+        )
+        == 0
+    )
+
+
+@_NEED_JQ
+@_NEED_GIT
+def test_secrets_guard_ignores_non_commit_commands(tmp_path: Path) -> None:
+    """A dirty stage does not block unrelated git commands — only `commit` is gated."""
+    repo = _staged_repo(tmp_path, {".env": "placeholder\n"})
+    assert (
+        _run_script_guard("guard-secrets.sh", "git status", project_dir=str(repo)) == 0
+    )
+
+
+@_NEED_JQ
+def test_secrets_guard_degrades_outside_a_git_repo(tmp_path: Path) -> None:
+    """Fail-open: a commit command with CLAUDE_PROJECT_DIR at a non-repo is a no-op."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert (
+        _run_script_guard(
+            "guard-secrets.sh", "git commit -m msg", project_dir=str(plain)
+        )
+        == 0
+    )
