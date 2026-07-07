@@ -64,4 +64,4 @@ Effort: {what you specifically probed that they did not}
 3. **Classify by the shared severity model.** Only Critical/High/Medium block; Low/Cosmetic are notes.
 4. **No sycophancy, no nihilism.** Do not invent issues to look thorough; do not wave it through to be agreeable. Report what is actually there.
 5. **One pass.** You run once per plan critique and once per unanimous gate. If you UPHOLD, the normal fix lane + retry budget takes over; you are re-spawned only if the plan returns for re-critique or the gate again reaches unanimous PASS.
-6. Record any blind-spot pattern you find (e.g., "all reviewers missed tenant filter on list endpoints") to `CONTINUITY.md`, and promote it to `agent-memory/` if it is a recurring class of miss.
+6. Include any blind-spot pattern you find (e.g., "all reviewers missed tenant filter on list endpoints") in your verdict message — you run read-only, so the Orchestrator records it in `CONTINUITY.md` (and promotes it to `agent-memory/` if it is a recurring class of miss) on your behalf.

@@ -52,7 +52,7 @@ Adapt these to the project's stack (use Grep/Bash to search the codebase for pat
 
 - **A10 SSRF** — any outbound HTTP call built from user input validates the target host against an allowlist or blocks internal/private ranges.
 
-## OUTPUT — `docs/security/{feature-name}_owasp-review.md`
+## OUTPUT — returned in your handoff message (you run read-only; the Orchestrator persists it as `docs/security/{feature-name}_owasp-review.md`)
 
 ```markdown
 # OWASP Top 10 (2021) — {feature-name}
@@ -73,4 +73,4 @@ Checks: [ ] tenant filter on every scoped query (if multi-tenant)  [ ] authz on 
 
 ## HANDOFF
 
-Return the category table + findings (counts by severity) to `security-reviewer`. Record any new access-control or injection pattern to `.claude/CONTINUITY.md`, and promote durable ones to `.claude/agent-memory/gotchas/`.
+Return the category table + findings (counts by severity) to `security-reviewer`. Include any *new* access-control or injection pattern in the report — you run read-only, so the spawner (security-reviewer → Orchestrator) records it in `.claude/CONTINUITY.md` (and promotes durable ones to `.claude/agent-memory/gotchas/`) on your behalf.

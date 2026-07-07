@@ -32,10 +32,14 @@ Audit all backend and frontend dependencies (direct + transitive) for known CVEs
 Adapt the audit commands to the project's stack. Examples:
 
 ```bash
-# Python (pip-audit over requirements or pyproject.toml)
+# Python (pip-audit over requirements or pyproject.toml) — use it only if ALREADY installed;
+# you run read-only and never install tools (see CONSTRAINT 3). Degrade to manifest review.
 cd backend
-python -m pip install --quiet --disable-pip-version-check pip-audit >/dev/null 2>&1 || true
-pip-audit -r requirements.txt 2>/dev/null || pip-audit 2>/dev/null || echo "pip-audit unavailable — report manually from manifests"
+if command -v pip-audit >/dev/null 2>&1; then
+  pip-audit -r requirements.txt 2>/dev/null || pip-audit 2>/dev/null
+else
+  echo "pip-audit unavailable — report manually from manifests"
+fi
 
 # Node/npm
 cd frontend
@@ -61,7 +65,7 @@ cargo outdated 2>/dev/null | head -40 || true
 
 If the project's stack is not covered above, consult the manifest files, identify the package manager, and run the equivalent audit command.
 
-## OUTPUT — `docs/security/{feature-name}_dependency-audit.md`
+## OUTPUT — returned in your handoff message (you run read-only; the Orchestrator persists it as `docs/security/{feature-name}_dependency-audit.md`)
 
 ```markdown
 # Dependency Audit — {feature-name}
@@ -81,7 +85,7 @@ Backend deps: {N} · Frontend deps: {N} · Vulns: Critical {N} / High {N} / Medi
 
 ## HANDOFF
 
-Return counts by severity + the finding table to `security-reviewer`. If a CVE has no patch, recommend a workaround or replacement and mark it for an allowlist-with-review-date decision (route to the human via the Orchestrator). Log durable findings to `.claude/CONTINUITY.md`.
+Return counts by severity + the finding table to `security-reviewer`. If a CVE has no patch, recommend a workaround or replacement and mark it for an allowlist-with-review-date decision (route to the human via the Orchestrator). Include durable findings in the report — you run read-only, so the spawner records them in `.claude/CONTINUITY.md` on your behalf.
 
 ## SUPPLY-CHAIN INTEGRITY MODE (beyond CVEs)
 

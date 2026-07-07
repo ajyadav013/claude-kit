@@ -4,7 +4,48 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [0.58.0] — 2026-07-06
+## [0.58.1] — 2026-07-07
+
+**Pipeline agents can now actually persist what their prompts mandate.** An industry-review pass
+(4 web researchers + 4 repo specialists, adversarially synthesized) found the kit's flagship
+resumable-pipeline promise structurally broken: nine agents ran `permissionMode: plan` (read-only)
+while their prompts *required* file writes — the orchestrator's `CONTINUITY.md` +
+`.claude/state/pipeline-snapshot.json` updates, every security scanner's `docs/security/*` report,
+the merge-reviewer's API change report, and the incident-responder's incident log. Payload-only fix;
+0 new agents/skills/rules; catalog untouched.
+
+### Fixed
+
+- **`orchestrator`** — dropped `permissionMode: plan`, granted `Write`/`Edit`, and added an explicit
+  **write-confinement hard rule**: state and gate evidence only (`.claude/CONTINUITY.md`,
+  `.claude/state/`, `.claude/artifacts/`, and gate reports handed back by read-only reviewers) —
+  never source code, tests, configs, or feature docs. The orchestrator is now the declared **scribe**
+  for read-only gate agents: it persists their returned reports verbatim and records their verdicts /
+  durable lessons on their behalf. "Never writes code" remains a hard rule.
+- **`incident-responder`** — dropped `permissionMode: plan`, granted `Write`/`Edit` confined to the
+  incident log (`docs/incidents/`) and `CONTINUITY.md`. Its charter (keep the running log current at
+  every status change) was impossible read-only; mitigation stays delegated and human-gated.
+- **Read-only gates made honest instead of self-contradictory** — `secret-scanner`,
+  `owasp-reviewer`, `policy-validator`, `dependency-scanner`, `security-reviewer`,
+  `devils-advocate`, `merge-reviewer` (and the postgres overlay `db-performance-reviewer`) keep
+  `permissionMode: plan`, but every "write your report to `docs/…`" / "log to CONTINUITY.md" /
+  "promote to agent-memory" mandate is rewritten as **return-in-handoff**: the spawner
+  (security-reviewer → Orchestrator) persists reports and learnings for them.
+- **`dependency-scanner` no longer installs tooling** — the METHOD's `pip install pip-audit` line
+  (a mutation its own CONSTRAINT 3 forbids and plan mode blocks) is replaced with
+  use-only-if-present + degrade-to-manifest-review, matching the kit's degrade-to-no-op posture.
+
+### Not adopted (deliberately)
+
+- **Granting Write to the security scanners/reviewers** so they could keep writing their own
+  reports — read-only gates are a design asset (a reviewer that can edit the code it reviews is a
+  weaker gate); the scribe pattern preserves the artifact trail without weakening the boundary.
+- **Routing orchestrator state through a new `ckit-state` helper binary** — the plan-mode block
+  applies to mutating Bash too, so a CLI detour would not have fixed the contradiction; a direct,
+  confined Write grant is simpler and matches how the kit already trusts `developer`/`pr-raiser`
+  with `acceptEdits`.
+
+
 
 **Wave orchestration — program-scale runs, explicit skill routing, and the inventory-approval
 pattern.** Adopts the program-management patterns from Ryan Carson's public writeup of a
