@@ -16,6 +16,15 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **The stack→collection-skill mapping, measured** — `docs/skill-audit.md` gains the classification
+  the audit's own "evaluate `skills: stack-relevant`" item called for: all 48 collection skills
+  classified against the lanes actually selectable today. Headline: **22 of 48 are
+  infra/platform-orthogonal** (Kafka/Temporal/Redis/GCP/k8s/observability — choices `init`'s three
+  stack questions never ask about) and 4 more are stack-generic, so a lane-based filter installs
+  **46 of 48 for the default react+fastapi+postgres selection** (only the two planned-stack Node
+  skills drop) — refuting the audit's "roughly a dozen-plus instead of 48" estimate. The only
+  selection where filtering is material is go backend-only (26 of 48). The table ships as the
+  reusable input for a future **infrastructure axis** at init, which is the real lever.
 - **Collection-skill size sweep** (the deferred follow-up from the skills-hygiene pass; measured
   per-file first). All five oversized collection SKILL.md files turned out to already ship
   `references/` — the earlier "no references/ yet" note was an artifact of a truncated directory
@@ -227,6 +236,14 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
   install — the primary context — to serve plugin-without-init sessions where *every* `.claude/`
   reference (rules included) dangles equally. That's the documented plugin+init model, not a
   path-style bug.
+- **The `skills: stack-relevant` profile value itself** — deferred with its premise corrected by
+  measurement (see the mapping table in `docs/skill-audit.md`): lane-based filtering yields a ~4%
+  reduction for the default stack because 26 of the 48 collection skills encode infrastructure
+  choices no stack question captures. Shipping the profile value anyway would have added a resolver
+  special-value and a `stacks.yaml` mapping that silently delivers almost nothing for most users.
+  The meaningful version requires an infra axis at init (Kafka? Temporal? GCP? k8s?) — a feature
+  design left for a deliberate future pass, with the measured table as its input. `skills: all`
+  stays the enterprise default, trade-off documented.
 - **All four hooks-modernization claims from the industry review** (re-verified against the
   official hooks reference + the anthropics/claude-code changelog after the original research
   agent died unverified): **(1) exec-form hook commands** (`args: [...]`) — refused *for now*:

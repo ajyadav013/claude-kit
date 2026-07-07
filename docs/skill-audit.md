@@ -137,6 +137,39 @@ Potential approaches — all MUST stay `catalog/*.yaml` / config changes with NO
 2. Prototype a `stack-relevant` mapping as pure data in `stacks.yaml`, resolved by the existing lookup.
 3. Add the variant to `catalog/profiles.yaml` and measure the resulting footprint against the numbers above.
 
+### Measured: the stack→skill mapping (2026-07) — and why `stack-relevant` is deferred
+
+The mapping step above was carried out. Classifying all 48 collection skills against the lanes a
+user can actually select today (frontend `react|none` · backend `python/fastapi | go/net-http |
+none` · database `postgres | mongodb | none`; Node/Express, Django, Vue, Svelte are `status:
+planned`):
+
+| Category | Count | Skills |
+|---|---|---|
+| Python/FastAPI backend | 10 | backend-repo-architecture · fastapi-service-patterns · python-dao-and-database · pydantic-schema-patterns · async-python-patterns · configargparse-yaml-env-layering · testing-conventions · file-export-and-reporting · dockerfile-backend · auth-and-rbac |
+| React frontend | 8 | frontend-repo-architecture · zustand-state-patterns · tanstack-react-query-patterns · react-hook-form-zod-patterns · radix-tailwind-component-patterns · design-system-ops · vitest-rtl-msw-patterns · dockerfile-frontend |
+| Node backend (**planned** — not selectable) | 2 | node-express-service · node-objection-knex |
+| Database-coupled | 2 | alembic-migrations (Python+Postgres) · multi-tenancy-patterns (Postgres RLS) |
+| Backend-generic / cross-lane / stack-generic | 4 | api-pagination-filtering-sorting · graphql-patterns · design-patterns-and-conventions · modernization-and-migration |
+| **Infra/platform-orthogonal** — not derivable from any lane selection | **22** | kafka-config-driven · temporal-config-driven · temporal-developer · redis-caching-patterns · gcs-file-storage-patterns · data-engineering-bigquery-gcs · grafana-dashboards-and-alerts · otel-tracing · observability-and-logging · containerization-and-deployment · docker-compose · docker-shared · gcp-cloud-run-github-actions · notifications-and-messaging · anthropic-vertex-integration · langfuse-llm-tracing · zap-vapt-scanning · shannon-ai-pentest · edge-to-service-trust-boundary · kubernetes-workload-hardening · cron-and-scheduled-jobs · kubectl-operations |
+
+**What the numbers say.** 26 of 48 skills (the orthogonal 22 + the generic 4) cannot be filtered by
+stack lane, because they encode *infrastructure* choices — Kafka vs. Temporal, GCP vs. not, k8s vs.
+not — that `init`'s three stack questions never ask about. Simulated `stack-relevant` footprints
+under the honest mapping (keep generic + orthogonal, filter lane-specific):
+
+- **react + fastapi + postgres (the default):** installs **46 of 48** — only the two planned-stack
+  Node skills drop. A ~4% filter, not the "roughly a dozen-plus instead of 48" estimated above.
+- **go backend-only:** installs 26 of 48 (−46%) — the only selection where filtering is material.
+
+**Decision: deferred, with the estimate corrected.** A `skills: stack-relevant` profile value
+built on lane mapping alone cannot deliver a meaningful reduction for the default (or any
+frontend+python) selection; the real lever would be an **infrastructure axis** at init (Kafka?
+Temporal? GCP? Kubernetes?) feeding the same data-driven union — new selection surface and new
+questions, i.e. a feature design, not a catalog tweak. Until that exists, `skills: all` with this
+documented trade-off remains the honest enterprise default. The table above is the reusable input
+for whoever picks this up.
+
 ---
 
 ## Conclusion
