@@ -12,7 +12,9 @@ resumable-pipeline promise structurally broken: nine agents ran `permissionMode:
 while their prompts *required* file writes — the orchestrator's `CONTINUITY.md` +
 `.claude/state/pipeline-snapshot.json` updates, every security scanner's `docs/security/*` report,
 the merge-reviewer's API change report, and the incident-responder's incident log. Plus the docs-truth sweep the same review surfaced.
-0 new agents/skills/rules; catalog untouched.
+0 new agents/skills/rules. Catalog data edits only where features required them: `stacks.yaml`
+gains the `none` frontend/backend lanes and `profiles.yaml` trims six stack-coupled skills from
+the standard core (they now arrive via the selected stack's lane instead) — no resolver changes.
 
 ### Added
 
@@ -138,6 +140,13 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Fixed
 
+- **`init --config` with malformed YAML now fails friendly** (round-2 empirical-UX review; the
+  finder and an adversarial verifier each reproduced a ~150-line rich traceback through cli.py →
+  prompts.py → five PyYAML frames). `prompts.from_config` now converts `yaml.YAMLError` into the
+  same one-line `ValueError` the CLI already renders for its sibling error paths — output is now
+  `error: config file is not valid YAML: mapping values are not allowed here … line N, column M`,
+  exit 2, no partial install. Fixed at the parse site (not the CLI except-tuple) so every
+  `from_config` caller inherits the friendly path; regression-tested at both layers.
 - **Orchestrator: gate set now conditions on the installed profile, ghosts removed, three
   installed-but-never-spawned agents wired in** (every claim verified against the files first):
   a **lean** install ships 5 agents (`orchestrator, developer, sdlc-code-reviewer, tester,
