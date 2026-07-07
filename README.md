@@ -721,6 +721,11 @@ rollback) in `security-and-hardening` (from `Netflix/repokid`).
 rules** (`fastapi-patterns`, `react-patterns`, `postgres-patterns`, …) and, in organization scope,
 **org policy rules** (`secrets-policy`, `pii-policy`, `compliance-policy`, …) layer on top.
 
+Running the pipeline **unattended**? [`docs/autonomous-operation.md`](docs/autonomous-operation.md)
+maps the autonomy levels onto Claude Code's real permission modes, documents the headless (`claude
+-p`) and `--bare` caveats, and ships a bounded loop pattern with stall detection — every claim
+verified against the shipped CLI.
+
 **Skills** ([`skills/`](skills/)) are on-demand capabilities Claude activates by context — led by the
 `sdlc` entrypoint. Highlights, including this session's additions:
 

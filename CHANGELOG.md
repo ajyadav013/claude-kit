@@ -16,6 +16,25 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **`docs/autonomous-operation.md` — autonomy grounded in the shipped CLI, not folklore** (every
+  flag and mode verified against Claude Code 2.1.178 `--help` + the official permissions docs
+  before writing). Headless `claude -p` documented with its three safety-relevant property changes
+  (prompts become denials, the trust dialog is skipped, invalid settings are *silently ignored* —
+  so validate before the run, not after); the `--bare` caveat spelled out concretely for a kit
+  project (it skips hooks **and** CLAUDE.md auto-discovery, so SessionStart context, every guard
+  hook, and the rules contract all vanish — including `load-autonomy.sh`, meaning a bare run
+  doesn't know its own ceiling); a bounded headless-loop pattern built on the kit's real resume
+  seam (`CONTINUITY.md` + `pipeline-snapshot.json` `last_gate_passed`) with three deliberate
+  brakes (iteration cap, `--max-budget-usd`, stall detection → nonzero exit for a human); the
+  five `autonomy-levels.md` levels mapped onto the six real permission modes (`acceptEdits` ·
+  `auto` · `bypassPermissions` · `manual` · `dontAsk` · `plan`), with `bypassPermissions`
+  explicitly mapped to **no** kit level (its own docs restrict it to isolated sandboxes) and
+  `enterprise-controlled` pinned via managed-settings `disableBypassPermissionsMode`; and an
+  anti-gaming table wiring five unattended-log warning signs to the shipped defenses
+  (`quality-gates.md` §2.5 evidence requirement, `continuity.md` verify-before-trust,
+  blind-review/Devil's-Advocate, `audit-log`). Correction to the review's claim recorded inline:
+  the CLI has **no `--max-turns`** flag (2.1.178; that's an Agent SDK feature) — iteration caps
+  belong in the loop script.
 - **Skills hygiene: progressive disclosure for the heaviest core skill + honest triggers** (every
   review claim measured first). `security-and-hardening/SKILL.md` — at 718 lines the largest
   SKILL.md in the payload, injected wholesale on every trigger — is split along its decision seam:
