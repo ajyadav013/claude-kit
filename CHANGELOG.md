@@ -138,6 +138,19 @@ the standard core (they now arrive via the selected stack's lane instead) — no
   rule-file count, the README's default-stack worked example (25 core + 11 overlays = 36), and the
   rule counts quoted in `docs/architecture.md`, so the count drift fixed below cannot recur silently.
 
+### Added (continued — round-2 test-gap closure)
+
+- **Behavioral tests for the eleven remaining never-executed hook scripts** (round-2 R4; the
+  verifier had proved only 4 of 18 scripts were ever run by tests). New `tests/test_hook_scripts.py`
+  (31 cases) executes each script against real stdin JSON, temp project dirs, and live git repos:
+  the SessionStart loaders (continuity small/capped/template-seeded/silent, learnings
+  index/empty/10th-session consolidation nudge, autonomy level surfaced/silent), the audit log
+  (append shape, 120-char target truncation, garbage-stdin survival), the four `warn-*` advisories
+  (flag + stay-silent cases, always exit 0), `validate-frontmatter` (agent/skill field warnings),
+  `validate-settings` (blocks only an invalid settings-JSON write), and the Stop hooks' degrade
+  paths — plus a behavioral proof of the P0-3 scoping guarantee: `lint-fix.sh` formats the changed
+  file while a committed, untouched file stays byte-identical.
+
 ### Fixed
 
 - **`guard-secrets.sh` no longer blocks committing `.env.example`-style placeholder files**
