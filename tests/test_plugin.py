@@ -325,6 +325,15 @@ def _run_script_guard(script: str, command: str, project_dir: str | None = None)
         "git -C /some/dir push origin main",
         "git --git-dir=/x/.git push origin main",
         "deploy && git push origin main",  # compound segment
+        # Quoted forms: word-splitting keeps quote chars as literal token text, so these evaded
+        # the word-boundary regex until the guards stripped shell quoting before matching (R3).
+        'git push origin "main"',
+        "git push origin 'main'",
+        'git push origin "+main"',
+        'git push origin "HEAD:refs/heads/main"',
+        'git push "origin" "master"',
+        '"git" push origin main',  # even the git token itself quoted
+        "git push origin ma\\in",  # backslash inside the ref name
     ],
 )
 def test_push_main_guard_blocks(command: str) -> None:
@@ -342,6 +351,8 @@ def test_push_main_guard_blocks(command: str) -> None:
         "git -c k=v push origin develop",
         "git commit -m 'fix main loop'",  # not a push at all
         "echo main",  # not git
+        'git push origin "feature/main-ui"',  # quoted legit branch stays spared
+        'git push origin "remaster-ui"',
     ],
 )
 def test_push_main_guard_spares(command: str) -> None:
@@ -361,6 +372,8 @@ def test_push_main_guard_spares(command: str) -> None:
         "git -c k=v reset --hard",  # global option before subcommand
         "git -C /some/dir clean -f",
         "foo; git reset --hard",  # compound segment
+        'git checkout "."',  # quoted '.' evaded rule 3's boundary until quote-stripping (R3)
+        "git restore '.'",
     ],
 )
 def test_destructive_git_guard_blocks(command: str) -> None:
@@ -377,7 +390,38 @@ def test_destructive_git_guard_blocks(command: str) -> None:
         "git reset HEAD",  # soft reset, not --hard
         "git reset --soft HEAD~1",
         "git status",
+        'git commit -m "reset --hard is scary"',  # the phrase inside a message, not a reset
     ],
 )
 def test_destructive_git_guard_spares(command: str) -> None:
     assert _run_script_guard("guard-destructive-git.sh", command) == 0, command
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "kubectl delete pod x",
+        'kubectl "delete" pod x',  # quoted verb evaded the word boundary until quote-stripping
+        "kubectl get pods -o name | xargs kubectl delete",  # compound segment (header claim)
+        "kubectl -n prod delete deployment api",
+    ],
+)
+def test_kubectl_delete_guard_blocks(command: str) -> None:
+    assert _run_script_guard("guard-kubectl-delete.sh", command) == 2, command
+
+
+@_NEED_JQ
+@pytest.mark.parametrize(
+    "command",
+    [
+        "kubectl config delete-context staging",  # hyphenated look-alike
+        "kubectl drain node1 --delete-emptydir-data",
+        "kubectl wait --for=delete pod/x",
+        "kubectl auth can-i delete pods",  # read-only RBAC query
+        'kubectl logs pod -c "delete-worker"',  # quoted container name, not the verb
+        "helm delete myrelease",  # not kubectl
+    ],
+)
+def test_kubectl_delete_guard_spares(command: str) -> None:
+    assert _run_script_guard("guard-kubectl-delete.sh", command) == 0, command

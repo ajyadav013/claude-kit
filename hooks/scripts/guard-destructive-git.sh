@@ -11,6 +11,9 @@
 # Hardened against the `git<space>subcommand` anchor: each ;|&-split segment is normalized first,
 # dropping a leading `git` plus any GLOBAL OPTIONS and their value tokens, so a global option between
 # `git` and the subcommand (`git -C dir reset --hard`, `git -c k=v clean -f`) cannot evade it.
+# Shell quoting chars (" ' \) are stripped before matching -- `git checkout "."` / `git restore '.'`
+# would otherwise slip past rule 3's word-boundary regex. Safe because this guard only MATCHES the
+# text (never executes it): after stripping, it sees approximately what the shell would hand to git.
 #
 # Scope is deliberately git-only and conservative -- no false positives on `git clean -n` (dry run),
 # plain branch checkouts, or single-file restores. Database wipes (`migrate reset`, `drop database`)
@@ -54,7 +57,8 @@ _norm_git_segment() {
   [ "$#" -gt 0 ] && printf '%s\n' "$*"
 }
 
-NORM="$(printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r seg; do _norm_git_segment "$seg"; done)"
+# \047 = single quote, \134 = backslash. Strip quoting BEFORE tokenizing (see header).
+NORM="$(printf '%s\n' "$CMD" | tr -d '"\047\134' | tr ';|&' '\n\n\n' | while IFS= read -r seg; do _norm_git_segment "$seg"; done)"
 [ -n "$NORM" ] || exit 0
 
 # 1. reset --hard : discards all uncommitted tracked changes

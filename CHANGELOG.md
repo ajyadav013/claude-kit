@@ -140,6 +140,16 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **Guard scripts: quoted tokens no longer evade the word-boundary match** (round-2 test-gaps
+  review, R3; the verifier proved the bypass by piping real PreToolUse JSON). Shell word-splitting
+  keeps quote characters as literal token text, so `git push origin "main"` / `'main'` / `"+main"` /
+  `"HEAD:refs/heads/main"` — and even `"git" push origin main` — sailed past `guard-push-main.sh`,
+  `git checkout "."` past `guard-destructive-git.sh` rule 3, and `kubectl "delete" pod` past
+  `guard-kubectl-delete.sh`. All three now strip shell quoting chars (`"` `'` `\`) before matching —
+  safe because these guards only *match* the text, never execute it, so after stripping they see
+  what the shell would hand to git/kubectl. Legit branches that merely contain the substring stay
+  spared (`"feature/main-ui"`, `"remaster-ui"`). Pinned by 22 new behavioral test cases, including
+  the first *executed* tests for `guard-kubectl-delete.sh` (it previously had wiring-only coverage).
 - **`init --config` with malformed YAML now fails friendly** (round-2 empirical-UX review; the
   finder and an adversarial verifier each reproduced a ~150-line rich traceback through cli.py →
   prompts.py → five PyYAML frames). `prompts.from_config` now converts `yaml.YAMLError` into the
