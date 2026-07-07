@@ -16,6 +16,21 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **Skills hygiene: progressive disclosure for the heaviest core skill + honest triggers** (every
+  review claim measured first). `security-and-hardening/SKILL.md` — at 718 lines the largest
+  SKILL.md in the payload, injected wholesale on every trigger — is split along its decision seam:
+  the boundaries / per-class rules / checklists / red-flags layer stays in SKILL.md (286 lines),
+  and the code patterns and deep-dive practices move **verbatim** (license attributions included)
+  to four on-demand `references/` files — OWASP per-class patterns + continuous least-privilege ·
+  input-validation/uploads/archive-extraction/ReDoS · supply-chain triage/SBOM/reproducible-builds/
+  missing-patch · LLM guardrail specifics — the same convention 20+ collection skills already
+  follow. Everything external actors deep-link into the file (`warn-llm-io.sh` and
+  `owasp-reviewer` → *LLM / AI Feature Security*, `dependency-scanner` → *Triaging Dependency
+  Audit Results*, the scaffold test's three anchors) stays in SKILL.md under its original title.
+  Trigger honesty: `containerization-and-deployment`'s description stops claiming its four
+  siblings' territory (multi-stage builds → `dockerfile-backend`, compose local dev →
+  `docker-compose`) and owns the overview role explicitly; `remember`'s dangling "injects the
+  index below" now names what the hook actually injects (`.claude/agent-memory/MEMORY.md`).
 - **Cost transparency** — `docs/agents.md` gains a "What a run costs" section measured from the
   shipped frontmatter (4 `opus` agents — `orchestrator`, `developer`, `devils-advocate`,
   `owasp-reviewer` — everything else `sonnet`, the Fast tier deliberately unassigned), with the
@@ -162,6 +177,20 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
   `sonnet` sibling scanners. A reviewer suggestion doesn't outrank a documented decision.
 - **Dropping `Edit` from `tester`/`senior-tester`** — refused: they author test artifacts and
   fixtures; the grant is load-bearing. No evidence of misuse was presented.
+- **Rewriting `.claude/skills/_references/…` links as relative `../_references/` paths** (the review
+  claimed the hardcoded form "breaks in plugin context") — refused: `scaffold.py` installs
+  `_references/` at exactly that canonical path *on purpose* (its own comment says so), and prose
+  paths are resolved against the project CWD, so the relative form would break the scaffolded
+  install — the primary context — to serve plugin-without-init sessions where *every* `.claude/`
+  reference (rules included) dangles equally. That's the documented plugin+init model, not a
+  path-style bug.
+- **Splitting `manual-test` (516 lines) and the five oversized stack-collection SKILL.md files**
+  (`docker-compose` 606 · `grafana-dashboards-and-alerts` 535 · `containerization-and-deployment`
+  534 · `langfuse-llm-tracing` 508 · `redis-caching-patterns` 505) — deferred, not rushed:
+  `manual-test` is 3% over the ~500-line guidance and a split costs more cohesion than it buys;
+  the collection five deserve one measured sweep of their own. Claim correction recorded: the
+  review's "no references/ split" was false for the collection (20+ skills already ship
+  `references/`) — it was true only of `security-and-hardening`.
 
 
 
