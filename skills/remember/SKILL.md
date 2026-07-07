@@ -5,7 +5,7 @@ description: Capture a durable learning so future sessions reuse it automaticall
 
 # Remember — Durable Learning Capture
 
-Turn a one-off correction or insight into a permanent, reusable learning. This is the **capture** half of the self-improving loop. The **application** half is automatic: the `load-learnings.sh` SessionStart hook injects the index below into context at the start of every session, so anything recorded here is surfaced before future work.
+Turn a one-off correction or insight into a permanent, reusable learning. This is the **capture** half of the self-improving loop. The **application** half is automatic: the `load-learnings.sh` SessionStart hook injects the learnings index (`.claude/agent-memory/MEMORY.md`) into context at the start of every session, so anything recorded here is surfaced before future work.
 
 ## When to invoke this skill
 
