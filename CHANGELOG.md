@@ -22,6 +22,16 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Fixed
 
+- **`/claude-kit:init` now actually works from Claude Code** — the plugin command told Claude to run
+  the CLI's *interactive* flow, but the Bash tool has no TTY: with no path argument the CLI aborted
+  outright (`input()` → EOFError), and with one it silently installed the **default stack without
+  asking a single question**. `commands/init.md` now instructs Claude to interview the user in chat
+  (AskUserQuestion; all 7 questions incl. the capture privacy note), write a temp `init.yaml`, and
+  run `init --config <file>` non-interactively — or pass through `--defaults`/`--config` verbatim
+  when given. The CLI probe chain also gains the third console script (`claude-sdlc`), and
+  `cli.py`'s target-path prompt is now EOF-tolerant (falls back to `.` like every other prompt
+  instead of aborting). README's quickstart claim updated to match, plus a worked `init.yaml`
+  example — the `--config` schema was previously documented only in source.
 - **Docs-truth sweep** (every number re-verified on disk before fixing): the README said **35**
   rules per profile and "**10** overlay rule sets" — reality is **36** installed for the default
   React+FastAPI+PostgreSQL stack and **13** overlay rule files; `docs/architecture.md` said **24**

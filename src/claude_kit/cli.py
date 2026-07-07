@@ -227,9 +227,16 @@ def init(
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
 
-        # 1) Target path.
+        # 1) Target path. Tolerate EOF (non-TTY stdin, e.g. an agent's shell tool) the same way
+        # prompts._ask does — fall back to the default instead of aborting.
         if path is None:
-            raw = "." if non_interactive else input("Target path [.]: ").strip() or "."
+            if non_interactive:
+                raw = "."
+            else:
+                try:
+                    raw = input("Target path [.]: ").strip() or "."
+                except EOFError:
+                    raw = "."
         else:
             raw = path
         target = Path(raw).expanduser().resolve()

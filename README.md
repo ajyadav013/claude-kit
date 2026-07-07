@@ -120,7 +120,7 @@ Makes all agents, skills, commands, and hooks available inside Claude Code:
 Then, inside any project you want the pipeline to manage:
 
 ```text
-/claude-kit:init        # asks the ordered questions, lays down CLAUDE.md + .claude/
+/claude-kit:init        # Claude asks you the questions in chat, then runs the CLI non-interactively
 # ↻ restart Claude Code so the project's agents, skills & hooks load
 /sdlc Add a CSV export button to the reports page
 ```
@@ -194,7 +194,19 @@ config — nothing else:
 8. **Usage scope** (`individual` · `team` · `organization`) — organization scope asks four follow-ups:
    teams, autonomy level, review strictness, and org capability packs
 
-Non-interactive equivalents: `--defaults`, or `--config init.yaml` (flat or nested YAML). What lands:
+Non-interactive equivalents: `--defaults`, or `--config init.yaml` — flat keys or this nested form:
+
+```yaml
+frontend: { framework: react, language: typescript }
+backend:  { language: python, framework: fastapi }
+database: postgres
+profile:  standard                     # lean · standard · enterprise
+mcp:      [github]                     # [] = none; ids from `claude-kit list-options`
+capture_mode: session-end-catchup      # off · session-end · session-end-catchup · per-task
+scope:    team                         # individual · team · organization (org adds org: {teams, autonomy, review_strictness, packs})
+```
+
+What lands:
 
 ```
 CLAUDE.md                      # "Project-specific rules" filled from your stack's commands
