@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from claude_kit import upgrader
-from tests._helpers import install
+from claude_kit import catalog, upgrader
+from tests._helpers import install, make_selection
 
 
 def test_diff_on_pristine_install_is_a_noop(tmp_path, payload):
@@ -163,3 +163,66 @@ def test_upgrade_without_force_still_sidecars(tmp_path, payload):
     assert ok
     assert marker in claude_md.read_text(encoding="utf-8")
     assert (tmp_path / "CLAUDE.md.claude-kit").is_file()
+
+
+def test_same_version_rerun_does_not_rewrite_identical_sidecar(tmp_path, payload):
+    """R6 churn guard: once the sidecar holds the kit's current copy, a re-run must not
+    rewrite it, must not claim a "new version" exists, and must skip the sidecar hint."""
+    install(payload, tmp_path)
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.write_text(
+        claude_md.read_text(encoding="utf-8") + "\n<!-- MINE -->\n", encoding="utf-8"
+    )
+
+    ok, first = upgrader.upgrade(tmp_path)
+    assert ok
+    assert any("kept; kit's version ->" in m for m in first)
+    assert any("delete the sidecar" in m for m in first)  # one-time hint
+    assert not any("new version" in m for m in first)  # the false claim is gone
+    sidecar = tmp_path / "CLAUDE.md.claude-kit"
+    mtime_after_first = sidecar.stat().st_mtime_ns
+
+    ok, second = upgrader.upgrade(tmp_path)
+    assert ok
+    assert any("sidecar already current" in m for m in second)
+    assert not any("kit's version ->" in m for m in second)  # nothing rewritten
+    assert not any("delete the sidecar" in m for m in second)  # hint only when writing
+    assert sidecar.stat().st_mtime_ns == mtime_after_first  # literally untouched
+
+
+def test_stale_or_tampered_sidecar_is_refreshed(tmp_path, payload):
+    """The churn guard compares content, so a sidecar that no longer matches the kit's
+    current copy (tampered, or left by an older kit) is healed, not skipped."""
+    install(payload, tmp_path)
+    pristine = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.write_text(pristine + "\n<!-- MINE -->\n", encoding="utf-8")
+    upgrader.upgrade(tmp_path)
+
+    sidecar = tmp_path / "CLAUDE.md.claude-kit"
+    sidecar.write_text("JUNK FROM AN OLDER KIT\n", encoding="utf-8")
+    ok, msgs = upgrader.upgrade(tmp_path)
+    assert ok
+    assert any("kept; kit's version ->" in m for m in msgs)  # rewrite happened
+    assert sidecar.read_text(encoding="utf-8") == pristine  # healed to canonical
+
+
+def test_merge_install_reports_merge_not_upgrade(tmp_path, payload):
+    """R6: init's merge path must not close with "upgrade complete"."""
+    install(payload, tmp_path)
+    plan = catalog.resolve(payload, make_selection(payload))
+
+    # No-op merge: everything current.
+    ok, msgs = upgrader.merge_install(payload, tmp_path, plan)
+    assert ok
+    assert any("nothing to merge" in m for m in msgs)
+    assert not any("upgrade" in m.lower() for m in msgs)
+
+    # Real merge work: a drifted kit file.
+    (tmp_path / ".claude" / "rules" / "testing.md").write_text(
+        "DRIFTED\n", encoding="utf-8"
+    )
+    ok, msgs = upgrader.merge_install(payload, tmp_path, plan)
+    assert ok
+    assert any("merge complete" in m for m in msgs)
+    assert not any("upgrade complete" in m for m in msgs)

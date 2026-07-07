@@ -164,6 +164,16 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **Same-version upgrade/init no longer churns sidecars or claims a "new version" exists**
+  (round-2 R6, cmp/mtime-verified by the empirical-UX lens: after one legitimate `CLAUDE.md`
+  edit, every run rewrote a byte-identical sidecar, announced "kept; new version →
+  CLAUDE.md.claude-kit", and `init`'s merge closed with "upgrade complete"). Now: when the
+  sidecar already holds exactly the kit's current copy the rewrite is skipped and the line reads
+  "your edits kept; sidecar already current" (mtime-pinned untouched); a written sidecar says
+  "kit's version →" (never "new version" — same-version runs have none) plus a one-time INFO
+  hint (`diff <file> <file>.claude-kit`, merge, delete); a stale/tampered sidecar is still
+  healed (content compare, not existence); and the merge path reports "merge complete" /
+  "nothing to merge". The diff preview's keep verb/note updated to match.
 - **`upgrade --force` now actually does what it documents** (found by writing round-2 R7's
   crash-path tests; reproduced empirically first). The docstring and CLI promised "overwrite
   user-modified user-editable files instead of writing sidecars", but a user-edited user-editable
