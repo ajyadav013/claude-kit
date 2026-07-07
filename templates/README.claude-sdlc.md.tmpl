@@ -57,6 +57,12 @@ active gates are: **{{ profile_label }}**.
 You can also invoke any single skill directly (e.g. `/spec-driven-development`, `/code-review-and-quality`)
 or ask Claude to use a specific agent.
 
+For **unattended runs**, a bounded headless loop ships at `.claude/scripts/sdlc-loop.sh`: each
+iteration advances the pipeline by at most one gate, with an iteration cap, a per-iteration spend
+cap, and stall detection built in (a stalled or capped loop exits nonzero for a human — never
+restart it with looser brakes). All knobs are `SDLC_*` environment variables; read the script
+header before the first run.
+
 ## Core rules (non-negotiable)
 
 - Never read or print secrets. Never run destructive commands without confirmation.

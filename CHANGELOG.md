@@ -18,6 +18,25 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Added
 
+- **The bounded headless loop ships as an installed artifact** — `.claude/scripts/sdlc-loop.sh`
+  (from new `templates/scripts/`, wired in both installers: `scaffold.install_sdlc` copies + chmods
+  it, and the no-pip `init.sh` fallback installs it too). Prompted by a verified landscape shift:
+  BMAD-METHOD v6.10.0 (2026-07-03) graduated its unattended dev loop from experimental to an
+  installer-selectable module (`bmad-loop` + the `bmad-dev-auto` single-iteration worker polled off
+  a spec-frontmatter state machine) — the same architecture the kit already had as `/sdlc` +
+  `CONTINUITY.md` + `pipeline-snapshot.json`, except the kit's loop runner was an untested code
+  block in `docs/autonomous-operation.md` §3. Now it's a tested file: each iteration runs
+  `claude -p` under the one-gate contract with three brakes (iteration cap, per-iteration
+  `--max-budget-usd`, stall detection → nonzero exit **for a human**); the exit condition
+  self-configures from the execution-ordered `gates:` list in `stack-catalog.snapshot.yaml`
+  (last entry = finish line) and every knob is an `SDLC_*` env var — which is why it ships
+  kit-owned (upgrades keep the brakes current; hand-edits still get checksum-sidecar protection).
+  After the fallback install (no catalog resolution → no snapshot) it *refuses to guess* a finish
+  line and requires `SDLC_FINAL_GATE` explicitly. Eight behavioral tests run the real script with
+  a fake `claude` shim (completion, last-not-first gate autodetection against the exact
+  `yaml.safe_dump` shape scaffold writes, env override, stall, iteration cap, finish-line refusal,
+  project-root guard, nonzero-claude tolerance); CI shellcheck now covers `templates/scripts/`;
+  §3 keeps the rationale and points at the shipped file as source of truth.
 - **Native dynamic workflows routed against the wave pattern** (verified against the official
   workflows doc + the Claude Code changelog: engine introduced **2.1.154**, trigger keyword renamed
   `workflow` → `ultracode` at 2.1.160, size guideline setting at 2.1.202). The round-2 review found

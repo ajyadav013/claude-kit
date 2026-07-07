@@ -71,31 +71,20 @@ between iterations, and no exit condition. The kit already ships both halves:
   Gate ↔ Stage Map defines the token order).
 
 What the loop script must add is **brakes** — a hard iteration cap, a per-iteration spend cap, and
-stall detection:
+stall detection. The kit **installs this pattern as a runnable file**:
+`.claude/scripts/sdlc-loop.sh` (that file is the source of truth for the exact logic; it is
+shellcheck-gated in CI and behavior-tested). Each iteration runs `claude -p` under the one-gate
+contract above; the exit condition — the profile's *final* gate token — is auto-detected from the
+execution-ordered `gates:` list in `.claude/config/stack-catalog.snapshot.yaml`, and every knob is
+an environment variable:
 
-```bash
-#!/usr/bin/env bash
-# Bounded /sdlc loop. Brakes: iteration cap, per-run budget, stall detection.
-set -u
-MAX_ITER=8
-FINAL_GATE="build-green"   # your profile's LAST gate token (see stack-catalog.snapshot.yaml)
-SNAP=.claude/state/pipeline-snapshot.json
-prev_gate=""
-
-for i in $(seq 1 "$MAX_ITER"); do
-  claude -p --permission-mode acceptEdits --max-budget-usd 5 \
-    "Continue the /sdlc run per .claude/CONTINUITY.md. Re-enter at the first gate after
-     last_gate_passed in $SNAP. Pass at most ONE more gate, update the snapshot, then stop."
-  gate=$(sed -n 's/.*"last_gate_passed": *"\([^"]*\)".*/\1/p' "$SNAP" 2>/dev/null)
-  [ "$gate" = "$FINAL_GATE" ] && { echo "pipeline complete: $gate"; exit 0; }
-  if [ "$gate" = "$prev_gate" ]; then
-    echo "STALLED at gate '${gate:-none}' — human review needed" >&2; exit 1
-  fi
-  prev_gate="$gate"
-done
-echo "iteration cap ($MAX_ITER) reached at gate '${prev_gate:-none}'" >&2
-exit 1
-```
+| Knob | Default | Meaning |
+|---|---|---|
+| `SDLC_FINAL_GATE` | last entry of the snapshot's `gates:` list | exit condition; **required** if the snapshot is absent (e.g. after the no-pip `init.sh` fallback — the script refuses to guess a finish line) |
+| `SDLC_MAX_ITER` | `8` | hard iteration cap |
+| `SDLC_BUDGET_USD` | `5` | per-iteration `--max-budget-usd` |
+| `SDLC_PERMISSION_MODE` | `acceptEdits` | `--permission-mode` for each run |
+| `SDLC_PROMPT` | the one-gate contract prompt | full override (advanced — keep the one-gate contract) |
 
 Why each brake exists:
 

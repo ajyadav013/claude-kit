@@ -303,6 +303,25 @@ def _install_artifact_templates(src: Path, dest: Path, log: list[str]) -> None:
     )
 
 
+def _install_loop_script(src: Path, dest: Path, log: list[str]) -> None:
+    """Install the bounded headless-loop runner into ``.claude/scripts/``.
+
+    The script self-configures its exit condition from the ``gates:`` list in
+    ``stack-catalog.snapshot.yaml`` (execution-ordered; last entry = final gate) and
+    exposes every knob as an ``SDLC_*`` environment variable, so it ships kit-owned —
+    upgrades keep the brakes current, and hand-edits still get the upgrader's
+    checksum-based sidecar protection like any other kit file.
+    """
+    srcf = src / "templates" / "scripts" / "sdlc-loop.sh"
+    if not srcf.is_file():
+        return
+    sdest = dest / "scripts"
+    sdest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(srcf, sdest / srcf.name)
+    (sdest / srcf.name).chmod(0o755)
+    log.append("  • scripts/ (sdlc-loop.sh — bounded headless runner)")
+
+
 def _write_claude_md(
     src: Path, target: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
 ) -> None:
@@ -626,6 +645,7 @@ def install_sdlc(
     _seed_agent_memory(src, dest, log)
     _install_hooks_and_settings(src, dest, plan, force=force, log=log)
     _install_artifact_templates(src, dest, log)
+    _install_loop_script(src, dest, log)
     _write_mcp(target, plan, force=force, log=log)
     _write_readme(src, target, plan, force=force, log=log)
     _write_agents_md(src, target, plan, force=force, log=log)

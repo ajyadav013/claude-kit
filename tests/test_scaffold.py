@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from claude_kit import validator
 from claude_kit.models import InitOptions
@@ -1067,3 +1068,22 @@ def test_reinstall_over_unedited_tree_writes_no_sidecars(tmp_path, payload):
     install(payload, tmp_path)  # second pass, force=False, nothing edited between
     for name in ("CLAUDE.md", "AGENTS.md", "README.claude-sdlc.md"):
         assert not (tmp_path / f"{name}.claude-kit").exists(), f"sidecar noise: {name}"
+
+
+def test_loop_script_installed_executable_and_kit_owned(tmp_path, payload):
+    """The bounded headless runner lands in .claude/scripts/, executable, tracked as kit-owned."""
+    install(payload, tmp_path)
+    script = tmp_path / ".claude" / "scripts" / "sdlc-loop.sh"
+    assert script.is_file(), "sdlc-loop.sh not installed"
+    assert os.access(script, os.X_OK), "sdlc-loop.sh not executable"
+    body = script.read_text(encoding="utf-8")
+    assert "SDLC_FINAL_GATE" in body and "SDLC_MAX_ITER" in body
+    opts = InitOptions.from_dict(
+        json.loads(
+            (tmp_path / ".claude" / "config" / "init-options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    rec = {r.path: r.owner for r in opts.files}
+    assert rec.get(".claude/scripts/sdlc-loop.sh") == "kit"

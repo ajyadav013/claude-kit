@@ -75,6 +75,14 @@ if [ "$MINIMAL" -ne 1 ]; then
   if [ ! -d "$DEST/agent-memory" ]; then
     cp -R "$SRC/templates/agent-memory" "$DEST/agent-memory"; echo "  * agent-memory/ seed"
   fi
+  if [ -f "$SRC/templates/scripts/sdlc-loop.sh" ]; then
+    mkdir -p "$DEST/scripts"
+    cp "$SRC/templates/scripts/sdlc-loop.sh" "$DEST/scripts/sdlc-loop.sh"
+    chmod +x "$DEST/scripts/sdlc-loop.sh"
+    # No catalog resolution here, so no stack snapshot exists -- the loop runner will
+    # require SDLC_FINAL_GATE to be set explicitly (it refuses to guess a finish line).
+    echo "  * scripts/sdlc-loop.sh (bounded headless runner; set SDLC_FINAL_GATE to use)"
+  fi
 fi
 
 if [ "$MINIMAL" -ne 1 ] && [ "$NO_HOOKS" -ne 1 ]; then
