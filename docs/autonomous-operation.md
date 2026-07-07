@@ -107,6 +107,13 @@ Why each brake exists:
 - **Nonzero exits are for humans.** The correct response to a stalled or capped loop is reading the
   transcript and the snapshot — never re-running with the brakes loosened.
 
+> **Built-in alternative for "keep going until X":** Claude Code's `/goal` command is a native,
+> session-scoped prompt-based Stop gate — it re-evaluates at every stop and keeps Claude working
+> until the stated condition holds (the runtime caps consecutive stop-blocks at 8). For a single
+> interactive session it replaces the loop above with zero configuration. The shell loop remains
+> the right tool for headless runs, multi-session pipelines, and anywhere the brakes must live
+> *outside* the model.
+
 ## 4. Mapping the kit's autonomy levels onto real permission modes
 
 Verified `--permission-mode` choices (2.1.178): `acceptEdits` · `auto` · `bypassPermissions` ·

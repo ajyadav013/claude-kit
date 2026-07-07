@@ -16,6 +16,16 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **Hooks-layer modernization review resolved with evidence** — the industry review's four
+  gen_hooks claims (left unverified when the hooks-specialist research agent died mid-workflow)
+  were each checked against the official hooks reference + the Claude Code changelog; **all four
+  were refuted or refused** (see *Not adopted*), so the hook layer ships unchanged — deliberately.
+  The verified facts are now recorded where they prevent re-litigation: a format-decisions comment
+  above `HOOK_REGISTRY` (exact-match matcher semantics; the exec-form 2.1.139 floor; exit-code-2
+  blocking is not deprecated), and `docs/autonomous-operation.md` §3 now documents `/goal` — Claude
+  Code's *built-in* session-scoped prompt-based Stop gate — as the zero-config alternative to the
+  bounded loop for single interactive sessions. All five registry events re-verified present in
+  the current event list (no drift).
 - **`docs/autonomous-operation.md` — autonomy grounded in the shipped CLI, not folklore** (every
   flag and mode verified against Claude Code 2.1.178 `--help` + the official permissions docs
   before writing). Headless `claude -p` documented with its three safety-relevant property changes
@@ -203,6 +213,25 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
   install — the primary context — to serve plugin-without-init sessions where *every* `.claude/`
   reference (rules included) dangles equally. That's the documented plugin+init model, not a
   path-style bug.
+- **All four hooks-modernization claims from the industry review** (re-verified against the
+  official hooks reference + the anthropics/claude-code changelog after the original research
+  agent died unverified): **(1) exec-form hook commands** (`args: [...]`) — refused *for now*:
+  docs-recommended for path placeholders, but introduced only in Claude Code **2.1.139**; on any
+  older version an `args` entry degrades to bare `bash` consuming hook JSON on stdin — every guard
+  silently dead — while the kit's double-quoted shell form is already space/char-safe. Revisit
+  when the floor ages. **(2) `permissionDecision` JSON outputs with auto-allow for read-only
+  commands** — mechanism verified real, adoption refused: exit-code-2 blocking remains a fully
+  supported signaling path (only *top-level* decision/reason is deprecated, PreToolUse-only), the
+  JSON form adds a stdout-purity constraint to every bash guard for zero behavioral gain, and a
+  plugin auto-*allowing* commands would loosen the user's own permission posture from inside a
+  dependency. **(3) anchored `^name$` matchers** — refuted by the docs: matchers made only of
+  exact-match-set characters (`Bash`, `Read`, `Edit|Write`) are compared as exact strings, not
+  unanchored regexes; anchoring would move them onto the regex path for nothing. (Related
+  observation recorded: exact matching means `Edit|Write` does not cover `NotebookEdit` — left
+  as-is; no notebook overlay exists to warrant it.) **(4) a prompt-type Stop gate** — refused:
+  the product ships `/goal` as exactly that (a built-in session-scoped prompt-based Stop hook,
+  8-consecutive-block cap); an always-on plugin Stop gate would tax every turn of every user with
+  a model call to duplicate it. Documented `/goal` instead.
 - **Splitting `manual-test` (516 lines) and the five oversized stack-collection SKILL.md files**
   (`docker-compose` 606 · `grafana-dashboards-and-alerts` 535 · `containerization-and-deployment`
   534 · `langfuse-llm-tracing` 508 · `redis-caching-patterns` 505) — deferred, not rushed:
