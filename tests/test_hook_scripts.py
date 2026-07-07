@@ -396,3 +396,100 @@ def test_lint_fix_scoped_formats_only_changed_files(tmp_path: Path) -> None:
     assert proc.returncode == 0
     assert (repo / "changed.py").read_text() == "y = 2\n"  # changed file formatted
     assert (repo / "untouched.py").read_text() == ugly  # committed file untouched
+
+
+# --- Stop hooks: additionalContext feedback (Claude Code >= 2.1.163) --------------------------
+#
+# The checker/linter is faked with an `npm` shim on PATH so the tests are hermetic: no real
+# toolchain is needed and the failure output is deterministic.
+
+
+def _npm_shim(tmp_path: Path, stdout: str, exit_code: int) -> str:
+    """Create a fake `npm` executable that prints ``stdout`` and exits ``exit_code``."""
+    shim_dir = tmp_path / "shim-bin"
+    shim_dir.mkdir(exist_ok=True)
+    npm = shim_dir / "npm"
+    npm.write_text(f"#!/bin/sh\necho '{stdout}'\nexit {exit_code}\n", encoding="utf-8")
+    npm.chmod(0o755)
+    return str(shim_dir)
+
+
+@_NEED_JQ
+def test_type_check_failure_emits_stop_feedback_json(tmp_path: Path) -> None:
+    """A failing type check returns hookSpecificOutput.additionalContext (not bare stdout,
+    which Claude Code writes to the debug log only)."""
+    import os
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "package.json").write_text(
+        json.dumps({"scripts": {"typecheck": "tsc"}}), encoding="utf-8"
+    )
+    shim = _npm_shim(tmp_path, "src/app.ts(3,1): error TS2304: Cannot find name", 1)
+    proc = _run(
+        "type-check.sh",
+        payload={"stop_hook_active": False},
+        project_dir=proj,
+        extra_env={"PATH": f"{shim}:{os.environ['PATH']}"},
+    )
+    assert proc.returncode == 0  # feedback, never a hard block
+    obj = json.loads(proc.stdout)  # stdout is ONLY the JSON object
+    assert obj["hookSpecificOutput"]["hookEventName"] == "Stop"
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    assert "error TS2304" in ctx and "fix before finishing" in ctx
+
+
+@_NEED_JQ
+def test_type_check_gives_one_nudge_per_stop_chain(tmp_path: Path) -> None:
+    """stop_hook_active=true means we're already continuing from a stop hook: stay silent
+    so an unfixable failure can't ping-pong the session (per the hooks reference)."""
+    import os
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "package.json").write_text(
+        json.dumps({"scripts": {"typecheck": "tsc"}}), encoding="utf-8"
+    )
+    shim = _npm_shim(tmp_path, "src/app.ts(3,1): error TS2304: Cannot find name", 1)
+    proc = _run(
+        "type-check.sh",
+        payload={"stop_hook_active": True},
+        project_dir=proj,
+        extra_env={"PATH": f"{shim}:{os.environ['PATH']}"},
+    )
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+@_NEED_JQ
+def test_lint_fix_failure_emits_stop_feedback_json(tmp_path: Path) -> None:
+    import os
+
+    proj = tmp_path / "proj"  # not a git repo -> whole-repo (unscoped) mode
+    proj.mkdir()
+    (proj / "package.json").write_text(
+        json.dumps({"scripts": {"lint": "eslint ."}}), encoding="utf-8"
+    )
+    shim = _npm_shim(tmp_path, "src/app.js:1:1 problem: x is defined but never used", 0)
+    env = {"PATH": f"{shim}:{os.environ['PATH']}"}
+
+    proc = _run(
+        "lint-fix.sh",
+        payload={"stop_hook_active": False},
+        project_dir=proj,
+        extra_env=env,
+    )
+    assert proc.returncode == 0
+    obj = json.loads(proc.stdout)
+    assert obj["hookSpecificOutput"]["hookEventName"] == "Stop"
+    assert "never used" in obj["hookSpecificOutput"]["additionalContext"]
+
+    # One nudge per stop chain here too.
+    quiet = _run(
+        "lint-fix.sh",
+        payload={"stop_hook_active": True},
+        project_dir=proj,
+        extra_env=env,
+    )
+    assert quiet.returncode == 0
+    assert quiet.stdout == ""

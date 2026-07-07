@@ -164,6 +164,20 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **Stop hooks now feed their findings back to Claude instead of discarding them** (round-2 R9;
+  verified against the official hooks reference + the Claude Code changelog before adopting —
+  same discipline as the exec-form refusal, opposite verdict because the failure mode differs).
+  `type-check.sh` and `lint-fix.sh` printed failures to stdout and exited 0, but Stop-hook plain
+  stdout goes to the debug log only — the checks burned CPU with no effect. They now return
+  `hookSpecificOutput.additionalContext` JSON (Claude Code ≥ 2.1.163, changelog-pinned): the turn
+  continues as labeled "Stop hook feedback" so Claude fixes the failures before finishing,
+  bounded by the platform's 8-continuation cap **and** a `stop_hook_active` gate (one nudge per
+  stop chain, the hooks reference's own loop-protection practice — an unfixable failure can't
+  ping-pong the session). Adoptable where exec-form wasn't: on older versions the unread field
+  degrades to exactly the previous discard behavior, no guard is silently lost; without jq the
+  legacy plain-stdout path remains. Never `decision:block` — the kit's no-hard-block stance for
+  Stop hooks stands. Hermetic tests fake the toolchain with an `npm` shim (deterministic failure
+  output, JSON shape + one-nudge gating pinned for both scripts).
 - **Same-version upgrade/init no longer churns sidecars or claims a "new version" exists**
   (round-2 R6, cmp/mtime-verified by the empirical-UX lens: after one legitimate `CLAUDE.md`
   edit, every run rewrote a byte-identical sidecar, announced "kept; new version →
