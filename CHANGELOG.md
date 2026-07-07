@@ -239,7 +239,11 @@ the standard core (they now arrive via the selected stack's lane instead) — no
   (the kit repo itself has no `.claude/rules/`, so dogfooding never felt it). Shipped now:
   `docs/rules-context-budget.md` — verified semantics, the full measurement table, per-rule
   weights, four candidate directions with a recommendation, the blast-radius list, and the
-  reproducible methodology. The redesign itself is deliberately **not** rushed into this
+  reproducible methodology — plus a worked **Direction A appendix**: the full 522-citation
+  graph (quality-gates 89 · human-in-the-loop 50 · risk-classification 46 are contracts →
+  covenant; the heavy how-tos all have existing skills as destinations, reuse-first) and a
+  measured covenant estimate of **~7.9k tokens, a 92% cut**, inside the ≤10k target. The
+  redesign itself is deliberately **not** rushed into this
   release (it reshapes the payload layout and the README's headline claims); likewise the
   documented mongodb-overlay exception stays untouched — reconsidering that ~3k-token trade
   belongs inside the redesign, not a side patch against a test-pinned decision.

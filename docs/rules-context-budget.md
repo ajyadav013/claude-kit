@@ -114,6 +114,55 @@ primary fix: the kit's headline is a working default, not a footgun with a warni
 - `check_docs_consistency.py` anchors ("36 rules", "25 files") and the README feature claims.
 - `validator` structural checks for the new layout.
 
+## Appendix — Direction A working map (measured, not yet approved)
+
+Citation graph (grep `rules/<name>.md` across the payload, 2026-07-07): **522 citations** total
+to preserve or re-point. The three most-cited rules are contracts, not how-tos — exactly what a
+covenant is for: `quality-gates` (89), `human-in-the-loop` (50), `risk-classification` (46).
+
+**Covenant (stays always-on in `.claude/rules/`)** — keep-as-is where already lean, slim-in-place
+where the contract is buried in prose. Estimated covenant: **~21KB ≈ ~7.9k tokens** (vs 97k today,
+a 92% cut) — inside the ≤10k target:
+
+| file | keep | est. size |
+|---|---|---:|
+| rarv-cycle.md | as-is | 3.0KB |
+| risk-classification.md | as-is | 2.5KB |
+| autonomy-levels.md | as-is | 2.2KB |
+| mandatory-workflow.md | slim: Which-Workflow table, stage/gate order, defect-loop rule | ~5KB |
+| quality-gates.md | slim: severity ladder, gate-pass contract, §2.5 evidence rule | ~3KB |
+| human-in-the-loop.md | slim: the stop-points list | ~2KB |
+| continuity.md | slim: the resume contract (reload-don't-re-run, verify-before-trust) | ~3KB |
+
+**Moves (detail leaves the auto-loaded dir)** — destination exists today unless marked NEW;
+citations column = re-pointing work:
+
+| rule (KB) | destination | cites |
+|---|---|---:|
+| testing (23.2) | `testing-conventions` + `test-driven-development` skills | 25 |
+| agent-guardrails (17.0) | agent-ops reference pack (NEW `references/` home) | 22 |
+| linting-and-formatting (15.0) | `code-review-and-quality` skill | 14 |
+| design-patterns (13.3) | `design-patterns-and-conventions` skill | 24 |
+| responsive-and-accessibility (12.4) | `accessibility-review` + `ui-ux-design` skills | 14 |
+| devops-observability (11.1) | `ci-cd-and-automation` + `observability-and-logging` skills | 26 |
+| resilience-engineering (10.8) | reference (only 2 citations — lowest coupling) | 2 |
+| code-organization (10.8) | `backend-repo-architecture` + `frontend-repo-architecture` skills | 27 |
+| documentation (10.7) | `documentation-and-adrs` skill | 21 |
+| evals (10.4) | agent-ops reference pack | 9 |
+| wave-orchestration (10.2) | orchestrator-cited reference (covenant keeps the Mode E trigger row) | 11 |
+| tool-design (9.6) | agent-ops reference pack | 3 |
+| reasoning-techniques (9.2) | agent-ops reference pack | 7 |
+| model-tiers (8.1) | orchestrator-cited reference | 11 |
+| frontend-best-practices (7.7) | `frontend-ui-engineering` skill | 8 |
+| agent-memory (6.4) | agent-ops reference pack | 3 |
+| goal-setting-and-monitoring (6.3) | agent-ops reference pack | 6 |
+| agent-resilience (6.0) | agent-ops reference pack | 18 |
+
+Notes: the mandatory-workflow / quality-gates / human-in-the-loop / continuity residue after
+slimming also moves (same table logic). The `sdlc` skill already carries much of the pipeline
+prose — the workflow move is partly a dedup, not a relocation. Every destination except the
+agent-ops reference pack already ships; reuse-first holds.
+
 ## Measurement methodology (reproducible)
 
 ```
