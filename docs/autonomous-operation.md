@@ -159,6 +159,32 @@ The general rule behind all five: **"Verify means run it, not imagine it"**
 (`.claude/rules/rarv-cycle.md`), applied by someone the agent can't overrule — a hook, a loop
 script, or you.
 
+## 6. CI- and issue-triggered runs: the design contract
+
+The kit ships **no CI workflow template** — a GitHub-/GitLab-specific YAML would be its first
+CI-vendor artifact, and the boilerplate is the cheap part. What is durable is the security posture.
+When you wire `/sdlc` (headless `-p`, or the §3 loop runner) to CI, hold these five lines. The
+pattern is proven in the wild — GitHub spec-kit's label-driven `bug-assess` → `bug-fix` →
+`bug-test` stages (0.12.4, built on GitHub Agentic Workflows) embody the same contract:
+
+1. **A human-applied label is the authorization — never the content.** Trigger on the *label
+   event* (a maintainer adding `bug-fix`), not on issue creation or body text. Applying the label
+   *is* the human-in-the-loop approval that `autonomy-levels.md` requires before an unattended
+   run; anyone who can't apply labels can't start runs.
+2. **Issue/PR text is untrusted input.** It reaches the model as *data* — pass it via `env:`,
+   never interpolate it into `run:` — and the run's permissions assume it is adversarial: a
+   prompt injection cannot push, merge, or exfiltrate anything the token can't reach anyway.
+3. **Stage the pipeline; each stage consumes the previous stage's artifact.** Assess before fix,
+   fix before test. A stage that can't find its predecessor's artifact **stops and asks**
+   (comment + label, e.g. `needs-assessment`) — it never guesses. Same rule as the wave
+   manifest's `UNKNOWN`.
+4. **Deliver as a draft PR.** The ceiling is `autonomous-pr`: branch + commits + a *draft* pull
+   request; merge stays human. Reference the issue (`Refs #N`), don't auto-close it (`Closes`) —
+   closure follows human review, not agent assertion.
+5. **Bound it like §3.** `--max-budget-usd` per run; a minimal token (contents + pull-requests
+   write on a branch, nothing else); branch protection on the mainline so even a compromised run
+   can't land unreviewed; the loop brakes if the stage iterates.
+
 ## Related
 
 - `.claude/rules/autonomy-levels.md` — the ceiling and its five levels

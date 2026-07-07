@@ -18,6 +18,20 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Added
 
+- **CI/issue-triggered runs get a design contract instead of a vendor YAML** (round-2 R18, the
+  landscape item; every claim verified against the GitHub API first: spec-kit 0.12.4 (2026-07-02)
+  shipped the label-driven `bug-fix` (#3258) and `bug-test` (#3257) agentic workflows and 0.12.2
+  the bounded fan-out (#3224); PR #3258's design was read in full). New
+  `docs/autonomous-operation.md` §6 records the five lines to hold when wiring `/sdlc` to CI —
+  a human-applied **label is the authorization** (never issue content); issue text is untrusted
+  input (`env:`, never `run:` interpolation, adversarial-assumption permissions); stages consume
+  the prior stage's artifact and *stop and ask* when it's missing; **draft-PR** delivery under the
+  `autonomous-pr` ceiling (`Refs`, never `Closes`); §3-style bounds (budget, minimal token, branch
+  protection). Shipping an actual GitHub workflow template was **deliberately deferred** — it
+  would be the kit's first CI-vendor-specific artifact and the posture, not the boilerplate, is
+  the durable part. The README spec-kit comparison row is refreshed to describe 0.12.x honestly
+  (workflow engine, extension catalog, label-driven CI stages) and state the complementary split:
+  their CI stages, this kit's in-session gate depth.
 - **The bounded headless loop ships as an installed artifact** — `.claude/scripts/sdlc-loop.sh`
   (from new `templates/scripts/`, wired in both installers: `scaffold.install_sdlc` copies + chmods
   it, and the no-pip `init.sh` fallback installs it too). Prompted by a verified landscape shift:
