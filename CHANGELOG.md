@@ -225,6 +225,24 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **🚨 Rules context-budget finding: measured, attributed, spec'd (fix pending a design
+  decision).** Claude Code natively auto-loads `.claude/rules/*.md` — rules without `paths:`
+  frontmatter load **at launch** at CLAUDE.md priority (official memory docs; shipped in CC
+  2.0.64, i.e. the kit's whole life). Empirically measured with headless `-p` runs: a default
+  scaffolded project injects **103,916 tokens** at session start over an empty-dir baseline,
+  and removing `.claude/rules/` attributes **97,031 of that (93%) to the 25 unscoped core
+  rules** — everything else the kit installs totals a genuinely lean 6,885. This inverts the
+  "lean CLAUDE.md, on-demand rules" positioning. The load-at-launch semantics were *partially*
+  known — an earlier pass scoped 12 of 13 overlay rules for exactly this reason — but the core
+  set was declared an "always-on contract" without ever measuring its cost, CLAUDE.md kept
+  claiming on-demand, and no live session inside a scaffolded project had ever been measured
+  (the kit repo itself has no `.claude/rules/`, so dogfooding never felt it). Shipped now:
+  `docs/rules-context-budget.md` — verified semantics, the full measurement table, per-rule
+  weights, four candidate directions with a recommendation, the blast-radius list, and the
+  reproducible methodology. The redesign itself is deliberately **not** rushed into this
+  release (it reshapes the payload layout and the README's headline claims); likewise the
+  documented mongodb-overlay exception stays untouched — reconsidering that ~3k-token trade
+  belongs inside the redesign, not a side patch against a test-pinned decision.
 - **MCP pin freshness (issue #63)** — the two pins the monthly check flagged were bumped after
   changelog review, per the pins' own bump-deliberately contract: `@playwright/mcp`
   0.0.76 → **0.0.77** (tag diff verified: five housekeeping commits — dev-dep bump, docs, engine
