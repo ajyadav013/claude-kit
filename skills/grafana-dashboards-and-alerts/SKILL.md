@@ -386,115 +386,15 @@ See `references/provisioning-and-organization.md` for full workflow.
 
 ## Skeleton / example
 
-A minimal RED dashboard for a web service (excerpt):
+Two complete worked examples live verbatim in
+[red-dashboard-skeleton.md](references/red-dashboard-skeleton.md):
 
-```json
-{
-  "title": "Service RED Metrics",
-  "uid": "service-red-dashboard",
-  "schemaVersion": 38,
-  "tags": ["sre-automation", "red"],
-  "time": { "from": "now-1h", "to": "now" },
-  "templating": {
-    "list": [
-      {
-        "name": "datasource",
-        "type": "datasource",
-        "query": "prometheus"
-      },
-      {
-        "name": "cluster",
-        "type": "query",
-        "datasource": "${datasource}",
-        "query": "label_values(cluster)"
-      },
-      {
-        "name": "service",
-        "type": "query",
-        "datasource": "${datasource}",
-        "query": "label_values(traces_spanmetrics_calls_total{cluster=\"$cluster\"}, \"service\")",
-        "multi": true,
-        "includeAll": true
-      }
-    ]
-  },
-  "panels": [
-    {
-      "type": "row",
-      "title": "Request Rate",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
-      "collapsed": false
-    },
-    {
-      "type": "timeseries",
-      "title": "Requests per Minute",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(rate(traces_spanmetrics_calls_total{cluster=\"$cluster\", service=~\"$service\"}[$__rate_interval])) by (service) * 60",
-          "legendFormat": "{{service}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "reqpm" }
-      }
-    },
-    {
-      "type": "timeseries",
-      "title": "p95 Latency",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
-      "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{cluster=\"$cluster\", service=~\"$service\"}[$__rate_interval])) by (le, service))",
-          "legendFormat": "{{service}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": { "unit": "s" }
-      }
-    }
-  ]
-}
-```
-
-**Unified alert example:**
-
-```yaml
-- title: SRE-kafka-minion-TopicLagIncreasing-gt-0
-  condition: C
-  data:
-    - refId: A
-      model:
-        expr: sum by (group_id, topic_name)(kminion_kafka_consumer_group_topic_partition_lag)
-        datasourceUid: ${PROMETHEUS_DS}
-    - refId: B
-      datasourceUid: __expr__
-      model:
-        type: reduce
-        expression: A
-        reducer: last
-    - refId: C
-      datasourceUid: __expr__
-      model:
-        type: threshold
-        expression: B
-        conditions:
-          - evaluator: { params: [0], type: gt }
-  for: 5m
-  noDataState: OK
-  labels:
-    severity: warning
-    system: kafka
-    slack_0: data-platform
-  annotations:
-    __dashboardUid__: kafka-consumer-lag
-    __panelId__: "12"
-    message: "Kafka consumer lag increasing for {{$labels.topic_name}}"
-```
+- **A minimal RED dashboard** for a web service — datasource/cluster/service template variables
+  (cascading, multi-select), a request-rate panel (`rate(...) * 60` per-minute) and a p95 latency
+  panel (`histogram_quantile` over span-metrics buckets), both driven by `${datasource}`.
+- **A unified alert rule** — the three-stage query → reduce → threshold structure, a 5m `for`
+  window, explicit `noDataState`, severity/routing labels, and `__dashboardUid__`/`__panelId__`
+  annotations deep-linking the alert to its panel.
 
 ## Anti-patterns to avoid
 
@@ -524,6 +424,8 @@ A minimal RED dashboard for a web service (excerpt):
 
 ## References
 
+- [RED Dashboard Skeleton](references/red-dashboard-skeleton.md) — the complete worked RED
+  dashboard JSON and three-stage unified alert rule from the Skeleton section
 - [Dashboard JSON and Templating](references/dashboard-json-and-templating.md) — full JSON model
   anatomy, template variable types, cascading queries, multi-select, macros
 - [RED Metrics Queries](references/red-metrics-queries.md) — NGINX ingress, OTel span-metrics, pod

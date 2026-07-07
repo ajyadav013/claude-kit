@@ -16,6 +16,20 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **Collection-skill size sweep** (the deferred follow-up from the skills-hygiene pass; measured
+  per-file first). All five oversized collection SKILL.md files turned out to already ship
+  `references/` — the earlier "no references/ yet" note was an artifact of a truncated directory
+  listing — and the fat in each was a `## Skeleton / example` section of complete worked files
+  injected on every trigger. Three fixed: **`docker-compose` 606 → 253** (the four full compose
+  files — base, dev, prod-test, profiles — moved verbatim to new `references/compose-skeletons.md`
+  behind an annotated pointer); **`grafana-dashboards-and-alerts` 535 → 437** (the RED dashboard
+  JSON + three-stage unified alert rule moved verbatim to new
+  `references/red-dashboard-skeleton.md`); **`containerization-and-deployment` 534 → 262** (its
+  five skeletons were verbatim *duplicates* of content already in its own references — grep-verified
+  block-by-block before deletion — so the section became a per-skeleton pointer map with zero
+  content loss). Two refused for consistency with the earlier `manual-test` (516) refusal:
+  `langfuse-llm-tracing` (508) and `redis-caching-patterns` (505) sit 1–2% over the ~500-line
+  guidance, under the same not-worth-the-cohesion-cost threshold.
 - **Hooks-layer modernization review resolved with evidence** — the industry review's four
   gen_hooks claims (left unverified when the hooks-specialist research agent died mid-workflow)
   were each checked against the official hooks reference + the Claude Code changelog; **all four
