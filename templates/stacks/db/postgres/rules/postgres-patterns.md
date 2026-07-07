@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.sql"
+  - "**/migrations/**/*"
+  - "**/alembic/**/*"
+  - "**/models/**/*"
+---
+
 # PostgreSQL patterns
 
 Database conventions. Installed into `.claude/rules/` only when **PostgreSQL** is selected. Read

@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+---
+
 # UX Dashboard Patterns
 
 **Companion to [`ux-patterns.md`](./ux-patterns.md)** and [`ui-design-system.md`](./ui-design-system.md).

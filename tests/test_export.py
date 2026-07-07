@@ -69,27 +69,50 @@ def test_cursor_rules_are_valid_mdc(tmp_path, payload):
     assert always == ["000-project.mdc"]
 
 
-def test_cursor_overlay_globs_per_lane(tmp_path, payload):
-    """Overlay rules auto-attach on their lane's language/db; core rules carry no globs."""
+def test_cursor_overlay_globs_project_paths_frontmatter(tmp_path, payload):
+    """Overlay ``paths:`` frontmatter projects verbatim into Cursor globs; core rules carry none."""
     plan = _plan(payload, **_RICH)
     exporter.export_targets(payload, tmp_path, plan, ["cursor"])
     rules = tmp_path / ".cursor" / "rules"
 
     assert _frontmatter((rules / "react-patterns.mdc").read_text())["globs"] == (
-        "**/*.ts,**/*.tsx"
+        "**/*.ts,**/*.tsx,**/*.js,**/*.jsx"
     )
     assert _frontmatter((rules / "fastapi-patterns.mdc").read_text())["globs"] == (
         "**/*.py"
     )
     assert _frontmatter((rules / "postgres-patterns.mdc").read_text())["globs"] == (
-        "**/*.sql"
+        "**/*.sql,**/migrations/**/*,**/alembic/**/*,**/models/**/*"
     )
     # A core (non-overlay) rule is description-only — no globs key.
     assert "globs" not in _frontmatter((rules / "testing.mdc").read_text())
 
 
+def test_mdc_body_carries_no_second_frontmatter(tmp_path, payload):
+    """The source ``paths:`` block is stripped — every .mdc has exactly one frontmatter fence."""
+    plan = _plan(payload, **_RICH)
+    exporter.export_targets(payload, tmp_path, plan, ["cursor"])
+    for p in (tmp_path / ".cursor" / "rules").glob("*.mdc"):
+        body = p.read_text(encoding="utf-8").split("---\n", 2)[2]
+        assert not body.lstrip().startswith("---"), f"{p.name}: double frontmatter"
+        assert "\npaths:\n" not in body, f"{p.name}: leaked paths frontmatter"
+
+
+def test_glob_fallback_without_paths_frontmatter(tmp_path, payload):
+    """An overlay rule with no ``paths:`` block still gets a glob from the language/db table."""
+    fastapi_rule = (
+        payload / "templates" / "stacks" / "backend" / "python" / "fastapi" / "rules"
+    ) / "fastapi-patterns.md"
+    meta, body = exporter._split_frontmatter(fastapi_rule.read_text(encoding="utf-8"))
+    assert meta.get("paths")  # the shipped file is scoped…
+    plan = _plan(payload, **_RICH)
+    # …but the derivation must survive a frontmatter-less overlay (e.g. a user-added rule).
+    mdc = exporter._rule_to_mdc("fastapi-patterns.md", body, plan, payload)
+    assert 'globs: "**/*.py"' in mdc
+
+
 def test_go_backend_glob(tmp_path, payload):
-    """A non-Python backend derives its own glob from the language table (no per-stack branching)."""
+    """A non-Python backend scopes via its own ``paths:`` frontmatter (no per-stack branching)."""
     plan = _plan(payload, backend_language="go", backend_framework="net-http")
     exporter.export_targets(payload, tmp_path, plan, ["cursor"])
     go = tmp_path / ".cursor" / "rules" / "go-patterns.mdc"

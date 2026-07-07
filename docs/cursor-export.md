@@ -48,8 +48,12 @@ per-stack branching:
   filename), trimmed to ~200 characters. Cursor uses this to decide when to pull an on-demand rule.
 - **`alwaysApply`** — `false` for the whole rule set (mirroring Claude Code's on-demand rule loading);
   `true` only for the synthesized `000-project.mdc` charter.
-- **`globs`** — attached to **overlay** rules only, chosen from the overlay's lane and the plan's
-  *language/database* values (not framework names):
+- **`globs`** — attached to **overlay** rules only. The overlay rule's own `paths:` frontmatter
+  (Claude Code's [scoped rule loading](https://code.claude.com/docs/en/memory)) is the source of
+  truth: its glob list projects verbatim, comma-joined, and the block is stripped from the `.mdc`
+  body so the export carries exactly one frontmatter fence. An overlay *without* a `paths:` block
+  (e.g. a user-added rule) falls back to the lane's *language/database* values (not framework
+  names):
 
   | Lane | Source value | Example glob |
   |---|---|---|

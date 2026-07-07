@@ -26,6 +26,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from claude_kit import scaffold
 from claude_kit.models import ResolvedPlan
 from claude_kit.render import render_text
@@ -86,6 +88,27 @@ def _humanize(name: str) -> str:
     """Turn a rule filename into a readable title (``react-patterns.md`` -> ``React patterns``)."""
     stem = Path(name).stem.replace("-", " ").replace("_", " ").strip()
     return stem[:1].upper() + stem[1:] if stem else name
+
+
+def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+    """Split a leading YAML frontmatter block off a rule's markdown (``({}, text)`` when absent).
+
+    Overlay rules may open with Claude Code ``paths:`` frontmatter (scoped rule loading). The block
+    is parsed so targets can project it, and the returned body starts at the real markdown so no
+    export ever emits a double frontmatter. A malformed block is treated as body text, not an error.
+    """
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return {}, text
+    try:
+        meta = yaml.safe_load(text[4:end])
+    except yaml.YAMLError:
+        return {}, text
+    if not isinstance(meta, dict):
+        return {}, text
+    return meta, text[end + 5 :].lstrip("\n")
 
 
 def _rule_title(text: str, name: str) -> str:
@@ -156,18 +179,26 @@ def _rule_to_mdc(name: str, text: str, plan: ResolvedPlan, payload: Path) -> str
 
     Core rules are agent-requested (``description`` only, ``alwaysApply: false``) — mirroring Claude
     Code's on-demand rule loading. Overlay rules additionally get ``globs`` so Cursor auto-attaches
-    them when editing matching files. Values are JSON-quoted so the frontmatter is always valid YAML
-    (an unquoted glob such as ``**/*.{ts,tsx}`` would be misread as a YAML flow mapping).
+    them when editing matching files: the rule's own ``paths:`` frontmatter (Claude Code's scoped
+    loading) projects verbatim when present, falling back to the lane's language/db table. The
+    source frontmatter is stripped from the body so the ``.mdc`` carries exactly one block. Values
+    are JSON-quoted so the frontmatter is always valid YAML (an unquoted glob such as
+    ``**/*.{ts,tsx}`` would be misread as a YAML flow mapping).
     """
+    meta, body = _split_frontmatter(text)
     lines = [
-        f"description: {json.dumps(_rule_description(text, name), ensure_ascii=False)}"
+        f"description: {json.dumps(_rule_description(body, name), ensure_ascii=False)}"
     ]
     if name in set(plan.overlay_rules):
-        glob = _overlay_glob(name, plan, payload)
+        paths = meta.get("paths")
+        if isinstance(paths, list) and paths and all(isinstance(p, str) for p in paths):
+            glob: str | None = ",".join(paths)
+        else:
+            glob = _overlay_glob(name, plan, payload)
         if glob:
             lines.append(f"globs: {json.dumps(glob, ensure_ascii=False)}")
     lines.append("alwaysApply: false")
-    return "---\n" + "\n".join(lines) + "\n---\n\n" + text.strip() + "\n"
+    return "---\n" + "\n".join(lines) + "\n---\n\n" + body.strip() + "\n"
 
 
 def _project_mdc(body: str) -> str:
@@ -244,8 +275,8 @@ def _rule_index(payload: Path, plan: ResolvedPlan) -> str:
     if overlays:
         lines += ["", "**Stack overlays**", ""]
         for name, found in overlays:
-            text = found.read_text(encoding="utf-8")
-            lead = _rule_lead(text) or _rule_title(text, name)
+            _, body = _split_frontmatter(found.read_text(encoding="utf-8"))
+            lead = _rule_lead(body) or _rule_title(body, name)
             lines.append(f"- **{Path(name).stem}** — {_cap(lead, _DESC_CAP)}")
     return "\n".join(lines) + "\n"
 

@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+---
+
 # UI Design System — Foundations
 
 **All frontend development MUST follow these rules.**

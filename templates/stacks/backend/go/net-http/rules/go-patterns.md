@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.go"
+---
+
 # Go backend patterns (net/http)
 
 Stack-specific conventions for the backend. This overlay is installed into `.claude/rules/` only when

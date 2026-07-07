@@ -74,7 +74,7 @@ Quick start) for the full breakdown of any row.
 | 🤖 **Agent roster** | **28** tiered agents + per-database overlays + **6** org personas, led by an Orchestrator that never writes code |
 | 🔍 **Self-verification & review** | RARV green-Verify (real commands, not imagined), blind parallel review, and read-only risk classification |
 | 📐 **Rules & skills** | **25** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
-| 🧱 **Stacks & overlays** | Stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
+| 🧱 **Stacks & overlays** | Stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system — path-scoped so they load only when you touch matching files |
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
 | 🛠️ **Hooks & guards** | **18** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
@@ -333,7 +333,9 @@ need.
 - **Stack-agnostic core** — the pipeline assumes no language or framework; it never writes your app
   code and never needs Docker.
 - **13 stack overlay rule files** layer matching guidance on top — React, FastAPI, Go/net-http,
-  PostgreSQL, MongoDB — wired to your exact lint/test/build commands.
+  PostgreSQL, MongoDB — wired to your exact lint/test/build commands. Overlays are **path-scoped**
+  (`paths:` frontmatter) so they enter context only when Claude touches matching files; MongoDB's
+  stays always-on (a document store has no reliable file signal to scope by).
 - **A full React design system** — picking React installs design tokens, UX patterns, and
   mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
 

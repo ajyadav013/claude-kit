@@ -16,6 +16,19 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **Path-scoped overlay rules** — 12 of the 13 stack overlay rule files now open with `paths:` YAML
+  frontmatter (Claude Code's official scoped rule loading, verified against
+  code.claude.com/docs/en/memory before adoption), so React/FastAPI/Go/Postgres guidance enters
+  context only when Claude touches matching files instead of riding every session. Globs live in the
+  overlay files themselves — the stack-agnostic core rules stay deliberately unscoped (always-on
+  contract), and `mongodb-patterns.md` stays unscoped on purpose: a document store has no reliable
+  file signal, and a glob that never matches would mean the rule *never* loads (the same judgment
+  `export._DB_GLOBS` already encodes). The Cursor exporter now projects a rule's own `paths:` list
+  verbatim into `.mdc` `globs` (comma-joined; list form chosen over brace expansion precisely so it
+  ports) and strips the source block so no export carries a double frontmatter; the language/db
+  table remains as fallback for frontmatter-less overlays. New `tests/test_rule_frontmatter.py`
+  pins all four invariants (scoped overlays valid, Mongo exception, core rules clean, scaffold
+  copies verbatim).
 - **Rule-count drift guards in CI** — `scripts/check_docs_consistency.py` now anchors the overlay
   rule-file count, the README's default-stack worked example (25 core + 11 overlays = 36), and the
   rule counts quoted in `docs/architecture.md`, so the count drift fixed below cannot recur silently.

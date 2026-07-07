@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+---
+
 # UI Layout & Motion
 
 **All frontend development MUST follow these rules.** Companion to

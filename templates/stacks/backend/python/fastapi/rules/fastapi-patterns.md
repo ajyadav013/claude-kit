@@ -1,3 +1,8 @@
+---
+paths:
+  - "**/*.py"
+---
+
 # FastAPI backend patterns
 
 Stack-specific conventions for the backend. This overlay is installed into `.claude/rules/` only
