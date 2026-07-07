@@ -11,10 +11,28 @@ All notable changes to claude-kit are documented here. The format follows
 resumable-pipeline promise structurally broken: nine agents ran `permissionMode: plan` (read-only)
 while their prompts *required* file writes — the orchestrator's `CONTINUITY.md` +
 `.claude/state/pipeline-snapshot.json` updates, every security scanner's `docs/security/*` report,
-the merge-reviewer's API change report, and the incident-responder's incident log. Payload-only fix;
+the merge-reviewer's API change report, and the incident-responder's incident log. Plus the docs-truth sweep the same review surfaced.
 0 new agents/skills/rules; catalog untouched.
 
+### Added
+
+- **Rule-count drift guards in CI** — `scripts/check_docs_consistency.py` now anchors the overlay
+  rule-file count, the README's default-stack worked example (25 core + 11 overlays = 36), and the
+  rule counts quoted in `docs/architecture.md`, so the count drift fixed below cannot recur silently.
+
 ### Fixed
+
+- **Docs-truth sweep** (every number re-verified on disk before fixing): the README said **35**
+  rules per profile and "**10** overlay rule sets" — reality is **36** installed for the default
+  React+FastAPI+PostgreSQL stack and **13** overlay rule files; `docs/architecture.md` said **24**
+  rules in two places (25 exist); `docs/launch/road-to-1.0.md` hardcoded **v0.57.0** (now points at
+  the CHANGELOG so it can't drift); `/claude-kit:abort` was missing from both command lists (README +
+  architecture) — a user whose run went sideways had no documented escape hatch; the README init-flow
+  list stopped at 6 questions while `init` actually asks 8 — the undocumented two now listed are
+  **learning capture** (with its privacy note and the `CLAUDE_KIT_NO_AUTOCAPTURE=1` opt-out) and
+  **usage scope** (organization scope asks four follow-ups); new troubleshooting row for
+  `pip install claude-kit` → the package is **`claude-code-kit`**; and `claude-kit --help` no longer
+  advertises the experimental `research` group whose only command is hidden (it now hides with it).
 
 - **`orchestrator`** — dropped `permissionMode: plan`, granted `Write`/`Edit`, and added an explicit
   **write-confinement hard rule**: state and gate evidence only (`.claude/CONTINUITY.md`,

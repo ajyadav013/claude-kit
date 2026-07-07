@@ -1,6 +1,6 @@
 # The road to 1.0
 
-claude-kit is at **v0.57.0** and carries the **Development Status :: 4 - Beta** classifier. That Beta label is intentional — it stays until the gaps listed below are addressed. This document is the anti-sycophancy roadmap: an honest inventory of what stands between the current release and a 1.0.
+claude-kit is pre-1.0 (current release: top of [`CHANGELOG.md`](../../CHANGELOG.md)) and carries the **Development Status :: 4 - Beta** classifier. That Beta label is intentional — it stays until the gaps listed below are addressed. This document is the anti-sycophancy roadmap: an honest inventory of what stands between the current release and a 1.0.
 
 ## Why we honestly stay Beta
 

@@ -74,7 +74,7 @@ Quick start) for the full breakdown of any row.
 | 🤖 **Agent roster** | **28** tiered agents + per-database overlays + **6** org personas, led by an Orchestrator that never writes code |
 | 🔍 **Self-verification & review** | RARV green-Verify (real commands, not imagined), blind parallel review, and read-only risk classification |
 | 📐 **Rules & skills** | **25** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
-| 🧱 **Stacks & overlays** | Stack-agnostic core + **10** overlay rule sets (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
+| 🧱 **Stacks & overlays** | Stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
 | 🛠️ **Hooks & guards** | **18** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
@@ -187,6 +187,12 @@ config — nothing else:
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
 6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette · Google SecOps) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
+7. **Learning capture** (`session-end-catchup` default · `session-end` · `per-task` · `off`) — how often
+   the background learnings job runs. *Privacy note:* it reads your session transcript + changed files
+   to write `.claude/agent-memory/` entries (secret-bearing files skipped, secret-shaped values
+   redacted); opt out anytime with `CLAUDE_KIT_NO_AUTOCAPTURE=1`
+8. **Usage scope** (`individual` · `team` · `organization`) — organization scope asks four follow-ups:
+   teams, autonomy level, review strictness, and org capability packs
 
 Non-interactive equivalents: `--defaults`, or `--config init.yaml` (flat or nested YAML). What lands:
 
@@ -314,8 +320,8 @@ need.
 
 - **Stack-agnostic core** — the pipeline assumes no language or framework; it never writes your app
   code and never needs Docker.
-- **10 stack overlay rules** layer matching guidance on top — React, FastAPI, Go/net-http, PostgreSQL,
-  MongoDB — wired to your exact lint/test/build commands.
+- **13 stack overlay rule files** layer matching guidance on top — React, FastAPI, Go/net-http,
+  PostgreSQL, MongoDB — wired to your exact lint/test/build commands.
 - **A full React design system** — picking React installs design tokens, UX patterns, and
   mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
 
@@ -341,12 +347,12 @@ on a React + FastAPI + PostgreSQL project, individual scope:
 
 | Profile | Agents | Skills | Rules |
 |---------|-------:|-------:|------:|
-| `lean` | 8 | 14 | 35 |
-| `standard` (default) | 26 | 42 | 35 |
-| `enterprise` | 31 | 104 | 35 |
+| `lean` | 8 | 14 | 36 |
+| `standard` (default) | 26 | 42 | 36 |
+| `enterprise` | 31 | 104 | 36 |
 
 - **Rules are profile-independent** — every profile installs the same 25 core rules + the selected
-  stack's overlays (11 for this stack = 35); rigor changes the *agents and gates*, not the rule set.
+  stack's overlays (11 for this stack = 36); rigor changes the *agents and gates*, not the rule set.
 - **Skills activate on demand** — they are installed and available, then pulled into context by task
   relevance, not all held resident at once. The count is what's on disk, not a fixed context tax.
 - **Counts include stack overlays** — the numbers above already fold in the chosen stack (e.g. the
@@ -755,8 +761,9 @@ everything available.
 | `version` | Print the version |
 | `package-org-pack` · `install-org-pack` | Package / install an organization capability pack (org scope) |
 
-Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`; and the
-`/sdlc` skill inside any scaffolded project.
+Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`, and
+`/claude-kit:abort` (cleanly tear down an in-progress `/sdlc` run — removes only that run's
+worktrees); plus the `/sdlc` skill inside any scaffolded project.
 
 > When MCP servers are selected, `init` also writes a derived **`.mcp.lock.json`** pinning each
 > server's resolved package version — inspect it (or run `doctor --mcp`) to see exactly what would run.
@@ -790,6 +797,7 @@ hints.
 | Guard / quality hooks seem to do nothing | `jq` isn't installed (the hooks parse tool input with it) | Install `jq`; without it the hooks degrade to no-ops by design |
 | Hooks do nothing on **Windows** | No POSIX shell — `.sh` hooks can't run under `cmd`/PowerShell | Run claude-kit inside **WSL or Git Bash** (with `jq`); `claude-kit doctor` confirms. Config + CLI work natively regardless |
 | A selected MCP server won't start | `node` / `npx` missing (most MCP servers launch via `npx`) | Install Node.js, or remove the server from `.mcp.json` |
+| `pip install claude-kit` fails ("no matching distribution") | The PyPI package name is **`claude-code-kit`** — the repo and CLI are `claude-kit`, the pip name is not | `pip install claude-code-kit` |
 | `pip install claude-code-kit` fails | Outdated `pip`, or you want an unreleased change | Upgrade pip (`pip install -U pip`); for unreleased changes use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
 | `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |
 

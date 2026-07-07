@@ -60,7 +60,7 @@ app = typer.Typer(
 research_app = typer.Typer(
     no_args_is_help=True, help="Research helpers (license-respecting)."
 )
-app.add_typer(research_app, name="research")
+app.add_typer(research_app, name="research", hidden=not _EXPERIMENTAL)
 pipeline_app = typer.Typer(
     no_args_is_help=True,
     help="Inspect/mutate the /sdlc pipeline state files (does not run the pipeline).",
