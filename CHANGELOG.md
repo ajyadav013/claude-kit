@@ -140,6 +140,13 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **`guard-secrets.sh` no longer blocks committing `.env.example`-style placeholder files**
+  (surfaced by writing the guard's first behavioral tests, R2; reproduced empirically first).
+  The filename pattern `\.env($|\.)` — written to catch `.env.local`/`.env.production`, which do
+  hold real values — also caught `.env.example`, a names-only onboarding file most repos commit
+  deliberately. `.env.example`/`.sample`/`.template`/`.dist` are now spared via a negating grep
+  (POSIX ERE has no lookahead), applying the guard's own names-not-values philosophy to
+  filenames. Real env files still block; pinned by four new spare cases.
 - **Guard scripts: quoted tokens no longer evade the word-boundary match** (round-2 test-gaps
   review, R3; the verifier proved the bypass by piping real PreToolUse JSON). Shell word-splitting
   keeps quote characters as literal token text, so `git push origin "main"` / `'main'` / `"+main"` /

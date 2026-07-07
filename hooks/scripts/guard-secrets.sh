@@ -46,9 +46,13 @@ printf '%s\n' "$NORM" | grep -qE '^commit([[:space:]]|$)' || exit 0
 cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 
-# 1) Secret-like files staged
+# 1) Secret-like files staged. Placeholder variants (.env.example/.sample/.template/.dist) are
+#    spared -- they hold variable NAMES for onboarding, not values, and are committed on purpose
+#    (same names-not-values philosophy as the content check below). POSIX ERE has no lookahead,
+#    hence the second, negating grep.
 BAD_FILES=$(git diff --cached --name-only 2>/dev/null \
-  | grep -iE '(^|/)\.env($|\.)|\.(pem|key|p12|pfx)$|credentials?\.(json|ya?ml|md)$')
+  | grep -iE '(^|/)\.env($|\.)|\.(pem|key|p12|pfx)$|credentials?\.(json|ya?ml|md)$' \
+  | grep -ivE '(^|/)\.env\.(example|sample|template|dist)$')
 
 # 2) Secret-like VALUES in the staged diff (added lines only).
 #    Detect real leaked-credential value shapes, NOT variable NAMES. Identifiers such as

@@ -478,6 +478,23 @@ def test_secrets_guard_blocks_secretlike_staged_files(
 @_NEED_JQ
 @_NEED_GIT
 @pytest.mark.parametrize(
+    "fname",
+    [".env.example", ".env.sample", ".env.template", ".env.dist"],
+)
+def test_secrets_guard_spares_env_placeholder_files(tmp_path: Path, fname: str) -> None:
+    """Placeholder env files hold variable names for onboarding and are committed on purpose."""
+    repo = _staged_repo(tmp_path, {fname: "API_KEY=\nDATABASE_URL=\n"})
+    assert (
+        _run_script_guard(
+            "guard-secrets.sh", "git commit -m msg", project_dir=str(repo)
+        )
+        == 0
+    ), fname
+
+
+@_NEED_JQ
+@_NEED_GIT
+@pytest.mark.parametrize(
     "value",
     [
         "aws_key = "
