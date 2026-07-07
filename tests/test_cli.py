@@ -69,6 +69,26 @@ def test_init_config_mongo_enterprise(tmp_path):
     assert (target / ".claude" / "rules" / "mongodb-patterns.md").is_file()
 
 
+def test_init_config_malformed_yaml_is_friendly(tmp_path):
+    """A YAML syntax error in --config exits 2 with `error: …`, not a raw traceback."""
+    cfg = tmp_path / "bad.yaml"
+    cfg.write_text("profile: standard\n  backend: [unclosed\n", encoding="utf-8")
+    target = tmp_path / "proj"
+    result = runner.invoke(app, ["init", str(target), "--config", str(cfg)])
+    assert result.exit_code == 2
+    # Click <8.2 mixes stderr into ``output`` and makes ``result.stderr`` raise;
+    # Click >=8.2 separates the streams. Read whichever holds the message.
+    combined = result.output
+    try:
+        combined += result.stderr
+    except ValueError:
+        pass
+    assert "not valid yaml" in combined.lower()
+    assert "Traceback" not in combined
+    # No partial install may be left behind.
+    assert not target.exists() or not any(target.iterdir())
+
+
 def test_init_capture_mode_config_and_default(tmp_path):
     """`capture_mode` flows through --config and --defaults into settings.json hook wiring."""
     import json

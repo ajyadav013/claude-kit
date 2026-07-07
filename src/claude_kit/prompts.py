@@ -228,7 +228,13 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     Org fields may also be given flat (``scope``/``teams``/``autonomy``/``review_strictness``/
     ``org_packs``). Missing keys fall back to the catalog defaults.
     """
-    data = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+    try:
+        data = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        # PyYAML's message spans lines but carries the line/column mark — keep it, one line.
+        raise ValueError(
+            f"config file is not valid YAML: {' '.join(str(exc).split())}"
+        ) from exc
     if not isinstance(data, dict):
         raise ValueError("config file did not parse to a mapping")
     unknown = set(data) - _CONFIG_KEYS

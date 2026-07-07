@@ -42,3 +42,11 @@ def test_teams_string_is_normalised(tmp_path, payload):
     cfg = _write(tmp_path, "scope: organization\nteams: engineering\n")
     sel = prompts.from_config(cfg, payload)
     assert sel.teams == ["engineering"]
+
+
+def test_malformed_yaml_is_a_friendly_valueerror(tmp_path, payload):
+    """A YAML syntax error becomes a one-line ValueError (the CLI renders those as
+    `error: … / exit 2`) instead of a raw PyYAML ScannerError escaping to the user."""
+    cfg = _write(tmp_path, "profile: standard\n  backend: [unclosed\n")
+    with pytest.raises(ValueError, match="not valid YAML"):
+        prompts.from_config(cfg, payload)
