@@ -46,13 +46,14 @@ Measured on a `react + fastapi + postgres` project with `--scope individual`:
 
 | Profile | Agents | Skills | Rules | Approx. On-Disk Skill Tokens |
 |---------|--------|--------|-------|-------------------------------|
-| **lean** | 8 | 14 | 35 | ~46K |
-| **standard** | 26 | 42 | 35 | ~121K |
-| **enterprise** | 31 | 104 | 35 | ~895K |
+| **lean** | 8 | 15 | 36 | ~46K |
+| **standard** | 26 | 42 | 36 | ~121K |
+| **enterprise** | 31 | 104 | 36 | ~895K |
 
 **Notes:**
 
-- Skill counts are skill *directories* (those containing a `SKILL.md`) — matching `_count_skills()` and the README's "What loads into your context" table. A raw `ls .claude/skills | wc -l` reads one higher (15 / 43 / 105) because each install also copies the shared `_references/` support directory, which is **not** a skill; `_count_skills()` deliberately excludes it. This is a counting convention, not duplicated content.
+- Skill counts are skill *directories* (those containing a `SKILL.md`) — matching `_count_skills()` and the README's "What loads into your context" table. A raw `ls .claude/skills | wc -l` reads one higher (16 / 43 / 105) because each install also copies the shared `_references/` support directory, which is **not** a skill; `_count_skills()` deliberately excludes it. This is a counting convention, not duplicated content.
+- Since the stack-true reclassification (0.58.1), the six frontend-specific skills (`frontend-ui-engineering`, `component-design`, `ui-ux-design`, `unit-test`, `api-integration`, `manual-test`) ride the React entry in `catalog/stacks.yaml` rather than the standard profile — a backend-only (`frontend: none`) standard install is six skills lighter. Lean gained one on the default stack (the react union now includes `manual-test` and `api-integration`; `api-integration` left the fastapi entry): 14 → 15.
 - Agent counts exceed the raw profile agent list because the PostgreSQL DB overlay unions in 3 additional agents (`postgres-specialist`, `migration-specialist`, `db-performance-reviewer`).
 - Rules are profile-independent: 25 core rules + 11 selected stack-overlay rules = 36 for all three profiles.
 - Token estimates are approximate (bytes ÷ 4) and count on-disk **skill** bytes only, not always-resident context (see Finding below). The finding stands: enterprise installs every skill in the payload via `skills: all`.

@@ -19,6 +19,10 @@ version: 1
 frontend:
   default: react
   frameworks:
+    none:
+      label: "None (backend-only project)"
+      # No overlays, skills, commands, or stack_dir — the resolver's data-driven defaults make
+      # this a true no-op lane: nothing frontend-flavored is installed or rendered.
     react:
       label: "React"
       languages:
@@ -26,7 +30,11 @@ frontend:
         options: [typescript, javascript]
       overlay_rules: [react-patterns.md, design-system-compliance.md, ui-design-system.md, ui-components.md, ui-layout-and-motion.md, ux-patterns.md, ux-dashboard-patterns.md, mobile-design-guidelines.md]
       overlay_agents: []
-      skills: [frontend-ui-engineering, component-design, ui-ux-design, unit-test]
+      # unit-test / api-integration / manual-test live here (not in profiles.yaml): their content is
+      # frontend-specific (component/hook tests, client-side data fetching, headed-browser QA), so
+      # they install only when a frontend exists. Backend testing is covered by the universal
+      # test-driven-development core skill.
+      skills: [frontend-ui-engineering, component-design, ui-ux-design, unit-test, api-integration, manual-test]
       stack_dir: frontend/react
       commands:
         install: "npm install"
@@ -49,6 +57,12 @@ frontend:
 backend:
   default: python
   languages:
+    none:
+      label: "None (frontend-only project)"
+      default_framework: none
+      frameworks:
+        none:
+          label: "None"
     python:
       label: "Python"
       default_framework: fastapi
@@ -57,7 +71,7 @@ backend:
           label: "FastAPI"
           overlay_rules: [fastapi-patterns.md]
           overlay_agents: []
-          skills: [api-and-interface-design, api-integration]
+          skills: [api-and-interface-design]
           stack_dir: backend/python/fastapi
           commands:
             install: "pip install -e '.[dev]'"
@@ -86,7 +100,7 @@ backend:
           label: "net/http (stdlib)"
           overlay_rules: [go-patterns.md]
           overlay_agents: []
-          skills: [api-and-interface-design, api-integration]
+          skills: [api-and-interface-design]
           stack_dir: backend/go/net-http
           commands:
             install: "go mod download"
@@ -99,6 +113,8 @@ backend:
 database:
   default: postgres
   options:
+    none:
+      label: "None (no database)"
     postgres:
       label: "PostgreSQL"
       overlay_rules: [postgres-patterns.md, database-performance.md]

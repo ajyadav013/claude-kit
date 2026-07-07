@@ -234,11 +234,50 @@ def test_unknown_option_is_rejected(payload):
 def test_list_options_reports_live_and_planned(payload):
     opts = catalog.list_options(payload)
     fe_ids = {f["id"] for f in opts["frontend"]}
-    assert {"react", "vue", "svelte"} <= fe_ids
+    assert {"none", "react", "vue", "svelte"} <= fe_ids
     db_ids = {d["id"] for d in opts["database"]}
-    assert {"postgres", "mongodb"} == db_ids
+    assert {"none", "postgres", "mongodb"} == db_ids
     profile_ids = {p["id"] for p in opts["profiles"]}
     assert {"lean", "standard", "enterprise"} == profile_ids
+
+
+def test_backend_only_selection_installs_nothing_frontend(payload):
+    """`none` frontend (stack-true installs): no React overlays, no frontend-specific skills."""
+    plan = catalog.resolve(
+        payload,
+        make_selection(payload, frontend_framework="none", frontend_language="none"),
+    )
+    assert plan.context["has_frontend"] == ""
+    assert plan.stack_dirs["frontend"] == ""
+    frontend_rules = [
+        r
+        for r in plan.overlay_rules
+        if r.startswith(("react", "ui-", "ux-", "design", "mobile"))
+    ]
+    assert frontend_rules == []
+    fe_skills = {
+        "frontend-ui-engineering",
+        "component-design",
+        "ui-ux-design",
+        "unit-test",
+        "api-integration",
+        "manual-test",
+    }
+    assert not (fe_skills & set(plan.skills))
+
+
+def test_frontend_specific_skills_ride_the_react_stack(payload):
+    """The six frontend skills install via the react `skills:` union, not the profile core."""
+    plan = catalog.resolve(payload, make_selection(payload))  # default react stack
+    for skill in (
+        "frontend-ui-engineering",
+        "component-design",
+        "ui-ux-design",
+        "unit-test",
+        "api-integration",
+        "manual-test",
+    ):
+        assert skill in plan.skills, f"{skill} missing from the default react stack"
 
 
 # --- Organization layer (scope-gated) ------------------------------------------------------------

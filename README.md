@@ -181,9 +181,9 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 config — nothing else:
 
 1. **Target path** (default: current dir; if `.claude/` exists → **merge / overwrite / backup / abort**)
-2. **Frontend framework** (default: React) → **frontend language** (default: TypeScript)
-3. **Backend language** (default: Python) → **backend framework** (default: FastAPI)
-4. **Database** (PostgreSQL · MongoDB)
+2. **Frontend framework** (default: React; `none` for backend-only projects) → **frontend language** (default: TypeScript; skipped for `none`)
+3. **Backend language** (default: Python; `none` for frontend-only projects) → **backend framework** (default: FastAPI)
+4. **Database** (PostgreSQL · MongoDB · `none`)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
 6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette · Google SecOps) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
@@ -342,6 +342,9 @@ need.
   PostgreSQL, MongoDB — wired to your exact lint/test/build commands. Overlays are **path-scoped**
   (`paths:` frontmatter) so they enter context only when Claude touches matching files; MongoDB's
   stays always-on (a document store has no reliable file signal to scope by).
+- **Installs are stack-true** — every lane offers `none` (backend-only, frontend-only, no-database
+  projects), and a lane you don't have installs nothing: no off-stack rules, skills, agents, or
+  commands. Frontend-specific skills ride the React selection, not the profile core.
 - **A full React design system** — picking React installs design tokens, UX patterns, and
   mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
 
@@ -367,9 +370,13 @@ on a React + FastAPI + PostgreSQL project, individual scope:
 
 | Profile | Agents | Skills | Rules |
 |---------|-------:|-------:|------:|
-| `lean` | 8 | 14 | 36 |
+| `lean` | 8 | 15 | 36 |
 | `standard` (default) | 26 | 42 | 36 |
 | `enterprise` | 31 | 104 | 36 |
+
+Skills are **stack-true**: the frontend-specific ones (component/unit tests, UI design, client API
+integration, headed-browser QA) ride the React selection, so a backend-only project (frontend:
+`none`) installs none of them — and no React rules or npm commands either.
 
 - **Rules are profile-independent** — every profile installs the same 25 core rules + the selected
   stack's overlays (11 for this stack = 36); rigor changes the *agents and gates*, not the rule set.

@@ -1000,6 +1000,38 @@ def test_token_budget_keys_in_installed_settings(tmp_path, payload):
         assert starter[key] == val, f"starter settings.json missing token key {key!r}"
 
 
+def test_backend_only_install_has_no_frontend_content(tmp_path, payload):
+    """`none` frontend (stack-true installs): no React rules, frontend skills, or CLAUDE.md lanes."""
+    install(payload, tmp_path, frontend_framework="none", frontend_language="none")
+    rules = {p.name for p in (tmp_path / ".claude" / "rules").glob("*.md")}
+    assert "react-patterns.md" not in rules
+    skills = {p.name for p in (tmp_path / ".claude" / "skills").iterdir()}
+    assert "frontend-ui-engineering" not in skills
+    assert "manual-test" not in skills
+    cm = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "\nFrontend:\n" not in cm
+    assert "react" not in cm.lower()
+
+
+def test_all_none_install_renders_clean_charter(tmp_path, payload):
+    """A lanes-less selection installs the agnostic core and renders without dangling refs."""
+    install(
+        payload,
+        tmp_path,
+        frontend_framework="none",
+        frontend_language="none",
+        backend_language="none",
+        backend_framework="none",
+        database="none",
+    )
+    cm = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "Configured by **claude-kit**, SDLC profile" in cm
+    # No lane bullets → no "Conventions:" pointing at an empty overlay-rule filename.
+    assert "Conventions:" not in cm
+    readme = (tmp_path / "README.claude-sdlc.md").read_text(encoding="utf-8")
+    assert "stack-agnostic (no stack lanes selected)" in readme
+
+
 def test_install_emits_agents_md_projection(tmp_path, payload):
     """init lands a root AGENTS.md (the export projection) for non-Claude agents in the repo."""
     install(payload, tmp_path)

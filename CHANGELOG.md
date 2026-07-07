@@ -16,6 +16,24 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **Stack-true installs: `none` lanes + frontend skills ride the frontend stack** (every sub-claim
+  verified first). `catalog/stacks.yaml` gains `none` entries for frontend, backend, and database —
+  previously a pure-backend project was *forced* to select React and received 8 React overlay
+  rules, frontend skills, and npm commands in its CLAUDE.md. A `none` entry ships no
+  overlays/skills/commands/stack_dir, so the branch-free resolver makes it a true no-op lane; new
+  `has_frontend`/`has_backend`/`has_database` context flags (derived from stack_dir presence — data,
+  not stack names) let `CLAUDE.stack.md.tmpl` + `README.claude-sdlc.md.tmpl` render clean charters
+  for any combination, including all-`none`. The six frontend-specific skills
+  (`frontend-ui-engineering`, `component-design`, `ui-ux-design`, `unit-test` "frontend components
+  and hooks", `api-integration` client-side data fetching — verified by reading each skill's
+  content, and previously mis-filed under the *backend* stacks — and `manual-test` headed-browser
+  QA) moved from the standard profile core to the React entry's `skills:` union: a backend-only
+  standard install is six skills lighter, the default-stack standard count is unchanged (42), and
+  lean's default-stack count goes 14 → 15 (README + skill-audit updated; skill-audit's stale
+  35-rules column also fixed to 36). The `none` combinations automatically join the
+  profile×stack×scope self-test matrix. The interactive frontend-language question is skipped for
+  a lane with no languages. Deferred to a future pass: the `skills: stack-relevant` enterprise
+  filter (needs a collection-skill→stack mapping measured, not assumed).
 - **`init` now emits a root `AGENTS.md`** — the cross-tool agent-instructions convention behind the
   most-requested Claude Code integration (anthropics/claude-code#6235, 4.3k 👍, re-verified OPEN and
   still non-native before adoption: Claude Code reads `CLAUDE.md` only, so this file serves the

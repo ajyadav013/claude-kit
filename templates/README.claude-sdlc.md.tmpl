@@ -3,8 +3,8 @@
 This repository has a **claude-kit** autonomous-SDLC configuration installed. Claude Code reads it
 automatically when you open the project; nothing here is application code.
 
-- **Stack:** {{ frontend_label }} ({{ frontend_language }}) · {{ backend_label }}
-  ({{ backend_language_label }}) · {{ db_label }}
+- **Stack:** {% if has_frontend %}{{ frontend_label }} ({{ frontend_language }}){% endif %}{% if has_frontend and has_backend %} · {% endif %}{% if has_backend %}{{ backend_label }}
+  ({{ backend_language_label }}){% endif %}{% if has_database %}{% if has_frontend or has_backend %} · {% endif %}{{ db_label }}{% endif %}{% if not has_frontend and not has_backend and not has_database %}stack-agnostic (no stack lanes selected){% endif %}
 - **SDLC profile:** {{ profile_label }}
 - **MCP integrations:** {{ mcp_list }}
 - **Installed:** ~{{ agent_count }} agents · {{ skill_count }} skills · stack overlay rules

@@ -55,11 +55,10 @@ profiles:
       - interview-me
       - idea-refine
       - scope
+      # NOTE: the frontend-specific skills (frontend-ui-engineering, component-design, ui-ux-design,
+      # unit-test, api-integration, manual-test) are NOT core — they ride catalog/stacks.yaml's
+      # react `skills:` union, so they install only when a frontend stack is selected.
       - api-and-interface-design
-      - frontend-ui-engineering
-      - component-design
-      - ui-ux-design
-      - unit-test
       - security-and-hardening
       - security-verification
       - documentation-and-adrs
@@ -71,9 +70,7 @@ profiles:
       - code-simplification
       - refresh-docs
       - smoke-test
-      - manual-test
       - browser-testing-with-devtools
-      - api-integration
       - performance-optimization
       - load-testing
       - incident-postmortem
