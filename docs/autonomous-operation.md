@@ -135,6 +135,24 @@ not an autonomy setting. Even `autonomous-pr` doesn't need it: the level grants 
 rules, which is the opposite of skipping the permission system. `--allow-dangerously-skip-permissions`
 only makes bypass *available*; it doesn't change this judgment.
 
+### Cost enforcement for unattended runs (≥ 2.1.178)
+
+The kit's cost discipline (`model-tiers.md`, announce-fan-out-before-spawning) is advisory; an
+unattended run deserves a hard bound on top. Since 2.1.178, deny/ask permission rules match tool
+input parameters — and because `-p` turns prompts into denials, **`deny` is the operative form
+headless**:
+
+```json
+{ "permissions": { "deny": ["Agent(model:opus)", "Agent(model:*opus*)"] } }
+```
+
+Two verified caveats before trusting this as the bound (details + the interactive `ask` variant in
+`.claude/rules/model-tiers.md` → "Enforcing the tier policy"): a call that *omits* `model` never
+matches — the kit's Critical-tier agents carry `opus` in frontmatter, so gate those by **name**
+(`Agent(devils-advocate)`) or by editing the frontmatter tier; and values compare literally, so the
+wildcard form is what catches full model IDs. `--max-budget-usd` (§3) remains the spend backstop
+either way — the permission rule shapes *which* spend, the budget bounds *how much*.
+
 ## 5. Anti-gaming: what to watch in unattended logs
 
 An unattended agent optimizing for "gates passed" can fake the meter instead of moving the work.

@@ -162,6 +162,19 @@ the standard core (they now arrive via the selected stack's lane instead) — no
   paths — plus a behavioral proof of the P0-3 scoping guarantee: `lint-fix.sh` formats the changed
   file while a committed, untouched file stays byte-identical.
 
+### Added (continued — round-2 landscape adoption)
+
+- **The tier policy gained its enforcement lever — documented with its real limits** (round-2 R10;
+  syntax and semantics verified in the permissions reference, feature changelog-pinned to
+  2.1.178). `model-tiers.md` closes with "Enforcing the tier policy": deny/ask rules matching tool
+  input parameters (`Agent(model:opus)`), the wildcard form for full model IDs, and — the caveat
+  the review missed — that an *omitted* parameter never matches, so the kit's Critical-tier agents
+  (opus **in frontmatter**, not in the spawning call) are gated by agent-**name** rules
+  (`Agent(devils-advocate)`) or a frontmatter edit, not by a `model:` rule. The kit still ships
+  zero permission rules (posture belongs to the user). `docs/autonomous-operation.md` §4 adds the
+  headless variant: under `-p` prompts become denials, so `deny` is the operative form, with
+  `--max-budget-usd` as the how-much backstop beside the which-spend shape.
+
 ### Fixed
 
 - **Stop hooks now feed their findings back to Claude instead of discarding them** (round-2 R9;

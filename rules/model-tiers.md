@@ -87,3 +87,34 @@ Token cost scales with the **profile** (the agent / skill / hook set it installs
 Scale effort to the work, not the ceremony: pick the smallest profile that fits, and use the per-agent
 tier table above plus `.claude/rules/reasoning-techniques.md` ("resource-aware effort") to avoid
 spending `opus` on mechanical turns.
+
+## Enforcing the tier policy (optional, Claude Code ≥ 2.1.178)
+
+Everything above is *advisory* — an agent (or a human) can still request any tier. Claude Code's
+permission rules can turn the policy into a hard gate: since 2.1.178, **deny and ask rules** match a
+tool's input parameters, e.g. `Agent(model:opus)`. The kit deliberately ships **no** permission rules
+(your permission posture is yours), but if opus spend needs a gate, add to your project or user
+settings:
+
+```json
+{
+  "permissions": {
+    "ask": ["Agent(model:opus)", "Agent(model:*opus*)"]
+  }
+}
+```
+
+Match semantics to know before relying on this (from the permissions reference):
+
+- **Only explicit parameters match.** A call that *omits* `model` is never matched — not even by
+  `Agent(model:*)`. The kit's Critical-tier agents get `opus` from their **frontmatter**, not from
+  the spawning call, so a `model:` rule does not gate `Agent(subagent_type: devils-advocate)`. To
+  gate a specific expensive agent, use an **agent-name rule** — `"ask": ["Agent(devils-advocate)"]`
+  — or edit that agent's frontmatter tier (the durable lever this rule already documents).
+- **Values compare literally, pre-normalization.** `Agent(model:opus)` matches the alias `opus` but
+  not a full model ID; the `Agent(model:*opus*)` wildcard form covers both.
+- **Deny/ask only.** Allow rules keep each tool's own specifier syntax (an allow on one parameter
+  wouldn't make the whole call safe).
+- **Headless changes the meaning.** Under `claude -p`, permission prompts become denials — an `ask`
+  rule *is* a deny there. Use `ask` interactively, and decide deliberately what an unattended run
+  should hard-deny (see `docs/autonomous-operation.md` in the kit repo).
