@@ -120,18 +120,18 @@ Example:
 
 ## Setup
 
-If the E2E framework is not yet configured, follow the project's testing setup instructions or initialize the standard framework for the stack.
+If the E2E framework is not yet configured, **do not install it yourself** — dependency additions
+are manifest edits, which require user approval (CLAUDE.md) and the pre-install name check in
+`.claude/skills/dependency-verification`. Report the missing framework to the Orchestrator and
+recommend the addition; the **developer lane** applies it after approval. Then write the tests
+against the framework it installed.
 
-Example (Playwright for web UI):
-```bash
-npm install -D @playwright/test
-npx playwright install
-```
+What you *may* do read-only: detect what's present (`npx playwright --version`, the project's test
+runner config, `package.json`/`pyproject.toml` dev-deps) and state exactly what's missing.
 
-Example (pytest with requests for backend API):
-```bash
-pip install pytest requests
-```
+Typical additions the developer lane would apply (examples, not commands for you to run):
+- Playwright for web UI: `@playwright/test` as a dev dependency + `npx playwright install`
+- pytest + requests for backend-API E2E
 
 ## Output
 

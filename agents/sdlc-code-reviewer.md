@@ -1,7 +1,7 @@
 ---
 name: sdlc-code-reviewer
 description: Reviews code changes for bugs, security, performance, and spec compliance. Gates the pipeline — testing cannot start without reviewer approval.
-tools: Read, Glob, Grep, SendMessage
+tools: Read, Glob, Grep, Bash, SendMessage
 permissionMode: plan
 model: sonnet
 color: red

@@ -22,6 +22,20 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Fixed
 
+- **Agent executability bundle** (each defect verified against the file before fixing):
+  `sdlc-code-reviewer` gains `Bash` — its own protocol names `git diff --name-only` "the checklist
+  of record" but its tool list couldn't run git. `auditor` drops its `tools:` allowlist (it excluded
+  the very Chrome-DevTools MCP tools the whole workflow drives) and moves `haiku` → `sonnet`
+  (multi-step browser-MCP orchestration is not "mechanical reporting"); `model-tiers.md` updated to
+  match, read-only now stated as explicit discipline. `developer`'s prerequisite health checks are
+  now conditional and stack-neutral — the old version hardcoded `localhost:8000/3000/5173` and
+  demanded a healthy stack "before writing any code", deadlocking fresh checkouts on pure code+test
+  tasks. `senior-backend-dev` / `senior-frontend-dev` gain the **Spec Review Mode** the
+  orchestrator's stages 3a-BE/3a-FE always expected of them (explicit `APPROVED`/`REVISE` verdict,
+  max-3-iterations contract); `senior-backend-dev`'s three dangling skill references
+  (`api-endpoint`, `database-migration`, `backend-unit-test` — none exist) now point at real
+  content. `e2e-tester` no longer installs packages unprompted — missing frameworks are reported
+  and routed through the developer lane per `dependency-verification` + the manifest-approval rule.
 - **`/claude-kit:init` now actually works from Claude Code** — the plugin command told Claude to run
   the CLI's *interactive* flow, but the Bash tool has no TTY: with no path argument the CLI aborted
   outright (`input()` → EOFError), and with one it silently installed the **default stack without
@@ -72,6 +86,11 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
   applies to mutating Bash too, so a CLI detour would not have fixed the contradiction; a direct,
   confined Write grant is simpler and matches how the kit already trusts `developer`/`pr-raiser`
   with `acceptEdits`.
+- **`owasp-reviewer` `opus` → `sonnet`** (suggested by the review) — refused: `model-tiers.md` §Notes
+  already documents keeping it `opus` for vulnerability reasoning as a deliberate exception to its
+  `sonnet` sibling scanners. A reviewer suggestion doesn't outrank a documented decision.
+- **Dropping `Edit` from `tester`/`senior-tester`** — refused: they author test artifacts and
+  fixtures; the grant is load-bearing. No evidence of misuse was presented.
 
 
 

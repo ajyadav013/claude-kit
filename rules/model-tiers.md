@@ -14,8 +14,8 @@ mechanical. This is the concrete assignment policy behind the "resource-aware ef
 | Tier | Model | Use for | Agents |
 |------|-------|---------|--------|
 | **Critical** | `opus` | Architecture decisions, deep code/security reasoning, orchestration, adversarial review | `orchestrator`, `developer`, `devils-advocate`, `owasp-reviewer` |
-| **Default** | `sonnet` | Specs, reviews, testing, infra, coordination, scanning, incident command, risk classification | `spec-doc-writer`, `story-planner`, `technical-architect`, `em-reviewer`, `senior-backend-dev`, `senior-frontend-dev`, `ui-designer`, `merge-reviewer`, `sdlc-code-reviewer`, `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `acceptance-reviewer`, `risk-classifier`, `security-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` |
-| **Fast** | `haiku` | Mechanical, read-only reporting | `auditor` |
+| **Default** | `sonnet` | Specs, reviews, testing, infra, coordination, scanning, incident command, risk classification | `spec-doc-writer`, `story-planner`, `technical-architect`, `em-reviewer`, `senior-backend-dev`, `senior-frontend-dev`, `ui-designer`, `merge-reviewer`, `sdlc-code-reviewer`, `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `acceptance-reviewer`, `auditor`, `risk-classifier`, `security-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` |
+| **Fast** | `haiku` | Mechanical, read-only reporting | *(currently unassigned — `auditor` moved to Default: driving a multi-step browser-MCP audit is tool orchestration, not mechanical reporting. Reserve this tier for genuinely mechanical single-pass work.)* |
 
 Stack **overlay** agents (e.g. `postgres-specialist`, `mongodb-specialist`, `migration-specialist`,
 `db-performance-reviewer`) and the organization persona agents (`pm-copilot`, `founder-prototype-agent`,
@@ -77,12 +77,12 @@ Token cost scales with the **profile** (the agent / skill / hook set it installs
 *relative* guide (not a currency figure):
 
 - **lean** — cheapest: ~5 agents, a single review lane, no Devil's Advocate, fewest gates. Only
-  `orchestrator` + `developer` run on `opus`; the rest are `sonnet`/`haiku`.
+  `orchestrator` + `developer` run on `opus`; the rest are `sonnet`.
 - **standard** — adds the spec / design / test / security lanes and the blind-review + Devil's
   Advocate pass: mostly `sonnet` reviewers and scanners layered on top of lean.
 - **enterprise** — heaviest: adds the DevOps / Observability / audit agents, `skills: all`, and
   `hooks: all`, with more gates — but still only the four `opus` agents (`orchestrator`, `developer`,
-  `devils-advocate`, `owasp-reviewer`); everything it adds is `sonnet`/`haiku`.
+  `devils-advocate`, `owasp-reviewer`); everything it adds is `sonnet`.
 
 Scale effort to the work, not the ceremony: pick the smallest profile that fits, and use the per-agent
 tier table above plus `.claude/rules/reasoning-techniques.md` ("resource-aware effort") to avoid
