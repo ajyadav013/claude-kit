@@ -36,7 +36,7 @@ as a `<name>.claude-kit` sidecar — the same non-destructive convention the ins
 | `cursor` | `.cursor/rules/000-project.mdc` | The project **charter** + single-agent SDLC workflow + fidelity note. `alwaysApply: true` — always in context. |
 | | `.cursor/rules/<rule>.mdc` (one per rule) | Every core rule and every stack overlay, `alwaysApply: false` (agent pulls on demand by `description`); overlays also carry `globs` to auto-attach on matching files. |
 | | `.cursor/mcp.json` | Your selected MCP servers (omitted when none are selected). |
-| `agents` | `AGENTS.md` (repo root) | Charter + workflow + a **rule index** (one line per rule) + the fidelity note. Read by both Cursor and Copilot. |
+| `agents` | `AGENTS.md` (repo root) | Charter + workflow + a **rule index** (one line per rule) + the fidelity note. Read by both Cursor and Copilot. `claude-kit init` already emits this file (sidecar-safe); the target regenerates it — a byte-identical existing file is reported as current, never sidecar'd. |
 | `copilot` | `.github/copilot-instructions.md` | The same synthesized document as `agents`. |
 
 ## `.mdc` frontmatter derivation

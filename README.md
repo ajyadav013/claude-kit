@@ -78,7 +78,7 @@ Quick start) for the full breakdown of any row.
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
 | 🛠️ **Hooks & guards** | **18** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
-| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **17** ready MCP fragments, and edit-preserving `upgrade` |
+| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **17** ready MCP fragments, edit-preserving `upgrade`, and a root `AGENTS.md` emitted at init so non-Claude agents (Cursor · Copilot · Codex) share the same standards |
 | ♻️ **Reuse-first by design** | Adopt-only-the-new reviews, opt-in LLM/AI security (OWASP LLM Top 10), a worked example + self-test matrix |
 
 ---
@@ -232,7 +232,12 @@ README.claude-sdlc.md
 A teammate who works in **Cursor**, **VS Code**, or **GitHub Copilot** can't consume `.claude/` or run
 the gated multi-agent `/sdlc` pipeline — those editors drive their own single agent. `claude-kit
 export` projects the **same resolved plan** into the formats those agents read natively, so the
-standards travel even when the pipeline can't:
+standards travel even when the pipeline can't.
+
+**`init` already emits `AGENTS.md` for you** — every scaffold lands the repo-root `AGENTS.md`
+(the cross-tool convention with the [most-requested Claude Code integration](https://github.com/anthropics/claude-code/issues/6235)),
+so non-Claude agents get the kit's standards from day one; a pre-existing `AGENTS.md` is never
+clobbered. Use `export` to regenerate it or add the other targets:
 
 ```bash
 claude-kit export .                              # → .cursor/ (default target)
@@ -250,7 +255,8 @@ claude-kit export . --dry-run                    # preview; writes nothing
 quality gates, independent reviewer subagents, and automated defect loop are Claude-Code-only — the
 export carries the SDLC workflow as a **single-agent self-check checklist**, not enforced gates. Every
 exported document says so. Exports are regenerable projections: `--force` refreshes them in place, and
-without it a hand-edited file is preserved (the new version drops beside it as a `.claude-kit` sidecar).
+without it an unchanged file is reported as current while a hand-edited one is preserved (the new
+version drops beside it as a `.claude-kit` sidecar).
 
 See **[docs/cursor-export.md](docs/cursor-export.md)** for the full fidelity matrix and the `.mdc`
 frontmatter mapping.

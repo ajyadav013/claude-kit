@@ -16,6 +16,15 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **`init` now emits a root `AGENTS.md`** — the cross-tool agent-instructions convention behind the
+  most-requested Claude Code integration (anthropics/claude-code#6235, 4.3k 👍, re-verified OPEN and
+  still non-native before adoption: Claude Code reads `CLAUDE.md` only, so this file serves the
+  *other* agents in the repo — Cursor, Copilot, Codex — with zero double-load risk). The scaffolder
+  reuses the `export` projection verbatim (charter + single-agent SDLC checklist + rule index +
+  fidelity note), never clobbers a pre-existing `AGENTS.md` (sidecar), and records the file as
+  `user-editable` so `upgrade` preserves edits. **User-file writes are now idempotent** across
+  `init` and `export`: a byte-identical existing file is reported as "already current" instead of
+  spraying `.claude-kit` sidecars on every re-run — real differences still sidecar.
 - **Path-scoped overlay rules** — 12 of the 13 stack overlay rule files now open with `paths:` YAML
   frontmatter (Claude Code's official scoped rule loading, verified against
   code.claude.com/docs/en/memory before adoption), so React/FastAPI/Go/Postgres guidance enters

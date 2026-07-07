@@ -326,9 +326,11 @@ def _emit(
     """Write ``text`` to ``path``, sidecar'ing an existing file unless ``force`` (no-op on dry run).
 
     Exported files are regenerable projections, so ``--force`` refreshes them in place. Without
-    ``--force`` an existing file is preserved and the new content lands beside it as a ``.claude-kit``
-    sidecar (the same non-destructive convention the installer uses). ``dry_run`` records the intended
-    path and writes nothing.
+    ``--force`` an existing file that already matches the new content byte-for-byte is simply
+    reported as current (idempotent re-export — e.g. ``AGENTS.md`` right after ``init`` emitted it);
+    one that differs is preserved, with the new content beside it as a ``.claude-kit`` sidecar (the
+    same non-destructive convention the installer uses). ``dry_run`` records the intended path and
+    writes nothing.
     """
     rel = path.relative_to(root).as_posix()
     if dry_run:
@@ -336,6 +338,13 @@ def _emit(
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not force:
+        try:
+            current = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            current = None
+        if current == text:
+            written.append(rel)
+            return
         sidecar = path.with_name(path.name + ".claude-kit")
         sidecar.write_text(text, encoding="utf-8")
         written.append(sidecar.relative_to(root).as_posix())
