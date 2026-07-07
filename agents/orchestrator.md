@@ -525,6 +525,10 @@ parallelism safe: no merge conflicts, no cross-lane coordination
 (`.claude/rules/wave-orchestration.md` §3).
 
 ### Spawning parallel agents:
+**Announce the fan-out first.** Immediately before forking, state the planned lane/agent count and
+model tiers (e.g. `Fork 1: 2 lanes × 3 reviewers — 6 sonnet agents`) in your status output and
+CONTINUITY.md — the human can veto the scale before tokens are spent.
+
 When forking, launch ALL agents in the parallel lanes simultaneously:
 ```
 # Fork Point 1:

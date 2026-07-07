@@ -93,6 +93,32 @@ write code themselves and require human approval before any change. They pair wi
 `/repo-onboarding`) and are governed by the autonomy and risk-classification rules. See
 [`org-capabilities.md`](org-capabilities.md).
 
+## What a run costs (models per agent)
+
+Every agent declares an explicit `model:` in its frontmatter; `.claude/rules/model-tiers.md` is the
+assignment policy (and the escalation discipline when a task outgrows its tier). Measured from the
+shipped frontmatter:
+
+| Model | Relative cost / token | Shipped agents | Who |
+|-------|-----------------------|----------------|-----|
+| `opus` | highest — several × `sonnet` | **4** | `orchestrator`, `developer`, `devils-advocate`, `owasp-reviewer` (a documented exception to its `sonnet` sibling scanners) |
+| `sonnet` | standard | **every other agent** | all reviewers, testers, scanners, stage leads, the DB overlay specialists, and the org personas |
+| `haiku` | cheapest | **0** | the Fast tier is deliberately unassigned — reserved for genuinely mechanical, single-pass work |
+
+What this means in practice:
+
+- **The profile is the biggest cost knob.** lean ≈ 5 agents on a single lane, with only
+  `orchestrator` + `developer` on `opus`; standard adds the spec/review/test/security lanes (all
+  `sonnet`); enterprise adds ops/audit/acceptance — still only the same four `opus` agents. See
+  "Profile cost expectations" in `.claude/rules/model-tiers.md`.
+- **Fan-out is announced before it happens.** The orchestrator states the planned lane/agent counts
+  and model tiers before forking a parallel phase — in chat and in `.claude/CONTINUITY.md` — so you
+  can veto the scale before tokens are spent; in wave mode the manifest's per-wave worker counts
+  serve the same purpose.
+- **Escalation is deliberate, never reflexive.** Bumping an agent to a higher tier mid-run follows
+  the investigation-first gate in `.claude/rules/model-tiers.md` — "maybe a smarter model will
+  figure it out" is a listed anti-rationalization there.
+
 ## What keeps long runs reliable
 
 - **Working memory — `.claude/CONTINUITY.md`.** The current phase, active tasks, and next steps are

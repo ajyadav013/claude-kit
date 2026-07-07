@@ -120,6 +120,10 @@ sweeps run on the cheap tier; entanglement surgery and gate adjudication on the 
 the orchestrator and genuinely hard reasoning on the top tier. The audit wave is the cheapest
 insurance in the program — never skip it to save its cost.
 
+Announce the spend before it happens: the manifest states the worker count per wave, and the
+orchestrator repeats that count (and its model tiers) when opening each wave — scale is vetoable
+before the tokens go out, not after.
+
 ## Relationship to other rules
 
 - **`.claude/rules/mandatory-workflow.md`** — the feature pipeline each worker still follows *inside*

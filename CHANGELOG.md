@@ -16,6 +16,15 @@ the merge-reviewer's API change report, and the incident-responder's incident lo
 
 ### Added
 
+- **Cost transparency** — `docs/agents.md` gains a "What a run costs" section measured from the
+  shipped frontmatter (4 `opus` agents — `orchestrator`, `developer`, `devils-advocate`,
+  `owasp-reviewer` — everything else `sonnet`, the Fast tier deliberately unassigned), with the
+  practical levers: the profile is the biggest knob (lean runs only 2 of the 4 `opus` agents), and
+  tier escalation stays investigation-gated. **Fan-out is now announced before it happens**: the
+  orchestrator (Spawning parallel agents), the `sdlc` skill (step 3), and the wave-orchestration
+  rule (Cost discipline) all require stating the planned lane/agent count and model tiers — in
+  chat and CONTINUITY.md — before any parallel phase forks, so a human can veto the scale before
+  tokens are spent.
 - **Stack-true installs: `none` lanes + frontend skills ride the frontend stack** (every sub-claim
   verified first). `catalog/stacks.yaml` gains `none` entries for frontend, backend, and database —
   previously a pure-backend project was *forced* to select React and received 8 React overlay
