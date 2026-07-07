@@ -322,15 +322,17 @@ def _emit(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Write ``text`` to ``path``, sidecar'ing an existing file unless ``force`` (no-op on dry run).
 
     Exported files are regenerable projections, so ``--force`` refreshes them in place. Without
-    ``--force`` an existing file that already matches the new content byte-for-byte is simply
-    reported as current (idempotent re-export — e.g. ``AGENTS.md`` right after ``init`` emitted it);
-    one that differs is preserved, with the new content beside it as a ``.claude-kit`` sidecar (the
-    same non-destructive convention the installer uses). ``dry_run`` records the intended path and
-    writes nothing.
+    ``--force`` an existing file that already matches the new content byte-for-byte is *not*
+    rewritten — it is recorded in ``current``, not ``written``, so the caller can report honestly
+    (idempotent re-export — e.g. ``AGENTS.md`` right after ``init`` emitted it); one that differs
+    is preserved, with the new content beside it as a ``.claude-kit`` sidecar (the same
+    non-destructive convention the installer uses). ``dry_run`` records the intended path in
+    ``written`` and writes nothing.
     """
     rel = path.relative_to(root).as_posix()
     if dry_run:
@@ -339,11 +341,11 @@ def _emit(
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not force:
         try:
-            current = path.read_text(encoding="utf-8")
+            existing = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
-            current = None
-        if current == text:
-            written.append(rel)
+            existing = None
+        if existing == text:
+            current.append(rel)
             return
         sidecar = path.with_name(path.name + ".claude-kit")
         sidecar.write_text(text, encoding="utf-8")
@@ -361,6 +363,7 @@ def _write_cursor(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Emit the Cursor target: ``.cursor/rules/*.mdc`` (+ charter) and ``.cursor/mcp.json``."""
     rules_dir = target / ".cursor" / "rules"
@@ -371,6 +374,7 @@ def _write_cursor(
         force=force,
         dry_run=dry_run,
         written=written,
+        current=current,
     )
     for name, path in _iter_rules(payload, plan):
         text = path.read_text(encoding="utf-8")
@@ -381,6 +385,7 @@ def _write_cursor(
             force=force,
             dry_run=dry_run,
             written=written,
+            current=current,
         )
     if plan.mcp_servers:
         _emit(
@@ -390,6 +395,7 @@ def _write_cursor(
             force=force,
             dry_run=dry_run,
             written=written,
+            current=current,
         )
 
 
@@ -401,6 +407,7 @@ def _write_agents(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Emit the universal ``AGENTS.md`` at the project root."""
     _emit(
@@ -410,6 +417,7 @@ def _write_agents(
         force=force,
         dry_run=dry_run,
         written=written,
+        current=current,
     )
 
 
@@ -421,6 +429,7 @@ def _write_copilot(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Emit ``.github/copilot-instructions.md`` (the same document as the ``agents`` target)."""
     _emit(
@@ -430,6 +439,7 @@ def _write_copilot(
         force=force,
         dry_run=dry_run,
         written=written,
+        current=current,
     )
 
 
@@ -448,7 +458,7 @@ def export_targets(
     *,
     force: bool = False,
     dry_run: bool = False,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Export ``plan`` into ``target_dir`` for each requested target.
 
     Args:
@@ -460,7 +470,9 @@ def export_targets(
         dry_run: Report what would be written without touching the filesystem.
 
     Returns:
-        The sorted list of project-relative paths written (or, on a dry run, that would be written).
+        ``(written, already_current)`` — two sorted lists of project-relative paths: files
+        actually written (or, on a dry run, that would be written), and existing files skipped
+        because they already match byte-for-byte. Only ``written`` entries touched the disk.
 
     Raises:
         ValueError: If ``targets`` contains an unknown target id.
@@ -473,6 +485,7 @@ def export_targets(
         )
     target_dir = Path(target_dir)
     written: list[str] = []
+    current: list[str] = []
     # De-duplicate while preserving the caller's order.
     for name in dict.fromkeys(targets):
         _WRITERS[name](
@@ -482,5 +495,6 @@ def export_targets(
             force=force,
             dry_run=dry_run,
             written=written,
+            current=current,
         )
-    return sorted(written)
+    return sorted(written), sorted(current)

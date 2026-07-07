@@ -255,10 +255,48 @@ def test_cli_export_unknown_target_errors(tmp_path):
 
 
 def test_cli_export_json_output(tmp_path):
+    """init already emitted an identical AGENTS.md, so export reports it current — not written."""
     target = tmp_path / "proj"
     assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
     result = runner.invoke(app, ["export", str(target), "-t", "agents", "--json"])
     assert result.exit_code == 0, result.stdout
     payload_out = json.loads(result.stdout)
     assert payload_out["targets"] == ["agents"]
-    assert "AGENTS.md" in payload_out["written"]
+    assert "AGENTS.md" in payload_out["already_current"]
+    assert payload_out["written"] == []
+
+
+def test_export_counts_only_actual_writes(tmp_path, payload):
+    """R13: a re-export that touches nothing must report 0 written, everything current."""
+    plan = _plan(payload, **_RICH)
+    first_written, first_current = exporter.export_targets(
+        payload, tmp_path, plan, ["cursor", "agents", "copilot"]
+    )
+    assert first_written, "first export should write files"
+    mtimes = {p: (tmp_path / p).stat().st_mtime_ns for p in first_written}
+    second_written, second_current = exporter.export_targets(
+        payload, tmp_path, plan, ["cursor", "agents", "copilot"]
+    )
+    assert second_written == []
+    assert set(second_current) == set(first_written) | set(first_current)
+    for p, mtime in mtimes.items():
+        assert (tmp_path / p).stat().st_mtime_ns == mtime, f"{p} was rewritten"
+
+
+def test_cli_export_second_run_reports_already_current(tmp_path):
+    target = tmp_path / "proj"
+    assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
+    assert runner.invoke(app, ["export", str(target), "-t", "cursor"]).exit_code == 0
+    result = runner.invoke(app, ["export", str(target), "-t", "cursor"])
+    assert result.exit_code == 0, result.stdout
+    assert "Wrote 0 file(s)" in result.stdout
+    assert "already current" in result.stdout
+
+
+def test_exported_documents_never_point_at_rules_above(tmp_path, payload):
+    """R14: the charter opens the exported docs, so nothing may reference 'rules above'."""
+    plan = _plan(payload, **_RICH)
+    exporter.export_targets(payload, tmp_path, plan, ["cursor", "agents"])
+    for rel in ("AGENTS.md", ".cursor/rules/000-project.mdc"):
+        text = (tmp_path / rel).read_text(encoding="utf-8")
+        assert "pipeline rules above" not in text, rel

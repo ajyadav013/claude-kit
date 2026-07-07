@@ -381,3 +381,18 @@ def test_init_dry_run_matches_real_install(tmp_path):
         str(p.relative_to(real_target)) for p in real_target.rglob("*") if p.is_file()
     )
     assert previewed == actual
+
+
+def test_status_skill_count_matches_validate(tmp_path):
+    """R15: status must count skills like validate does (SKILL.md dirs; _references/ is not a skill)."""
+    import re
+
+    target = tmp_path / "proj"
+    assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
+    status_out = runner.invoke(app, ["status", str(target)]).stdout
+    validate_out = runner.invoke(app, ["validate", str(target)]).stdout
+    status_n = int(re.search(r"skills/: (\d+)", status_out).group(1))
+    validate_n = int(re.search(r"\((\d+) skills\)", validate_out).group(1))
+    assert status_n == validate_n
+    # The shared-reference dir exists but is support content, not a skill.
+    assert (target / ".claude" / "skills" / "_references").is_dir()

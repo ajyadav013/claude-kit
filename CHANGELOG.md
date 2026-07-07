@@ -211,6 +211,22 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Fixed
 
+- **Round-2 low block (R13–R17) — five small truthfulness fixes, each reproduced before touching:**
+  (R13) `export` said "Wrote 39 file(s)" on a re-export that wrote nothing (mtime-proved) —
+  `export_targets` now returns `(written, already_current)` and only files that touched disk count
+  as written; the CLI prints `= <path> (already current)` lines, an honest "Wrote N file(s); M
+  already current" summary, and the `--json` payload gains `already_current` (pinned by an
+  mtime-asserting idempotency test). (R14) exported `AGENTS.md`/`000-project.mdc`/Copilot
+  instructions opened with "the agnostic pipeline rules **above** apply" when the charter is the
+  top of the document — the shared `CLAUDE.stack.md.tmpl` sentence is now position-neutral
+  (truthful in the installed CLAUDE.md too, where the rules genuinely are above). (R15) `status`
+  said 43 skills where init/validate say 42 — its counter treated the shared
+  `skills/_references/` support dir as a skill; it now counts SKILL.md-bearing directories,
+  matching validate (agreement pinned by a test). (R16) the README "All commands" table presented
+  `package-org-pack`/`install-org-pack` as working; they are hidden planned stubs that exit 2 —
+  the row now says so. (R17) the README init-flow Q6 MCP enumeration omitted Sentry, Repowise,
+  and the Google security fragments — now listed, with `claude-kit list-options` as the
+  authoritative source.
 - **Stop hooks now feed their findings back to Claude instead of discarding them** (round-2 R9;
   verified against the official hooks reference + the Claude Code changelog before adopting —
   same discipline as the exec-form refusal, opposite verdict because the failure mode differs).

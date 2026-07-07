@@ -185,7 +185,7 @@ config — nothing else:
 3. **Backend language** (default: Python; `none` for frontend-only projects) → **backend framework** (default: FastAPI)
 4. **Database** (PostgreSQL · MongoDB · `none`)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette · Google SecOps) — a
+6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette · Sentry · Repowise · the Google security suite — full list: `claude-kit list-options`) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
 7. **Learning capture** (`session-end-catchup` default · `session-end` · `per-task` · `off`) — how often
    the background learnings job runs. *Privacy note:* it reads your session transcript + changed files
@@ -791,7 +791,7 @@ everything available.
 | `list-options` | List available frontend/backend/database/profile/MCP options |
 | `status [path]` | Show what's installed, the selection, and working memory |
 | `version` | Print the version |
-| `package-org-pack` · `install-org-pack` | Package / install an organization capability pack (org scope) |
+| `package-org-pack` · `install-org-pack` | **Planned** — packaging/distribution of org capability packs. Today these are hidden stubs that describe the intended behavior and exit 2; org packs already install via `init` (organization scope) |
 
 Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`, and
 `/claude-kit:abort` (cleanly tear down an in-progress `/sdlc` run — removes only that run's
