@@ -226,7 +226,10 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
                     review_strictness: regulated, packs: true }
 
     Org fields may also be given flat (``scope``/``teams``/``autonomy``/``review_strictness``/
-    ``org_packs``). Missing keys fall back to the catalog defaults.
+    ``org_packs``). Missing keys fall back to the catalog defaults — and a framework/language the
+    config leaves out falls back to the **selected lane's** catalog default, exactly like the
+    interactive flow: ``backend: go`` means go's ``net-http``, never the global default's
+    ``fastapi``.
     """
     try:
         data = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
@@ -261,19 +264,40 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     mcp = _as_str_list(data.get("mcp"), "mcp")
     teams_raw = data.get("teams") if data.get("teams") is not None else org.get("teams")
     teams = _as_str_list(teams_raw, "teams")
-    flat = {
-        "frontend_framework": data.get("frontend_framework")
+    fe_fw = (
+        data.get("frontend_framework")
         or (fe.get("framework") if isinstance(fe, dict) else fe)
-        or dflt.frontend_framework,
+        or dflt.frontend_framework
+    )
+    be_lang = (
+        data.get("backend_language")
+        or (be.get("language") if isinstance(be, dict) else be)
+        or dflt.backend_language
+    )
+    # A language/framework the config leaves out defaults per the SELECTED lane's catalog data
+    # (mirroring the interactive flow), not the global default Selection — otherwise
+    # `backend: go` would silently pick up fastapi. An unknown lane id keeps the global
+    # default here and fails loudly inside catalog.resolve().
+    opts = catalog.list_options(payload_root)
+    fe_lane = next((o for o in opts["frontend"] if o["id"] == fe_fw), None)
+    be_lane = next((o for o in opts["backend"] if o["id"] == be_lang), None)
+    fe_lang_default = (
+        (fe_lane.get("default_language") or "none")
+        if fe_lane is not None
+        else dflt.frontend_language
+    )
+    be_fw_default = (
+        be_lane.get("default_framework") if be_lane is not None else None
+    ) or dflt.backend_framework
+    flat = {
+        "frontend_framework": fe_fw,
         "frontend_language": data.get("frontend_language")
         or (fe.get("language") if isinstance(fe, dict) else None)
-        or dflt.frontend_language,
-        "backend_language": data.get("backend_language")
-        or (be.get("language") if isinstance(be, dict) else be)
-        or dflt.backend_language,
+        or fe_lang_default,
+        "backend_language": be_lang,
         "backend_framework": data.get("backend_framework")
         or (be.get("framework") if isinstance(be, dict) else None)
-        or dflt.backend_framework,
+        or be_fw_default,
         "database": data.get("database") or dflt.database,
         "profile": data.get("profile") or dflt.profile,
         "capture_mode": cap_mode or dflt.capture_mode,

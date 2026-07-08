@@ -44,6 +44,51 @@ def test_teams_string_is_normalised(tmp_path, payload):
     assert sel.teams == ["engineering"]
 
 
+def test_bare_string_backend_lane_gets_its_own_default_framework(tmp_path, payload):
+    """`backend: go` must yield go's net-http — never the global default's fastapi, a
+    framework the user never wrote and the catalog doesn't even define for that lane."""
+    cfg = _write(tmp_path, "backend: go\n")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.backend_language == "go"
+    assert sel.backend_framework == "net-http"
+    # ...and the selection actually resolves (go + the default react frontend):
+    plan = catalog.resolve(payload, sel)
+    assert "go-patterns.md" in plan.overlay_rules
+
+
+def test_nested_backend_without_framework_gets_lane_default(tmp_path, payload):
+    """The nested form with only a language behaves the same as the bare string."""
+    cfg = _write(tmp_path, "backend: { language: go }\n")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.backend_framework == "net-http"
+
+
+def test_none_lanes_default_like_the_interactive_flow(tmp_path, payload):
+    """`frontend: none` / `backend: none` fall back to the lane's own no-op defaults
+    (language "none", framework "none") — matching what the interactive prompts produce."""
+    cfg = _write(tmp_path, "frontend: none\nbackend: none\n")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.frontend_language == "none"
+    assert sel.backend_framework == "none"
+
+
+def test_default_lanes_keep_the_catalog_defaults(tmp_path, payload):
+    """An empty-ish config still resolves to the global catalog defaults."""
+    cfg = _write(tmp_path, "profile: lean\n")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.frontend_framework == "react"
+    assert sel.frontend_language == "typescript"
+    assert sel.backend_language == "python"
+    assert sel.backend_framework == "fastapi"
+
+
+def test_explicit_framework_beats_the_lane_default(tmp_path, payload):
+    """A framework the user DID write is never second-guessed by the lane lookup."""
+    cfg = _write(tmp_path, "backend: { language: go, framework: net-http }\n")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.backend_framework == "net-http"
+
+
 def test_malformed_yaml_is_a_friendly_valueerror(tmp_path, payload):
     """A YAML syntax error becomes a one-line ValueError (the CLI renders those as
     `error: … / exit 2`) instead of a raw PyYAML ScannerError escaping to the user."""

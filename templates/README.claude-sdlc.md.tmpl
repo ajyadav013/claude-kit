@@ -97,19 +97,21 @@ safe, consistent set of **skills · agents · rules · hooks · workflows · MCP
 ### 1. Skills for org-wide reusable workflows
 `/sdlc` (the pipeline), `/spec-driven-development`, `/planning-and-task-breakdown`,
 `/code-review-and-quality`, `/test-driven-development`, `/security-and-hardening`, `/threat-model`,
-`/accessibility-review`, `/performance-optimization`, `/shipping-and-launch`, `/refresh-docs`, and the
+`/accessibility-review`, `/performance-optimization`, `/shipping-and-launch`, `/refresh-docs`{% if scope == "organization" %}, and the
 non-engineer playbooks `/feature-from-idea`, `/prompt-to-safe-task`, `/prototype-to-production`,
-`/customer-issue-to-fix`, `/repo-onboarding`.
+`/customer-issue-to-fix`, `/repo-onboarding`{% else %} (organization scope adds the five non-engineer
+playbooks: feature-from-idea, prompt-to-safe-task, prototype-to-production, customer-issue-to-fix,
+repo-onboarding){% endif %}.
 
 ### 2. Agents by role/team
 Orchestration/quality: `orchestrator`, `risk-classifier`, `sdlc-code-reviewer`, `acceptance-reviewer`,
-`merge-reviewer`, `devils-advocate`. Product: `pm-copilot`, `spec-doc-writer`, `story-planner`,
+`merge-reviewer`, `devils-advocate`. Product: {% if scope == "organization" %}`pm-copilot`, {% endif %}`spec-doc-writer`, `story-planner`,
 `ui-designer`. Engineering: `developer`, `senior-backend-dev`, `senior-frontend-dev`,
 `technical-architect` (+ DB specialists). Quality: `tester`, `unit-tester`, `e2e-tester`,
 `senior-tester`. Security/reliability: `security-reviewer`, `owasp-reviewer`, `secret-scanner`,
 `dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`,
-`incident-responder`. Non-engineers: `pm-copilot`, `founder-prototype-agent`, `support-ticket-engineer`,
-`data-workflow-agent`, `internal-tools-builder`.
+`incident-responder`.{% if scope == "organization" %} Non-engineers: `pm-copilot`, `founder-prototype-agent`, `support-ticket-engineer`,
+`data-workflow-agent`, `internal-tools-builder`.{% endif %}
 
 ### 3. Rules to share across repositories
 `mandatory-workflow`, `quality-gates`, `autonomy-levels`, `risk-classification`, `human-in-the-loop`,
@@ -137,40 +139,40 @@ and Context7 (live library docs). Select at init; they land in `.mcp.json` with 
 
 **Never commit:** local secrets, `.env`, personal tokens, personal `settings.local.json`.
 (Planned: `claude-sdlc package-org-pack` / `install-org-pack` to package + install approved packs.)
-
+{% if scope == "organization" and org_packs_list != "none" %}
 ### 7. Governing changes, versions, security & adoption
 See `.claude/org-packs/README.md` for the pack registry and governance: how to add a skill/agent,
 retire duplicates, approve hooks, review sensitive rules, version packs, roll out across repos, run
 different autonomy levels per repo, and measure adoption.
-
+{% endif %}
 ## Capability matrix
 
 | Capability area | Skills | Agents | Rules | Hooks | Example |
 |---|---|---|---|---|---|
 | Feature development | `/sdlc`, `/spec-driven-development`, `/incremental-implementation` | `orchestrator`, `developer`, `sdlc-code-reviewer` | `mandatory-workflow`, `quality-gates` | `lint-fix`, `type-check` | `/sdlc Add team invites` |
 | Bug fixing | `/debugging-and-error-recovery`, `/triage` | `developer`, `tester`, `sdlc-code-reviewer` | `testing`, `rarv-cycle` | `warn-missing-tests` | `/sdlc Fix 500 on empty title` |
-| Refactoring | `/code-simplification` | `developer`, `sdlc-code-reviewer` | `code-organization`, `design-patterns` | `warn-large-edits` | `/refactor-safely the billing service` |
-| Test generation | `/test-driven-development`, `/unit-test` | `tester`, `unit-tester`, `e2e-tester`, `senior-tester` | `testing` | `warn-missing-tests` | `/write-tests password-reset links` |
-| PR review | `/code-review-and-quality` | `sdlc-code-reviewer`, `merge-reviewer`, `devils-advocate` | `quality-gates`, `branch-and-pr-policy` | `guard-push-main` | `/review-pr` |
-| Product discovery | `/idea-refine`, `/interview-me`, `/feature-from-idea` | `pm-copilot`, `story-planner` | `ambiguity-resolution` | — | `/feature-from-idea team invites` |
-| Requirements clarification | `/interview-me`, `/scope`, `/prompt-to-safe-task` | `pm-copilot`, `spec-doc-writer`, `risk-classifier` | `prompt-to-task-conversion`, `ambiguity-resolution` | — | `/prompt-to-safe-task make dashboard faster` |
+| Refactoring | `/code-simplification` | `developer`, `sdlc-code-reviewer` | `code-organization`, `design-patterns` | `warn-large-edits` | `/code-simplification the billing service` |
+| Test generation | `/test-driven-development`, `/unit-test` | `tester`, `unit-tester`, `e2e-tester`, `senior-tester` | `testing` | `warn-missing-tests` | `/test-driven-development password-reset links` |
+| PR review | `/code-review-and-quality` | `sdlc-code-reviewer`, `merge-reviewer`, `devils-advocate` | `quality-gates`, `branch-and-pr-policy` | `guard-push-main` | `/code-review-and-quality` |
+| Product discovery | `/idea-refine`, `/interview-me`{% if scope == "organization" %}, `/feature-from-idea`{% endif %} | {% if scope == "organization" %}`pm-copilot`, {% endif %}`story-planner` | `ambiguity-resolution` | — | {% if scope == "organization" %}`/feature-from-idea team invites`{% else %}`/idea-refine team invites`{% endif %} |
+| Requirements clarification | `/interview-me`, `/scope`{% if scope == "organization" %}, `/prompt-to-safe-task`{% endif %} | {% if scope == "organization" %}`pm-copilot`, {% endif %}`spec-doc-writer`, `risk-classifier` | `prompt-to-task-conversion`, `ambiguity-resolution` | — | {% if scope == "organization" %}`/prompt-to-safe-task make dashboard faster`{% else %}`/scope make dashboard faster`{% endif %} |
 | Architecture decisions | `/spec-driven-development`, `/decision`, `/documentation-and-adrs` | `technical-architect` | `design-patterns` | — | ADR for a new module |
-| API design | `/api-and-interface-design` | `technical-architect`, `senior-backend-dev` | `design-patterns`, `documentation` | — | `/api-contract` for invites |
+| API design | `/api-and-interface-design` | `technical-architect`, `senior-backend-dev` | `design-patterns`, `documentation` | — | `/api-and-interface-design` for invites |
 | Database design | `/spec-driven-development` | `postgres-specialist`/`mongodb-specialist`, `migration-specialist` | (stack overlay db rules) | `warn-sensitive-files` | schema + migration for invites |
-| Frontend implementation | `/frontend-ui-engineering`, `/component-design`, `/ui-ux-design` | `senior-frontend-dev`, `ui-designer`, `developer` | `frontend-best-practices`, `responsive-and-accessibility` | `lint-fix` | `/design-to-frontend` the invite modal |
+| Frontend implementation | `/frontend-ui-engineering`, `/component-design`, `/ui-ux-design` | `senior-frontend-dev`, `ui-designer`, `developer` | `frontend-best-practices`, `responsive-and-accessibility` | `lint-fix` | `/component-design` the invite modal |
 | Backend implementation | `/incremental-implementation`, `/api-and-interface-design` | `senior-backend-dev`, `developer` | `code-organization` | `lint-fix`, `type-check` | implement the invites endpoint |
-| Security review | `/security-and-hardening`, `/security-verification`, `/threat-model` | `security-reviewer`, `owasp-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator` | `secrets-policy`, `agent-guardrails` | `protect-secrets`, `guard-commit-secrets`, `warn-sensitive-files` | `/security-review` the auth change |
-| Performance review | `/performance-optimization`, `/load-testing` | `db-performance-reviewer` (PostgreSQL) | `risk-classification` | — | `/performance-review` the list endpoint |
+| Security review | `/security-and-hardening`, `/security-verification`, `/threat-model` | `security-reviewer`, `owasp-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator` | `secrets-policy`, `agent-guardrails` | `protect-secrets`, `guard-commit-secrets`, `warn-sensitive-files` | `/security-verification` the auth change |
+| Performance review | `/performance-optimization`, `/load-testing` | `db-performance-reviewer` (PostgreSQL) | `risk-classification` | — | `/performance-optimization` the list endpoint |
 | Accessibility review | `/accessibility-review` | `ui-designer` | `responsive-and-accessibility` | — | `/accessibility-review` the modal |
-| DevOps / release | `/shipping-and-launch`, `/ci-cd-and-automation` | `devops-engineer`, `pr-raiser`, `observability-engineer` | `devops-observability`, `branch-and-pr-policy` | `guard-push-main` | `/release-plan`, `/rollback-plan` |
-| Incident response | `/incident-postmortem` | `incident-responder` | `devops-observability` | `audit-log` | `/incident-runbook` for SEV1 |
-| Documentation | `/documentation-and-adrs`, `/refresh-docs` | `technical-architect` | `documentation` | — | `/docs-update` after an API change |
-| Onboarding | `/repo-onboarding` | `Explore`, `technical-architect` | `documentation`, `code-organization` | — | `/repo-onboarding` for a new hire |
+| DevOps / release | `/shipping-and-launch`, `/ci-cd-and-automation` | `devops-engineer`, `pr-raiser`, `observability-engineer` | `devops-observability`, `branch-and-pr-policy` | `guard-push-main` | `/shipping-and-launch` the release |
+| Incident response | `/incident-postmortem` | `incident-responder` | `devops-observability` | `audit-log` | `/incident-postmortem` after a SEV1 |
+| Documentation | `/documentation-and-adrs`, `/refresh-docs` | `technical-architect` | `documentation` | — | `/refresh-docs` after an API change |
+{% if scope == "organization" %}| Onboarding | `/repo-onboarding` | `Explore`, `technical-architect` | `documentation`, `code-organization` | — | `/repo-onboarding` for a new hire |
 | Data analysis | (planning, read-only) | `data-workflow-agent` | `production-data-policy`, `pii-policy` | — | plan a report query safely |
 | Customer-support engineering | `/customer-issue-to-fix` | `support-ticket-engineer`, `developer`, `tester` | `risk-classification` | — | `/customer-issue-to-fix` invoice export |
 | Internal tools | `/prototype-to-production`, `/feature-from-idea` | `internal-tools-builder`, `founder-prototype-agent` | `non-engineer-safe-coding`, `prototype-boundaries` | `warn-sensitive-files` | build an internal admin utility |
 | Prototype-to-production hardening | `/prototype-to-production` | `founder-prototype-agent`, `security-reviewer`, `tester` | `prototype-boundaries`, `risk-classification` | `warn-large-edits`, `warn-missing-tests` | `/prototype-to-production` a CSV script |
-
+{% endif %}
 ## Autonomy model
 
 How much Claude may do before a human acts (set per repo; default `assisted`). Full detail in
@@ -211,20 +213,20 @@ defects · review comments per PR · idea→PR time · security findings caught 
 frequency · docs updated with code · unsafe actions blocked by hooks · repeated prompts that should
 become skills · repeated mistakes that should become rules.
 
-## Examples for different org users
+## Examples{% if scope == "organization" %} for different org users{% endif %}
 
 ```text
-# PM — idea to reviewable plan (asks product questions, writes acceptance criteria + stories,
-#      routes to engineering, STOPS for approval before any code)
-/feature-from-idea Add team invites to the admin dashboard
-
 # Engineer — behavior-preserving refactor (reads files, classifies risk, plans, proposes tests,
 #            small changes, invokes code + test review)
-/refactor-safely Simplify the billing service without changing behavior
+/code-simplification Simplify the billing service without changing behavior
 
 # QA — regression coverage (finds modules, proposes unit/integration/e2e tests, writes + validates,
 #      summarizes coverage gaps)
-/write-tests Add regression coverage for failed password-reset links
+/test-driven-development Add regression coverage for failed password-reset links
+{% if scope == "organization" %}
+# PM — idea to reviewable plan (asks product questions, writes acceptance criteria + stories,
+#      routes to engineering, STOPS for approval before any code)
+/feature-from-idea Add team invites to the admin dashboard
 
 # Support — issue to fix (repro report, asks for logs/steps, finds code paths, proposes fix +
 #           validation checklist)
@@ -233,4 +235,4 @@ become skills · repeated mistakes that should become rules.
 # Founder/operator — prototype to production (identifies risks, asks about users + data sensitivity,
 #                    adds validation/auth/error handling/logging/tests, requires review)
 /prototype-to-production Turn this internal CSV upload script into a safe admin feature
-```
+{% endif %}```
