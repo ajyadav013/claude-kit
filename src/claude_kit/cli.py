@@ -60,7 +60,7 @@ app = typer.Typer(
 research_app = typer.Typer(
     no_args_is_help=True, help="Research helpers (license-respecting)."
 )
-app.add_typer(research_app, name="research")
+app.add_typer(research_app, name="research", hidden=not _EXPERIMENTAL)
 pipeline_app = typer.Typer(
     no_args_is_help=True,
     help="Inspect/mutate the /sdlc pipeline state files (does not run the pipeline).",
@@ -227,9 +227,16 @@ def init(
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
 
-        # 1) Target path.
+        # 1) Target path. Tolerate EOF (non-TTY stdin, e.g. an agent's shell tool) the same way
+        # prompts._ask does — fall back to the default instead of aborting.
         if path is None:
-            raw = "." if non_interactive else input("Target path [.]: ").strip() or "."
+            if non_interactive:
+                raw = "."
+            else:
+                try:
+                    raw = input("Target path [.]: ").strip() or "."
+                except EOFError:
+                    raw = "."
         else:
             raw = path
         target = Path(raw).expanduser().resolve()
@@ -394,7 +401,7 @@ def export(
         src = scaffold.payload_dir(stack)
         target_dir = Path(path).expanduser().resolve()
         plan = _plan_for_export(src, target_dir, config=config, defaults=defaults)
-        written = exporter.export_targets(
+        written, current = exporter.export_targets(
             src, target_dir, plan, targets, force=force, dry_run=dry_run
         )
 
@@ -406,6 +413,7 @@ def export(
                     "targets": targets,
                     "dry_run": dry_run,
                     "written": written,
+                    "already_current": current,
                 },
                 indent=2,
             )
@@ -415,10 +423,13 @@ def export(
     typer.echo(f"\nclaude-kit export → {', '.join(targets)}  ({target_dir})\n")
     for w in written:
         typer.echo(f"  {'+' if dry_run else '•'} {w}")
+    for c in current:
+        typer.echo(f"  = {c} (already current)")
     tail = "  (dry run — nothing written)" if dry_run else ""
-    typer.echo(
-        f"\n{'Would write' if dry_run else 'Wrote'} {len(written)} file(s).{tail}"
-    )
+    summary = f"{'Would write' if dry_run else 'Wrote'} {len(written)} file(s)"
+    if current:
+        summary += f"; {len(current)} already current"
+    typer.echo(f"\n{summary}.{tail}")
 
 
 @app.command()
@@ -524,11 +535,16 @@ def status(
     if installed:
         for name in ("rules", "agents", "skills", "hooks"):
             d = dest / name
-            components[name] = (
-                sum(1 for p in d.iterdir() if p.name != ".gitkeep")
-                if d.is_dir()
-                else None
-            )
+            if not d.is_dir():
+                components[name] = None
+            elif name == "skills":
+                # A skill is a directory holding SKILL.md; skills/_references/ is shared
+                # support content, not a skill — this matches validate's count.
+                components[name] = sum(
+                    1 for p in d.iterdir() if (p / "SKILL.md").is_file()
+                )
+            else:
+                components[name] = sum(1 for p in d.iterdir() if p.name != ".gitkeep")
         options = dest / "config" / "init-options.json"
         if options.is_file():
             selection = json.loads(options.read_text(encoding="utf-8")).get(

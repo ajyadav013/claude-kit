@@ -21,6 +21,11 @@ fork/join logic applies to any set of independent work streams.
 
 If unclear whether a task is a bug fix or feature, ask the user.
 
+> **Naming note:** Claude Code's native *dynamic workflows* (≥ 2.1.154) are not a fourth row in
+> this table — they are an execution substrate a wave's fan-out may run on. The routing above
+> still decides the contract; see `.claude/rules/wave-orchestration.md` → "Native dynamic
+> workflows as the wave substrate".
+
 ---
 ---
 

@@ -188,7 +188,7 @@ Owns the **contract-clear** gate (runs in **standard and enterprise** — any pr
    - **Medium** — an undocumented additive change, or a deprecation with no migration note.
    - **Low/Cosmetic** — an additive **optional** field, or a doc-only change.
 4. **Require a migration path** — any Critical/High breaking delta needs an approved migration note (cross-ref `.claude/skills/deprecation-and-migration`) **and** a version bump before PASS.
-5. **Emit** `docs/api/{feature-name}_api-change-report.md` from the `api-change-report.md` artifact template.
+5. **Return the API change report** (structured per the `api-change-report.md` artifact template) with your gate signal — you run read-only, so the Orchestrator persists it as `docs/api/{feature-name}_api-change-report.md` on your behalf.
 
 **Rule:** *contract-clear* PASSes only at zero Critical/High/Medium per the severity model; a breaking change shipped without an approved migration note + version bump is **auto-High**.
 

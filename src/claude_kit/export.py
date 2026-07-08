@@ -26,6 +26,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from claude_kit import scaffold
 from claude_kit.models import ResolvedPlan
 from claude_kit.render import render_text
@@ -86,6 +88,27 @@ def _humanize(name: str) -> str:
     """Turn a rule filename into a readable title (``react-patterns.md`` -> ``React patterns``)."""
     stem = Path(name).stem.replace("-", " ").replace("_", " ").strip()
     return stem[:1].upper() + stem[1:] if stem else name
+
+
+def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+    """Split a leading YAML frontmatter block off a rule's markdown (``({}, text)`` when absent).
+
+    Overlay rules may open with Claude Code ``paths:`` frontmatter (scoped rule loading). The block
+    is parsed so targets can project it, and the returned body starts at the real markdown so no
+    export ever emits a double frontmatter. A malformed block is treated as body text, not an error.
+    """
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return {}, text
+    try:
+        meta = yaml.safe_load(text[4:end])
+    except yaml.YAMLError:
+        return {}, text
+    if not isinstance(meta, dict):
+        return {}, text
+    return meta, text[end + 5 :].lstrip("\n")
 
 
 def _rule_title(text: str, name: str) -> str:
@@ -156,18 +179,26 @@ def _rule_to_mdc(name: str, text: str, plan: ResolvedPlan, payload: Path) -> str
 
     Core rules are agent-requested (``description`` only, ``alwaysApply: false``) — mirroring Claude
     Code's on-demand rule loading. Overlay rules additionally get ``globs`` so Cursor auto-attaches
-    them when editing matching files. Values are JSON-quoted so the frontmatter is always valid YAML
-    (an unquoted glob such as ``**/*.{ts,tsx}`` would be misread as a YAML flow mapping).
+    them when editing matching files: the rule's own ``paths:`` frontmatter (Claude Code's scoped
+    loading) projects verbatim when present, falling back to the lane's language/db table. The
+    source frontmatter is stripped from the body so the ``.mdc`` carries exactly one block. Values
+    are JSON-quoted so the frontmatter is always valid YAML (an unquoted glob such as
+    ``**/*.{ts,tsx}`` would be misread as a YAML flow mapping).
     """
+    meta, body = _split_frontmatter(text)
     lines = [
-        f"description: {json.dumps(_rule_description(text, name), ensure_ascii=False)}"
+        f"description: {json.dumps(_rule_description(body, name), ensure_ascii=False)}"
     ]
     if name in set(plan.overlay_rules):
-        glob = _overlay_glob(name, plan, payload)
+        paths = meta.get("paths")
+        if isinstance(paths, list) and paths and all(isinstance(p, str) for p in paths):
+            glob: str | None = ",".join(paths)
+        else:
+            glob = _overlay_glob(name, plan, payload)
         if glob:
             lines.append(f"globs: {json.dumps(glob, ensure_ascii=False)}")
     lines.append("alwaysApply: false")
-    return "---\n" + "\n".join(lines) + "\n---\n\n" + text.strip() + "\n"
+    return "---\n" + "\n".join(lines) + "\n---\n\n" + body.strip() + "\n"
 
 
 def _project_mdc(body: str) -> str:
@@ -244,8 +275,8 @@ def _rule_index(payload: Path, plan: ResolvedPlan) -> str:
     if overlays:
         lines += ["", "**Stack overlays**", ""]
         for name, found in overlays:
-            text = found.read_text(encoding="utf-8")
-            lead = _rule_lead(text) or _rule_title(text, name)
+            _, body = _split_frontmatter(found.read_text(encoding="utf-8"))
+            lead = _rule_lead(body) or _rule_title(body, name)
             lines.append(f"- **{Path(name).stem}** — {_cap(lead, _DESC_CAP)}")
     return "\n".join(lines) + "\n"
 
@@ -291,13 +322,17 @@ def _emit(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Write ``text`` to ``path``, sidecar'ing an existing file unless ``force`` (no-op on dry run).
 
     Exported files are regenerable projections, so ``--force`` refreshes them in place. Without
-    ``--force`` an existing file is preserved and the new content lands beside it as a ``.claude-kit``
-    sidecar (the same non-destructive convention the installer uses). ``dry_run`` records the intended
-    path and writes nothing.
+    ``--force`` an existing file that already matches the new content byte-for-byte is *not*
+    rewritten — it is recorded in ``current``, not ``written``, so the caller can report honestly
+    (idempotent re-export — e.g. ``AGENTS.md`` right after ``init`` emitted it); one that differs
+    is preserved, with the new content beside it as a ``.claude-kit`` sidecar (the same
+    non-destructive convention the installer uses). ``dry_run`` records the intended path in
+    ``written`` and writes nothing.
     """
     rel = path.relative_to(root).as_posix()
     if dry_run:
@@ -305,6 +340,13 @@ def _emit(
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not force:
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            existing = None
+        if existing == text:
+            current.append(rel)
+            return
         sidecar = path.with_name(path.name + ".claude-kit")
         sidecar.write_text(text, encoding="utf-8")
         written.append(sidecar.relative_to(root).as_posix())
@@ -321,6 +363,7 @@ def _write_cursor(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Emit the Cursor target: ``.cursor/rules/*.mdc`` (+ charter) and ``.cursor/mcp.json``."""
     rules_dir = target / ".cursor" / "rules"
@@ -331,6 +374,7 @@ def _write_cursor(
         force=force,
         dry_run=dry_run,
         written=written,
+        current=current,
     )
     for name, path in _iter_rules(payload, plan):
         text = path.read_text(encoding="utf-8")
@@ -341,6 +385,7 @@ def _write_cursor(
             force=force,
             dry_run=dry_run,
             written=written,
+            current=current,
         )
     if plan.mcp_servers:
         _emit(
@@ -350,6 +395,7 @@ def _write_cursor(
             force=force,
             dry_run=dry_run,
             written=written,
+            current=current,
         )
 
 
@@ -361,6 +407,7 @@ def _write_agents(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Emit the universal ``AGENTS.md`` at the project root."""
     _emit(
@@ -370,6 +417,7 @@ def _write_agents(
         force=force,
         dry_run=dry_run,
         written=written,
+        current=current,
     )
 
 
@@ -381,6 +429,7 @@ def _write_copilot(
     force: bool,
     dry_run: bool,
     written: list[str],
+    current: list[str],
 ) -> None:
     """Emit ``.github/copilot-instructions.md`` (the same document as the ``agents`` target)."""
     _emit(
@@ -390,6 +439,7 @@ def _write_copilot(
         force=force,
         dry_run=dry_run,
         written=written,
+        current=current,
     )
 
 
@@ -408,7 +458,7 @@ def export_targets(
     *,
     force: bool = False,
     dry_run: bool = False,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Export ``plan`` into ``target_dir`` for each requested target.
 
     Args:
@@ -420,7 +470,9 @@ def export_targets(
         dry_run: Report what would be written without touching the filesystem.
 
     Returns:
-        The sorted list of project-relative paths written (or, on a dry run, that would be written).
+        ``(written, already_current)`` — two sorted lists of project-relative paths: files
+        actually written (or, on a dry run, that would be written), and existing files skipped
+        because they already match byte-for-byte. Only ``written`` entries touched the disk.
 
     Raises:
         ValueError: If ``targets`` contains an unknown target id.
@@ -433,6 +485,7 @@ def export_targets(
         )
     target_dir = Path(target_dir)
     written: list[str] = []
+    current: list[str] = []
     # De-duplicate while preserving the caller's order.
     for name in dict.fromkeys(targets):
         _WRITERS[name](
@@ -442,5 +495,6 @@ def export_targets(
             force=force,
             dry_run=dry_run,
             written=written,
+            current=current,
         )
-    return sorted(written)
+    return sorted(written), sorted(current)

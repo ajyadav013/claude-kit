@@ -17,7 +17,7 @@ flowchart LR
         S["skills/"]
         C["commands/"]
         H["hooks/"]
-        R["rules/ (24)"]
+        R["rules/ (25)"]
         T["templates/ (+ stacks/ & org/ overlays)"]
         K["catalog/ (stacks · profiles · mcp · org)"]
     end
@@ -167,7 +167,7 @@ flowchart TB
         OPOL["org policy/vibe rules<br/>secrets · pii · production-data · branch-and-pr · compliance · …"]
     end
 
-    subgraph RULES["rules/ — 24 contracts the agents obey"]
+    subgraph RULES["rules/ — 25 contracts the agents obey"]
         MW["mandatory-workflow · quality-gates · rarv-cycle"]
         MEM["continuity · agent-memory"]
         AGENTOP["reasoning-techniques · agent-guardrails · agent-resilience<br/>goal-setting-and-monitoring · human-in-the-loop · model-tiers"]
@@ -215,7 +215,7 @@ claude-kit/
 │   └── marketplace.json       # marketplace entry (source ".")
 ├── agents/                    # 28 SDLC agents, tier-tagged (plugin auto-discovers)
 ├── skills/                    # on-demand skills incl. sdlc/ (the /sdlc entrypoint)
-├── commands/                  # /claude-kit:init · :sdlc · :status
+├── commands/                  # /claude-kit:init · :sdlc · :status · :abort
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-* / validate-* / audit-log

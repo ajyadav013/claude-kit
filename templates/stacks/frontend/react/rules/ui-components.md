@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+---
+
 # UI Components
 
 **All frontend development MUST follow these rules.** Companion to

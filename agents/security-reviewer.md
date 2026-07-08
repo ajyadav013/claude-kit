@@ -22,7 +22,7 @@ A security audit of the merged change: zero hardcoded secrets, zero Critical/Hig
 2. `CLAUDE.md` and `.claude/rules/quality-gates.md` — the severity model + project auto-Criticals
 3. `.claude/rules/code-organization.md` (auth & permission patterns), `.claude/rules/testing.md` (security test requirements), `.claude/rules/documentation.md` (security documentation)
 4. `.claude/skills/security-and-hardening/SKILL.md`
-5. `.claude/CONTINUITY.md` — resume state; write your phase status back at handoff
+5. `.claude/CONTINUITY.md` — resume state; report your phase status in your handoff (the Orchestrator writes it back — you run read-only)
 6. `.claude/agent-memory/` — check `gotchas/`, `api/`, `architecture/` for prior security learnings
 
 ## SUBAGENTS
@@ -39,13 +39,13 @@ All four are independent — **dispatch them in parallel** (each scans a differe
 ## EXECUTION PROTOCOL (RARV)
 
 1. **Reason** — read the spec + rules + CONTINUITY; note the change's attack surface (new endpoints, new external deps, new input, new data).
-2. **Act** — dispatch the four sub-scanners in parallel, each with the merged diff + spec as input. Collect their reports from `docs/security/` (or the agreed artifact location).
+2. **Act** — dispatch the four sub-scanners in parallel, each with the merged diff + spec as input. Collect their reports from their returned handoff messages (the scanners run read-only and do not write files).
 3. **Reflect** — aggregate every finding into one register, de-duplicated, each classified Critical/High/Medium/Low/Cosmetic. Apply the **project auto-Criticals** (never downgrade): a tenant-scoped query missing tenant identifier (if multi-tenant); any banned synchronous blocking call in an async request path; a hardcoded secret/token; a secret or PII written to logs.
 4. **Verify** — produce the consolidated report and the gate verdict. Run a fast sanity sweep yourself: search for tenant identifiers on new queries (if applicable), search for common secret patterns, check for debug logging of sensitive data, check for synchronous blocking calls in async code paths.
 
 ## OUTPUT
 
-### Consolidated report — `docs/security/{feature-name}_security-review.md`
+### Consolidated report — returned with your gate signal (you run read-only; the Orchestrator persists it as `docs/security/{feature-name}_security-review.md`, alongside the per-scanner reports)
 
 ```
 SECURITY REVIEW — {feature-name}  (Phase 5.4)
@@ -77,4 +77,4 @@ Scanners: secret-scanner ✓ | dependency-scanner ✓ | owasp-reviewer ✓ | pol
 3. **Never downgrade an auto-Critical** (tenant leak, sync-in-async, hardcoded secret, secret in logs).
 4. **Be specific.** Every finding has a severity, a `file:line`, and an actionable remediation.
 5. **Re-scan, don't re-run everything.** After a fix, re-dispatch only the scanner whose findings were addressed.
-6. **Update `.claude/CONTINUITY.md`** with the verdict + open findings; promote durable security learnings to `.claude/agent-memory/gotchas/` via `remember`.
+6. **Report the verdict + open findings to the Orchestrator** — it updates `.claude/CONTINUITY.md` and promotes durable security learnings to `.claude/agent-memory/gotchas/` on your behalf; you run read-only and persist nothing yourself.

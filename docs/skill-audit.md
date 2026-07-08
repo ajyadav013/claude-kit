@@ -46,13 +46,14 @@ Measured on a `react + fastapi + postgres` project with `--scope individual`:
 
 | Profile | Agents | Skills | Rules | Approx. On-Disk Skill Tokens |
 |---------|--------|--------|-------|-------------------------------|
-| **lean** | 8 | 14 | 35 | ~46K |
-| **standard** | 26 | 42 | 35 | ~121K |
-| **enterprise** | 31 | 104 | 35 | ~895K |
+| **lean** | 8 | 15 | 36 | ~46K |
+| **standard** | 26 | 42 | 36 | ~121K |
+| **enterprise** | 31 | 104 | 36 | ~895K |
 
 **Notes:**
 
-- Skill counts are skill *directories* (those containing a `SKILL.md`) — matching `_count_skills()` and the README's "What loads into your context" table. A raw `ls .claude/skills | wc -l` reads one higher (15 / 43 / 105) because each install also copies the shared `_references/` support directory, which is **not** a skill; `_count_skills()` deliberately excludes it. This is a counting convention, not duplicated content.
+- Skill counts are skill *directories* (those containing a `SKILL.md`) — matching `_count_skills()` and the README's "What loads into your context" table. A raw `ls .claude/skills | wc -l` reads one higher (16 / 43 / 105) because each install also copies the shared `_references/` support directory, which is **not** a skill; `_count_skills()` deliberately excludes it. This is a counting convention, not duplicated content.
+- Since the stack-true reclassification (0.58.1), the six frontend-specific skills (`frontend-ui-engineering`, `component-design`, `ui-ux-design`, `unit-test`, `api-integration`, `manual-test`) ride the React entry in `catalog/stacks.yaml` rather than the standard profile — a backend-only (`frontend: none`) standard install is six skills lighter. Lean gained one on the default stack (the react union now includes `manual-test` and `api-integration`; `api-integration` left the fastapi entry): 14 → 15.
 - Agent counts exceed the raw profile agent list because the PostgreSQL DB overlay unions in 3 additional agents (`postgres-specialist`, `migration-specialist`, `db-performance-reviewer`).
 - Rules are profile-independent: 25 core rules + 11 selected stack-overlay rules = 36 for all three profiles.
 - Token estimates are approximate (bytes ÷ 4) and count on-disk **skill** bytes only, not always-resident context (see Finding below). The finding stands: enterprise installs every skill in the payload via `skills: all`.
@@ -135,6 +136,39 @@ Potential approaches — all MUST stay `catalog/*.yaml` / config changes with NO
 1. Measure the actual selection-time overhead of a 104-skill vs 42-skill install (do not assume it).
 2. Prototype a `stack-relevant` mapping as pure data in `stacks.yaml`, resolved by the existing lookup.
 3. Add the variant to `catalog/profiles.yaml` and measure the resulting footprint against the numbers above.
+
+### Measured: the stack→skill mapping (2026-07) — and why `stack-relevant` is deferred
+
+The mapping step above was carried out. Classifying all 48 collection skills against the lanes a
+user can actually select today (frontend `react|none` · backend `python/fastapi | go/net-http |
+none` · database `postgres | mongodb | none`; Node/Express, Django, Vue, Svelte are `status:
+planned`):
+
+| Category | Count | Skills |
+|---|---|---|
+| Python/FastAPI backend | 10 | backend-repo-architecture · fastapi-service-patterns · python-dao-and-database · pydantic-schema-patterns · async-python-patterns · configargparse-yaml-env-layering · testing-conventions · file-export-and-reporting · dockerfile-backend · auth-and-rbac |
+| React frontend | 8 | frontend-repo-architecture · zustand-state-patterns · tanstack-react-query-patterns · react-hook-form-zod-patterns · radix-tailwind-component-patterns · design-system-ops · vitest-rtl-msw-patterns · dockerfile-frontend |
+| Node backend (**planned** — not selectable) | 2 | node-express-service · node-objection-knex |
+| Database-coupled | 2 | alembic-migrations (Python+Postgres) · multi-tenancy-patterns (Postgres RLS) |
+| Backend-generic / cross-lane / stack-generic | 4 | api-pagination-filtering-sorting · graphql-patterns · design-patterns-and-conventions · modernization-and-migration |
+| **Infra/platform-orthogonal** — not derivable from any lane selection | **22** | kafka-config-driven · temporal-config-driven · temporal-developer · redis-caching-patterns · gcs-file-storage-patterns · data-engineering-bigquery-gcs · grafana-dashboards-and-alerts · otel-tracing · observability-and-logging · containerization-and-deployment · docker-compose · docker-shared · gcp-cloud-run-github-actions · notifications-and-messaging · anthropic-vertex-integration · langfuse-llm-tracing · zap-vapt-scanning · shannon-ai-pentest · edge-to-service-trust-boundary · kubernetes-workload-hardening · cron-and-scheduled-jobs · kubectl-operations |
+
+**What the numbers say.** 26 of 48 skills (the orthogonal 22 + the generic 4) cannot be filtered by
+stack lane, because they encode *infrastructure* choices — Kafka vs. Temporal, GCP vs. not, k8s vs.
+not — that `init`'s three stack questions never ask about. Simulated `stack-relevant` footprints
+under the honest mapping (keep generic + orthogonal, filter lane-specific):
+
+- **react + fastapi + postgres (the default):** installs **46 of 48** — only the two planned-stack
+  Node skills drop. A ~4% filter, not the "roughly a dozen-plus instead of 48" estimated above.
+- **go backend-only:** installs 26 of 48 (−46%) — the only selection where filtering is material.
+
+**Decision: deferred, with the estimate corrected.** A `skills: stack-relevant` profile value
+built on lane mapping alone cannot deliver a meaningful reduction for the default (or any
+frontend+python) selection; the real lever would be an **infrastructure axis** at init (Kafka?
+Temporal? GCP? Kubernetes?) feeding the same data-driven union — new selection surface and new
+questions, i.e. a feature design, not a catalog tweak. Until that exists, `skills: all` with this
+documented trade-off remains the honest enterprise default. The table above is the reusable input
+for whoever picks this up.
 
 ---
 

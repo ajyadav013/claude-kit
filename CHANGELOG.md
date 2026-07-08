@@ -4,7 +4,467 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [0.58.0] — 2026-07-06
+## [0.58.1] — 2026-07-07
+
+**Pipeline agents can now actually persist what their prompts mandate.** An industry-review pass
+(4 web researchers + 4 repo specialists, adversarially synthesized) found the kit's flagship
+resumable-pipeline promise structurally broken: nine agents ran `permissionMode: plan` (read-only)
+while their prompts *required* file writes — the orchestrator's `CONTINUITY.md` +
+`.claude/state/pipeline-snapshot.json` updates, every security scanner's `docs/security/*` report,
+the merge-reviewer's API change report, and the incident-responder's incident log. Plus the docs-truth sweep the same review surfaced.
+0 new agents/skills/rules. Catalog data edits only where features required them: `stacks.yaml`
+gains the `none` frontend/backend lanes and `profiles.yaml` trims six stack-coupled skills from
+the standard core (they now arrive via the selected stack's lane instead) — no resolver changes.
+
+### Added
+
+- **CI/issue-triggered runs get a design contract instead of a vendor YAML** (round-2 R18, the
+  landscape item; every claim verified against the GitHub API first: spec-kit 0.12.4 (2026-07-02)
+  shipped the label-driven `bug-fix` (#3258) and `bug-test` (#3257) agentic workflows and 0.12.2
+  the bounded fan-out (#3224); PR #3258's design was read in full). New
+  `docs/autonomous-operation.md` §6 records the five lines to hold when wiring `/sdlc` to CI —
+  a human-applied **label is the authorization** (never issue content); issue text is untrusted
+  input (`env:`, never `run:` interpolation, adversarial-assumption permissions); stages consume
+  the prior stage's artifact and *stop and ask* when it's missing; **draft-PR** delivery under the
+  `autonomous-pr` ceiling (`Refs`, never `Closes`); §3-style bounds (budget, minimal token, branch
+  protection). Shipping an actual GitHub workflow template was **deliberately deferred** — it
+  would be the kit's first CI-vendor-specific artifact and the posture, not the boilerplate, is
+  the durable part. The README spec-kit comparison row is refreshed to describe 0.12.x honestly
+  (workflow engine, extension catalog, label-driven CI stages) and state the complementary split:
+  their CI stages, this kit's in-session gate depth.
+- **The bounded headless loop ships as an installed artifact** — `.claude/scripts/sdlc-loop.sh`
+  (from new `templates/scripts/`, wired in both installers: `scaffold.install_sdlc` copies + chmods
+  it, and the no-pip `init.sh` fallback installs it too). Prompted by a verified landscape shift:
+  BMAD-METHOD v6.10.0 (2026-07-03) graduated its unattended dev loop from experimental to an
+  installer-selectable module (`bmad-loop` + the `bmad-dev-auto` single-iteration worker polled off
+  a spec-frontmatter state machine) — the same architecture the kit already had as `/sdlc` +
+  `CONTINUITY.md` + `pipeline-snapshot.json`, except the kit's loop runner was an untested code
+  block in `docs/autonomous-operation.md` §3. Now it's a tested file: each iteration runs
+  `claude -p` under the one-gate contract with three brakes (iteration cap, per-iteration
+  `--max-budget-usd`, stall detection → nonzero exit **for a human**); the exit condition
+  self-configures from the execution-ordered `gates:` list in `stack-catalog.snapshot.yaml`
+  (last entry = finish line) and every knob is an `SDLC_*` env var — which is why it ships
+  kit-owned (upgrades keep the brakes current; hand-edits still get checksum-sidecar protection).
+  After the fallback install (no catalog resolution → no snapshot) it *refuses to guess* a finish
+  line and requires `SDLC_FINAL_GATE` explicitly. Eight behavioral tests run the real script with
+  a fake `claude` shim (completion, last-not-first gate autodetection against the exact
+  `yaml.safe_dump` shape scaffold writes, env override, stall, iteration cap, finish-line refusal,
+  project-root guard, nonzero-claude tolerance); CI shellcheck now covers `templates/scripts/`;
+  §3 keeps the rationale and points at the shipped file as source of truth.
+- **Native dynamic workflows routed against the wave pattern** (verified against the official
+  workflows doc + the Claude Code changelog: engine introduced **2.1.154**, trigger keyword renamed
+  `workflow` → `ultracode` at 2.1.160, size guideline setting at 2.1.202). The round-2 review found
+  all four program-scale routing sites silent on Claude Code's in-product dynamic-workflows engine —
+  a reader could think the wave pattern competes with it. Now `rules/wave-orchestration.md` gains a
+  "Native dynamic workflows as the wave substrate" section built on the docs' own constraint (the
+  runtime accepts **no mid-run user input**; its advice for sign-off between stages is one workflow
+  per stage — which maps one-to-one onto *one workflow run per wave, humans between runs*): the rule
+  is the **contract** (manifest, gate-runners, inventory approval), the engine is an **execution
+  substrate** a wave's fan-out may run on; irreversible steps never go inside a run; committed
+  artifacts stay the durable record because resume is session-scoped; and availability is never
+  assumed (paid-plan-gated, Pro opt-in, org-disableable) so Agent-tool fan-out remains the default.
+  The orchestrator's Mode E, the `/sdlc` classification step, and the `mandatory-workflow.md`
+  "Which Workflow?" table each gain a short pointer (the table's is a naming disambiguation:
+  dynamic workflows are not a fourth row).
+- **The stack→collection-skill mapping, measured** — `docs/skill-audit.md` gains the classification
+  the audit's own "evaluate `skills: stack-relevant`" item called for: all 48 collection skills
+  classified against the lanes actually selectable today. Headline: **22 of 48 are
+  infra/platform-orthogonal** (Kafka/Temporal/Redis/GCP/k8s/observability — choices `init`'s three
+  stack questions never ask about) and 4 more are stack-generic, so a lane-based filter installs
+  **46 of 48 for the default react+fastapi+postgres selection** (only the two planned-stack Node
+  skills drop) — refuting the audit's "roughly a dozen-plus instead of 48" estimate. The only
+  selection where filtering is material is go backend-only (26 of 48). The table ships as the
+  reusable input for a future **infrastructure axis** at init, which is the real lever.
+- **Collection-skill size sweep** (the deferred follow-up from the skills-hygiene pass; measured
+  per-file first). All five oversized collection SKILL.md files turned out to already ship
+  `references/` — the earlier "no references/ yet" note was an artifact of a truncated directory
+  listing — and the fat in each was a `## Skeleton / example` section of complete worked files
+  injected on every trigger. Three fixed: **`docker-compose` 606 → 253** (the four full compose
+  files — base, dev, prod-test, profiles — moved verbatim to new `references/compose-skeletons.md`
+  behind an annotated pointer); **`grafana-dashboards-and-alerts` 535 → 437** (the RED dashboard
+  JSON + three-stage unified alert rule moved verbatim to new
+  `references/red-dashboard-skeleton.md`); **`containerization-and-deployment` 534 → 262** (its
+  five skeletons were verbatim *duplicates* of content already in its own references — grep-verified
+  block-by-block before deletion — so the section became a per-skeleton pointer map with zero
+  content loss). Two refused for consistency with the earlier `manual-test` (516) refusal:
+  `langfuse-llm-tracing` (508) and `redis-caching-patterns` (505) sit 1–2% over the ~500-line
+  guidance, under the same not-worth-the-cohesion-cost threshold.
+- **Hooks-layer modernization review resolved with evidence** — the industry review's four
+  gen_hooks claims (left unverified when the hooks-specialist research agent died mid-workflow)
+  were each checked against the official hooks reference + the Claude Code changelog; **all four
+  were refuted or refused** (see *Not adopted*), so the hook layer ships unchanged — deliberately.
+  The verified facts are now recorded where they prevent re-litigation: a format-decisions comment
+  above `HOOK_REGISTRY` (exact-match matcher semantics; the exec-form 2.1.139 floor; exit-code-2
+  blocking is not deprecated), and `docs/autonomous-operation.md` §3 now documents `/goal` — Claude
+  Code's *built-in* session-scoped prompt-based Stop gate — as the zero-config alternative to the
+  bounded loop for single interactive sessions. All five registry events re-verified present in
+  the current event list (no drift).
+- **`docs/autonomous-operation.md` — autonomy grounded in the shipped CLI, not folklore** (every
+  flag and mode verified against Claude Code 2.1.178 `--help` + the official permissions docs
+  before writing). Headless `claude -p` documented with its three safety-relevant property changes
+  (prompts become denials, the trust dialog is skipped, invalid settings are *silently ignored* —
+  so validate before the run, not after); the `--bare` caveat spelled out concretely for a kit
+  project (it skips hooks **and** CLAUDE.md auto-discovery, so SessionStart context, every guard
+  hook, and the rules contract all vanish — including `load-autonomy.sh`, meaning a bare run
+  doesn't know its own ceiling); a bounded headless-loop pattern built on the kit's real resume
+  seam (`CONTINUITY.md` + `pipeline-snapshot.json` `last_gate_passed`) with three deliberate
+  brakes (iteration cap, `--max-budget-usd`, stall detection → nonzero exit for a human); the
+  five `autonomy-levels.md` levels mapped onto the six real permission modes (`acceptEdits` ·
+  `auto` · `bypassPermissions` · `manual` · `dontAsk` · `plan`), with `bypassPermissions`
+  explicitly mapped to **no** kit level (its own docs restrict it to isolated sandboxes) and
+  `enterprise-controlled` pinned via managed-settings `disableBypassPermissionsMode`; and an
+  anti-gaming table wiring five unattended-log warning signs to the shipped defenses
+  (`quality-gates.md` §2.5 evidence requirement, `continuity.md` verify-before-trust,
+  blind-review/Devil's-Advocate, `audit-log`). Correction to the review's claim recorded inline:
+  the CLI has **no `--max-turns`** flag (2.1.178; that's an Agent SDK feature) — iteration caps
+  belong in the loop script.
+- **Skills hygiene: progressive disclosure for the heaviest core skill + honest triggers** (every
+  review claim measured first). `security-and-hardening/SKILL.md` — at 718 lines the largest
+  SKILL.md in the payload, injected wholesale on every trigger — is split along its decision seam:
+  the boundaries / per-class rules / checklists / red-flags layer stays in SKILL.md (286 lines),
+  and the code patterns and deep-dive practices move **verbatim** (license attributions included)
+  to four on-demand `references/` files — OWASP per-class patterns + continuous least-privilege ·
+  input-validation/uploads/archive-extraction/ReDoS · supply-chain triage/SBOM/reproducible-builds/
+  missing-patch · LLM guardrail specifics — the same convention 20+ collection skills already
+  follow. Everything external actors deep-link into the file (`warn-llm-io.sh` and
+  `owasp-reviewer` → *LLM / AI Feature Security*, `dependency-scanner` → *Triaging Dependency
+  Audit Results*, the scaffold test's three anchors) stays in SKILL.md under its original title.
+  Trigger honesty: `containerization-and-deployment`'s description stops claiming its four
+  siblings' territory (multi-stage builds → `dockerfile-backend`, compose local dev →
+  `docker-compose`) and owns the overview role explicitly; `remember`'s dangling "injects the
+  index below" now names what the hook actually injects (`.claude/agent-memory/MEMORY.md`).
+- **Cost transparency** — `docs/agents.md` gains a "What a run costs" section measured from the
+  shipped frontmatter (4 `opus` agents — `orchestrator`, `developer`, `devils-advocate`,
+  `owasp-reviewer` — everything else `sonnet`, the Fast tier deliberately unassigned), with the
+  practical levers: the profile is the biggest knob (lean runs only 2 of the 4 `opus` agents), and
+  tier escalation stays investigation-gated. **Fan-out is now announced before it happens**: the
+  orchestrator (Spawning parallel agents), the `sdlc` skill (step 3), and the wave-orchestration
+  rule (Cost discipline) all require stating the planned lane/agent count and model tiers — in
+  chat and CONTINUITY.md — before any parallel phase forks, so a human can veto the scale before
+  tokens are spent.
+- **Stack-true installs: `none` lanes + frontend skills ride the frontend stack** (every sub-claim
+  verified first). `catalog/stacks.yaml` gains `none` entries for frontend, backend, and database —
+  previously a pure-backend project was *forced* to select React and received 8 React overlay
+  rules, frontend skills, and npm commands in its CLAUDE.md. A `none` entry ships no
+  overlays/skills/commands/stack_dir, so the branch-free resolver makes it a true no-op lane; new
+  `has_frontend`/`has_backend`/`has_database` context flags (derived from stack_dir presence — data,
+  not stack names) let `CLAUDE.stack.md.tmpl` + `README.claude-sdlc.md.tmpl` render clean charters
+  for any combination, including all-`none`. The six frontend-specific skills
+  (`frontend-ui-engineering`, `component-design`, `ui-ux-design`, `unit-test` "frontend components
+  and hooks", `api-integration` client-side data fetching — verified by reading each skill's
+  content, and previously mis-filed under the *backend* stacks — and `manual-test` headed-browser
+  QA) moved from the standard profile core to the React entry's `skills:` union: a backend-only
+  standard install is six skills lighter, the default-stack standard count is unchanged (42), and
+  lean's default-stack count goes 14 → 15 (README + skill-audit updated; skill-audit's stale
+  35-rules column also fixed to 36). The `none` combinations automatically join the
+  profile×stack×scope self-test matrix. The interactive frontend-language question is skipped for
+  a lane with no languages. Deferred to a future pass: the `skills: stack-relevant` enterprise
+  filter (needs a collection-skill→stack mapping measured, not assumed).
+- **`init` now emits a root `AGENTS.md`** — the cross-tool agent-instructions convention behind the
+  most-requested Claude Code integration (anthropics/claude-code#6235, 4.3k 👍, re-verified OPEN and
+  still non-native before adoption: Claude Code reads `CLAUDE.md` only, so this file serves the
+  *other* agents in the repo — Cursor, Copilot, Codex — with zero double-load risk). The scaffolder
+  reuses the `export` projection verbatim (charter + single-agent SDLC checklist + rule index +
+  fidelity note), never clobbers a pre-existing `AGENTS.md` (sidecar), and records the file as
+  `user-editable` so `upgrade` preserves edits. **User-file writes are now idempotent** across
+  `init` and `export`: a byte-identical existing file is reported as "already current" instead of
+  spraying `.claude-kit` sidecars on every re-run — real differences still sidecar.
+- **Path-scoped overlay rules** — 12 of the 13 stack overlay rule files now open with `paths:` YAML
+  frontmatter (Claude Code's official scoped rule loading, verified against
+  code.claude.com/docs/en/memory before adoption), so React/FastAPI/Go/Postgres guidance enters
+  context only when Claude touches matching files instead of riding every session. Globs live in the
+  overlay files themselves — the stack-agnostic core rules stay deliberately unscoped (always-on
+  contract), and `mongodb-patterns.md` stays unscoped on purpose: a document store has no reliable
+  file signal, and a glob that never matches would mean the rule *never* loads (the same judgment
+  `export._DB_GLOBS` already encodes). The Cursor exporter now projects a rule's own `paths:` list
+  verbatim into `.mdc` `globs` (comma-joined; list form chosen over brace expansion precisely so it
+  ports) and strips the source block so no export carries a double frontmatter; the language/db
+  table remains as fallback for frontmatter-less overlays. New `tests/test_rule_frontmatter.py`
+  pins all four invariants (scoped overlays valid, Mongo exception, core rules clean, scaffold
+  copies verbatim).
+- **Rule-count drift guards in CI** — `scripts/check_docs_consistency.py` now anchors the overlay
+  rule-file count, the README's default-stack worked example (25 core + 11 overlays = 36), and the
+  rule counts quoted in `docs/architecture.md`, so the count drift fixed below cannot recur silently.
+
+### Added (continued — round-2 test-gap closure)
+
+- **The interactive `init` parsers finally have tests that answer questions** (round-2 R5; a
+  line-tracer proof showed only the EOFError→default branch ever executed — the numeric-selection,
+  re-prompt, multi-select, and yes/no paths a real human hits had zero coverage). 18 new cases in
+  `tests/test_prompts.py` monkeypatch `input()`: `_choose_one` by number and by id, re-prompt-until-
+  valid (bad id, out-of-range number), planned lanes visible-but-unselectable with live-only
+  numbering; `_ask_bool`'s eight recognised answers plus garbage→default; `_choose_many` empty/
+  `none`, mixed ids+numbers, order-preserving dedup, unknown-token warnings; and three end-to-end
+  `interactive()` flows — the full default path driven by numbers and ids, the `none` frontend
+  lane proving the language question is skipped (answer alignment breaks if it leaks back), and
+  the organization scope unlocking the teams/autonomy/strictness/packs block.
+
+- **Behavioral tests for the eleven remaining never-executed hook scripts** (round-2 R4; the
+  verifier had proved only 4 of 18 scripts were ever run by tests). New `tests/test_hook_scripts.py`
+  (31 cases) executes each script against real stdin JSON, temp project dirs, and live git repos:
+  the SessionStart loaders (continuity small/capped/template-seeded/silent, learnings
+  index/empty/10th-session consolidation nudge, autonomy level surfaced/silent), the audit log
+  (append shape, 120-char target truncation, garbage-stdin survival), the four `warn-*` advisories
+  (flag + stay-silent cases, always exit 0), `validate-frontmatter` (agent/skill field warnings),
+  `validate-settings` (blocks only an invalid settings-JSON write), and the Stop hooks' degrade
+  paths — plus a behavioral proof of the P0-3 scoping guarantee: `lint-fix.sh` formats the changed
+  file while a committed, untouched file stays byte-identical.
+
+### Added (continued — round-2 landscape adoption)
+
+- **The tier policy gained its enforcement lever — documented with its real limits** (round-2 R10;
+  syntax and semantics verified in the permissions reference, feature changelog-pinned to
+  2.1.178). `model-tiers.md` closes with "Enforcing the tier policy": deny/ask rules matching tool
+  input parameters (`Agent(model:opus)`), the wildcard form for full model IDs, and — the caveat
+  the review missed — that an *omitted* parameter never matches, so the kit's Critical-tier agents
+  (opus **in frontmatter**, not in the spawning call) are gated by agent-**name** rules
+  (`Agent(devils-advocate)`) or a frontmatter edit, not by a `model:` rule. The kit still ships
+  zero permission rules (posture belongs to the user). `docs/autonomous-operation.md` §4 adds the
+  headless variant: under `-p` prompts become denials, so `deny` is the operative form, with
+  `--max-budget-usd` as the how-much backstop beside the which-spend shape.
+
+### Fixed
+
+- **🚨 Rules context-budget finding: measured, attributed, spec'd (fix pending a design
+  decision).** Claude Code natively auto-loads `.claude/rules/*.md` — rules without `paths:`
+  frontmatter load **at launch** at CLAUDE.md priority (official memory docs; shipped in CC
+  2.0.64, i.e. the kit's whole life). Empirically measured with headless `-p` runs: a default
+  scaffolded project injects **103,916 tokens** at session start over an empty-dir baseline,
+  and removing `.claude/rules/` attributes **97,031 of that (93%) to the 25 unscoped core
+  rules** — everything else the kit installs totals a genuinely lean 6,885. This inverts the
+  "lean CLAUDE.md, on-demand rules" positioning. The load-at-launch semantics were *partially*
+  known — an earlier pass scoped 12 of 13 overlay rules for exactly this reason — but the core
+  set was declared an "always-on contract" without ever measuring its cost, CLAUDE.md kept
+  claiming on-demand, and no live session inside a scaffolded project had ever been measured
+  (the kit repo itself has no `.claude/rules/`, so dogfooding never felt it). Shipped now:
+  `docs/rules-context-budget.md` — verified semantics, the full measurement table, per-rule
+  weights, four candidate directions with a recommendation, the blast-radius list, and the
+  reproducible methodology — plus a worked **Direction A appendix**: the full 522-citation
+  graph (quality-gates 89 · human-in-the-loop 50 · risk-classification 46 are contracts →
+  covenant; the heavy how-tos all have existing skills as destinations, reuse-first) and a
+  measured covenant estimate of **~7.9k tokens, a 92% cut**, inside the ≤10k target. The
+  redesign itself is deliberately **not** rushed into this
+  release (it reshapes the payload layout and the README's headline claims); likewise the
+  documented mongodb-overlay exception stays untouched — reconsidering that ~3k-token trade
+  belongs inside the redesign, not a side patch against a test-pinned decision.
+- **MCP pin freshness (issue #63)** — the two pins the monthly check flagged were bumped after
+  changelog review, per the pins' own bump-deliberately contract: `@playwright/mcp`
+  0.0.76 → **0.0.77** (tag diff verified: five housekeeping commits — dev-dep bump, docs, engine
+  roll; no tool/invocation changes; no GitHub release exists for it yet, so the npm publish +
+  `v0.0.76...v0.0.77` compare was the review) and `@azure/mcp` 3.0.0-beta.21 → **3.0.0-beta.23**
+  (beta.22 argument cleanup + fixes, beta.23 adds read-only Resilience/Terraform toolsets; the
+  `server start` invocation shape unchanged). Pin-snapshot date refreshed to 2026-07-07;
+  `check_mcp_pins.py --check-latest` now reports all pins at the registry latest.
+- **Round-2 low block (R13–R17) — five small truthfulness fixes, each reproduced before touching:**
+  (R13) `export` said "Wrote 39 file(s)" on a re-export that wrote nothing (mtime-proved) —
+  `export_targets` now returns `(written, already_current)` and only files that touched disk count
+  as written; the CLI prints `= <path> (already current)` lines, an honest "Wrote N file(s); M
+  already current" summary, and the `--json` payload gains `already_current` (pinned by an
+  mtime-asserting idempotency test). (R14) exported `AGENTS.md`/`000-project.mdc`/Copilot
+  instructions opened with "the agnostic pipeline rules **above** apply" when the charter is the
+  top of the document — the shared `CLAUDE.stack.md.tmpl` sentence is now position-neutral
+  (truthful in the installed CLAUDE.md too, where the rules genuinely are above). (R15) `status`
+  said 43 skills where init/validate say 42 — its counter treated the shared
+  `skills/_references/` support dir as a skill; it now counts SKILL.md-bearing directories,
+  matching validate (agreement pinned by a test). (R16) the README "All commands" table presented
+  `package-org-pack`/`install-org-pack` as working; they are hidden planned stubs that exit 2 —
+  the row now says so. (R17) the README init-flow Q6 MCP enumeration omitted Sentry, Repowise,
+  and the Google security fragments — now listed, with `claude-kit list-options` as the
+  authoritative source.
+- **Stop hooks now feed their findings back to Claude instead of discarding them** (round-2 R9;
+  verified against the official hooks reference + the Claude Code changelog before adopting —
+  same discipline as the exec-form refusal, opposite verdict because the failure mode differs).
+  `type-check.sh` and `lint-fix.sh` printed failures to stdout and exited 0, but Stop-hook plain
+  stdout goes to the debug log only — the checks burned CPU with no effect. They now return
+  `hookSpecificOutput.additionalContext` JSON (Claude Code ≥ 2.1.163, changelog-pinned): the turn
+  continues as labeled "Stop hook feedback" so Claude fixes the failures before finishing,
+  bounded by the platform's 8-continuation cap **and** a `stop_hook_active` gate (one nudge per
+  stop chain, the hooks reference's own loop-protection practice — an unfixable failure can't
+  ping-pong the session). Adoptable where exec-form wasn't: on older versions the unread field
+  degrades to exactly the previous discard behavior, no guard is silently lost; without jq the
+  legacy plain-stdout path remains. Never `decision:block` — the kit's no-hard-block stance for
+  Stop hooks stands. Hermetic tests fake the toolchain with an `npm` shim (deterministic failure
+  output, JSON shape + one-nudge gating pinned for both scripts).
+- **Same-version upgrade/init no longer churns sidecars or claims a "new version" exists**
+  (round-2 R6, cmp/mtime-verified by the empirical-UX lens: after one legitimate `CLAUDE.md`
+  edit, every run rewrote a byte-identical sidecar, announced "kept; new version →
+  CLAUDE.md.claude-kit", and `init`'s merge closed with "upgrade complete"). Now: when the
+  sidecar already holds exactly the kit's current copy the rewrite is skipped and the line reads
+  "your edits kept; sidecar already current" (mtime-pinned untouched); a written sidecar says
+  "kit's version →" (never "new version" — same-version runs have none) plus a one-time INFO
+  hint (`diff <file> <file>.claude-kit`, merge, delete); a stale/tampered sidecar is still
+  healed (content compare, not existence); and the merge path reports "merge complete" /
+  "nothing to merge". The diff preview's keep verb/note updated to match.
+- **`upgrade --force` now actually does what it documents** (found by writing round-2 R7's
+  crash-path tests; reproduced empirically first). The docstring and CLI promised "overwrite
+  user-modified user-editable files instead of writing sidecars", but a user-edited user-editable
+  file always produces a `keep` action, and `_apply`'s keep branch ignored `force` — the flag was
+  a no-op for exactly the files it exists for (the force-guarded `update` condition was
+  unreachable). The keep branch now honors force: the user's copy is backed up to
+  `.claude-kit.bak-N/`, the canonical file restored, no sidecar. Default (no-force) behavior
+  unchanged and pinned by a control test. R7's other gaps are covered too: a **mid-apply crash**
+  (via a counting shutil shim confined to the upgrader module — the tree is left genuinely
+  half-upgraded, the journal stays open, and a plain re-run converges) and a **cross-version
+  upgrade** (consistent aged install: old content + matching old record → silent refresh, no
+  backups, version transition surfaced).
+- **`guard-secrets.sh` no longer blocks committing `.env.example`-style placeholder files**
+  (surfaced by writing the guard's first behavioral tests, R2; reproduced empirically first).
+  The filename pattern `\.env($|\.)` — written to catch `.env.local`/`.env.production`, which do
+  hold real values — also caught `.env.example`, a names-only onboarding file most repos commit
+  deliberately. `.env.example`/`.sample`/`.template`/`.dist` are now spared via a negating grep
+  (POSIX ERE has no lookahead), applying the guard's own names-not-values philosophy to
+  filenames. Real env files still block; pinned by four new spare cases.
+- **Guard scripts: quoted tokens no longer evade the word-boundary match** (round-2 test-gaps
+  review, R3; the verifier proved the bypass by piping real PreToolUse JSON). Shell word-splitting
+  keeps quote characters as literal token text, so `git push origin "main"` / `'main'` / `"+main"` /
+  `"HEAD:refs/heads/main"` — and even `"git" push origin main` — sailed past `guard-push-main.sh`,
+  `git checkout "."` past `guard-destructive-git.sh` rule 3, and `kubectl "delete" pod` past
+  `guard-kubectl-delete.sh`. All three now strip shell quoting chars (`"` `'` `\`) before matching —
+  safe because these guards only *match* the text, never execute it, so after stripping they see
+  what the shell would hand to git/kubectl. Legit branches that merely contain the substring stay
+  spared (`"feature/main-ui"`, `"remaster-ui"`). Pinned by 22 new behavioral test cases, including
+  the first *executed* tests for `guard-kubectl-delete.sh` (it previously had wiring-only coverage).
+- **`init --config` with malformed YAML now fails friendly** (round-2 empirical-UX review; the
+  finder and an adversarial verifier each reproduced a ~150-line rich traceback through cli.py →
+  prompts.py → five PyYAML frames). `prompts.from_config` now converts `yaml.YAMLError` into the
+  same one-line `ValueError` the CLI already renders for its sibling error paths — output is now
+  `error: config file is not valid YAML: mapping values are not allowed here … line N, column M`,
+  exit 2, no partial install. Fixed at the parse site (not the CLI except-tuple) so every
+  `from_config` caller inherits the friendly path; regression-tested at both layers.
+- **Orchestrator: gate set now conditions on the installed profile, ghosts removed, three
+  installed-but-never-spawned agents wired in** (every claim verified against the files first):
+  a **lean** install ships 5 agents (`orchestrator, developer, sdlc-code-reviewer, tester,
+  pr-raiser`) yet the orchestrator's NEVER-skip rules mandated ui-designer / technical-architect /
+  em-reviewer / merge-reviewer / senior-tester stages that don't exist there — every lean run had
+  to either violate a NEVER rule or stall. New **Active Gate Set** section: derive the run's gate
+  set from the installed roster + profile at Stage 0 (`SKIPPED (not in profile)` is noted, never
+  silent, never PASS; everything active stays mandatory), matching the `sdlc` skill's existing
+  profile table. Removed the ghost **Design Specialist** (D2) and the separate **Spec
+  Writer/Dev Doc Writer** stages from the diagram, feedback loops, comms pattern, state examples,
+  and rule 5 — the roster has only the combined `ui-designer` and `spec-doc-writer` (same ghost
+  fixed in `em-reviewer.md`). Wired in the three standard+ agents the pipeline never spawned:
+  `unit-tester` authors the 4c unit suites per lane, `e2e-tester` is a conditional 4th testing
+  lane (never installs frameworks), and `acceptance-reviewer` is new **Stage 5.6** gating on the
+  enterprise `acceptance` token — which `rules/quality-gates.md` line 116 already assumed runs.
+  New **Gate ↔ Stage Map** table gives `pipeline-snapshot.json` its canonical
+  `last_gate_passed` tokens (aligned with `catalog/profiles.yaml` + the `sdlc` skill).
+- **Agent executability bundle** (each defect verified against the file before fixing):
+  `sdlc-code-reviewer` gains `Bash` — its own protocol names `git diff --name-only` "the checklist
+  of record" but its tool list couldn't run git. `auditor` drops its `tools:` allowlist (it excluded
+  the very Chrome-DevTools MCP tools the whole workflow drives) and moves `haiku` → `sonnet`
+  (multi-step browser-MCP orchestration is not "mechanical reporting"); `model-tiers.md` updated to
+  match, read-only now stated as explicit discipline. `developer`'s prerequisite health checks are
+  now conditional and stack-neutral — the old version hardcoded `localhost:8000/3000/5173` and
+  demanded a healthy stack "before writing any code", deadlocking fresh checkouts on pure code+test
+  tasks. `senior-backend-dev` / `senior-frontend-dev` gain the **Spec Review Mode** the
+  orchestrator's stages 3a-BE/3a-FE always expected of them (explicit `APPROVED`/`REVISE` verdict,
+  max-3-iterations contract); `senior-backend-dev`'s three dangling skill references
+  (`api-endpoint`, `database-migration`, `backend-unit-test` — none exist) now point at real
+  content. `e2e-tester` no longer installs packages unprompted — missing frameworks are reported
+  and routed through the developer lane per `dependency-verification` + the manifest-approval rule.
+- **`/claude-kit:init` now actually works from Claude Code** — the plugin command told Claude to run
+  the CLI's *interactive* flow, but the Bash tool has no TTY: with no path argument the CLI aborted
+  outright (`input()` → EOFError), and with one it silently installed the **default stack without
+  asking a single question**. `commands/init.md` now instructs Claude to interview the user in chat
+  (AskUserQuestion; all 7 questions incl. the capture privacy note), write a temp `init.yaml`, and
+  run `init --config <file>` non-interactively — or pass through `--defaults`/`--config` verbatim
+  when given. The CLI probe chain also gains the third console script (`claude-sdlc`), and
+  `cli.py`'s target-path prompt is now EOF-tolerant (falls back to `.` like every other prompt
+  instead of aborting). README's quickstart claim updated to match, plus a worked `init.yaml`
+  example — the `--config` schema was previously documented only in source.
+- **Docs-truth sweep** (every number re-verified on disk before fixing): the README said **35**
+  rules per profile and "**10** overlay rule sets" — reality is **36** installed for the default
+  React+FastAPI+PostgreSQL stack and **13** overlay rule files; `docs/architecture.md` said **24**
+  rules in two places (25 exist); `docs/launch/road-to-1.0.md` hardcoded **v0.57.0** (now points at
+  the CHANGELOG so it can't drift); `/claude-kit:abort` was missing from both command lists (README +
+  architecture) — a user whose run went sideways had no documented escape hatch; the README init-flow
+  list stopped at 6 questions while `init` actually asks 8 — the undocumented two now listed are
+  **learning capture** (with its privacy note and the `CLAUDE_KIT_NO_AUTOCAPTURE=1` opt-out) and
+  **usage scope** (organization scope asks four follow-ups); new troubleshooting row for
+  `pip install claude-kit` → the package is **`claude-code-kit`**; and `claude-kit --help` no longer
+  advertises the experimental `research` group whose only command is hidden (it now hides with it).
+
+- **`orchestrator`** — dropped `permissionMode: plan`, granted `Write`/`Edit`, and added an explicit
+  **write-confinement hard rule**: state and gate evidence only (`.claude/CONTINUITY.md`,
+  `.claude/state/`, `.claude/artifacts/`, and gate reports handed back by read-only reviewers) —
+  never source code, tests, configs, or feature docs. The orchestrator is now the declared **scribe**
+  for read-only gate agents: it persists their returned reports verbatim and records their verdicts /
+  durable lessons on their behalf. "Never writes code" remains a hard rule.
+- **`incident-responder`** — dropped `permissionMode: plan`, granted `Write`/`Edit` confined to the
+  incident log (`docs/incidents/`) and `CONTINUITY.md`. Its charter (keep the running log current at
+  every status change) was impossible read-only; mitigation stays delegated and human-gated.
+- **Read-only gates made honest instead of self-contradictory** — `secret-scanner`,
+  `owasp-reviewer`, `policy-validator`, `dependency-scanner`, `security-reviewer`,
+  `devils-advocate`, `merge-reviewer` (and the postgres overlay `db-performance-reviewer`) keep
+  `permissionMode: plan`, but every "write your report to `docs/…`" / "log to CONTINUITY.md" /
+  "promote to agent-memory" mandate is rewritten as **return-in-handoff**: the spawner
+  (security-reviewer → Orchestrator) persists reports and learnings for them.
+- **`dependency-scanner` no longer installs tooling** — the METHOD's `pip install pip-audit` line
+  (a mutation its own CONSTRAINT 3 forbids and plan mode blocks) is replaced with
+  use-only-if-present + degrade-to-manifest-review, matching the kit's degrade-to-no-op posture.
+
+### Not adopted (deliberately)
+
+- **Compressing the orchestrator prompt to ~350 lines** (suggested by the review alongside the
+  gate-set fix) — refused: the verified defects were ghosts, missing wiring, and unconditioned
+  gates, not length. Every remaining section is load-bearing (wave mode, defect loop, health
+  monitoring, skill routing); the fix *added* ~60 lines of correctness rather than deleting
+  content to hit an arbitrary number.
+- **Granting Write to the security scanners/reviewers** so they could keep writing their own
+  reports — read-only gates are a design asset (a reviewer that can edit the code it reviews is a
+  weaker gate); the scribe pattern preserves the artifact trail without weakening the boundary.
+- **Routing orchestrator state through a new `ckit-state` helper binary** — the plan-mode block
+  applies to mutating Bash too, so a CLI detour would not have fixed the contradiction; a direct,
+  confined Write grant is simpler and matches how the kit already trusts `developer`/`pr-raiser`
+  with `acceptEdits`.
+- **`owasp-reviewer` `opus` → `sonnet`** (suggested by the review) — refused: `model-tiers.md` §Notes
+  already documents keeping it `opus` for vulnerability reasoning as a deliberate exception to its
+  `sonnet` sibling scanners. A reviewer suggestion doesn't outrank a documented decision.
+- **Dropping `Edit` from `tester`/`senior-tester`** — refused: they author test artifacts and
+  fixtures; the grant is load-bearing. No evidence of misuse was presented.
+- **Rewriting `.claude/skills/_references/…` links as relative `../_references/` paths** (the review
+  claimed the hardcoded form "breaks in plugin context") — refused: `scaffold.py` installs
+  `_references/` at exactly that canonical path *on purpose* (its own comment says so), and prose
+  paths are resolved against the project CWD, so the relative form would break the scaffolded
+  install — the primary context — to serve plugin-without-init sessions where *every* `.claude/`
+  reference (rules included) dangles equally. That's the documented plugin+init model, not a
+  path-style bug.
+- **The `skills: stack-relevant` profile value itself** — deferred with its premise corrected by
+  measurement (see the mapping table in `docs/skill-audit.md`): lane-based filtering yields a ~4%
+  reduction for the default stack because 26 of the 48 collection skills encode infrastructure
+  choices no stack question captures. Shipping the profile value anyway would have added a resolver
+  special-value and a `stacks.yaml` mapping that silently delivers almost nothing for most users.
+  The meaningful version requires an infra axis at init (Kafka? Temporal? GCP? k8s?) — a feature
+  design left for a deliberate future pass, with the measured table as its input. `skills: all`
+  stays the enterprise default, trade-off documented.
+- **All four hooks-modernization claims from the industry review** (re-verified against the
+  official hooks reference + the anthropics/claude-code changelog after the original research
+  agent died unverified): **(1) exec-form hook commands** (`args: [...]`) — refused *for now*:
+  docs-recommended for path placeholders, but introduced only in Claude Code **2.1.139**; on any
+  older version an `args` entry degrades to bare `bash` consuming hook JSON on stdin — every guard
+  silently dead — while the kit's double-quoted shell form is already space/char-safe. Revisit
+  when the floor ages. **(2) `permissionDecision` JSON outputs with auto-allow for read-only
+  commands** — mechanism verified real, adoption refused: exit-code-2 blocking remains a fully
+  supported signaling path (only *top-level* decision/reason is deprecated, PreToolUse-only), the
+  JSON form adds a stdout-purity constraint to every bash guard for zero behavioral gain, and a
+  plugin auto-*allowing* commands would loosen the user's own permission posture from inside a
+  dependency. **(3) anchored `^name$` matchers** — refuted by the docs: matchers made only of
+  exact-match-set characters (`Bash`, `Read`, `Edit|Write`) are compared as exact strings, not
+  unanchored regexes; anchoring would move them onto the regex path for nothing. (Related
+  observation recorded: exact matching means `Edit|Write` does not cover `NotebookEdit` — left
+  as-is; no notebook overlay exists to warrant it.) **(4) a prompt-type Stop gate** — refused:
+  the product ships `/goal` as exactly that (a built-in session-scoped prompt-based Stop hook,
+  8-consecutive-block cap); an always-on plugin Stop gate would tax every turn of every user with
+  a model call to duplicate it. Documented `/goal` instead.
+- **Splitting `manual-test` (516 lines) and the five oversized stack-collection SKILL.md files**
+  (`docker-compose` 606 · `grafana-dashboards-and-alerts` 535 · `containerization-and-deployment`
+  534 · `langfuse-llm-tracing` 508 · `redis-caching-patterns` 505) — deferred, not rushed:
+  `manual-test` is 3% over the ~500-line guidance and a split costs more cohesion than it buys;
+  the collection five deserve one measured sweep of their own. Claim correction recorded: the
+  review's "no references/ split" was false for the collection (20+ skills already ship
+  `references/`) — it was true only of `security-and-hardening`.
+
+
 
 **Wave orchestration — program-scale runs, explicit skill routing, and the inventory-approval
 pattern.** Adopts the program-management patterns from Ryan Carson's public writeup of a

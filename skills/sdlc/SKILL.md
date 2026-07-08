@@ -74,17 +74,23 @@ and the stack selection. Instruct it to:
    orchestration** per `.claude/rules/wave-orchestration.md`: parallel read-only audits → one frozen
    scope manifest (UNKNOWN = stop and ask) → risk-ordered waves with disjoint file boundaries →
    gate-runner agents between waves → inventory approval before irreversible steps → a knowledge
-   closeout wave.
+   closeout wave. (Where the session has Claude Code's native dynamic-workflows engine
+   (≥ 2.1.154), a wave's fan-out may execute as one workflow run — the wave contract, gates, and
+   human approvals are unchanged; see that rule's "Native dynamic workflows as the wave
+   substrate".)
 2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
    survives compaction — update it at every phase transition), and mirror the gate-precise state into
    the structured snapshot `.claude/state/pipeline-snapshot.json`. On resume, reload the snapshot as
    *context* and re-enter at the first gate *after* `last_gate_passed` — re-running only un-passed or
    defect-affected lanes, never re-running setup or re-applying committed edits.
-3. **Route skills and models explicitly.** Every agent the orchestrator spawns is told which
-   skill(s) to load for its stage (the orchestrator's Skill Routing table; only skills actually
-   installed under `.claude/skills/`) and runs on the model tier its work deserves
-   (`.claude/rules/model-tiers.md`) — cheap for audits/scans, standard for build/review, top tier
-   only for orchestration and hard reasoning.
+3. **Route skills and models explicitly — and announce fan-out before spawning it.** Every agent
+   the orchestrator spawns is told which skill(s) to load for its stage (the orchestrator's Skill
+   Routing table; only skills actually installed under `.claude/skills/`) and runs on the model
+   tier its work deserves (`.claude/rules/model-tiers.md`) — cheap for audits/scans, standard for
+   build/review, top tier only for orchestration and hard reasoning. Before forking any parallel
+   phase (review lanes, test lanes, security scanners, Mode E waves), it states the planned
+   lane/agent count and model tiers in chat and records them in `.claude/CONTINUITY.md`, so the
+   human can veto the scale before tokens are spent.
 4. **Run each active phase with its gate**, in order, using only the profile's agents:
    spec & dev-docs → story planning → (design, if UI) → senior/architect/EM review →
    implementation (one worktree per lane) → code review → unit + e2e tests → test-coverage merge →

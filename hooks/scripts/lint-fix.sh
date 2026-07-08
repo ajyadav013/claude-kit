@@ -6,9 +6,20 @@
 # files the user never touched. Set CLAUDE_KIT_AUTOFIX=1 to restore whole-repo formatting. When git is
 # unavailable or this isn't a work tree, it falls back to whole-repo (best-effort).
 # Tools: ruff (Python), gofmt/rustfmt (Go/Rust), and an npm "lint" script (JS/TS).
+#
+# Feedback path (Claude Code >= 2.1.163): unresolved lint problems are returned as
+# hookSpecificOutput.additionalContext JSON ("Stop hook feedback") so Claude fixes them before
+# finishing; on older versions the field is simply not read (the previous discard behavior).
+# stop_hook_active gates it to ONE nudge per stop chain, per the hooks reference.
 set -u
+if [ -t 0 ]; then INPUT=""; else INPUT="$(cat 2>/dev/null || true)"; fi
 ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 cd "$ROOT" 2>/dev/null || exit 0
+
+STOP_ACTIVE="false"
+if command -v jq >/dev/null 2>&1; then
+  STOP_ACTIVE="$(printf '%s' "$INPUT" | jq -r '.stop_hook_active // false' 2>/dev/null || true)"
+fi
 
 out=""
 
@@ -78,10 +89,16 @@ elif [ -f Cargo.toml ] && command -v cargo >/dev/null 2>&1; then
   cargo fmt 2>/dev/null || true
 fi
 
-# Surface unresolved lint problems back to Claude so it can fix them.
-if [ -n "${out:-}" ] && echo "$out" | grep -qiE 'error|warning|problem'; then
-  echo "Linter reported issues -- fix before finishing:"
-  echo "$out" | tail -30
+# Surface unresolved lint problems back to Claude so it can fix them (one nudge per chain).
+if [ "$STOP_ACTIVE" != "true" ] && [ -n "${out:-}" ] && echo "$out" | grep -qiE 'error|warning|problem'; then
+  MSG="Linter reported issues -- fix before finishing:
+$(echo "$out" | tail -30)"
+  if command -v jq >/dev/null 2>&1; then
+    # stdout must be ONLY the JSON object for Claude Code to process it.
+    jq -n --arg ctx "$MSG" '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $ctx}}'
+  else
+    echo "$MSG"  # no jq: legacy plain stdout (debug log only)
+  fi
 fi
 
 exit 0

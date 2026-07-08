@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.sql"
+  - "**/migrations/**/*"
+  - "**/alembic/**/*"
+  - "**/models/**/*"
+---
+
 # Database Performance (PostgreSQL + SQLAlchemy 2.0 async)
 
 Performance rules for the data layer. The dominant failure modes in a multi-tenant async app are **N+1 queries**, **missing composite indexes on tenant-scoped lookups**, and **offset pagination on large tables**. Treat these as defects, not nice-to-haves.

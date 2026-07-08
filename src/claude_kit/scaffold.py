@@ -3,9 +3,9 @@
 Given a :class:`~claude_kit.models.ResolvedPlan` (from :func:`claude_kit.catalog.resolve`), this
 module copies the profile's agent/skill/hook **subset**, the core rules, the selected stack
 **overlay** rules + agents, assembles ``.claude/settings.json`` from the chosen hooks, optionally
-writes ``.mcp.json``, installs artifact templates and a tuned ``CLAUDE.md`` + ``README.claude-sdlc.md``,
-creates gitignored runtime dirs, and records per-file checksums in ``.claude/config/init-options.json``
-for safe upgrades. It writes **no application code and no Docker** — configuration only.
+writes ``.mcp.json``, installs artifact templates and a tuned ``CLAUDE.md`` + ``README.claude-sdlc.md``
++ a root ``AGENTS.md`` (the export projection, for non-Claude agents), creates gitignored runtime
+dirs, and records per-file checksums in ``.claude/config/init-options.json`` for safe upgrades. It writes **no application code and no Docker** — configuration only.
 
 ``install_sdlc`` is the single spine shared by the pip CLI and (via a thin fallback) the plugin.
 """
@@ -89,9 +89,16 @@ def _copy_tree(src: Path, dest: Path) -> None:
 def _copy_user_file(
     src: Path, dest: Path, *, force: bool, log: list[str], label: str
 ) -> None:
-    """Copy a user-editable file, writing a ``.claude-kit`` sidecar instead of clobbering edits."""
+    """Copy a user-editable file, writing a ``.claude-kit`` sidecar instead of clobbering edits.
+
+    An existing file that already matches byte-for-byte is reported as current — a re-run over an
+    unedited install stays quiet instead of littering sidecars.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not force:
+        if dest.read_bytes() == src.read_bytes():
+            log.append(f"  • {label} already current")
+            return
         sidecar = dest.with_name(dest.name + ".claude-kit")
         shutil.copy2(src, sidecar)
         log.append(
@@ -105,9 +112,20 @@ def _copy_user_file(
 def _write_user_text(
     dest: Path, text: str, *, force: bool, log: list[str], label: str
 ) -> None:
-    """Write rendered text to a user-editable file, sidecar'ing instead of clobbering edits."""
+    """Write rendered text to a user-editable file, sidecar'ing instead of clobbering edits.
+
+    An existing file that already matches byte-for-byte is reported as current — a re-run over an
+    unedited install stays quiet instead of littering sidecars.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not force:
+        try:
+            current: str | None = dest.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            current = None
+        if current == text:
+            log.append(f"  • {label} already current")
+            return
         sidecar = dest.with_name(dest.name + ".claude-kit")
         sidecar.write_text(text, encoding="utf-8")
         log.append(
@@ -285,6 +303,25 @@ def _install_artifact_templates(src: Path, dest: Path, log: list[str]) -> None:
     )
 
 
+def _install_loop_script(src: Path, dest: Path, log: list[str]) -> None:
+    """Install the bounded headless-loop runner into ``.claude/scripts/``.
+
+    The script self-configures its exit condition from the ``gates:`` list in
+    ``stack-catalog.snapshot.yaml`` (execution-ordered; last entry = final gate) and
+    exposes every knob as an ``SDLC_*`` environment variable, so it ships kit-owned —
+    upgrades keep the brakes current, and hand-edits still get the upgrader's
+    checksum-based sidecar protection like any other kit file.
+    """
+    srcf = src / "templates" / "scripts" / "sdlc-loop.sh"
+    if not srcf.is_file():
+        return
+    sdest = dest / "scripts"
+    sdest.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(srcf, sdest / srcf.name)
+    (sdest / srcf.name).chmod(0o755)
+    log.append("  • scripts/ (sdlc-loop.sh — bounded headless runner)")
+
+
 def _write_claude_md(
     src: Path, target: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
 ) -> None:
@@ -409,6 +446,29 @@ def _write_readme(
     )
 
 
+def _write_agents_md(
+    src: Path, target: Path, plan: ResolvedPlan, *, force: bool, log: list[str]
+) -> None:
+    """Emit a root ``AGENTS.md`` — the same projection the ``export`` command builds.
+
+    Claude Code itself reads ``CLAUDE.md``, not ``AGENTS.md`` — this file exists for every *other*
+    agent working in the repo (Cursor, Copilot, Codex, …), so teammates outside Claude Code get the
+    kit's standards from day one. An existing ``AGENTS.md`` is never clobbered (sidecar unless
+    ``force``); ``claude-kit export`` regenerates it on demand.
+    """
+    # Deferred import: export imports this module at load time, so importing it lazily here
+    # avoids the cycle.
+    from claude_kit import export
+
+    _write_user_text(
+        target / "AGENTS.md",
+        export._agents_document(src, plan),
+        force=force,
+        log=log,
+        label="AGENTS.md",
+    )
+
+
 def _update_gitignore(target: Path, log: list[str]) -> None:
     """Append the selective claude-kit gitignore entries (idempotently)."""
     gi = target / ".gitignore"
@@ -448,6 +508,7 @@ def _classify_owner(rel: str, plan: ResolvedPlan) -> str:
     """Classify a relative path as kit / overlay / user-editable for upgrade policy."""
     user_editable = {
         "CLAUDE.md",
+        "AGENTS.md",
         "README.claude-sdlc.md",
         ".mcp.json",
         ".claude/settings.json",
@@ -466,7 +527,13 @@ def _record_files(target: Path, plan: ResolvedPlan) -> list[FileRecord]:
     """Compute checksum + ownership records for every installed file (excluding runtime/self)."""
     records: list[FileRecord] = []
     candidates: list[Path] = []
-    for top in ("CLAUDE.md", "README.claude-sdlc.md", ".mcp.json", ".mcp.lock.json"):
+    for top in (
+        "CLAUDE.md",
+        "AGENTS.md",
+        "README.claude-sdlc.md",
+        ".mcp.json",
+        ".mcp.lock.json",
+    ):
         p = target / top
         if p.is_file():
             candidates.append(p)
@@ -578,8 +645,10 @@ def install_sdlc(
     _seed_agent_memory(src, dest, log)
     _install_hooks_and_settings(src, dest, plan, force=force, log=log)
     _install_artifact_templates(src, dest, log)
+    _install_loop_script(src, dest, log)
     _write_mcp(target, plan, force=force, log=log)
     _write_readme(src, target, plan, force=force, log=log)
+    _write_agents_md(src, target, plan, force=force, log=log)
     _seed_runtime_dirs(dest, log)
     _update_gitignore(target, log)
     _write_config(src, target, plan, log)

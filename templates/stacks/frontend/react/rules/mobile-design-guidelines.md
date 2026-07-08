@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+---
+
 # Mobile Design Guidelines
 
 **Consolidated mobile design reference for the application.**

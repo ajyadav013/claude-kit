@@ -35,7 +35,7 @@ Give a clear **PASS / FAIL / N/A** for each policy below, with the evidence (con
 - **Secure headers** — `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security` (prod), `Referrer-Policy`, a sane `Content-Security-Policy` (check app middleware and web server configs like nginx, Apache, CDN).
 - **Secrets/HTTPS** — config via environment variables or secure config management; no secrets in deployment descriptors for non-dev; TLS assumed at the edge in prod.
 
-## OUTPUT — `docs/security/{feature-name}_policy-compliance.md`
+## OUTPUT — returned in your handoff message (you run read-only; the Orchestrator persists it as `docs/security/{feature-name}_policy-compliance.md`)
 
 ```markdown
 # Security Policy Compliance — {feature-name}
@@ -60,4 +60,4 @@ Policies checked: {N} · Passed: {N} · Failed: {N} · N/A: {N}
 
 ## HANDOFF
 
-Return the policy table + secure-headers table (counts by severity) to `security-reviewer`. A missing authz check on a tenant-scoped route (if the project is multi-tenant) is auto-Critical — flag it as such. Log durable policy gaps to `.claude/CONTINUITY.md`.
+Return the policy table + secure-headers table (counts by severity) to `security-reviewer`. A missing authz check on a tenant-scoped route (if the project is multi-tenant) is auto-Critical — flag it as such. Include durable policy gaps in the report — you run read-only, so the spawner records them in `.claude/CONTINUITY.md` on your behalf.

@@ -177,6 +177,11 @@ def _build_context(
         profiles.get("profiles", {}).get(sel.profile, {}).get("label", sel.profile)
     )
     ctx: dict[str, str] = {
+        # Lane presence flags for template guards — derived from the entry's data (a `none`
+        # catalog entry ships no stack_dir), never from a stack name, so resolve() stays branch-free.
+        "has_frontend": "yes" if frontend.get("stack_dir") else "",
+        "has_backend": "yes" if backend_fw.get("stack_dir") else "",
+        "has_database": "yes" if database.get("stack_dir") else "",
         "frontend_framework": sel.frontend_framework,
         "frontend_label": str(frontend.get("label", sel.frontend_framework)),
         "frontend_language": sel.frontend_language,

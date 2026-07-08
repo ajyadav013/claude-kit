@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+---
+
 # Design-system compliance (React + Tailwind + Radix)
 
 Stack-specific design-system enforcement for the frontend. Installed into `.claude/rules/` only when

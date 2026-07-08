@@ -47,7 +47,7 @@ git ls-files | rg '(^|/)\.env$' && echo "WARNING: .env is tracked"
 git log -p -S 'SECRET_KEY' -- . 2>/dev/null | head -40
 ```
 
-## OUTPUT — `docs/security/{feature-name}_secret-scan.md`
+## OUTPUT — returned in your handoff message (you run read-only; the Orchestrator persists it as `docs/security/{feature-name}_secret-scan.md`)
 
 ```markdown
 # Secret Scan — {feature-name}
@@ -67,4 +67,4 @@ Files scanned: {N} · Findings: {N} (Critical {N} / High {N}) · False positives
 
 ## HANDOFF
 
-Return to `security-reviewer`: counts by severity + the finding table. Log any new secret-leak pattern to `.claude/CONTINUITY.md` (and `agent-memory/gotchas/` if durable). **Never print an unredacted secret.**
+Return to `security-reviewer`: counts by severity + the finding table. Include any *new* secret-leak pattern you discovered in the report — you run read-only, so the spawner (security-reviewer → Orchestrator) records it in `.claude/CONTINUITY.md` (and `agent-memory/gotchas/` if durable) on your behalf. **Never print an unredacted secret.**

@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.jsx"
+---
+
 # React frontend patterns
 
 Stack-specific conventions for the frontend. This overlay is installed into `.claude/rules/` only

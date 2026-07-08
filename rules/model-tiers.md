@@ -14,8 +14,8 @@ mechanical. This is the concrete assignment policy behind the "resource-aware ef
 | Tier | Model | Use for | Agents |
 |------|-------|---------|--------|
 | **Critical** | `opus` | Architecture decisions, deep code/security reasoning, orchestration, adversarial review | `orchestrator`, `developer`, `devils-advocate`, `owasp-reviewer` |
-| **Default** | `sonnet` | Specs, reviews, testing, infra, coordination, scanning, incident command, risk classification | `spec-doc-writer`, `story-planner`, `technical-architect`, `em-reviewer`, `senior-backend-dev`, `senior-frontend-dev`, `ui-designer`, `merge-reviewer`, `sdlc-code-reviewer`, `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `acceptance-reviewer`, `risk-classifier`, `security-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` |
-| **Fast** | `haiku` | Mechanical, read-only reporting | `auditor` |
+| **Default** | `sonnet` | Specs, reviews, testing, infra, coordination, scanning, incident command, risk classification | `spec-doc-writer`, `story-planner`, `technical-architect`, `em-reviewer`, `senior-backend-dev`, `senior-frontend-dev`, `ui-designer`, `merge-reviewer`, `sdlc-code-reviewer`, `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `acceptance-reviewer`, `auditor`, `risk-classifier`, `security-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` |
+| **Fast** | `haiku` | Mechanical, read-only reporting | *(currently unassigned — `auditor` moved to Default: driving a multi-step browser-MCP audit is tool orchestration, not mechanical reporting. Reserve this tier for genuinely mechanical single-pass work.)* |
 
 Stack **overlay** agents (e.g. `postgres-specialist`, `mongodb-specialist`, `migration-specialist`,
 `db-performance-reviewer`) and the organization persona agents (`pm-copilot`, `founder-prototype-agent`,
@@ -77,13 +77,44 @@ Token cost scales with the **profile** (the agent / skill / hook set it installs
 *relative* guide (not a currency figure):
 
 - **lean** — cheapest: ~5 agents, a single review lane, no Devil's Advocate, fewest gates. Only
-  `orchestrator` + `developer` run on `opus`; the rest are `sonnet`/`haiku`.
+  `orchestrator` + `developer` run on `opus`; the rest are `sonnet`.
 - **standard** — adds the spec / design / test / security lanes and the blind-review + Devil's
   Advocate pass: mostly `sonnet` reviewers and scanners layered on top of lean.
 - **enterprise** — heaviest: adds the DevOps / Observability / audit agents, `skills: all`, and
   `hooks: all`, with more gates — but still only the four `opus` agents (`orchestrator`, `developer`,
-  `devils-advocate`, `owasp-reviewer`); everything it adds is `sonnet`/`haiku`.
+  `devils-advocate`, `owasp-reviewer`); everything it adds is `sonnet`.
 
 Scale effort to the work, not the ceremony: pick the smallest profile that fits, and use the per-agent
 tier table above plus `.claude/rules/reasoning-techniques.md` ("resource-aware effort") to avoid
 spending `opus` on mechanical turns.
+
+## Enforcing the tier policy (optional, Claude Code ≥ 2.1.178)
+
+Everything above is *advisory* — an agent (or a human) can still request any tier. Claude Code's
+permission rules can turn the policy into a hard gate: since 2.1.178, **deny and ask rules** match a
+tool's input parameters, e.g. `Agent(model:opus)`. The kit deliberately ships **no** permission rules
+(your permission posture is yours), but if opus spend needs a gate, add to your project or user
+settings:
+
+```json
+{
+  "permissions": {
+    "ask": ["Agent(model:opus)", "Agent(model:*opus*)"]
+  }
+}
+```
+
+Match semantics to know before relying on this (from the permissions reference):
+
+- **Only explicit parameters match.** A call that *omits* `model` is never matched — not even by
+  `Agent(model:*)`. The kit's Critical-tier agents get `opus` from their **frontmatter**, not from
+  the spawning call, so a `model:` rule does not gate `Agent(subagent_type: devils-advocate)`. To
+  gate a specific expensive agent, use an **agent-name rule** — `"ask": ["Agent(devils-advocate)"]`
+  — or edit that agent's frontmatter tier (the durable lever this rule already documents).
+- **Values compare literally, pre-normalization.** `Agent(model:opus)` matches the alias `opus` but
+  not a full model ID; the `Agent(model:*opus*)` wildcard form covers both.
+- **Deny/ask only.** Allow rules keep each tool's own specifier syntax (an allow on one parameter
+  wouldn't make the whole call safe).
+- **Headless changes the meaning.** Under `claude -p`, permission prompts become denials — an `ask`
+  rule *is* a deny there. Use `ask` interactively, and decide deliberately what an unattended run
+  should hard-deny (see `docs/autonomous-operation.md` in the kit repo).

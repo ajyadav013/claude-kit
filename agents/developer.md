@@ -74,27 +74,21 @@ Before writing any code, you MUST read:
 6. `.claude/rules/code-organization.md`
 7. The design spec (if one was created in Stage 2a)
 
-## Prerequisite Checks
+## Prerequisite Checks (only when the task needs a running stack)
 
-Before writing any code, verify the stack is healthy:
+Most tasks are code + tests: the test runner is the verification, and a stopped dev server must
+**not** block implementation — skip this section for those. Check service health only when the task
+actually depends on a *running* stack (integration verification, manual checks, E2E preparation):
 
-**Backend mode or full-stack:**
-```bash
-# Check the backend health endpoint (adjust URL/port per project)
-curl -sf http://localhost:8000/_readyz && echo "OK" || echo "FAIL: backend not ready"
-```
-If this fails, report to the Orchestrator instead of proceeding.
-
-**Frontend mode or full-stack:**
-```bash
-# Check the frontend dev server (adjust URL/port per project)
-curl -sf http://localhost:3000 > /dev/null 2>&1 || curl -sf http://localhost:5173 > /dev/null 2>&1 && echo "OK" || echo "FAIL: frontend not serving"
-```
-If this fails, report to the Orchestrator instead of proceeding.
+- Use the **project's documented commands and endpoints** — its health/readiness URL, dev-server
+  port, or process manager status, from `CLAUDE.md` → *Project-specific rules* or the README. Never
+  assume default ports or paths.
+- If a service the task depends on is down, report it to the Orchestrator (with the failing check's
+  output) instead of proceeding with that part of the task.
 
 ## Process
 
-1. **Run prerequisite checks** — verify stack health before touching code.
+1. **Run prerequisite checks** — only if the task depends on a running stack (see above).
 2. **Identify your mode** — backend, frontend, or full-stack (set by the Orchestrator).
 3. **Read** all mandatory documents listed above (only the ones relevant to your mode).
 4. **Read** existing similar code to match patterns.

@@ -24,7 +24,9 @@ CMD="$(jq -r '.tool_input.command // empty' 2>/dev/null || true)"
 
 # Split on shell separators -> one segment per line; drop read-only `auth can-i` queries; keep only
 # kubectl segments; then look for a bare `delete` verb (not delete-context, --delete-*, or --for=delete).
-if printf '%s' "$CMD" | tr ';|&' '\n\n\n' \
+# Shell quoting chars (" ' \, as tr octal \047/\134) are stripped first so `kubectl "delete" pod`
+# can't slip past the word-boundary regex -- this guard only MATCHES the text, it never executes it.
+if printf '%s' "$CMD" | tr -d '"\047\134' | tr ';|&' '\n\n\n' \
   | grep -vE 'auth[[:space:]]+can-i' \
   | grep -E '(^|[[:space:]])kubectl(\.exe)?[[:space:]]' \
   | grep -qE '(^|[[:space:]])delete([[:space:]]|$)'; then

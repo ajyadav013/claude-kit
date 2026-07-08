@@ -2,6 +2,10 @@
 # PreToolUse(Bash): BLOCK pushing to main/master from an agent session -- use a feature branch + PR.
 #
 # Hardened against the naive `git<space>push` anchor that earlier inline guards used. It now:
+#   - strips shell quoting chars (" ' \) before matching, so quoted forms -- `git push origin "main"`,
+#     'main', "+main", "HEAD:refs/heads/main", even "git" -- can't slip past the word-boundary regex.
+#     Safe because this guard only MATCHES the text (never executes it): after stripping, it sees
+#     approximately what the shell would hand to git;
 #   - normalizes each ;|&-split segment, dropping a leading `git` plus any GLOBAL OPTIONS and their
 #     value tokens, so `git -c k=v push origin main` / `git -C dir push origin main` cannot evade it;
 #   - matches the branch token with a wider boundary so force-push refspecs are caught too:
@@ -49,7 +53,8 @@ _norm_git_segment() {
   [ "$#" -gt 0 ] && printf '%s\n' "$*"
 }
 
-NORM="$(printf '%s\n' "$CMD" | tr ';|&' '\n\n\n' | while IFS= read -r seg; do _norm_git_segment "$seg"; done)"
+# \047 = single quote, \134 = backslash. Strip quoting BEFORE tokenizing (see header).
+NORM="$(printf '%s\n' "$CMD" | tr -d '"\047\134' | tr ';|&' '\n\n\n' | while IFS= read -r seg; do _norm_git_segment "$seg"; done)"
 [ -n "$NORM" ] || exit 0
 
 PUSHLINES="$(printf '%s\n' "$NORM" | grep -E '^push([[:space:]]|$)' || true)"

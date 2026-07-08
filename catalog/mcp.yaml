@@ -4,7 +4,7 @@
 #
 # SUPPLY CHAIN: every server below is THIRD-PARTY code (an npx package or a hosted HTTP endpoint) with
 # its own maintainers, trust, and licensing model — claude-kit only references it, never vendors or
-# audits it. The `npx -y <pkg>@<version>` commands are pinned to an exact version (snapshot 2026-06-23)
+# audits it. The `npx -y <pkg>@<version>` commands are pinned to an exact version (snapshot 2026-07-07)
 # rather than a moving `@latest`, so an install is reproducible and a fresh upstream release can't
 # silently change what runs. Bump these deliberately (and review the changelog) — do not switch back
 # to `@latest`. See SECURITY.md and the README "MCP integrations" note.
@@ -59,7 +59,7 @@ servers:
     config:
       type: stdio
       command: npx
-      args: ["-y", "@playwright/mcp@0.0.76"]
+      args: ["-y", "@playwright/mcp@0.0.77"]
   docs:
     label: "Docs / Context7 (live library docs)"
     config:
@@ -90,7 +90,7 @@ servers:
     config:
       type: stdio
       command: npx
-      args: ["-y", "@azure/mcp@3.0.0-beta.21", "server", "start"]
+      args: ["-y", "@azure/mcp@3.0.0-beta.23", "server", "start"]
   azure_devops:
     label: "Azure DevOps (work items, repos, pipelines, wikis, test plans)"
     # First-party Azure DevOps MCP Server (github.com/microsoft/azure-devops-mcp, @azure-devops/mcp,

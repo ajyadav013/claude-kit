@@ -36,7 +36,7 @@ as a `<name>.claude-kit` sidecar — the same non-destructive convention the ins
 | `cursor` | `.cursor/rules/000-project.mdc` | The project **charter** + single-agent SDLC workflow + fidelity note. `alwaysApply: true` — always in context. |
 | | `.cursor/rules/<rule>.mdc` (one per rule) | Every core rule and every stack overlay, `alwaysApply: false` (agent pulls on demand by `description`); overlays also carry `globs` to auto-attach on matching files. |
 | | `.cursor/mcp.json` | Your selected MCP servers (omitted when none are selected). |
-| `agents` | `AGENTS.md` (repo root) | Charter + workflow + a **rule index** (one line per rule) + the fidelity note. Read by both Cursor and Copilot. |
+| `agents` | `AGENTS.md` (repo root) | Charter + workflow + a **rule index** (one line per rule) + the fidelity note. Read by both Cursor and Copilot. `claude-kit init` already emits this file (sidecar-safe); the target regenerates it — a byte-identical existing file is reported as current, never sidecar'd. |
 | `copilot` | `.github/copilot-instructions.md` | The same synthesized document as `agents`. |
 
 ## `.mdc` frontmatter derivation
@@ -48,8 +48,12 @@ per-stack branching:
   filename), trimmed to ~200 characters. Cursor uses this to decide when to pull an on-demand rule.
 - **`alwaysApply`** — `false` for the whole rule set (mirroring Claude Code's on-demand rule loading);
   `true` only for the synthesized `000-project.mdc` charter.
-- **`globs`** — attached to **overlay** rules only, chosen from the overlay's lane and the plan's
-  *language/database* values (not framework names):
+- **`globs`** — attached to **overlay** rules only. The overlay rule's own `paths:` frontmatter
+  (Claude Code's [scoped rule loading](https://code.claude.com/docs/en/memory)) is the source of
+  truth: its glob list projects verbatim, comma-joined, and the block is stripped from the `.mdc`
+  body so the export carries exactly one frontmatter fence. An overlay *without* a `paths:` block
+  (e.g. a user-added rule) falls back to the lane's *language/database* values (not framework
+  names):
 
   | Lane | Source value | Example glob |
   |---|---|---|

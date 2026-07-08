@@ -1,38 +1,73 @@
 ---
 description: Scaffold the claude-kit SDLC config (CLAUDE.md + .claude/rules, agents, skills, hooks) into this project
 argument-hint: "[target-dir] [--defaults] [--force]"
-allowed-tools: Bash, Read, Glob
+allowed-tools: Bash, Read, Glob, Write, AskUserQuestion
 ---
 
 Install the claude-kit autonomous-SDLC configuration into the current project.
 
-**The Python CLI is required.** It runs the ordered prompts, resolves the stack/profile/MCP catalog,
-installs overlay rules + agents, assembles `settings.json`, and records `init-options.json` for safe
-upgrades (`claude-kit upgrade` / `diff`). First detect whether it is on PATH:
+**The Python CLI is required.** It resolves the stack/profile/MCP catalog, installs overlay rules +
+agents, assembles `settings.json`, and records `init-options.json` for safe upgrades
+(`claude-kit upgrade` / `diff`). First detect whether it is on PATH (three entry points ship):
 
 ```
 command -v claude-kit >/dev/null 2>&1 && echo "CKIT_CLI=claude-kit" \
   || { command -v ckit >/dev/null 2>&1 && echo "CKIT_CLI=ckit" \
-  || echo "CKIT_CLI_MISSING"; }
+  || { command -v claude-sdlc >/dev/null 2>&1 && echo "CKIT_CLI=claude-sdlc" \
+  || echo "CKIT_CLI_MISSING"; }; }
 ```
 
-**If the output is `CKIT_CLI_MISSING`, STOP — do not scaffold anything.** Neither `claude-kit` nor
-`ckit` is installed. Tell the user the CLI is required and how to install it, then have them re-run
+**If the output is `CKIT_CLI_MISSING`, STOP — do not scaffold anything.** The CLI is not installed
+under any of its names. Tell the user it is required and how to install it, then have them re-run
 `/claude-kit:init`. Do **not** silently fall back to a partial install:
 
 - Recommended: `pipx install claude-code-kit`
 - Or: `pip install claude-code-kit`
 
-Otherwise, run the detected CLI's `init` subcommand with the arguments the user passed to this command:
+**You have no TTY — never run the CLI's interactive flow.** Your shell tool is not a terminal:
+every prompt the CLI would show silently falls back to its default instead of asking. Running bare
+`init` would install the default stack (React + FastAPI + PostgreSQL, standard profile) without the
+user ever choosing. Pick the path that matches what the user gave you:
 
-> `$ARGUMENTS`
+1. **The user passed `--defaults` and/or `--config <file>`, or explicitly asked for defaults** — run
+   the detected CLI's `init` subcommand with the arguments the user passed to this command:
 
-**Argument safety (important).** Pass those arguments to the CLI as **ordinary, separate command-line
-arguments, exactly as the user gave them** — do **not** interpolate them into a shell command string.
-If any single argument contains spaces or shell metacharacters (`$`, `` ` ``, `;`, `|`, `&`, `>`, `(`,
-quotes, …), quote that one argument so the shell treats it as literal text. This prevents
-word-splitting, globbing, and command injection from the raw argument text. For example, if the
-detected CLI was `claude-kit` and the user passed `/path/to/proj --defaults`, run
+   > `$ARGUMENTS`
+
+2. **Otherwise — interview the user yourself, then run non-interactively.** Ask the ordered
+   questions in chat (AskUserQuestion where available; every question has a default the user can
+   accept):
+
+   1. Frontend framework + language (default: React / TypeScript)
+   2. Backend language + framework (default: Python / FastAPI; Go / net-http also live)
+   3. Database (default: PostgreSQL; MongoDB also live)
+   4. SDLC profile (`lean` · `standard` default · `enterprise`)
+   5. Optional MCP integrations (default: none; ids via `claude-kit list-options`)
+   6. Learning capture (`session-end-catchup` default · `session-end` · `per-task` · `off`) — tell
+      the user the background job reads session transcripts + changed files, and that
+      `CLAUDE_KIT_NO_AUTOCAPTURE=1` disables it
+   7. Usage scope (`individual` · `team` default · `organization`; organization adds teams,
+      autonomy level, review strictness, and org packs)
+
+   Then write the answers to a temp YAML (nested form below), run
+   `<CLI> init <target-dir> --config <temp-file>`, and delete the temp file afterwards:
+
+   ```yaml
+   frontend: { framework: react, language: typescript }
+   backend:  { language: python, framework: fastapi }
+   database: postgres
+   profile:  standard
+   mcp:      []                          # e.g. [github, playwright]
+   capture_mode: session-end-catchup
+   scope:    team
+   ```
+
+**Argument safety (important).** Pass user-supplied arguments to the CLI as **ordinary, separate
+command-line arguments, exactly as the user gave them** — do **not** interpolate them into a shell
+command string. If any single argument contains spaces or shell metacharacters (`$`, `` ` ``, `;`,
+`|`, `&`, `>`, `(`, quotes, …), quote that one argument so the shell treats it as literal text. This
+prevents word-splitting, globbing, and command injection from the raw argument text. For example, if
+the detected CLI was `claude-kit` and the user passed `/path/to/proj --defaults`, run
 `claude-kit init /path/to/proj --defaults`.
 
 **Escape hatch (advanced, opt-in only).** A thin shell scaffolder exists for locked-down environments

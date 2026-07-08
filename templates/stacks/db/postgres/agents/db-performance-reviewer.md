@@ -41,7 +41,7 @@ rg -n 'selectinload|joinedload'                                  # presence/abse
 rg -n 'Index\(|UniqueConstraint\(' | rg organization_id         # tenant composite indexes
 ```
 
-## Output — `docs/performance/{feature}_db-review.md`
+## Output — returned in your handoff message (you run read-only; the Orchestrator persists it as `docs/performance/{feature}_db-review.md`)
 
 ```
 DB PERFORMANCE REVIEW — {feature}
@@ -63,4 +63,4 @@ DB PERFORMANCE REVIEW — {feature}
 2. Classify by `.claude/rules/quality-gates.md`. Unbounded N+1 or an unindexed tenant query on a large table is **High**.
 3. Be specific — `file:line`, the offending pattern, and the exact `selectinload`/index fix.
 4. Prefer evidence: a query count or `EXPLAIN ANALYZE` beats a guess. The `load-testing` skill can drive the load that surfaces a cliff.
-5. Record durable patterns to `.claude/agent-memory/performance/` via `remember`; update `CONTINUITY.md` at handoff.
+5. Include durable patterns in your handoff — you run read-only, so the Orchestrator records them in `CONTINUITY.md` (and promotes them to `.claude/agent-memory/performance/` via `remember`) on your behalf.

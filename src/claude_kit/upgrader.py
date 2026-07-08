@@ -218,7 +218,7 @@ def _format_preview(cmp: _Comparison) -> list[str]:
     verbs = {
         "add": "add",
         "update": "update",
-        "keep": "keep (sidecar new version)",
+        "keep": "keep (sidecar kit's version)",
         "remove": "remove (orphan)",
     }
     for act in sorted(cmp.actions, key=lambda a: (order[a.kind], a.rel)):
@@ -226,7 +226,7 @@ def _format_preview(cmp: _Comparison) -> list[str]:
         if act.kind == "update" and act.user_modified and act.owner != "user-editable":
             note = "  [local changes will be backed up]"
         elif act.kind == "keep":
-            note = "  [your edits kept; new version as .claude-kit]"
+            note = "  [your edits kept; kit's version as .claude-kit]"
         msgs.append(f"  {verbs[act.kind]:<28} {act.rel} ({act.owner}){note}")
 
     counts: dict[str, int] = {}
@@ -332,7 +332,8 @@ def _apply(
             msgs.append(
                 "INFO  cleared a leftover upgrade journal (work already complete)"
             )
-        msgs.append("OK    everything up to date — nothing to upgrade")
+        verb = "upgrade" if journal else "merge"
+        msgs.append(f"OK    everything up to date — nothing to {verb}")
         return True, msgs
 
     target, ref_root = cmp.target, cmp.ref_root
@@ -340,6 +341,7 @@ def _apply(
         _write_journal(cmp)
     backup_dir = _next_backup_dir(target)
     backed_up = 0
+    sidecars_written = 0
 
     def _backup(rel: str) -> None:
         nonlocal backed_up
@@ -365,23 +367,41 @@ def _apply(
             if act.user_modified:
                 _backup(act.rel)
             if act.owner == "user-editable" and act.user_modified and not force:
-                # Protect: keep the user's file, drop the new version beside it.
+                # Protect: keep the user's file, drop the kit's copy beside it.
                 shutil.copy2(
                     ref_root / act.rel, live.with_name(live.name + _SIDECAR_SUFFIX)
                 )
+                sidecars_written += 1
                 msgs.append(
-                    f"  ~ {act.rel} (kept; new version -> {live.name}{_SIDECAR_SUFFIX})"
+                    f"  ~ {act.rel} (kept; kit's version -> {live.name}{_SIDECAR_SUFFIX})"
                 )
             else:
                 _copy_ref(act.rel)
                 msgs.append(f"  ✓ {act.rel}")
         elif act.kind == "keep":
-            shutil.copy2(
-                ref_root / act.rel, live.with_name(live.name + _SIDECAR_SUFFIX)
-            )
-            msgs.append(
-                f"  ~ {act.rel} (kept; new version -> {live.name}{_SIDECAR_SUFFIX})"
-            )
+            if force:
+                # --force: the documented contract is "overwrite user-modified user-editable
+                # files instead of writing sidecars" — with the user's copy backed up first.
+                _backup(act.rel)
+                _copy_ref(act.rel)
+                msgs.append(f"  ✓ {act.rel} (forced; your edits backed up)")
+            else:
+                sidecar = live.with_name(live.name + _SIDECAR_SUFFIX)
+                if sidecar.is_file() and _sha256(sidecar) == _sha256(
+                    ref_root / act.rel
+                ):
+                    # Same-version churn guard: the sidecar already holds exactly the kit's
+                    # current copy — rewriting it every run just resets its mtime and falsely
+                    # announces a "new version" that doesn't exist.
+                    msgs.append(
+                        f"  ~ {act.rel} (your edits kept; sidecar already current)"
+                    )
+                else:
+                    shutil.copy2(ref_root / act.rel, sidecar)
+                    sidecars_written += 1
+                    msgs.append(
+                        f"  ~ {act.rel} (kept; kit's version -> {live.name}{_SIDECAR_SUFFIX})"
+                    )
         elif act.kind == "remove":
             _backup(act.rel)
             live.unlink(missing_ok=True)
@@ -406,7 +426,12 @@ def _apply(
         msgs.append(
             f"INFO  backed up {backed_up} modified/removed file(s) -> {backup_dir.name}/"
         )
-    msgs.append("OK    upgrade complete")
+    if sidecars_written:
+        msgs.append(
+            "INFO  a .claude-kit sidecar holds the kit's copy of each kept file: "
+            "`diff <file> <file>.claude-kit`, merge what you want, then delete the sidecar"
+        )
+    msgs.append("OK    upgrade complete" if journal else "OK    merge complete")
     return True, msgs
 
 

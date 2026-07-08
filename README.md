@@ -74,11 +74,11 @@ Quick start) for the full breakdown of any row.
 | 🤖 **Agent roster** | **28** tiered agents + per-database overlays + **6** org personas, led by an Orchestrator that never writes code |
 | 🔍 **Self-verification & review** | RARV green-Verify (real commands, not imagined), blind parallel review, and read-only risk classification |
 | 📐 **Rules & skills** | **25** stack-agnostic core rules (incl. 8 agent-operation rules) + **104** context-activated skills (56 core + 48 stack-collection) |
-| 🧱 **Stacks & overlays** | Stack-agnostic core + **10** overlay rule sets (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system |
+| 🧱 **Stacks & overlays** | Stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands, incl. a full React design system — path-scoped so they load only when you touch matching files |
 | 🎚️ **Profiles, scopes & org** | **3** rigor profiles · **3** scopes · **5** autonomy levels · **7** org packs + **10** policy rules |
 | 🧠 **Memory & learning** | Working memory across context compaction + a cost-aware learnings loop (`capture_mode`) so the same mistake isn't repeated |
 | 🛠️ **Hooks & guards** | **18** event hooks — blocking safety guards vs. advisory warnings — that no-op gracefully without `jq` |
-| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **17** ready MCP fragments, and edit-preserving `upgrade` |
+| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **17** ready MCP fragments, edit-preserving `upgrade`, and a root `AGENTS.md` emitted at init so non-Claude agents (Cursor · Copilot · Codex) share the same standards |
 | ♻️ **Reuse-first by design** | Adopt-only-the-new reviews, opt-in LLM/AI security (OWASP LLM Top 10), a worked example + self-test matrix |
 
 ---
@@ -120,7 +120,7 @@ Makes all agents, skills, commands, and hooks available inside Claude Code:
 Then, inside any project you want the pipeline to manage:
 
 ```text
-/claude-kit:init        # asks the ordered questions, lays down CLAUDE.md + .claude/
+/claude-kit:init        # Claude asks you the questions in chat, then runs the CLI non-interactively
 # ↻ restart Claude Code so the project's agents, skills & hooks load
 /sdlc Add a CSV export button to the reports page
 ```
@@ -181,14 +181,32 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 config — nothing else:
 
 1. **Target path** (default: current dir; if `.claude/` exists → **merge / overwrite / backup / abort**)
-2. **Frontend framework** (default: React) → **frontend language** (default: TypeScript)
-3. **Backend language** (default: Python) → **backend framework** (default: FastAPI)
-4. **Database** (PostgreSQL · MongoDB)
+2. **Frontend framework** (default: React; `none` for backend-only projects) → **frontend language** (default: TypeScript; skipped for `none`)
+3. **Backend language** (default: Python; `none` for frontend-only projects) → **backend framework** (default: FastAPI)
+4. **Database** (PostgreSQL · MongoDB · `none`)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette · Google SecOps) — a
+6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Docs/MS Learn · Azure · Wassette · Sentry · Repowise · the Google security suite — full list: `claude-kit list-options`) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
+7. **Learning capture** (`session-end-catchup` default · `session-end` · `per-task` · `off`) — how often
+   the background learnings job runs. *Privacy note:* it reads your session transcript + changed files
+   to write `.claude/agent-memory/` entries (secret-bearing files skipped, secret-shaped values
+   redacted); opt out anytime with `CLAUDE_KIT_NO_AUTOCAPTURE=1`
+8. **Usage scope** (`individual` · `team` · `organization`) — organization scope asks four follow-ups:
+   teams, autonomy level, review strictness, and org capability packs
 
-Non-interactive equivalents: `--defaults`, or `--config init.yaml` (flat or nested YAML). What lands:
+Non-interactive equivalents: `--defaults`, or `--config init.yaml` — flat keys or this nested form:
+
+```yaml
+frontend: { framework: react, language: typescript }
+backend:  { language: python, framework: fastapi }
+database: postgres
+profile:  standard                     # lean · standard · enterprise
+mcp:      [github]                     # [] = none; ids from `claude-kit list-options`
+capture_mode: session-end-catchup      # off · session-end · session-end-catchup · per-task
+scope:    team                         # individual · team · organization (org adds org: {teams, autonomy, review_strictness, packs})
+```
+
+What lands:
 
 ```
 CLAUDE.md                      # "Project-specific rules" filled from your stack's commands
@@ -214,7 +232,12 @@ README.claude-sdlc.md
 A teammate who works in **Cursor**, **VS Code**, or **GitHub Copilot** can't consume `.claude/` or run
 the gated multi-agent `/sdlc` pipeline — those editors drive their own single agent. `claude-kit
 export` projects the **same resolved plan** into the formats those agents read natively, so the
-standards travel even when the pipeline can't:
+standards travel even when the pipeline can't.
+
+**`init` already emits `AGENTS.md` for you** — every scaffold lands the repo-root `AGENTS.md`
+(the cross-tool convention with the [most-requested Claude Code integration](https://github.com/anthropics/claude-code/issues/6235)),
+so non-Claude agents get the kit's standards from day one; a pre-existing `AGENTS.md` is never
+clobbered. Use `export` to regenerate it or add the other targets:
 
 ```bash
 claude-kit export .                              # → .cursor/ (default target)
@@ -232,7 +255,8 @@ claude-kit export . --dry-run                    # preview; writes nothing
 quality gates, independent reviewer subagents, and automated defect loop are Claude-Code-only — the
 export carries the SDLC workflow as a **single-agent self-check checklist**, not enforced gates. Every
 exported document says so. Exports are regenerable projections: `--force` refreshes them in place, and
-without it a hand-edited file is preserved (the new version drops beside it as a `.claude-kit` sidecar).
+without it an unchanged file is reported as current while a hand-edited one is preserved (the new
+version drops beside it as a `.claude-kit` sidecar).
 
 See **[docs/cursor-export.md](docs/cursor-export.md)** for the full fidelity matrix and the `.mdc`
 frontmatter mapping.
@@ -314,8 +338,13 @@ need.
 
 - **Stack-agnostic core** — the pipeline assumes no language or framework; it never writes your app
   code and never needs Docker.
-- **10 stack overlay rules** layer matching guidance on top — React, FastAPI, Go/net-http, PostgreSQL,
-  MongoDB — wired to your exact lint/test/build commands.
+- **13 stack overlay rule files** layer matching guidance on top — React, FastAPI, Go/net-http,
+  PostgreSQL, MongoDB — wired to your exact lint/test/build commands. Overlays are **path-scoped**
+  (`paths:` frontmatter) so they enter context only when Claude touches matching files; MongoDB's
+  stays always-on (a document store has no reliable file signal to scope by).
+- **Installs are stack-true** — every lane offers `none` (backend-only, frontend-only, no-database
+  projects), and a lane you don't have installs nothing: no off-stack rules, skills, agents, or
+  commands. Frontend-specific skills ride the React selection, not the profile core.
 - **A full React design system** — picking React installs design tokens, UX patterns, and
   mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
 
@@ -341,12 +370,16 @@ on a React + FastAPI + PostgreSQL project, individual scope:
 
 | Profile | Agents | Skills | Rules |
 |---------|-------:|-------:|------:|
-| `lean` | 8 | 14 | 35 |
-| `standard` (default) | 26 | 42 | 35 |
-| `enterprise` | 31 | 104 | 35 |
+| `lean` | 8 | 15 | 36 |
+| `standard` (default) | 26 | 42 | 36 |
+| `enterprise` | 31 | 104 | 36 |
+
+Skills are **stack-true**: the frontend-specific ones (component/unit tests, UI design, client API
+integration, headed-browser QA) ride the React selection, so a backend-only project (frontend:
+`none`) installs none of them — and no React rules or npm commands either.
 
 - **Rules are profile-independent** — every profile installs the same 25 core rules + the selected
-  stack's overlays (11 for this stack = 35); rigor changes the *agents and gates*, not the rule set.
+  stack's overlays (11 for this stack = 36); rigor changes the *agents and gates*, not the rule set.
 - **Skills activate on demand** — they are installed and available, then pulled into context by task
   relevance, not all held resident at once. The count is what's on disk, not a fixed context tax.
 - **Counts include stack overlays** — the numbers above already fold in the chosen stack (e.g. the
@@ -474,7 +507,7 @@ owned gates, and the rule that **no gate passes on an unproven verdict**.
 |---|---|---|
 | **Native Claude Code subagents / Agent Teams** | Spawn parallel agents on demand; you define the workflow, gates, and verification yourself each time | The **opinionated layer on top** of exactly that capability: a fixed, sequenced pipeline with **owned quality gates** (block on any open Critical/High/Medium), an **evidence requirement** (no fabricated verdicts — `quality-gates.md` §2.5), a `devils-advocate` anti-rubber-stamp pass, and **structured resume** from `.claude/state/pipeline-snapshot.json`. Native gives you the agents; claude-kit gives you the governance. |
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar agent collections | Large libraries of individual subagent prompts you pick from | A **smaller, opinionated set wired into a sequenced pipeline with owned quality gates** — agents aren't a menu, they're stages that hand off and block on each other. Adopt-by-reuse, not by accumulation. |
-| **[GitHub spec-kit](https://github.com/github/spec-kit)** | A spec-driven workflow (constitution → spec → tasks → analyze) | The same coverage-gate idea (the `story-planner` 1f gate + `task-tracker-sync`) **absorbed into a broader** lifecycle that also covers review, security, build, test, release, and observability gates. Complementary, wider scope. |
+| **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec-driven development grown into a platform (as of 0.12.x): constitution → spec → tasks → analyze, plus a workflow engine (gates, bounded fan-out, loops), an extension/bundle catalog, and **label-driven CI stages** (`bug-assess` → `bug-fix` → `bug-test` via GitHub Agentic Workflows, draft-PR delivery) | The same coverage-gate idea (the `story-planner` 1f gate + `task-tracker-sync`) **absorbed into a broader in-session lifecycle** — review, security, build, test, release, and observability gates with enforced severity blocking. claude-kit's pipeline runs inside Claude Code on any repo host rather than as GitHub-CI stages; unattended runs get the shipped bounded loop (`.claude/scripts/sdlc-loop.sh`), and the CI/issue-triggered entrypoint is a **documented design contract** (label-as-authorization — `docs/autonomous-operation.md` §6), not a vendor-specific workflow file. Complementary: their CI stages, this kit's gate depth. |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | **Portable configuration**, not a running process — the orchestration is described in rules the host (Claude Code) executes. No daemon, no lock-in, no app code. |
 | **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A **catalog-driven generator**: resolves your stack/profile/scope into the right subset of 25 rules, 28 agents, 104 skills, gates, and hooks, kept **upgradeable** (`claude-kit upgrade` preserves your edits via owner + checksum). |
 
@@ -688,6 +721,11 @@ rollback) in `security-and-hardening` (from `Netflix/repokid`).
 rules** (`fastapi-patterns`, `react-patterns`, `postgres-patterns`, …) and, in organization scope,
 **org policy rules** (`secrets-policy`, `pii-policy`, `compliance-policy`, …) layer on top.
 
+Running the pipeline **unattended**? [`docs/autonomous-operation.md`](docs/autonomous-operation.md)
+maps the autonomy levels onto Claude Code's real permission modes, documents the headless (`claude
+-p`) and `--bare` caveats, and ships a bounded loop pattern with stall detection — every claim
+verified against the shipped CLI.
+
 **Skills** ([`skills/`](skills/)) are on-demand capabilities Claude activates by context — led by the
 `sdlc` entrypoint. Highlights, including this session's additions:
 
@@ -753,10 +791,11 @@ everything available.
 | `list-options` | List available frontend/backend/database/profile/MCP options |
 | `status [path]` | Show what's installed, the selection, and working memory |
 | `version` | Print the version |
-| `package-org-pack` · `install-org-pack` | Package / install an organization capability pack (org scope) |
+| `package-org-pack` · `install-org-pack` | **Planned** — packaging/distribution of org capability packs. Today these are hidden stubs that describe the intended behavior and exit 2; org packs already install via `init` (organization scope) |
 
-Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`; and the
-`/sdlc` skill inside any scaffolded project.
+Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-kit:status`, and
+`/claude-kit:abort` (cleanly tear down an in-progress `/sdlc` run — removes only that run's
+worktrees); plus the `/sdlc` skill inside any scaffolded project.
 
 > When MCP servers are selected, `init` also writes a derived **`.mcp.lock.json`** pinning each
 > server's resolved package version — inspect it (or run `doctor --mcp`) to see exactly what would run.
@@ -790,6 +829,7 @@ hints.
 | Guard / quality hooks seem to do nothing | `jq` isn't installed (the hooks parse tool input with it) | Install `jq`; without it the hooks degrade to no-ops by design |
 | Hooks do nothing on **Windows** | No POSIX shell — `.sh` hooks can't run under `cmd`/PowerShell | Run claude-kit inside **WSL or Git Bash** (with `jq`); `claude-kit doctor` confirms. Config + CLI work natively regardless |
 | A selected MCP server won't start | `node` / `npx` missing (most MCP servers launch via `npx`) | Install Node.js, or remove the server from `.mcp.json` |
+| `pip install claude-kit` fails ("no matching distribution") | The PyPI package name is **`claude-code-kit`** — the repo and CLI are `claude-kit`, the pip name is not | `pip install claude-code-kit` |
 | `pip install claude-code-kit` fails | Outdated `pip`, or you want an unreleased change | Upgrade pip (`pip install -U pip`); for unreleased changes use `pip install "git+https://github.com/ajyadav013/claude-kit.git"` |
 | `validate` reports missing files | Partial or outdated install | Re-run `claude-kit init` (choose **merge**), or `claude-kit upgrade` |
 

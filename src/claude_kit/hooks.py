@@ -71,6 +71,21 @@ def _plugin_entry(name: str, arg: str = "") -> dict[str, str]:
     return {"type": "command", "command": command}
 
 
+# Format decisions, verified against the official hooks reference (Jul 2026) — don't re-litigate
+# without new evidence:
+# - Matchers here ("Bash", "Read", "Edit|Write") use only exact-match-set characters, so Claude Code
+#   compares them as exact strings / exact alternatives — NOT unanchored regexes. Anchoring them as
+#   ^Bash$ would move them onto the regex path for zero behavioral gain.
+# - Shell form (command string, no ``args``) is deliberate. Exec form (``args: [...]``) is the
+#   docs-recommended style for path placeholders, but it was only introduced in Claude Code 2.1.139;
+#   on older versions an ``args`` entry degrades to bare ``bash`` eating hook JSON on stdin — every
+#   guard silently dead. Our double-quoted placeholders are already space/char-safe. Revisit when
+#   the 2.1.139 floor is comfortably old.
+# - Blocking guards use exit code 2 + stderr, which the docs keep as a fully supported signaling
+#   path (only *top-level* decision/reason is deprecated, and only for PreToolUse). JSON output
+#   (hookSpecificOutput.permissionDecision) buys nothing for a hard block and adds a stdout-purity
+#   constraint to every bash script. A plugin auto-ALLOWING commands would loosen the user's own
+#   permission posture — never do that from here.
 #: The canonical registry. Order here is the order hooks appear in assembled settings.json.
 #: Each value: ``event``, ``matcher``, ``entry`` (settings.json hook object), and ``script``
 #: (basename under payload ``hooks/scripts/`` to copy, or ``None`` for inline/prompt hooks).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from claude_kit import validator
 from claude_kit.models import InitOptions
@@ -14,6 +15,7 @@ def test_install_writes_the_full_tree(tmp_path, payload):
     claude = tmp_path / ".claude"
     assert (tmp_path / "CLAUDE.md").is_file()
     assert (tmp_path / "README.claude-sdlc.md").is_file()
+    assert (tmp_path / "AGENTS.md").is_file()
     for sub in ("rules", "agents", "skills", "hooks", "templates", "config"):
         assert (claude / sub).is_dir(), f"missing .claude/{sub}/"
     assert (claude / "skills" / "sdlc" / "SKILL.md").is_file()
@@ -997,3 +999,91 @@ def test_token_budget_keys_in_installed_settings(tmp_path, payload):
     )
     for key, val in hooks._TOKEN_BUDGET.items():
         assert starter[key] == val, f"starter settings.json missing token key {key!r}"
+
+
+def test_backend_only_install_has_no_frontend_content(tmp_path, payload):
+    """`none` frontend (stack-true installs): no React rules, frontend skills, or CLAUDE.md lanes."""
+    install(payload, tmp_path, frontend_framework="none", frontend_language="none")
+    rules = {p.name for p in (tmp_path / ".claude" / "rules").glob("*.md")}
+    assert "react-patterns.md" not in rules
+    skills = {p.name for p in (tmp_path / ".claude" / "skills").iterdir()}
+    assert "frontend-ui-engineering" not in skills
+    assert "manual-test" not in skills
+    cm = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "\nFrontend:\n" not in cm
+    assert "react" not in cm.lower()
+
+
+def test_all_none_install_renders_clean_charter(tmp_path, payload):
+    """A lanes-less selection installs the agnostic core and renders without dangling refs."""
+    install(
+        payload,
+        tmp_path,
+        frontend_framework="none",
+        frontend_language="none",
+        backend_language="none",
+        backend_framework="none",
+        database="none",
+    )
+    cm = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "Configured by **claude-kit**, SDLC profile" in cm
+    # No lane bullets → no "Conventions:" pointing at an empty overlay-rule filename.
+    assert "Conventions:" not in cm
+    readme = (tmp_path / "README.claude-sdlc.md").read_text(encoding="utf-8")
+    assert "stack-agnostic (no stack lanes selected)" in readme
+
+
+def test_install_emits_agents_md_projection(tmp_path, payload):
+    """init lands a root AGENTS.md (the export projection) for non-Claude agents in the repo."""
+    install(payload, tmp_path)
+    text = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Exported by **claude-kit**" in text
+    assert "## What ports from Claude Code" in text  # the honest fidelity note
+    assert "## Engineering rules (index)" in text
+    # Tracked as user-editable so `upgrade` preserves edits (sidecars the new version).
+    opts = InitOptions.from_dict(
+        json.loads(
+            (tmp_path / ".claude" / "config" / "init-options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    rec = {r.path: r.owner for r in opts.files}
+    assert rec.get("AGENTS.md") == "user-editable"
+
+
+def test_install_never_clobbers_existing_agents_md(tmp_path, payload):
+    """A project's own AGENTS.md (for other tools) is preserved; ours lands as a sidecar."""
+    (tmp_path / "AGENTS.md").write_text("MY OWN AGENTS FILE\n", encoding="utf-8")
+    install(payload, tmp_path)
+    assert (tmp_path / "AGENTS.md").read_text(
+        encoding="utf-8"
+    ) == "MY OWN AGENTS FILE\n"
+    assert (tmp_path / "AGENTS.md.claude-kit").is_file()
+
+
+def test_reinstall_over_unedited_tree_writes_no_sidecars(tmp_path, payload):
+    """Idempotent re-init: byte-identical user files are reported current, not sidecar'd."""
+    install(payload, tmp_path)
+    install(payload, tmp_path)  # second pass, force=False, nothing edited between
+    for name in ("CLAUDE.md", "AGENTS.md", "README.claude-sdlc.md"):
+        assert not (tmp_path / f"{name}.claude-kit").exists(), f"sidecar noise: {name}"
+
+
+def test_loop_script_installed_executable_and_kit_owned(tmp_path, payload):
+    """The bounded headless runner lands in .claude/scripts/, executable, tracked as kit-owned."""
+    install(payload, tmp_path)
+    script = tmp_path / ".claude" / "scripts" / "sdlc-loop.sh"
+    assert script.is_file(), "sdlc-loop.sh not installed"
+    assert os.access(script, os.X_OK), "sdlc-loop.sh not executable"
+    body = script.read_text(encoding="utf-8")
+    assert "SDLC_FINAL_GATE" in body and "SDLC_MAX_ITER" in body
+    opts = InitOptions.from_dict(
+        json.loads(
+            (tmp_path / ".claude" / "config" / "init-options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    )
+    rec = {r.path: r.owner for r in opts.files}
+    assert rec.get(".claude/scripts/sdlc-loop.sh") == "kit"

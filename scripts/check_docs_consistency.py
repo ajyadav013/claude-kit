@@ -97,9 +97,18 @@ def _count_skills() -> tuple[int, int]:
 def _actuals() -> dict[str, int]:
     core, collection = _count_skills()
     mcp = yaml.safe_load(_read("catalog/mcp.yaml")).get("servers", {})
+    rules = len(list((ROOT / "rules").glob("*.md")))
+    # The README's worked example is the default stack (React + FastAPI + PostgreSQL).
+    default_stack_overlays = sum(
+        len(list((ROOT / "templates" / "stacks" / d / "rules").glob("*.md")))
+        for d in ("frontend/react", "backend/python/fastapi", "db/postgres")
+    )
     return {
         "agents": len(list((ROOT / "agents").glob("*.md"))),
-        "rules": len(list((ROOT / "rules").glob("*.md"))),
+        "rules": rules,
+        "overlay rules": len(list((ROOT / "templates" / "stacks").rglob("rules/*.md"))),
+        "default-stack overlay rules": default_stack_overlays,
+        "default-stack rules": rules + default_stack_overlays,
         "skills": core + collection,
         "core skills": core,
         "collection skills": collection,
@@ -131,6 +140,14 @@ _ANCHORS: list[tuple[str, str, str]] = [
     ("hook scripts", "README.md", r"(\d+) event hook scripts"),
     ("mcp servers", "README.md", r"\*\*(\d+)\*\* ready MCP fragments"),
     ("mcp servers", "README.md", r"(\d+) MCP server fragments"),
+    # Rule-count truth: overlay files on disk, and the README's default-stack worked example
+    # (25 core + react/fastapi/postgres overlays) — the numbers that drifted before 0.58.1.
+    ("overlay rules", "README.md", r"\*\*(\d+)\*\* overlay rule files"),
+    ("overlay rules", "README.md", r"\*\*(\d+) stack overlay rule files\*\*"),
+    ("default-stack overlay rules", "README.md", r"\((\d+) for this stack"),
+    ("default-stack rules", "README.md", r"for this stack = (\d+)\)"),
+    ("rules", "docs/architecture.md", r"rules/ \((\d+)\)"),
+    ("rules", "docs/architecture.md", r"rules/ — (\d+) contracts"),
 ]
 
 

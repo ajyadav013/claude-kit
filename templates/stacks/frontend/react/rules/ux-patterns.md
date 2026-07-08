@@ -1,3 +1,11 @@
+---
+paths:
+  - "**/*.tsx"
+  - "**/*.jsx"
+  - "**/*.css"
+  - "**/*.scss"
+---
+
 # UX Patterns Reference
 
 **Companion to [`ui-design-system.md`](./ui-design-system.md)** (and its `ui-components.md` /
