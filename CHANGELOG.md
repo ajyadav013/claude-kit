@@ -4,6 +4,75 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.58.2] — 2026-07-08
+
+**The advisory hook layer is now actually visible, and the scaffolded docs stop advertising
+things the install doesn't have.** A third multi-agent review round (17 agents; every finding
+re-verified against the official Claude Code hooks reference + changelog before any code) found
+one genuinely new defect class the previous rounds missed: six advisory hooks "warned" on exit-0
+**stderr**, which on PreToolUse/PostToolUse goes to the debug log only — the model never saw a
+single warning. 9 findings, all implemented; 0 new agents/skills/rules; resolver untouched.
+
+### Fixed
+
+- **Advisory hooks now reach the model** — `warn-large-edits`, `warn-sensitive-files`,
+  `warn-llm-io`, `warn-shared-modules`, `warn-missing-tests`, and `validate-frontmatter` emit
+  `hookSpecificOutput.additionalContext` JSON on stdout (the documented visible channel; the
+  warning text is unchanged). On Claude Code versions predating the field it is ignored — the
+  scripts degrade to exactly the old behavior, never an error.
+- **`capture-learnings.sh` end mode fits the SessionEnd budget** — the transcript scan + capture
+  spawn now detaches into the background after marking the session done, so the hook returns in
+  milliseconds instead of racing the 1.5 s SessionEnd default; the registry also grows per-hook
+  `timeout` support (the capture entry declares 30 s) for scaffolded installs.
+- **`type-check.sh` no longer fabricates type errors on machines without the toolchain** — the
+  tsc branch requires a local `node_modules/.bin/tsc`; a missing toolchain is a silent skip.
+- **`guard-destructive-git.sh` rule 3 is per-segment and staged-restore-aware** —
+  `git restore --staged .` (index-only, non-destructive) is exempted, `--worktree`/`-W`
+  variants still block, `-s` (= `--source`) gets no exemption, and a safe unstage in a compound
+  command can no longer mask a destructive discard in a later segment.
+- **`prompts.from_config` defaults are lane-aware** — a config that names a backend language but
+  no framework (`backend: go`, `backend: {language: go}`) now gets that lane's catalog default
+  (`net-http`), and `frontend: none` gets language `none` — matching the interactive flow instead
+  of silently inheriting the global default's `fastapi`/`typescript`. Data-driven lookup via
+  `catalog.list_options`; `resolve()` unchanged.
+- **`mode:` → `permissionMode:` in all six org personas + the acceptance-reviewer gains
+  `permissionMode: plan`** — `mode:` is not a Claude Code frontmatter key and was silently
+  ignored, leaving the personas without the read-only confinement their prompts promised. A new
+  payload-wide frontmatter test (`test_agent_frontmatter.py`) pins the whole class shut.
+- **The acceptance-reviewer joins the scribe pattern** — it returns the acceptance report in its
+  handoff and the Orchestrator persists it (orchestrator Stage 5.6 + `quality-gates.md` now say
+  so explicitly), closing the last read-only-agent-writes-files contradiction from 0.58.1.
+
+### Changed
+
+- **Scaffolded `CLAUDE.md` is profile-honest** — a new profile-gating paragraph states that
+  phases whose reviewer agents aren't installed are `SKIPPED (not in profile)` and never counted
+  as PASS, and the Roles list is scoped to "where your profile installs them". A lean install no
+  longer reads a charter mandating ~12 agents it doesn't have.
+- **Scaffolded `README.claude-sdlc.md` advertises only commands that exist** — all 11 phantom
+  slash commands swept to the real payload skills that own each behavior (e.g.
+  `/refactor-safely` → `/code-simplification`, `/write-tests` → `/test-driven-development`,
+  `/security-review` → `/security-verification`); the five org-only playbooks, the org personas,
+  their capability-matrix rows, and the org examples render only in organization scope; the
+  `.claude/org-packs/README.md` governance pointer renders only when packs were generated. A new
+  drift test renders both scopes and fails CI on any advertised command with no payload skill.
+- **Docs honesty on plugin confinement** — `docs/agents.md` + README now state that
+  `permissionMode` binds only for scaffolded `.claude/agents/` installs; plugin-loaded agents
+  ignore it (their prompts still forbid writes).
+
+### Not adopted (deliberately)
+
+- **The "lint-fix nudges on clean files" sub-claim** — refuted first-hand: the hook exits
+  silently when the linter makes no changes; no fix needed.
+- **The "capture-learnings double-capture" sub-claim** — the existing `mkdir`-based done-marker
+  lock already bounds concurrent end-mode runs to one capture; the detach fix preserves it.
+- **Creating 11 new skills to back the phantom commands** — the commands were renamed to existing
+  skills instead; growing the skill surface is a positioning decision the owner makes, not a
+  drive-by fix.
+- **A fully Jinja-rendered, profile-aware roles table in scaffolded `CLAUDE.md`** — the
+  one-paragraph gating statement fixes the dishonesty at a fraction of the template complexity;
+  the rendered-variant idea stays on the shelf as an optional follow-up.
+
 ## [0.58.1] — 2026-07-07
 
 **Pipeline agents can now actually persist what their prompts mandate.** An industry-review pass
