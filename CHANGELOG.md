@@ -18,6 +18,22 @@ the standard core (they now arrive via the selected stack's lane instead) — no
 
 ### Added
 
+- **README rebuilt as a pitch with pointers — 902 → 306 lines** (owner-requested simplification;
+  a two-agent docs review — first-impression critic + information architect — ranked the damage
+  first). Nothing was deleted from the project: the 24-row adoption-history table + the three
+  org-review deep dives moved to new `docs/influences.md`; install depth (all 8 init questions,
+  `init.yaml`, Windows, plugin-update steps, what-lands tree, stacks/memory detail) to new
+  `docs/install.md`; the CLI table + safe-upgrade mechanics + troubleshooting to new
+  `docs/cli.md`; the 28-agent roster to `docs/agents.md` (which previously had only the by-phase
+  view). The 190-line "Feature details" section and the duplicate source-of-truth mermaid were
+  pure duplication of surviving sections / `docs/architecture.md` and were dropped; the hero was
+  rewritten in plain language (no "gate"/"verdict" jargon before definition); comparison-table
+  cells capped near two lines. All honest-claims content survives in place (Skip-it-if, the
+  three trust caveats, export fidelity, the enterprise `skills: all` admission, the real-run
+  evidence — now promoted into Quick start). `check_docs_consistency.py`'s `_ANCHORS` was edited
+  in lockstep: every component count stays pinned ≥1× in the README, the roster/overlay anchors
+  re-point to `docs/agents.md` / `docs/install.md`, and the redundant duplicate pins (the same
+  number 3–4× in one file) went away with the duplicated prose.
 - **CI/issue-triggered runs get a design contract instead of a vendor YAML** (round-2 R18, the
   landscape item; every claim verified against the GitHub API first: spec-kit 0.12.4 (2026-07-02)
   shipped the label-driven `bug-fix` (#3258) and `bug-test` (#3257) agentic workflows and 0.12.2

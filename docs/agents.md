@@ -93,6 +93,38 @@ write code themselves and require human approval before any change. They pair wi
 `/repo-onboarding`) and are governed by the autonomy and risk-classification rules. See
 [`org-capabilities.md`](org-capabilities.md).
 
+## The full roster
+
+**28 specialized roles**, each tagged with a `tier` and installed per profile — plus per-database
+**overlay agents** and, in organization scope, **persona agents**:
+
+| Agent | Role |
+|-------|------|
+| `orchestrator` | Pipeline controller — decomposes, delegates, runs lanes in parallel, gates progression (never writes code) |
+| `spec-doc-writer` | Turns requirements into a spec + developer documentation in one pass |
+| `story-planner` | Decomposes an approved spec into ordered, parallelizable stories; verifies every acceptance criterion maps to a story (workflow gate 1f) |
+| `ui-designer` | Drafts and self-reviews UI/UX design specs |
+| `senior-backend-dev` · `senior-frontend-dev` | Senior review of a work stream's spec (the two-lane example) |
+| `technical-architect` | Cross-system architecture, scalability, integration review |
+| `em-reviewer` | Engineering-manager strategic & completeness review |
+| `merge-reviewer` | Verifies consistency between parallel lanes at join points |
+| `developer` | Writes production code from an approved spec, in an isolated worktree |
+| `sdlc-code-reviewer` | Reviews code for bugs, security, performance, spec compliance |
+| `unit-tester` · `e2e-tester` | Author unit and end-to-end test suites |
+| `tester` · `senior-tester` | Integration testing and independent verification of coverage |
+| `auditor` | Read-only audit for accessibility, performance, responsiveness, console errors |
+| `devils-advocate` | Anti-sycophancy adversarial reviewer (runs on a unanimous PASS) |
+| `acceptance-reviewer` | Verifies delivery against acceptance criteria before the human gate |
+| `risk-classifier` | Read-only — classifies work low/medium/high/restricted and names the required gates (enterprise + org) |
+| `security-reviewer` | Security stage coordinator — owns the Security Clear gate |
+| `secret-scanner` · `dependency-scanner` · `owasp-reviewer` · `policy-validator` | The four parallel security sub-scanners |
+| `devops-engineer` | CI/build/release, env, migrations, runbook — container-optional; owns Pipeline Green |
+| `observability-engineer` | SLOs, health/readiness, structured logging, alerts — owns Observability Ready |
+| `incident-responder` | Production-incident triage, mitigation, and postmortem (enterprise scope) |
+| `pr-raiser` | Final checks, commit hygiene, and PR creation |
+| **DB overlays** | installed for the selected database — PostgreSQL → `postgres-specialist` · `migration-specialist` · `db-performance-reviewer`; MongoDB → `mongodb-specialist` · `migration-specialist` |
+| **Org personas** | `pm-copilot` · `founder-prototype-agent` · `support-ticket-engineer` · `data-workflow-agent` · `internal-tools-builder` · `staff-pm-reviewer` (organization scope only) |
+
 ## What a run costs (models per agent)
 
 Every agent declares an explicit `model:` in its frontmatter; `.claude/rules/model-tiers.md` is the
