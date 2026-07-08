@@ -74,6 +74,9 @@ profiles:
       - performance-optimization
       - load-testing
       - incident-postmortem
+      # deploy = the configuration-driven deploy-and-verify loop (interviews once, persists to
+      # .claude/config/deploy.yaml). Deploy execution stays gated by the user's permission settings.
+      - deploy
       - threat-model
       - accessibility-review
       - over-engineering-review

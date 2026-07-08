@@ -164,7 +164,7 @@ different autonomy levels per repo, and measure adoption.
 | Security review | `/security-and-hardening`, `/security-verification`, `/threat-model` | `security-reviewer`, `owasp-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator` | `secrets-policy`, `agent-guardrails` | `protect-secrets`, `guard-commit-secrets`, `warn-sensitive-files` | `/security-verification` the auth change |
 | Performance review | `/performance-optimization`, `/load-testing` | `db-performance-reviewer` (PostgreSQL) | `risk-classification` | — | `/performance-optimization` the list endpoint |
 | Accessibility review | `/accessibility-review` | `ui-designer` | `responsive-and-accessibility` | — | `/accessibility-review` the modal |
-| DevOps / release | `/shipping-and-launch`, `/ci-cd-and-automation` | `devops-engineer`, `pr-raiser`, `observability-engineer` | `devops-observability`, `branch-and-pr-policy` | `guard-push-main` | `/shipping-and-launch` the release |
+| DevOps / release | `/deploy`, `/shipping-and-launch`, `/ci-cd-and-automation` | `devops-engineer`, `pr-raiser`, `observability-engineer` | `devops-observability`, `branch-and-pr-policy` | `guard-push-main` | `/deploy loop` until the release verifies clean |
 | Incident response | `/incident-postmortem` | `incident-responder` | `devops-observability` | `audit-log` | `/incident-postmortem` after a SEV1 |
 | Documentation | `/documentation-and-adrs`, `/refresh-docs` | `technical-architect` | `documentation` | — | `/refresh-docs` after an API change |
 {% if scope == "organization" %}| Onboarding | `/repo-onboarding` | `Explore`, `technical-architect` | `documentation`, `code-organization` | — | `/repo-onboarding` for a new hire |
