@@ -51,6 +51,22 @@ def _run(
     )
 
 
+def _ctx(proc: subprocess.CompletedProcess[str], event: str) -> str:
+    """Parse an advisory hook's stdout as additionalContext JSON; '' when silent.
+
+    The advisory family returns warnings as ``hookSpecificOutput.additionalContext`` (exit-0
+    stderr goes to the debug log only, so stderr assertions would pin an invisible channel).
+    Also asserts the event name matches — Claude Code routes the context by ``hookEventName``.
+    """
+    if not proc.stdout.strip():
+        return ""
+    obj = json.loads(proc.stdout)
+    assert obj["hookSpecificOutput"]["hookEventName"] == event
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    assert isinstance(ctx, str)
+    return ctx
+
+
 # --- SessionStart loaders -----------------------------------------------------------------
 
 
@@ -197,7 +213,7 @@ def test_audit_log_survives_garbage_stdin(tmp_path: Path) -> None:
     assert proc.returncode == 0  # must never affect the tool
 
 
-# --- warn-* advisories (always exit 0; warn on stderr) ---------------------------------------
+# --- warn-* advisories (always exit 0; warning = additionalContext JSON on stdout) -----------
 
 
 @_NEED_JQ
@@ -217,7 +233,19 @@ def test_warn_sensitive_files_flags_risky_surfaces(
         "warn-sensitive-files.sh", payload={"tool_input": {"file_path": file_path}}
     )
     assert proc.returncode == 0  # advisory: never blocks
-    assert expected in proc.stderr
+    assert expected in _ctx(proc, "PreToolUse")
+
+
+@_NEED_JQ
+def test_warn_sensitive_files_multiple_surfaces_one_json_object() -> None:
+    # A path hitting two categories must still emit ONE parseable JSON object
+    # (stdout must be only the JSON for Claude Code to process it).
+    proc = _run(
+        "warn-sensitive-files.sh",
+        payload={"tool_input": {"file_path": "src/auth/migrations/0001_users.sql"}},
+    )
+    ctx = _ctx(proc, "PreToolUse")
+    assert "AUTH" in ctx and "DATABASE MIGRATION" in ctx
 
 
 @_NEED_JQ
@@ -227,6 +255,7 @@ def test_warn_sensitive_files_silent_on_plain_paths() -> None:
         payload={"tool_input": {"file_path": "src/utils/format.py"}},
     )
     assert proc.returncode == 0
+    assert proc.stdout == ""
     assert proc.stderr == ""
 
 
@@ -234,13 +263,13 @@ def test_warn_sensitive_files_silent_on_plain_paths() -> None:
 def test_warn_large_edits_thresholds() -> None:
     big = {"tool_input": {"file_path": "a.py", "content": "line\n" * 200}}
     small = {"tool_input": {"file_path": "a.py", "content": "line\n" * 10}}
-    assert "large edit" in _run("warn-large-edits.sh", payload=big).stderr
-    assert _run("warn-large-edits.sh", payload=small).stderr == ""
+    assert "large edit" in _ctx(_run("warn-large-edits.sh", payload=big), "PreToolUse")
+    assert _run("warn-large-edits.sh", payload=small).stdout == ""
     # Threshold overridable via env.
     proc = _run(
         "warn-large-edits.sh", payload=small, extra_env={"CLAUDE_LARGE_EDIT_LINES": "5"}
     )
-    assert "large edit" in proc.stderr
+    assert "large edit" in _ctx(proc, "PreToolUse")
     assert proc.returncode == 0
 
 
@@ -261,7 +290,8 @@ def test_warn_missing_tests_nudges_only_production_source(
         "warn-missing-tests.sh", payload={"tool_input": {"file_path": file_path}}
     )
     assert proc.returncode == 0
-    assert ("REMINDER" in proc.stderr) is warns
+    # PostToolUse hook: the reminder rides additionalContext with the matching event name.
+    assert ("REMINDER" in _ctx(proc, "PostToolUse")) is warns
 
 
 @_NEED_JQ
@@ -270,8 +300,8 @@ def test_warn_llm_io_flags_llm_signatures_only() -> None:
     plain = {"tool_input": {"file_path": "svc/math.py", "content": "x = 1 + 1\n"}}
     proc = _run("warn-llm-io.sh", payload=llm)
     assert proc.returncode == 0
-    assert "LLM/AI feature" in proc.stderr
-    assert _run("warn-llm-io.sh", payload=plain).stderr == ""
+    assert "LLM/AI feature" in _ctx(proc, "PreToolUse")
+    assert _run("warn-llm-io.sh", payload=plain).stdout == ""
 
 
 @_NEED_JQ
@@ -290,7 +320,7 @@ def test_warn_shared_modules_flags_cross_cutting_surfaces(
         "warn-shared-modules.sh", payload={"tool_input": {"file_path": file_path}}
     )
     assert proc.returncode == 0
-    assert ("WARN" in proc.stderr) is warns
+    assert ("WARN" in _ctx(proc, "PreToolUse")) is warns
 
 
 # --- validate-* -----------------------------------------------------------------------------
@@ -304,10 +334,13 @@ def test_validate_frontmatter_warns_on_missing_fields() -> None:
     path = "proj/.claude/agents/dev.md"
 
     def run(body: str) -> str:
-        return _run(
-            "validate-frontmatter.sh",
-            payload={"tool_input": {"file_path": path, "content": body}},
-        ).stderr
+        return _ctx(
+            _run(
+                "validate-frontmatter.sh",
+                payload={"tool_input": {"file_path": path, "content": body}},
+            ),
+            "PreToolUse",
+        )
 
     assert run(ok_agent) == ""
     assert "missing 'name:'" in run(no_name)
@@ -322,7 +355,7 @@ def test_validate_frontmatter_warns_on_missing_fields() -> None:
             }
         },
     )
-    assert "missing 'description:'" in skill.stderr
+    assert "missing 'description:'" in _ctx(skill, "PreToolUse")
     assert skill.returncode == 0  # advisory: warns, never blocks
 
 
@@ -457,6 +490,20 @@ def test_type_check_gives_one_nudge_per_stop_chain(tmp_path: Path) -> None:
         project_dir=proj,
         extra_env={"PATH": f"{shim}:{os.environ['PATH']}"},
     )
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+@_NEED_JQ
+def test_type_check_skips_silently_without_local_tsc(tmp_path: Path) -> None:
+    """tsconfig.json without an installed toolchain is a missing-deps situation, not a type
+    failure: the tsc branch is gated on node_modules/.bin/tsc, so npx's "could not determine
+    executable" noise is never fed to Claude as type errors."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "tsconfig.json").write_text("{}", encoding="utf-8")
+    # No package.json typecheck script, no node_modules -> every branch skips.
+    proc = _run("type-check.sh", payload={"stop_hook_active": False}, project_dir=proj)
     assert proc.returncode == 0
     assert proc.stdout == ""
 

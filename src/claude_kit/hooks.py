@@ -44,21 +44,32 @@ _SECRETS_GUARD = (
 )
 
 
-def _script_entry(name: str, arg: str = "") -> dict[str, str]:
+def _script_entry(
+    name: str, arg: str = "", timeout: int | None = None
+) -> dict[str, Any]:
     """Build a settings.json command entry that runs a project-local hook script.
 
     Args:
         name: Script basename under ``.claude/hooks/``.
         arg: Optional single positional argument appended to the command (e.g. a dispatch mode like
             ``end``/``stop``/``catchup`` so several hook ids can share one script).
+        timeout: Optional per-hook timeout in **seconds** (the hooks-reference unit). Only worth
+            setting where the event's default budget is tight — e.g. SessionEnd's 1.5s, which the
+            settings channel may raise via per-hook timeouts (plugin-channel timeouts do not raise
+            that budget, per the reference).
     """
     command = f'bash "${{CLAUDE_PROJECT_DIR}}/.claude/hooks/{name}"'
     if arg:
         command += f" {arg}"
-    return {"type": "command", "command": command}
+    entry: dict[str, Any] = {"type": "command", "command": command}
+    if timeout is not None:
+        entry["timeout"] = timeout
+    return entry
 
 
-def _plugin_entry(name: str, arg: str = "") -> dict[str, str]:
+def _plugin_entry(
+    name: str, arg: str = "", timeout: int | None = None
+) -> dict[str, Any]:
     """Build a settings.json command entry that runs a hook script from the plugin root.
 
     The plugin variant of :func:`_script_entry` — Claude Code exposes the plugin's own directory via
@@ -68,7 +79,10 @@ def _plugin_entry(name: str, arg: str = "") -> dict[str, str]:
     command = f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/scripts/{name}"'
     if arg:
         command += f" {arg}"
-    return {"type": "command", "command": command}
+    entry: dict[str, Any] = {"type": "command", "command": command}
+    if timeout is not None:
+        entry["timeout"] = timeout
+    return entry
 
 
 # Format decisions, verified against the official hooks reference (Jul 2026) — don't re-litigate
@@ -201,12 +215,16 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
     # --- learning capture: one script, three triggers, chosen by capture_mode (catalog/capture.yaml).
     # Never put these in a profile's hooks: list or rely on the `all` token — catalog._apply_capture_mode
     # is the sole installer (it strips all three, then adds back the chosen mode's set).
+    # SessionEnd's default budget is 1.5s; the per-hook timeout below raises it on the settings
+    # channel (belt-and-suspenders — the script itself returns in ms since the transcript scan
+    # moved into the detached background job). Plugin-channel timeouts don't raise the budget.
     "capture-learnings": {
         "event": "SessionEnd",
         "matcher": "",
-        "entry": _script_entry("capture-learnings.sh", "end"),
+        "entry": _script_entry("capture-learnings.sh", "end", timeout=30),
         "script": "capture-learnings.sh",
         "arg": "end",
+        "timeout": 30,
     },
     "capture-learnings-catchup": {
         "event": "SessionStart",
@@ -414,7 +432,9 @@ def generate_plugin_hooks_json() -> dict[str, Any]:
             continue
         spec = HOOK_REGISTRY[hid]
         if spec["script"]:
-            entry = _plugin_entry(spec["script"], spec.get("arg", ""))
+            entry = _plugin_entry(
+                spec["script"], spec.get("arg", ""), spec.get("timeout")
+            )
         else:
             entry = spec["entry"]  # inline command — no path to rewrite
         specs.append((spec["event"], spec["matcher"], entry))

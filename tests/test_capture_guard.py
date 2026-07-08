@@ -115,3 +115,47 @@ def test_prompt_carries_a_no_secrets_instruction():
     """The capture prompt must instruct the background agent never to record secrets/PII."""
     text = SCRIPT.read_text(encoding="utf-8")
     assert "NEVER record secrets" in text
+
+
+@_NEED_JQ
+def test_end_mode_returns_immediately_and_detaches_the_capture(tmp_path):
+    """SessionEnd runs under a 1.5s default budget: `end` must mark done and return before the
+    transcript scan, with the scan + spawn detached to the background (the capture still fires)."""
+    import time
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    ran = tmp_path / "claude-ran.txt"
+    shim = bindir / "claude"
+    shim.write_text(f'#!/usr/bin/env bash\necho ran > "{ran}"\n', encoding="utf-8")
+    shim.chmod(0o755)
+
+    proj = tmp_path / "proj"
+    (proj / ".claude" / "agent-memory").mkdir(parents=True)
+    hook_tmp = tmp_path / "hook-tmp"
+    hook_tmp.mkdir()
+    transcript = tmp_path / "sess-endmode.jsonl"
+    transcript.write_text(_edit("src/app.py") + "\n", encoding="utf-8")
+
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "TMPDIR": str(hook_tmp),
+    }
+    env.pop("CLAUDE_KIT_NO_AUTOCAPTURE", None)
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "end"],
+        input=json.dumps({"transcript_path": str(transcript), "cwd": str(proj)}),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0
+    # Done-marker is written by the hook itself, before any heavy work.
+    assert (hook_tmp / "claude-kit-captured-sess-endmode.done").exists()
+    # The detached job still fires the (shimmed) claude capture.
+    for _ in range(100):
+        if ran.exists():
+            break
+        time.sleep(0.1)
+    assert ran.exists(), "background capture never ran"

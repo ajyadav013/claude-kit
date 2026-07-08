@@ -106,7 +106,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/capture-learnings.sh\" end"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/capture-learnings.sh\" end",
+            "timeout": 30
           }
         ]
       }

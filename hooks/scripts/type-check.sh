@@ -24,7 +24,10 @@ out=""; ec=0
 
 if [ -f package.json ] && command -v npm >/dev/null 2>&1 && grep -q '"typecheck"' package.json 2>/dev/null; then
   out="$(npm run -s typecheck 2>&1)"; ec=$?
-elif [ -f tsconfig.json ] && command -v npx >/dev/null 2>&1; then
+elif [ -f tsconfig.json ] && [ -x node_modules/.bin/tsc ] && command -v npx >/dev/null 2>&1; then
+  # Gate on the local tsc binary: without it `npx --no-install` fails with toolchain noise
+  # ("could not determine executable"), which would be fed to Claude as type errors. A repo with
+  # tsconfig.json but no installed toolchain gets a silent skip -- missing deps are not type issues.
   out="$(npx --no-install tsc --noEmit 2>&1)"; ec=$?
 elif command -v mypy >/dev/null 2>&1 && [ -f pyproject.toml ] && grep -q 'mypy' pyproject.toml 2>/dev/null; then
   out="$(mypy . 2>&1)"; ec=$?
