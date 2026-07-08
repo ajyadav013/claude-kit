@@ -263,7 +263,9 @@ service. Three honest caveats before you rely on it:
   not walls.
 - **Most quality gates are agent protocols, not mechanical enforcement.** Only the hook scripts are
   deterministic, host-enforced checks; a capable model can still be wrong or skip a step — keep a
-  human in the loop for anything that matters.
+  human in the loop for anything that matters. Relatedly: the agents' `permissionMode` confinement
+  (read-only reviewers) binds only in **init-scaffolded** projects — plugin-loaded agents ignore
+  it, so run the pipeline from a scaffolded project when that confinement matters.
 - **MCP servers are third-party code.** Each fragment runs an external package — pinned to an exact
   version, never `@latest` — that claude-kit references but does not vendor or audit. Review a
   server's source and license before enabling it.

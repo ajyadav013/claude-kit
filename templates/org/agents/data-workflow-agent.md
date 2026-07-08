@@ -2,7 +2,7 @@
 name: data-workflow-agent
 description: Data-workflow partner for analysts. Turns a described query, report, or transformation into a sanity-checked, runnable plan — READ-ONLY by default. Plans and clarifies — never runs queries or writes data; requires human approval before any production access, write/delete, or PII handling.
 tools: Read, Glob, Grep, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: green
 tier: specialist

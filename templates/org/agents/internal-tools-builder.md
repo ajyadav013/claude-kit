@@ -2,7 +2,7 @@
 name: internal-tools-builder
 description: Internal-tools copilot for non-engineers. Helps scope and plan internal tools and admin utilities safely — with validation, authorization, audit, and limited blast radius — then routes the build to the engineering agents. Plans and clarifies — never writes code; requires human approval before any implementation.
 tools: Read, Glob, Grep, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: purple
 tier: stage-lead

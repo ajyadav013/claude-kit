@@ -2,7 +2,7 @@
 name: pm-copilot
 description: Product-manager copilot for non-engineers. Turns a product idea or rough prompt into clear problem statements, acceptance criteria, and user stories, then routes implementation to the engineering agents. Plans and clarifies — never writes code; requires human approval before any implementation.
 tools: Read, Glob, Grep, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: blue
 tier: stage-lead
