@@ -123,27 +123,19 @@ def _actuals() -> dict[str, int]:
 # found". Subset counts elsewhere ("8 agent-operation rules") are deliberately NOT anchored.
 _ANCHORS: list[tuple[str, str, str]] = [
     ("agents", "README.md", r"\*\*(\d+)\*\* tiered agents"),
-    ("agents", "README.md", r"(\d+) specialized agents"),
-    ("agents", "README.md", r"(\d+) specialized roles"),
-    ("agents", "README.md", r"(\d+) SDLC agents"),
+    ("agents", "docs/agents.md", r"(\d+) specialized roles"),
     ("rules", "README.md", r"\*\*(\d+)\*\* stack-agnostic core rules"),
-    ("rules", "README.md", r"(\d+) stack-agnostic core rules"),
-    ("rules", "README.md", r"(\d+) stack-agnostic contracts"),
-    ("rules", "README.md", r"(\d+) engineering rules"),
     # The headline skill number is the FULL catalog (core + collection); the breakdown pins each part.
     ("skills", "README.md", r"\*\*(\d+)\*\* context-activated skills"),
-    ("skills", "README.md", r"(\d+) on-demand skills"),
     ("skills", "README.md", r"(\d+) skills, gates"),
     ("core skills", "README.md", r"\((\d+) core \+"),
     ("collection skills", "README.md", r"\+ (\d+) stack-collection\)"),
     ("hook scripts", "README.md", r"\*\*(\d+)\*\* event hooks"),
-    ("hook scripts", "README.md", r"(\d+) event hook scripts"),
     ("mcp servers", "README.md", r"\*\*(\d+)\*\* ready MCP fragments"),
-    ("mcp servers", "README.md", r"(\d+) MCP server fragments"),
     # Rule-count truth: overlay files on disk, and the README's default-stack worked example
     # (25 core + react/fastapi/postgres overlays) — the numbers that drifted before 0.58.1.
     ("overlay rules", "README.md", r"\*\*(\d+)\*\* overlay rule files"),
-    ("overlay rules", "README.md", r"\*\*(\d+) stack overlay rule files\*\*"),
+    ("overlay rules", "docs/install.md", r"\*\*(\d+) stack overlay rule files\*\*"),
     ("default-stack overlay rules", "README.md", r"\((\d+) for this stack"),
     ("default-stack rules", "README.md", r"for this stack = (\d+)\)"),
     ("rules", "docs/architecture.md", r"rules/ \((\d+)\)"),
