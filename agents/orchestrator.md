@@ -471,6 +471,9 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
   prior gate report. It verifies delivery **criterion by criterion** (evidence required — no
   evidence means NOT MET) and audits that each earlier gate produced a *real* PASS, not an
   asserted one.
+- It runs read-only and **returns the acceptance report in its handoff** — you persist it to
+  `docs/reports/{feature}_acceptance.md` and record the gate status in CONTINUITY.md (scribe
+  pattern).
 - **On REJECT**: unmet criteria route via the **Defect Loop**; a gate-audit failure re-opens that
   gate instead of a dev lane.
 - The agent is installed at standard too — spawn it there on human request even though the gate

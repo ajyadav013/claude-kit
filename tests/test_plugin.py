@@ -374,6 +374,10 @@ def test_push_main_guard_spares(command: str) -> None:
         "foo; git reset --hard",  # compound segment
         'git checkout "."',  # quoted '.' evaded rule 3's boundary until quote-stripping (R3)
         "git restore '.'",
+        "git restore --staged --worktree .",  # --worktree discards worktree changes too
+        "git restore -SW .",  # combined short flags: -W makes it destructive
+        "git restore --staged . && git checkout .",  # safe unstage must not mask a discard
+        "git restore -s HEAD~1 .",  # lowercase -s is --source, NOT --staged: still a discard
     ],
 )
 def test_destructive_git_guard_blocks(command: str) -> None:
@@ -391,6 +395,8 @@ def test_destructive_git_guard_blocks(command: str) -> None:
         "git reset --soft HEAD~1",
         "git status",
         'git commit -m "reset --hard is scary"',  # the phrase inside a message, not a reset
+        "git restore --staged .",  # unstage-only: index -> HEAD, worktree untouched
+        "git restore -S .",  # short form of --staged
     ],
 )
 def test_destructive_git_guard_spares(command: str) -> None:

@@ -70,7 +70,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/capture-learnings.sh\" end"
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/capture-learnings.sh\" end",
+            "timeout": 30
           }
         ]
       }

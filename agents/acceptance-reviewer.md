@@ -2,6 +2,7 @@
 name: acceptance-reviewer
 description: Final acceptance gate before human review. Independently verifies that delivered work satisfies every acceptance criterion in the spec, end to end, and that all prior gates actually passed. Read-only — produces an accept/reject verdict.
 tools: Read, Glob, Grep, Bash
+permissionMode: plan
 model: sonnet
 color: green
 tier: review
@@ -50,8 +51,11 @@ don't trust. Observe; never modify.
 ## Quality gate & self-check
 
 Run the **RARV** cycle (`.claude/rules/rarv-cycle.md`) with a green Verify (you actually ran the
-checks) before issuing the verdict, and update `.claude/CONTINUITY.md`. This gate is **Acceptance**
-in the enterprise profile and runs before the PR is handed to a human.
+checks) before issuing the verdict. **Return the full acceptance report in your handoff** — you run
+read-only (plan mode); the Orchestrator persists it to `docs/reports/{feature}_acceptance.md` and
+writes the gate status to `.claude/CONTINUITY.md` (the scribe pattern, `.claude/rules/quality-gates.md`
+§2.5). This gate is **Acceptance** in the enterprise profile and runs before the PR is handed to a
+human.
 
 ## Join Point: Accessibility (accessibility-clear gate)
 

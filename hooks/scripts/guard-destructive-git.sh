@@ -73,10 +73,23 @@ if printf '%s\n' "$NORM" | grep -qE '^clean[[:space:]].*(-[a-zA-Z]*f|--force)'; 
   exit 2
 fi
 
-# 3. checkout/restore of the whole worktree ('.') : discards every unstaged change at once
-if printf '%s\n' "$NORM" | grep -qE '^(checkout|restore)[[:space:]]+(.*[[:space:]])?\.([[:space:]]|$)'; then
+# 3. checkout/restore of the whole worktree ('.') : discards every unstaged change at once.
+# Exception: `git restore --staged .` (or -S) WITHOUT --worktree/-W only unstages -- it moves the
+# index back to HEAD and leaves every worktree file untouched, so it is not destructive and stays
+# allowed. With --worktree/-W alongside, worktree changes ARE discarded -> still blocked. Checked
+# per segment so a safe unstage cannot mask a destructive discard elsewhere in the same command.
+# (Case matters: -S is --staged; lowercase -s is --source and gets no exemption.)
+while IFS= read -r seg; do
+  printf '%s\n' "$seg" | grep -qE '^(checkout|restore)[[:space:]]+(.*[[:space:]])?\.([[:space:]]|$)' || continue
+  if printf '%s\n' "$seg" | grep -qE '^restore[[:space:]]' \
+    && printf '%s\n' "$seg" | grep -qE '(^|[[:space:]])--staged([[:space:]]|$)|(^|[[:space:]])-[a-zA-Z]*S' \
+    && ! printf '%s\n' "$seg" | grep -qE '(^|[[:space:]])--worktree([[:space:]]|$)|(^|[[:space:]])-[a-zA-Z]*W'; then
+    continue # unstage-only: index -> HEAD, worktree untouched
+  fi
   echo "BLOCKED: 'git checkout/restore .' discards every unstaged change in the worktree. Run 'git stash' first to keep a recoverable copy (restore a single file by naming it instead of '.')." >&2
   exit 2
-fi
+done <<EOF
+$NORM
+EOF
 
 exit 0

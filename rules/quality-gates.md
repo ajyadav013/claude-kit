@@ -45,7 +45,7 @@ Every gate is binary: **PASS** or **FAIL**.
 Phase completes -> Gate
   PASS  -> advance to next phase
   FAIL  -> fix highest-severity findings first
-        -> log the miss to CONTINUITY.md (and agent-memory if durable)
+        -> the miss is logged to CONTINUITY.md (and agent-memory if durable)
         -> retry the gate
   retries exhausted -> escalate to human with unresolved findings
 ```
@@ -54,7 +54,10 @@ Phase completes -> Gate
 - Design review: 3 · Senior dev: 3 · Tech architect: 3 · EM: 3
 - Code review: 5 · Merge reviewer: 2 · Defect loop: 2 cycles
 
-When a gate FAILs, the agent records the miss in `CONTINUITY.md` under **Mistakes & Learnings** so the same defect is not reintroduced on retry.
+When a gate FAILs, the miss is recorded in `CONTINUITY.md` under **Mistakes & Learnings** so the
+same defect is not reintroduced on retry. Read-only gate agents don't write it themselves: they
+**return the miss in their handoff** and the Orchestrator records it (the scribe pattern — the
+same handoff that carries the evidence, §2.5).
 
 ---
 

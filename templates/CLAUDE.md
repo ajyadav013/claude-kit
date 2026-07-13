@@ -85,6 +85,13 @@ gating rules, parallel-lane handling, the defect-loop protocol) lives in
 `.claude/rules/mandatory-workflow.md`, and the severity/review/gate model lives in
 `.claude/rules/quality-gates.md`. Read those before driving a phase.
 
+**Profile gating:** the phases below run against the agents your chosen profile actually installed
+(`lean ⊂ standard ⊂ enterprise` — check `.claude/agents/`). A phase whose reviewer agents aren't
+installed is `SKIPPED (not in profile)` — noted, never silent, and **never counted as PASS** (the
+Orchestrator's Active Gate Set protocol). A lean install runs spec → implement → code review →
+build-green → PR; the review chain, test-coverage, security, and operability phases activate as the
+profile installs their agents.
+
 1. **Spec first** — no implementation code until a written spec exists; update the spec if the task
    changes. (Spec & Doc Writer; for UI work the UI Designer drafts a design spec first — screen states,
    interactions, empty/loading/error states, responsive behavior, accessibility.)
@@ -106,11 +113,12 @@ update the spec if expected behavior is unclear, then re-run **only the affected
 their chain → merge review → Tester → Senior Tester. Don't patch defects outside the process; don't
 re-run unaffected lanes.
 
-**Roles** map to agents in `.claude/agents/` (Spec & Doc Writer, UI Designer, Senior Developer,
-Technical Architect, Engineering Manager, Developer, Code Reviewer, Tester, Senior Tester, Unit/E2E
-Tester, Security Reviewer + sub-scanners, Devil's Advocate, Merge Reviewer, DevOps Engineer,
-Observability Engineer, PR Raiser, Orchestrator). The Orchestrator coordinates and gates — it never
-writes code. State which role is being simulated at each stage when it helps clarity.
+**Roles** map to agents in `.claude/agents/` **where your profile installs them** (the full
+enterprise roster: Spec & Doc Writer, UI Designer, Senior Developer, Technical Architect,
+Engineering Manager, Developer, Code Reviewer, Tester, Senior Tester, Unit/E2E Tester, Security
+Reviewer + sub-scanners, Devil's Advocate, Merge Reviewer, DevOps Engineer, Observability Engineer,
+PR Raiser, Orchestrator). The Orchestrator coordinates and gates — it never writes code. State which
+role is being simulated at each stage when it helps clarity.
 
 **Fast-track:** for bug fixes, typos, single-component changes, or config updates (< 5 files), skip the
 spec/design/review chain and go straight to Developer → Code Reviewer → Tester → PR Raiser. If asked

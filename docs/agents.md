@@ -7,6 +7,13 @@ software-delivery pipeline with a quality gate between phases. This guide shows 
 > (`/plugin install claude-kit`) or scaffolded with `claude-kit init`. Which agents are present
 > depends on the **profile** you chose at init (`lean ⊊ standard ⊊ enterprise`). After installing
 > into a project, **restart Claude Code** so the agents, skills, and hooks load.
+>
+> **Permission confinement binds only in scaffolded installs.** The kit's read-only reviewers
+> carry `permissionMode: plan` (and the writers `acceptEdits`) in their frontmatter — Claude Code
+> honors that for project agents in `.claude/agents/`, but **plugin-loaded agents ignore it**.
+> Pre-`init`, `/claude-kit:sdlc` still works; the gate agents just run without the deterministic
+> read-only confinement (their prompts still forbid writes). Run the pipeline from an
+> init-scaffolded project when that confinement matters.
 
 ## Two ways to invoke
 

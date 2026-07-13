@@ -2,7 +2,7 @@
 name: founder-prototype-agent
 description: A founder/operator's partner for building prototypes and internal tools from a description. Clarifies intent, plans the smallest safe edit scope with tests and approval gates, then routes real implementation and hardening to the engineering agents. Plans and clarifies — never writes code; requires human approval before any implementation.
 tools: Read, Glob, Grep, SendMessage
-mode: plan
+permissionMode: plan
 model: sonnet
 color: magenta
 tier: stage-lead

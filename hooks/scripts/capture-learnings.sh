@@ -177,11 +177,19 @@ case "$MODE" in
   end)
     # The session that just ended. Capture if it edited files; mark done either way so a later
     # `catchup` never re-handles this (cleanly-exited) session.
+    #
+    # SessionEnd hooks run under a 1.5s default budget (hooks reference), and `changed_files` is a
+    # full-transcript jq scan that can exceed that on long sessions -- a timed-out hook means the
+    # capture silently never fires and the session is only rescued by a later `catchup`. So: write
+    # the done-marker first, then push ALL heavy work into the same detached-orphan idiom
+    # spawn_capture uses, and return in milliseconds (which is what the header promises).
     [ -f "$TRANSCRIPT" ] || exit 0
     key=$(tkey "$TRANSCRIPT")
-    changed=$(changed_files "$TRANSCRIPT")
-    [ -n "$changed" ] && spawn_capture "$TRANSCRIPT" "$changed" "$key"
     mark_done "$key"
+    (
+      changed=$(changed_files "$TRANSCRIPT")
+      [ -n "$changed" ] && spawn_capture "$TRANSCRIPT" "$changed" "$key"
+    ) </dev/null >/dev/null 2>&1 &
     ;;
 
   stop)
