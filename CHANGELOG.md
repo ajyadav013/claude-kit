@@ -4,6 +4,55 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.59.0] — 2026-07-08
+
+**The kit gains a deploy-execution skill — the lifecycle's last mile.** Until now the pipeline
+deliberately stopped at a merge-ready PR: `devops-engineer`/`/ci-cd-and-automation`/
+`/shipping-and-launch` *prepared* delivery, but nothing executed and verified a deployment. The
+new `deploy` skill closes that gap for projects whose deployment is driven from the repo,
+generalized from a battle-tested platform workflow contributed by the project owner
+(commit-in-format → tag → watch pipeline → verify pods → test → repeat).
+
+### Added
+
+- **`skills/deploy` — a configuration-driven deploy-and-verify loop** (standard + enterprise
+  profiles; lean stays minimal). First run interviews the user — integration branch, byte-exact
+  commit format, deploy trigger (tag push / branch push / CI dispatch / deploy command),
+  pipeline monitor (CI CLI, provider MCP, browser dashboard via Chrome DevTools MCP, or
+  manual), and runtime verification (Kubernetes rollout/pods, container/compose listings,
+  cloud service CLIs, PaaS CLIs, HTTP health/version endpoints, log queries) — and persists the
+  answers to `.claude/config/deploy.yaml` so the interview never repeats. Modes: single run,
+  `commit-only`, `no-deploy`, `setup`, and `loop` (implement → local checks → commit → merge →
+  trigger → monitor → verify → browser-test → findings become the next iteration's worklist).
+  Safety rails: read-only verification commands, no force-push, no deploying from the default
+  branch unless trunk-based is configured, migration-bearing releases pause for human
+  confirmation with a rollback note, evidence-or-it-didn't-happen success claims (new revision
+  observably live, not just a green build), a 3-strike stop, and an iteration cap. The skill
+  executes an existing human-designed delivery path — it never invents one (that remains
+  `/ci-cd-and-automation` + `/shipping-and-launch` territory).
+- The scaffolded project README's DevOps/release row now leads with `/deploy` (covered by the
+  0.58.2 phantom-command drift test — it must exist in the payload, and it does).
+
+### Changed
+
+- Skill counts: **105** context-activated skills (57 core + 48 stack-collection); standard
+  default-stack install goes 42 → 43. README footprint/compare tables updated to match
+  (verified empirically via `catalog.resolve()` per profile).
+
+### Not adopted (deliberately)
+
+- **An `autonomous-deploy` autonomy level** — the skill stays governed by the user's Claude
+  Code permission settings plus its own human-gate points (migrations, conflicts, 3-strike
+  escalation) rather than adding a standing autonomy tier that permits merges/deploys. If
+  demand materializes, that's a separate, explicit `autonomy-levels.md` revision with its own
+  review — not a rider on a skill PR.
+- **Auto-rollback on failed verification** — the loop stops and escalates with evidence
+  instead of executing rollbacks itself; rollback commands vary too much across platforms to
+  run unconfirmed, and a wrong rollback is worse than a paused loop.
+- **A `postgres`/K8s-specific verification agent** — verification is config data
+  (`verify:` commands in `deploy.yaml`), not a new agent; the stack-agnostic core stays
+  tool-neutral with balanced example menus only.
+
 ## [0.58.2] — 2026-07-08
 
 **The advisory hook layer is now actually visible, and the scaffolded docs stop advertising
