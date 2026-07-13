@@ -81,8 +81,17 @@ backend:
             format: "ruff format ."
         django:
           label: "Django"
-          status: planned
+          overlay_rules: [django-patterns.md]
+          overlay_agents: []
+          skills: [api-and-interface-design]
           stack_dir: backend/python/django
+          commands:
+            install: "pip install -r requirements.txt"
+            dev: "python manage.py runserver"
+            test: "python manage.py test"
+            lint: "flake8 . && black --check ."
+            format: "black ."
+            migrate: "python manage.py migrate"
     node:
       label: "Node.js"
       status: planned
