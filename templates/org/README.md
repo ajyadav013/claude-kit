@@ -30,6 +30,10 @@ This directory is the **org capability layer** claude-kit installs when you scaf
 | **User** | `~/.claude/` (per developer, not committed) | personal preferences, personal skills, local overrides |
 | **Organization** | reusable packs/plugins distributed across repos | the shared, approved, versioned capabilities below |
 
+When layers disagree, **overrides only tighten** (autonomy = min, allow = intersect, deny = union) —
+see `.claude/rules/autonomy-levels.md` "Precedence"; the named exceptions are the bypass contract in
+the kit's `docs/org-capabilities.md`.
+
 **Never commit:** local secrets, `.env`, personal tokens, or personal `settings.local.json`.
 
 ## Autonomy & risk

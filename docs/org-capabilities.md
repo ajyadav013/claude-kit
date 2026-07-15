@@ -189,6 +189,23 @@ via `/deprecation-and-migration`; have security/DevOps approve hooks and sensiti
 and roll out repo-by-repo with `claude-kit diff` → `claude-kit upgrade`; run different autonomy levels
 per repo; capture recurring prompts (→ skills) and mistakes (→ rules) via the `remember` skill.
 
+### Precedence & the bypass contract
+
+**Overrides only tighten.** Repo- and user-level settings may lower autonomy, add gates/denies, or
+escalate a warn to a block — never the reverse (allow = intersect, deny = union, autonomy =
+min(org, repo)); see `.claude/rules/autonomy-levels.md` "Precedence". The corollary is that every
+*legitimate* way around the policy must be **named**, so none is discoverable-only. The kit's real
+bypass surfaces are exactly these:
+
+| Bypass surface | What it bypasses | Guardrail around it |
+|----------------|------------------|---------------------|
+| `claude-kit upgrade --force` | edit-preserving upgrade (overwrites drifted kit files) | drifted originals are backed up as sidecars; diff first |
+| Sidecar take-ownership (keep your edit, discard the kit's `.claude-kit` sidecar) | kit ownership of a file | the manifest marks it user-owned from then on — upgrades stop touching it |
+| Breakglass (emergency human override) | a gate or block during an incident | scoped + logged per `.claude/rules/human-in-the-loop.md`; reviewed afterwards |
+| `bypassPermissions` mode | Claude Code's permission prompts | org-side `disableBypassPermissionsMode` can remove it entirely |
+
+Anything not on this list that circumvents policy is a finding, not a feature.
+
 ### Planned
 
 `claude-sdlc package-org-pack` / `install-org-pack` are registered as **planned** stubs — they will
