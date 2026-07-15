@@ -142,6 +142,38 @@ A single-turn eval will not catch this; claude-kit's own agents run over long mu
 > [`microsoft/lost_in_conversation`](https://github.com/microsoft/lost_in_conversation). Re-derived in
 > prose; not vendored.
 
+## 9. Evals as versioned, declarative config — gated in CI
+
+Keep the eval suite as **one declarative config file in the repo** — cases × graders × pass
+thresholds together (the shape popularized by promptfoo-style runners; any runner with those three
+parts qualifies). Config-as-data is what makes the Rules below enforceable: the eval diff rides in
+the same PR as the behavior change, and CI — not memory — runs it.
+
+- **Trigger on behavior-changing paths.** Path-filter the CI job to the files that change model
+  behavior (prompts, rules, skills, agent definitions, model/tier config) so the suite runs when it
+  must and stays out of unrelated PRs.
+- **Gate on parsed results, not exit codes alone.** Emit machine-readable output (JSON / JUnit),
+  parse the pass rate, and fail the job against the declared threshold — that is what turns the eval
+  into a *gate* (§6) instead of a log line.
+- **Cache responses keyed on the prompt-set hash.** Reruns whose inputs didn't change replay from
+  cache — CI stays fast and cheap, and a score delta isolates the change you actually made.
+- **Record lineage.** Stamp every run with the git SHA and a run id, so any score is traceable to
+  the exact config + code that produced it.
+
+## 10. Colocate a skill's evals with the skill
+
+A skill's eval lives **beside the skill** — an `evals/evals.json` next to its `SKILL.md` declaring
+the cases (the emerging agent-skills colocation convention) — not in a central suite it will drift
+from. Two properties matter more than the file layout:
+
+- **A/B against the skill's absence.** Each case runs *with* and *without* the skill and is judged
+  on assertions the skill's own prose claims (cited criteria, not vibes). A skill that does not
+  measurably beat its absence on its own claims is context cost with no return — the same
+  with/without method as the kit-level harness (`docs/eval-harness.md` in the claude-kit repo),
+  applied per skill.
+- **Runners are referenced, not bundled.** Ready runners exist for exactly this layout (e.g.
+  `agent-skills-eval`); any tool that executes colocated cases with/without the skill qualifies.
+
 ## Rules
 
 1. **No prompt/rule/tool/model change ships without an eval run** that covers the affected behavior.
