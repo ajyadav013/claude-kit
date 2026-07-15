@@ -581,9 +581,12 @@ become blockers — don't just wait at the next join:
   hand it a pre-planned buffer task (investigation, doc refresh, test hardening, design validation).
   Keep a small buffer list ready when you spawn the lanes (see the sprint plan's extra-tasks list).
 - **Context exhaustion → rotate before degradation.** Watch each long-running agent's commit cadence
-  and output quality as a proxy for context budget. Rotate in a fresh agent *before* quality decays,
-  capturing state to working memory first — see the Agent Capacity & Replacement guidance in the
-  `sprint` skill and `.claude/rules/agent-resilience.md`. Don't run one agent until it falls over.
+  and output quality as a proxy for context budget. The observable pressure symptoms (per the
+  `context-engineering` skill): silent partial completion, increasing vagueness, skipped protocol
+  steps. Rotate in a fresh agent *before* quality decays, capturing state to working memory first —
+  and verify the rotated-out agent's handoff against the task's **must-haves, not file existence**.
+  See the Agent Capacity & Replacement guidance in the `sprint` skill and
+  `.claude/rules/agent-resilience.md`. Don't run one agent until it falls over.
 - **Critical-path slippage → re-balance.** If the slowest lane *on the critical path* slips, pull a
   parallelizable task forward onto a free agent, or flag the slip — don't silently absorb it into a
   blown join.
