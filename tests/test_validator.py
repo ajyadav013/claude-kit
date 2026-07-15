@@ -307,3 +307,66 @@ def test_check_catalog_detects_stack_suggesting_missing_skill(tmp_path):
         "stacks suggest missing skills" in m and "nonexistent-skill" in m
         for m in messages
     )
+
+
+def _append_to_rule(tmp_path, payload_text):
+    """Append text to an installed rule file (drift is a WARN, so ok is unaffected by the edit itself)."""
+    rule = tmp_path / ".claude" / "rules" / "quality-gates.md"
+    rule.write_text(rule.read_text(encoding="utf-8") + payload_text, encoding="utf-8")
+
+
+def test_strict_validate_fails_on_critical_hidden_unicode(tmp_path, payload):
+    """A bidi override in deployed prose is an invisible-instruction channel → strict FAIL."""
+    install(payload, tmp_path)
+    _append_to_rule(tmp_path, "\n\u202egnihton od\u202c\n")
+    ok, messages = validator.validate(tmp_path, strict=True)
+    assert not ok
+    assert any(
+        m.startswith("FAIL") and "hidden unicode" in m and "bidi" in m for m in messages
+    ), "\n".join(messages)
+
+
+def test_strict_validate_warns_on_zero_width_characters(tmp_path, payload):
+    install(payload, tmp_path)
+    _append_to_rule(tmp_path, "\nzero\u200bwidth\n")
+    ok, messages = validator.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)  # suspicious, not fatal
+    assert any(m.startswith("WARN") and "zero-width" in m for m in messages)
+
+
+def test_strict_validate_flags_midfile_bom(tmp_path, payload):
+    """A leading BOM is a benign encoding artifact; one appearing mid-file is flagged (WARN)."""
+    install(payload, tmp_path)
+    _append_to_rule(tmp_path, "\nx\ufeffy\n")
+    ok, messages = validator.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)
+    assert any(
+        m.startswith("WARN") and "byte-order mark mid-file" in m for m in messages
+    )
+
+
+def test_strict_validate_reports_nbsp_as_info(tmp_path, payload):
+    install(payload, tmp_path)
+    _append_to_rule(tmp_path, "\nnon\u00a0breaking\n")
+    ok, messages = validator.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)
+    assert any(m.startswith("INFO") and "non-breaking" in m for m in messages)
+
+
+def test_strict_validate_unicode_clean_on_fresh_install(tmp_path, payload):
+    """The shipped payload itself must stay free of hidden Unicode on every tier."""
+    install(payload, tmp_path)
+    ok, messages = validator.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)
+    assert any(
+        m.startswith("OK") and "free of hidden/deceptive Unicode" in m for m in messages
+    )
+    assert not any(m.startswith("INFO") and "hidden unicode" in m for m in messages)
+
+
+def test_nonstrict_validate_skips_unicode_scan(tmp_path, payload):
+    install(payload, tmp_path)
+    _append_to_rule(tmp_path, "\n\u202e\n")
+    ok, messages = validator.validate(tmp_path)
+    assert ok, "\n".join(messages)  # the scan is a strict-mode check
+    assert not any("hidden unicode" in m for m in messages)
