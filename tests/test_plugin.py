@@ -222,6 +222,10 @@ def test_init_command_requires_cli_and_fails_loud() -> None:
         "do not scaffold anything" in text.lower()
         or "not silently fall back" in text.lower()
     )
+    # 0.61.0: a missing CLI OFFERS a self-install (with re-detection) before the stop path.
+    assert (
+        "Install claude-code-kit now" in text and "re-run the detection" in text.lower()
+    )
 
 
 def test_basic_scaffolder_warns_it_is_degraded() -> None:

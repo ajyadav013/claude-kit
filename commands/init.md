@@ -24,9 +24,9 @@ is not installed under any of its names. When an installer is available on PATH 
 - **"Install claude-code-kit now (Recommended)"** — on accept, run `pipx install claude-code-kit`
   (fall back to `pip install claude-code-kit` when pipx is absent), then **re-run the detection
   block above** and proceed only if a CLI name now resolves.
-- **"Skip"** — or if the install fails, or no installer is on PATH: STOP with today's behavior —
-  tell the user the CLI is required, show both install commands below, and have them re-run
-  `/claude-kit:init`. Do **not** silently fall back to a partial install.
+- **"Skip"** — or if the install fails, or no installer is on PATH: STOP — do not scaffold
+  anything. Tell the user the CLI is required, show both install commands below, and have them
+  re-run `/claude-kit:init`. Do not silently fall back to a partial install.
 
 Never ask when the CLI is already present, and never ask when no installer exists on PATH (nothing
 to offer — go straight to the stop-with-instructions):
