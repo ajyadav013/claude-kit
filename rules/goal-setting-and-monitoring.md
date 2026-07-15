@@ -80,6 +80,15 @@ This turns "I think the run is progressing" into a measured session you can grad
 (`.claude/rules/evals.md`) and trend. (This is *agent-run* telemetry; **app and LLM** observability
 live in the `observability-and-logging`, `otel-tracing`, and `langfuse-llm-tracing` skills.)
 
+**Budget the run before you launch it.** Spend is a criterion too — declare it up front like any
+other goal, derived from the orchestration shape: single agent ≈ 1×, maker-checker ≈ 2×,
+parallel-N ≈ N+1× (workers + a merge pass), debate-R ≈ 1+R×. Anything over ~2× the single-agent
+baseline needs a written justification before tokens go out, not an apology after. Record
+**estimate vs actual** in the run telemetry above, and define the **on-exceed action** with the
+budget: stop spawning, checkpoint state to `.claude/CONTINUITY.md`, and escalate per
+`.claude/rules/human-in-the-loop.md` — never silently run past the number you announced. (Wave-scale
+declarations live in `.claude/rules/wave-orchestration.md`'s manifest.)
+
 > Stack-agnostic adaptation of the agent-session instrumentation pattern in the Apache-2.0
 > [`alibaba/loongsuite-js`](https://github.com/alibaba/loongsuite-js) (session→turn→tool/LLM span
 > hierarchy via runtime hooks, GenAI semantic-convention attributes). Re-derived in prose; not vendored.
