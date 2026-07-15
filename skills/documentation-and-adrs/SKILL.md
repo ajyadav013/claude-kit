@@ -239,6 +239,22 @@ Link to ADRs for details.
 How to contribute, coding standards, PR process.
 ```
 
+## Derived Artifacts: Edit the Source, Regenerate the Output
+
+Some documentation is **generated from a structured source of truth** — API docs rendered from an
+OpenAPI spec, config files emitted by a generator script, reference tables built from a registry.
+For these, the discipline is absolute:
+
+- **Edits go to the structured input, never the deliverable.** Hand-patching a generated file
+  creates a fork the next regeneration silently destroys (or worse, that a drift check now has to
+  arbitrate).
+- **State which file is source and which is derived** — in the doc's header or the repo's docs — so
+  no future editor has to guess. An unlabeled generated file *will* eventually be hand-edited.
+- **Regenerate + drift-check in CI.** The generator should have a `--check` mode that fails CI when
+  the committed output no longer matches the source; that single check converts the convention into
+  a guarantee. (claude-kit itself lives this rule: its hook config files are generated from a
+  registry and CI fails on drift.)
+
 ## Changelog Maintenance
 
 For shipped features:

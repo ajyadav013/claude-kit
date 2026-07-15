@@ -48,6 +48,50 @@ class Y, Z% of the time."
 > The pipeline costs more per task by design (more agents, more gates). The question this harness
 > answers is whether the **defects caught** (and their severity) justify that delta **for your task mix**.
 
+## Skill-activation eval (the routing layer)
+
+The arms above grade what happens *after* a skill or rule fires. A separate failure mode sits in
+front of both: does the skill **activate when it should — and stay quiet when it shouldn't**?
+Neither arm measures routing; add it as its own small suite.
+
+- **Trigger F1.** Build two prompt lists per skill: *should-activate* (phrasings a real user would
+  use) and *should-not-activate* (near-misses from neighboring domains). Run both, score activation
+  as binary, report **precision / recall / F1**. A skill with great content and 40% recall is a
+  great document nobody reads; one that fires on near-misses taxes every unrelated task.
+- **Monte Carlo certification for any number you publish.** Activation is stochastic — run each list
+  repeatedly and report the **Wilson confidence interval** on the activation rate, a
+  **Clopper-Pearson bound** on the should-activate failure rate (the conservative "at worst" claim),
+  and a **bootstrap consistency** check across resamples. "Activates 19/20, 95% CI [86%, 99%]" is a
+  claim; "it seems to trigger" is not.
+
+## Falsifiability discipline (before you trust any delta)
+
+- **The falsifiability gate.** Every assertion must **fail in the baseline arm** at least sometimes —
+  an assertion that passes in both arms measures the model, not the pipeline, and supports no claim.
+  Drop it or sharpen it.
+- **Quadrant-classify each row before averaging anything:** **Signal** (fails A, passes B — the
+  pipeline earned it) · **Baseline** (passes both — too easy, doesn't count) · **Unreachable**
+  (fails both — can't discriminate at this model tier) · **Regression** (passes A, fails B — the
+  pipeline *hurt*; investigate before shipping). Only Signal rows support a value claim; every
+  Regression row is a finding in its own right.
+- **Label delta bands.** Report deltas with a qualitative band (noise / weak / strong at your N)
+  rather than celebrating a 3% move the confidence interval can't distinguish from zero.
+- **Path-scoped isolation caveat.** If a rule/overlay is path-scoped (loads only when matching files
+  are touched), confirm both arms actually touch those paths — otherwise the comparison silently
+  measures *activation*, not content.
+
+## Fixed-overhead accounting
+
+Always-injected prose is a **flat tax on every turn**, paid whether or not the content helps that
+turn (measure your own install — see `docs/rules-context-budget.md`; even a single always-on rule
+file costs on the order of 1–1.5k tokens per turn, and a full rule set far more). So the eval
+question is not "does the pipeline help" but "does the help **beat the tax** for your task mix":
+
+- Put the per-turn injected overhead in the Cost table, not only per-task totals.
+- The only honest end-to-end number is a **billing A/B** — the same task mix with and without,
+  compared on what you were actually charged. Token figures extrapolated from a single run are
+  estimates: label them **est.**
+
 ## Honesty rules
 
 - **Never publish numbers you did not run.** A "90%" from one run and from twenty runs are not the same

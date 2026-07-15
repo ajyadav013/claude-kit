@@ -17,9 +17,19 @@ command -v claude-kit >/dev/null 2>&1 && echo "CKIT_CLI=claude-kit" \
   || echo "CKIT_CLI_MISSING"; }; }
 ```
 
-**If the output is `CKIT_CLI_MISSING`, STOP — do not scaffold anything.** The CLI is not installed
-under any of its names. Tell the user it is required and how to install it, then have them re-run
-`/claude-kit:init`. Do **not** silently fall back to a partial install:
+**If the output is `CKIT_CLI_MISSING`, offer to install it — never scaffold without it.** The CLI
+is not installed under any of its names. When an installer is available on PATH (`pipx`, else
+`pip`/`pip3`), ask ONE AskUserQuestion with the install option first:
+
+- **"Install claude-code-kit now (Recommended)"** — on accept, run `pipx install claude-code-kit`
+  (fall back to `pip install claude-code-kit` when pipx is absent), then **re-run the detection
+  block above** and proceed only if a CLI name now resolves.
+- **"Skip"** — or if the install fails, or no installer is on PATH: STOP — do not scaffold
+  anything. Tell the user the CLI is required, show both install commands below, and have them
+  re-run `/claude-kit:init`. Do not silently fall back to a partial install.
+
+Never ask when the CLI is already present, and never ask when no installer exists on PATH (nothing
+to offer — go straight to the stop-with-instructions):
 
 - Recommended: `pipx install claude-code-kit`
 - Or: `pip install claude-code-kit`

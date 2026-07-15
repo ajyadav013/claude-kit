@@ -13,6 +13,16 @@ deterministic parts are enforced by hooks and `settings.permissions`, the rest i
 | **autonomous-pr** | create branches + PR-ready changes | **merge** — human review is required before merge |
 | **enterprise-controlled** | work only through strict gates with an audit trail | edit sensitive files without approval; complete without the security + review agents passing |
 
+## Precedence — overrides may only tighten
+
+When org policy and a repo- or user-level setting disagree, the resolution is always the **stricter**
+of the two: effective autonomy = **min(org, repo)**; allow-lists **intersect**; deny-lists **union**;
+a warn may be escalated to a block locally, but a block is never downgraded to a warn. A repo can
+run *more* cautiously than its org demands, never less — there is no repo-level "loosen" switch.
+Legitimate exceptions go through the named bypass surfaces (the "Bypass contract" in
+`docs/org-capabilities.md` of the claude-kit repo), which are explicit and auditable — not a quiet
+config override.
+
 ## Rules
 
 - **Never exceed the active level.** If a task needs more autonomy than granted, stop and ask — do not

@@ -68,10 +68,64 @@ Before submitting, **re-check the live documentation** at the URLs below. Plugin
 - Plugin marketplaces: [code.claude.com/docs/en/plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces)
 - Plugin reference: [code.claude.com/docs/en/plugins-reference](https://code.claude.com/docs/en/plugins-reference)
 
+## Directory Review Self-Audit
+
+Directory reviewers apply pass/fail criteria a submitter can run against themselves first. Three
+that decide outcomes:
+
+1. **Description-matches-behavior (the surprise test).** For every hook, command, and skill: would
+   a user who read only its description be *surprised* by anything it actually does? Any surprise
+   is a fix-before-submitting.
+2. **Undisclosed outbound calls = automatic fail.** Every network touch (direct or via a spawned
+   tool) must be disclosed in the component's description *and* have an opt-out.
+3. **The whole shipped payload is in scope — including directories the plugin doesn't load.**
+   A git-source install clones everything (`scripts/`, `templates/`, `catalog/`, `examples/`), so
+   the audit covers the full tree, not just auto-discovered components.
+
+### First-party hook audit (run against this kit's own registry)
+
+All hooks in the shipped registry, in the reviewer's format — `EVENT:hook — gated|advisory —
+network`. **gated** = can block the action (exit 2 / deny); **advisory** = warn-or-context only,
+always exits 0. Every script degrades to a no-op without `jq`. Regenerate this table when the
+registry changes (`src/claude_kit/hooks.py` is the source of truth; `gen_hooks.py --check` pins the
+generated configs).
+
+| Hook | Event | Mode | Network | In plugin hooks.json |
+|------|-------|------|---------|----------------------|
+| load-continuity | SessionStart | advisory | no | yes |
+| load-learnings | SessionStart | advisory | no | yes |
+| load-autonomy | SessionStart | advisory | no | yes |
+| capture-learnings-catchup | SessionStart | advisory | **indirect** — spawns a background `claude` job (model API); disclosed, opt-out `CLAUDE_KIT_NO_AUTOCAPTURE=1` | yes |
+| guard-rm-rf | PreToolUse | **gated** (inline) | no | yes |
+| guard-push-main | PreToolUse | **gated** | no | yes |
+| guard-destructive-git | PreToolUse | **gated** | no | yes |
+| protect-secrets | PreToolUse | **gated** (inline) | no | yes |
+| guard-commit-secrets | PreToolUse | **gated** | no | yes |
+| validate-settings | PreToolUse | **gated** | no | yes |
+| warn-shared-modules | PreToolUse | advisory | no | yes |
+| warn-llm-io | PreToolUse | advisory | no | yes |
+| warn-sensitive-files | PreToolUse | advisory | no | yes |
+| warn-large-edits | PreToolUse | advisory | no | starter only |
+| validate-frontmatter | PreToolUse | advisory | no | starter only |
+| warn-missing-tests | PostToolUse | advisory | no | starter only |
+| audit-log | PostToolUse | advisory | no | starter only |
+| lint-fix | Stop | advisory (runs the project's linter) | no | yes |
+| type-check | Stop | advisory (runs the project's type-checker) | no | yes |
+| capture-learnings-stop | Stop | advisory | indirect — same `claude` job + opt-out as above | starter only |
+| capture-learnings | SessionEnd | advisory | indirect — same `claude` job + opt-out as above | yes |
+
+**Audit result:** 21 registry hooks (16 ride the plugin's `hooks.json`; the rest install via the
+scaffolded starter `settings.json`). One behavior family touches the network, *indirectly*, via a
+spawned `claude` background job (learning capture) — disclosed in the init interview, surfaced by
+`doctor`, and opt-out via `CLAUDE_KIT_NO_AUTOCAPTURE=1`. No hook makes a direct outbound call. All
+gated hooks are deterministic string/path guards with no data egress. This passes criteria 1–3
+above as of the audit date; re-run after any hook change.
+
 ## Owner Submission Checklist
 
 - [ ] Run `claude plugin validate .` and `claude plugin validate . --strict`
 - [ ] Fix any validation errors (warnings are optional)
+- [ ] Re-run the Directory Review Self-Audit above (hook table current, no undisclosed network, no description surprises)
 - [ ] Verify the live submission form and documentation links above
 - [ ] Consider the optional manifest hygiene items (not required)
 - [ ] Choose submission path: solo (platform.claude.com) or organization (claude.ai)

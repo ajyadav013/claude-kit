@@ -115,6 +115,23 @@ Global store                     → Complex client state shared app-wide
 
 ## Design System Adherence
 
+### Capture the Design Intent as a Specific Reference
+
+Before styling anything new, pin down what the design is *aiming at* — and demand **one concrete
+world-reference over a list of adjectives**. "Modern, clean, premium" describes a region containing
+thousands of incompatible designs; "a 1970s graduate lecture handout" or "a Braun product manual"
+describes a point you can actually converge on. When the user offers only adjectives, ask for the
+reference ("what existing thing should this feel like?") — that one answer replaces a whole
+round of taste-guessing iterations.
+
+- Pair the reference with a **short, intentional Do's/Don'ts list** (3–5 each). A rambling
+  don't-list is a signal the reference is still vague — sharpen the reference instead of growing
+  the list.
+- **Design tokens are context serving that prose, not rendering instructions.** The
+  reference + Do's/Don'ts carry the intent; tokens (spacing scale, palette, radii) are the
+  vocabulary it gets expressed in. Tokens without a reference reproduce the AI aesthetic below in
+  the project's own colors.
+
 ### Avoid the AI Aesthetic
 
 AI-generated UI has recognizable patterns. Avoid all of them:

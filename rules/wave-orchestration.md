@@ -124,6 +124,14 @@ Announce the spend before it happens: the manifest states the worker count per w
 orchestrator repeats that count (and its model tiers) when opening each wave — scale is vetoable
 before the tokens go out, not after.
 
+Counts and tiers are the minimum; a load-bearing manifest declares the **full spend envelope as
+data** beside them, per wave: a **hard spawn cap** (the count is a plan; the cap is a limit), a
+**max-turns bound per worker**, a **wall-clock timeout for the wave**, and a **token ceiling** —
+with the on-exceed action declared up front (stop spawning, checkpoint, escalate) per
+`.claude/rules/goal-setting-and-monitoring.md` §4. That makes both *scale and spend* vetoable
+before launch, and makes "the wave ran hot" a measured fact (estimate vs actual) instead of a
+surprise on the bill.
+
 ## Native dynamic workflows as the wave substrate
 
 Claude Code ≥ 2.1.154 ships a native **dynamic-workflows engine**: Claude writes a JavaScript

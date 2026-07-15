@@ -4,6 +4,75 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.61.0] — 2026-07-15
+
+**OSS-adoption wave 2 — nine more items from the 1,345-repo scan backlog** (wave 1 = 0.60.0 below).
+Same discipline: everything re-derived as stack-agnostic prose/data; nothing vendored.
+
+### Added
+
+- **`agent-guardrails` hardening pass** (completes the three guardrails items begun in 0.60.0):
+  the unfamiliar-CLI protocol (`--help` on the *exact leaf command* before first use — validation
+  is not transitive from parent groups; single-item schema discovery before unconstrained list
+  queries), cloud control-plane categories added to the §3 Block tier (IAM/role-binding, billing,
+  org governance, KMS-class key ops, enabling paid APIs, autonomous IaC apply — dry-run/preview
+  mandatory where offered), and a graceful-degradation token ladder in the §4 resource bounds
+  (warn fraction → wrap-up, hard-stop fraction → final answer, ceiling coupled to compaction).
+- **Evals upgrade** (`rules/evals.md` §9–10 + `docs/eval-harness.md`): evals as one versioned
+  declarative config gated in CI (path filters, parsed JSON/JUnit pass-rate, prompt-set-hash
+  response cache, SHA + run-id lineage); colocate a skill's evals beside its `SKILL.md` with
+  with/without-skill A/B judged on the skill's own claims. The harness doc gains the
+  skill-activation eval (trigger F1 + Wilson/Clopper-Pearson/bootstrap certification — the
+  routing-layer failure mode neither arm measured), the falsifiability discipline (assertions must
+  fail in baseline; Signal/Baseline/Unreachable/Regression quadrants; labeled delta bands;
+  path-scoped isolation caveat), and fixed-overhead accounting (always-injected prose is a
+  per-turn flat tax; billing A/B is the only honest end-to-end number).
+- **Pre-run budget declarations**: `goal-setting-and-monitoring` §4 budgets the run from its
+  orchestration shape (>2× single-agent needs written justification; estimate-vs-actual recorded;
+  on-exceed action declared up front) and `wave-orchestration`'s manifest extends
+  announce-the-spend to a full per-wave envelope (hard spawn cap, per-worker max turns, wall-clock
+  timeout, token ceiling) declared as data.
+- **Org governance**: `autonomy-levels` precedence — repo/user overrides may only **tighten**
+  (autonomy = min, allow = intersect, deny = union); `docs/org-capabilities.md` gains the **bypass
+  contract** — every legitimate bypass surface named in one table with its guardrail
+  (`upgrade --force`, sidecar take-ownership, breakglass, `bypassPermissions` + its org disable).
+- **Evidence-based `warn-missing-tests` hook**: convention-named test-file search (same dir +
+  `tests//test//__tests__` walking up) silences the old blanket nag when a test exists; specific
+  messages otherwise ("no test file for X" vs "no RED test recorded — write it first" via
+  `.pytest_cache`); curated skip list for generated/infra trees. Still advisory; still no-ops
+  without `jq`.
+- **`/claude-kit:init` self-install loop**: a missing CLI now offers "Install claude-code-kit now
+  (Recommended)" (pipx, else pip) with re-detection before proceeding; skip/failure/no-installer
+  keep the stop-with-instructions behavior.
+- **Doc-skill upgrades**: `refresh-docs` diffs the documented surface against the code surface and
+  classifies each divergence (`missing_in_docs` / `missing_in_code` / `signature_mismatch` /
+  `description_mismatch`, severity-guided); `documentation-and-adrs` gains the derived-artifact
+  discipline (edit the structured source, regenerate the deliverable, label source-vs-derived,
+  drift-check in CI).
+- **Design intent capture** (`frontend-ui-engineering`): one concrete world-reference over
+  adjective lists; short intentional Do's/Don'ts; tokens are context serving the reference, not
+  rendering instructions.
+- **Directory-review self-audit** (`docs/launch/directory-submission.md`): the reviewer's pass/fail
+  criteria plus the audit run against the kit's own registry — all 21 hooks tabulated (event,
+  gated/advisory, network, plugin-vs-starter); finding: zero direct network calls, one disclosed
+  indirect family (learning capture's background `claude` job, opt-out
+  `CLAUDE_KIT_NO_AUTOCAPTURE=1`).
+
+### Fixed
+
+- `refresh-docs` shipped another project's literal doc paths and a nonexistent `frontend-dev`
+  agent name in its examples — now marked as example shapes / corrected to general-purpose
+  subagents.
+
+### Not adopted (deliberately)
+
+- **The two L-sized scan items** — the `context-engineering` consolidation (8 merged proposals)
+  and the `tool-design` expansion (7 merged proposals) — are deferred to their own focused wave:
+  they overlap each other on the same two files and deserve a single coherent editing pass, not a
+  tail-end squeeze.
+- **The 10 user-gated items** remain gated (list in the 0.60.0 block below) — unchanged, awaiting
+  owner decisions.
+
 ## [0.60.0] — 2026-07-15
 
 **OSS-adoption wave 1 — the first tranche from a 1,345-repo scan.** 39 provenance-tagged GitHub
