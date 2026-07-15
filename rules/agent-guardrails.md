@@ -65,6 +65,13 @@ Before declaring a stage done or handing to the next agent/human:
 
 - **Only the tools the role needs.** An agent's `tools:` frontmatter is its privilege boundary — a
   read-only reviewer should not carry write/exec tools. Keep the set minimal; widen it only with reason.
+- **Restrictive mode on by default.** When a tool or MCP server offers a restrictive mode (a read-only
+  flag, a mutation-consent gate), enable it and loosen deliberately — `catalog/mcp.yaml` ships every
+  such fragment this way. Two honesty caveats when relying on these flags: a "read-only" flag is
+  usually an **API-classification allowlist** (the vendor's list of which calls count as reads), not a
+  filesystem or data guarantee; and any client-side flag is **secondary to the real authorization
+  boundary** — the backend's IAM/role grants are what actually limit blast radius, so scope those
+  first and treat the flag as a second layer, never the first.
 - **Destructive or outward-facing actions are gated.** Deleting/overwriting files you didn't create,
   force-pushing, deploying, publishing, or sending data to an external service are **human decision
   points** — see `.claude/rules/human-in-the-loop.md`. Confirm first.
@@ -147,6 +154,17 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
   > capability policy + argument-level validation + OS-level (eBPF-LSM/seccomp) enforcement backstop —
   > from the MIT [`facebook/mcpguard-dynamic`](https://github.com/facebook/mcpguard-dynamic). Re-derived
   > in prose; not vendored.
+- **Track toxic-flow combinations across the whole enabled tool set.** Classify every tool/MCP server
+  by which of four legs it introduces: **untrusted content** (it reads text strangers can author —
+  issues, tickets, web pages, log events), **private data** (it can read your secrets, code, DB rows,
+  cloud state), **destructive** (it can write/mutate), and **egress** (it can send data out). Each leg
+  is manageable alone; the *combination* is the vulnerability: when the jointly-enabled set covers
+  **untrusted content + private data + egress**, one injected instruction in the untrusted leg can
+  complete a full exfiltration chain through the other two. Treat that joint coverage as the trigger
+  to either **drop a leg** (disable a server, flip its read-only mode, gate mutations on consent) or
+  apply the fail-closed sandbox policy above (network deny-by-default, so the egress leg is
+  allowlisted, not open). `catalog/mcp.yaml` annotates every shipped fragment with its
+  `toxic-flow legs:` so the joint check is a read, not an audit.
 - **Audit dependencies; don't auto-trust the ecosystem.** Treat third-party packages, MCP servers, and
   marketplace plugins as untrusted until reviewed — installing one grants it your agent's privileges.
 
