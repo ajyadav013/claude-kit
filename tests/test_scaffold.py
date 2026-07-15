@@ -246,6 +246,19 @@ def test_repowise_mcp_written_when_selected(tmp_path, payload):
     ]
 
 
+def test_chrome_devtools_mcp_written_when_selected(tmp_path, payload):
+    """The opt-in chrome-devtools server (the auditor agent's dependency) lands as a pinned stdio entry."""
+    target = tmp_path / "cdt"
+    install(payload, target, mcp=["chrome-devtools"])
+    doc = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert "chrome-devtools" in doc["mcpServers"]
+    assert doc["mcpServers"]["chrome-devtools"]["type"] == "stdio"
+    assert doc["mcpServers"]["chrome-devtools"]["args"] == [
+        "-y",
+        "chrome-devtools-mcp@1.6.0",
+    ]
+
+
 def test_gitignore_is_selective(tmp_path, payload):
     install(payload, tmp_path)
     gi = (tmp_path / ".gitignore").read_text(encoding="utf-8")

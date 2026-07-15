@@ -4,6 +4,42 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.63.0] — 2026-07-16
+
+**Catalog fix — the `auditor` agent can finally get the MCP server it depends on.** The `auditor`
+agent (enterprise profile) drives its entire audit workflow — navigate, snapshot, screenshot,
+performance trace, console inspection — through the **Chrome DevTools MCP**, but `catalog/mcp.yaml`
+only offered `playwright`, so a user who installed the auditor had **no catalog option** to enable
+the server it requires. This surfaced during a full-lifecycle SDLC coverage audit (external /
+black-box testing vertical). Pure data change — no `resolve()` branches, no new agents/skills
+(golden rule #7).
+
+### Added
+
+- **`chrome-devtools` MCP server** in `catalog/mcp.yaml` — stdio, pinned to
+  `chrome-devtools-mcp@1.6.0` (the official Google Chrome DevTools MCP; referenced, not vendored,
+  like every other catalog server). Selectable via `claude-kit init` / `list-options`; writes into
+  the project `.mcp.json` + `.mcp.lock.json` when chosen. Carries the same toxic-flow annotation
+  discipline as `playwright` (untrusted-content on any loaded page · egress to arbitrary URLs —
+  point it only at trusted dev/staging targets).
+
+### Changed
+
+- `docs/install.md` MCP-integrations list now enumerates Chrome DevTools (the canonical full list
+  stays `claude-kit list-options`).
+
+### Not adopted (deliberately)
+
+- **No auto-wiring of `chrome-devtools` to the auditor agent or the enterprise profile.** MCP
+  servers stay user-selected and opt-in across the whole catalog — a browser MCP is a real egress
+  surface, so the user makes the trust decision. The fix closes the *availability* gap (the server
+  is now offerable); it does not silently enable a browser in anyone's project.
+- **The deeper external/black-box testing gaps stay open for an owner decision** — no gate spawns
+  the `auditor` (it remains available-but-not-gated), and there is still no page-performance-budget
+  enforcement, visual-regression, or synthetic uptime probe. Those are enforcement-design choices
+  (they change what blocks a pipeline), tracked in the SDLC coverage audit alongside the existing
+  user-gated backlog; this release deliberately ships only the self-contained catalog correctness fix.
+
 ## [0.62.0] — 2026-07-15
 
 **OSS-adoption wave 3 — the two L-sized consolidation items that close out the implement-now
