@@ -72,6 +72,13 @@ Before declaring a stage done or handing to the next agent/human:
   filesystem or data guarantee; and any client-side flag is **secondary to the real authorization
   boundary** — the backend's IAM/role grants are what actually limit blast radius, so scope those
   first and treat the flag as a second layer, never the first.
+- **Unfamiliar-CLI protocol — validate the leaf, then discover the schema.** Before first use of a
+  CLI subcommand you haven't run in this project, read `--help` on the **exact leaf command** you are
+  about to invoke — validation is not transitive from a parent group (`tool db --help` tells you
+  nothing about `tool db restore`'s destructive flags). And before any unconstrained list/query
+  call, do **single-item schema discovery** first (`--limit 1` + machine-readable output), then
+  re-query projected to only the fields you need — you learn the response shape without flooding
+  your context or hammering the backend.
 - **Destructive or outward-facing actions are gated.** Deleting/overwriting files you didn't create,
   force-pushing, deploying, publishing, or sending data to an external service are **human decision
   points** — see `.claude/rules/human-in-the-loop.md`. Confirm first.
@@ -86,7 +93,11 @@ and act on it — do not improvise a destructive step because it seems convenien
 - **Block — never autonomously.** Force-push, rewriting already-published history, deleting a branch
   or tag, a destructive schema change against live data (`DROP` / `TRUNCATE` / column drop / a
   narrowing or `NOT NULL` on existing rows), bulk or recursive deletion, or disabling a safety
-  control. These need explicit human authorization first — the **restricted** tier of
+  control. In cloud control planes the same tier covers: **IAM / role-binding changes, billing
+  changes, org-level governance edits, KMS-class key operations** (schedule-delete, disable,
+  rotation changes), **enabling paid APIs/services, and an autonomous IaC apply** — where the tool
+  offers a dry-run/preview/plan mode, running it is mandatory and its output goes to the human with
+  the request. These need explicit human authorization first — the **restricted** tier of
   `.claude/rules/risk-classification.md`. Several are also stopped deterministically by
   `hooks/scripts/guard-destructive-git.sh` and the `rm -rf` / push-to-main guards.
 - **Confirm — pause and get a yes.** Deleting or overwriting a file you did not create, applying a
@@ -126,7 +137,11 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
     default (never "the whole disk, minus a deny-list").
   - **Network** — deny outbound by default; allowlist only the hosts the task genuinely needs.
   - **Resource bounds** — wall-clock timeout plus memory/output caps, so a runaway or adversarial step
-    fails *closed* instead of hanging or flooding.
+    fails *closed* instead of hanging or flooding. For token budgets, degrade **gracefully** rather
+    than cliff-stopping: a warn fraction (~80%) injects a wrap-up signal (finish the current step,
+    persist state), a hard-stop fraction forces a final answer from what is in hand, and the ceiling
+    is set with compaction in mind — when compaction is active the ceiling bounds a *window*, not
+    the run, so couple the two deliberately.
   - **Versioned & runtime-updatable** — keep the policy as data you can tighten mid-run (ties to §5's
     revocable authz) and review afterward, not constants baked into the agent.
 
