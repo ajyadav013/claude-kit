@@ -55,7 +55,7 @@ Generate a sprint plan for backlog item #$ARGUMENTS.
 ## Agent Capacity & Replacement Planning
 
 Plan agent capacity *proactively*, not only reactively when one hits its context limit. An agent's
-output quality decays as its context fills (see `.claude/rules/context-engineering.md` and the
+output quality decays as its context fills (see the `context-engineering` skill and the
 context-budget guidance in `.claude/rules/agent-resilience.md`):
 
 - **Budget work per agent.** Estimate the tasks (and the test/verification load) each agent will

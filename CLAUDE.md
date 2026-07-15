@@ -137,6 +137,7 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
   shellcheck -S warning hooks/scripts/*.sh scripts/*.sh
   python scripts/gen_hooks.py --check          # hooks.json + settings.json drift
   python scripts/check_docs_consistency.py     # version parity + CHANGELOG heading
+  python scripts/check_cross_references.py     # rule/skill/agent refs in prose exist (warn-only)
   ```
 - **Stack-leakage guard:** `grep -rInE 'fastapi|sqlalchemy|alembic|docker' rules agents skills` — should
   be clean (balanced multi-framework *example* lists are acceptable; a real leak is agnostic logic

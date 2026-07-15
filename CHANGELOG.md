@@ -4,6 +4,75 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.60.0] — 2026-07-15
+
+**OSS-adoption wave 1 — the first tranche from a 1,345-repo scan.** 39 provenance-tagged GitHub
+searches gathered 1,345 unique AI/Claude/MCP/context-engineering repositories; batch triage,
+48 deep-dives, and an adversarial verification pass confirmed 76 adoption ideas, merged into a
+30-item backlog. This release ships the six highest value-per-effort items — everything
+re-derived as stack-agnostic prose/data per the reuse-first discipline; nothing vendored.
+
+### Added
+
+- **Agent-config supply-chain vetting canon** (`dependency-verification` skill). Third-party
+  skills/agents/MCP entries/hooks are dependencies whose payload is *instructions executed with
+  your agent's privileges*. New canonical intake: threat taxonomy, provenance pinning to
+  repo + SHA, structural read, ONE deterministic hidden-content grep (zero-width · bidi ·
+  Unicode Tags · instruction-keyword HTML comments · data-URIs · long base64), the
+  credential-ownership routing test, **never load-to-inspect** (a stdio MCP entry executes on
+  config load), and a pre-vendoring license check. Scanner pointers referenced, not bundled
+  (snyk-agent-scan, NVIDIA SkillSpector, Invariant mcp-scan). Cross-linked from
+  `using-agent-skills` (Skill Rule 5), `security-and-hardening`'s supply-chain reference (two
+  new subsections), and `agent-guardrails` §4 + the ASI04 row.
+- **5 new MCP fragments** (17 → **22**), pins verified live: `aws_knowledge` (first-party AWS
+  docs, hosted), `aws_api` (awslabs control plane, shipped read-only + mutation-consent, with
+  the honesty notes that the flag is an API-classification allowlist and secondary to IAM),
+  `skillspector` (NVIDIA skill scanner), `serena` (semantic code navigation), `semble` (local
+  codebase index).
+- **Toxic-flow legs taxonomy across the MCP catalog.** Every fragment now carries a
+  `# toxic-flow legs:` note naming which of {untrusted-content · private-data · destructive ·
+  egress} it introduces; the catalog header documents the RESTRICTIVE-BY-DEFAULT policy and
+  `agent-guardrails` §4 gains the joint-coverage rule (untrusted + private + egress ⇒ drop a
+  leg or apply the fail-closed sandbox), §3 the restrictive-mode-on-by-default bullet.
+- **Hidden-Unicode scan in `validate --strict` / `doctor`.** Deployed prose (`.claude/**/*.md`
+  + root `CLAUDE.md`) is scanned for invisible-instruction characters, tiered: critical
+  (Unicode tags, bidi overrides/isolates, variation selectors 17-256) FAILs strict validation;
+  warning (zero-width, bidi marks, mid-file BOM, non-UTF-8) WARNs; NBSP surfaces via a new
+  INFO channel. Output capped per tier; the shipped payload is pinned clean by test. 6 new tests.
+- **Cross-reference gardener** (`scripts/check_cross_references.py`, wired into CI warn-only
+  with `--strict` available). Extracts every `.claude/{rules,skills,agents}/...` reference from
+  shipped prose and checks the target ships in core, a stack overlay, or the org overlay. Its
+  first run found and this release fixes two real defects: `sprint` and the FastAPI overlay
+  both pointed at `.claude/rules/` paths for content that ships as *skills*
+  (`context-engineering`, `deprecation-and-migration`).
+
+### Changed
+
+- **Orchestrator: independent VALIDATE step.** After each developer lane (parallel FE/BE,
+  single-stack, and fast-track alike) the orchestrator now re-runs the project's test +
+  build/lint commands itself and compares `git diff --name-only` against the story's declared
+  file scope before code review — a structural form of the evidence rule; out-of-scope changes
+  are a defect.
+- **`consolidate-learnings`: new Promote step (§6).** 3+ same-domain procedure learnings (or one
+  applied 3+ times) graduate into a project-local skill (`.claude/skills/<domain>/`) or
+  user-owned rule — upgrade-safe non-kit files — with a pointer left in MEMORY.md and an
+  update-vs-create decision tree (fewer rich skills beat many thin ones). `agent-memory`'s
+  Procedural row documents the graduation path.
+
+### Not adopted (deliberately)
+
+- **10 scan items are user-gated, not silently shipped** — each changes surface the owner
+  should decide: an `/sdlc` Stop-hook completion guard (enforcement-tier choice), two new hook
+  surfaces (warn-context-flood; detect-correction on UserPromptSubmit), a DESIGN.md template +
+  a visual-report core skill (both move CI-anchored counts/conventions), a core/stack-skills
+  marketplace split (distribution shape), a `.agents/skills` export target, a React performance
+  overlay, an org-scope skill-governance rule, and a consolidate-learnings compression pass
+  (it would reverse that skill's stated no-information-loss policy).
+- **The remaining 14 implement-now backlog items** are queued for later waves — deferred, not
+  dropped.
+- **Vendoring any scanner or example code** from the scanned repos — the kit ships prose/data
+  only; scanners stay referenced with their licenses noted.
+
 ## [0.59.0] — 2026-07-08
 
 **The kit gains a deploy-execution skill — the lifecycle's last mile.** Until now the pipeline

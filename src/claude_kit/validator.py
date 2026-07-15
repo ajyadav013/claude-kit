@@ -3,8 +3,9 @@
 ``validate`` performs structural checks (files present, JSON parses, frontmatter complete,
 referenced overlays installed). Passing ``strict=True`` adds deep checks: settings.json hooks point
 at installed, executable scripts on valid events; ``.mcp.json`` has a sane shape; the resolved stack
-snapshot agrees with what's on disk; and the **bundled catalog** is referentially consistent
-(profiles → existing agents/skills/hooks, stack overlay files present). ``doctor`` runs the strict
+snapshot agrees with what's on disk; deployed prose is free of hidden/deceptive Unicode (an
+invisible-instruction channel — critical classes FAIL); and the **bundled catalog** is referentially
+consistent (profiles → existing agents/skills/hooks, stack overlay files present). ``doctor`` runs the strict
 validate plus environment checks (git/jq available, hook scripts executable, runtime dirs gitignored)
 and, with ``--mcp``, MCP command/env-var health. All return ``(ok, messages)`` so the CLI can print a
 report and choose an exit code.
@@ -45,6 +46,25 @@ _HOOK_SCRIPT_RE = re.compile(r"\.claude/hooks/([^\"'\s]+\.sh)")
 #: Extracts ``${VAR}`` placeholders from an .mcp.json fragment (valid shell identifiers only — a
 #: leading digit like ``${1}`` is a positional parameter, not an env var to warn about).
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_]\w*)\}")
+
+#: Hidden/deceptive Unicode in deployed prose, tiered by severity. **critical** characters have no
+#: legitimate role in kit prose and form an invisible-instruction channel (content a human reviewer
+#: cannot see but a model reads): Unicode tag characters, bidi overrides/isolates, variation
+#: selectors 17-256. **warning** characters are suspicious but occasionally legitimate: zero-width
+#: characters and bidi marks (a BOM appearing *mid-file* is flagged separately — a leading one is a
+#: benign encoding artifact). **info** is NBSP — common in prose pasted from rich-text editors.
+_UNICODE_CLASSES: tuple[tuple[str, str, tuple[tuple[int, int], ...]], ...] = (
+    ("critical", "tag characters (U+E0001-E007F)", ((0xE0001, 0xE007F),)),
+    (
+        "critical",
+        "bidi overrides/isolates (U+202A-E, U+2066-9)",
+        ((0x202A, 0x202E), (0x2066, 0x2069)),
+    ),
+    ("critical", "variation selectors 17-256 (U+E0100-E01EF)", ((0xE0100, 0xE01EF),)),
+    ("warning", "zero-width characters (U+200B-D)", ((0x200B, 0x200D),)),
+    ("warning", "bidi marks (U+200E/F)", ((0x200E, 0x200F),)),
+    ("info", "non-breaking spaces (U+00A0)", ((0x00A0, 0x00A0),)),
+)
 
 
 def _parse_frontmatter(text: str) -> dict[str, str] | None:
@@ -125,6 +145,9 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
 
     def warn(m: str) -> None:
         msgs.append(f"WARN  {m}")
+
+    def info(m: str) -> None:
+        msgs.append(f"INFO  {m}")
 
     def good(m: str) -> None:
         msgs.append(f"OK    {m}")
@@ -226,7 +249,7 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
         good(f"rules/ present ({sum(1 for _ in rules_dir.glob('*.md'))} rules)")
 
     if strict:
-        _strict_checks(claude, fail, warn, good)
+        _strict_checks(claude, fail, warn, good, info)
         cat_ok, cat_msgs = check_catalog()
         msgs.extend(cat_msgs)
         if not cat_ok:
@@ -243,8 +266,9 @@ def _strict_checks(
     fail: Callable[[str], None],
     warn: Callable[[str], None],
     good: Callable[[str], None],
+    info: Callable[[str], None],
 ) -> None:
-    """Deep checks on a live install: hooks→scripts, .mcp.json shape, snapshot agreement."""
+    """Deep checks on a live install: hooks→scripts, .mcp.json shape, snapshot agreement, hidden Unicode."""
     settings = claude / "settings.json"
     if settings.is_file():
         try:
@@ -269,6 +293,81 @@ def _strict_checks(
     psnap = claude / "state" / "pipeline-snapshot.json"
     if psnap.is_file():
         _strict_schema_artifact(psnap, "pipeline-snapshot", fail, good)
+
+    _strict_hidden_unicode(claude, fail, warn, good, info)
+
+
+def _scan_hidden_unicode(target: Path, claude: Path) -> dict[str, list[str]]:
+    """Scan deployed prose (``*.md`` under ``.claude/`` plus the root ``CLAUDE.md``) for hidden Unicode.
+
+    Returns ``{"critical": [...], "warning": [...], "info": [...]}`` where each entry reads
+    ``<relpath>: Nx <class> (first at line L)``. A *leading* U+FEFF is a benign encoding artifact;
+    only a BOM mid-file is flagged (warning tier). A file that is not valid UTF-8 is itself a
+    warning-tier finding — the scan never crashes on one.
+    """
+    findings: dict[str, list[str]] = {"critical": [], "warning": [], "info": []}
+    files = sorted(claude.rglob("*.md"))
+    if (target / "CLAUDE.md").is_file():
+        files.append(target / "CLAUDE.md")
+    for path in files:
+        rel = path.relative_to(target)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            findings["warning"].append(f"{rel}: not valid UTF-8 — review manually")
+            continue
+        body = text[1:] if text.startswith("\ufeff") else text
+        counts: dict[tuple[str, str], list[int]] = {}
+        for idx, ch in enumerate(body):
+            code = ord(ch)
+            if code < 0xA0:
+                continue
+            if code == 0xFEFF:  # mid-file BOM (a leading one was stripped above)
+                rec = counts.setdefault(
+                    ("warning", "byte-order mark mid-file"), [0, idx]
+                )
+                rec[0] += 1
+                continue
+            for tier, label, ranges in _UNICODE_CLASSES:
+                if any(lo <= code <= hi for lo, hi in ranges):
+                    rec = counts.setdefault((tier, label), [0, idx])
+                    rec[0] += 1
+                    break
+        for (tier, label), (n, first) in counts.items():
+            line = body.count("\n", 0, first) + 1
+            findings[tier].append(f"{rel}: {n}x {label} (first at line {line})")
+    return findings
+
+
+def _strict_hidden_unicode(
+    claude: Path,
+    fail: Callable[[str], None],
+    warn: Callable[[str], None],
+    good: Callable[[str], None],
+    info: Callable[[str], None],
+) -> None:
+    """Hidden-Unicode scan of deployed prose: critical classes FAIL, warning classes WARN, NBSP is INFO.
+
+    Critical characters (tag characters, bidi overrides/isolates, variation selectors) can carry
+    instructions a human reviewer cannot see but a model reads — exactly the hidden-content vector
+    the ``dependency-verification`` skill's agent-config intake greps for. Their presence in an
+    installed config fails strict validation outright; the softer tiers surface via ``doctor``.
+    """
+    findings = _scan_hidden_unicode(claude.parent, claude)
+    cap = 8  # keep a poisoned tree readable — the first hits identify the files to open
+    for tier, emit in (("critical", fail), ("warning", warn)):
+        entries = findings[tier]
+        for m in entries[:cap]:
+            emit(f"hidden unicode: {m}")
+        if len(entries) > cap:
+            emit(f"hidden unicode: +{len(entries) - cap} more {tier} finding(s)")
+    if findings["info"]:
+        info(
+            f"hidden unicode: non-breaking spaces in {len(findings['info'])} file(s) "
+            "(informational — common in pasted prose)"
+        )
+    if not findings["critical"] and not findings["warning"]:
+        good("deployed prose is free of hidden/deceptive Unicode")
 
 
 def _strict_schema_artifact(

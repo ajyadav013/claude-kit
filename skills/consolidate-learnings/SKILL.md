@@ -45,9 +45,31 @@ Regenerate `.claude/agent-memory/MEMORY.md` so it has exactly one line per survi
 
 Remove index lines pointing to files you merged away. Keep the placeholder `<!-- -->` comment for any category that ends up empty.
 
-### 6. Report
+### 6. Promote — graduate proven procedure clusters into always-on artifacts
+
+After the merge pass, check each category for learnings that have outgrown the memory store:
+
+- **Trigger**: 3+ surviving entries in one category encode a repeatable *procedure* for the same
+  domain (not isolated facts), OR a single entry's evidence shows it has applied 3+ times.
+- **Action**: graduate the cluster into a **project-local skill** at
+  `.claude/skills/<domain>/SKILL.md` (for multi-step procedures) or a **user-owned rule** under
+  `.claude/rules/` (for always-on constraints). Both are non-kit files, so `claude-kit upgrade`
+  never touches them. Replace the graduated entries with ONE pointer line in `MEMORY.md`
+  (`- promoted to .claude/skills/<domain>/ — <date>`), so the history of where they went survives.
+- **Update-vs-create decision tree** (apply in order):
+  1. An existing skill already covers the domain → **update it, never fork** a sibling.
+  2. Partial overlap → **broaden the existing skill** to absorb the new procedure.
+  3. Zero coverage → create a new skill **at the category level only** (one `debugging-<project>`
+    skill, not one skill per gotcha).
+  Prefer updating over creating — **fewer rich skills beat many thin ones**.
+- **Why**: memory entries are recalled *probabilistically* (index line → maybe opened); a skill or
+  rule is *reliably* loaded when its trigger fires. A procedure the project keeps needing deserves
+  the reliable path. This closes the pipeline: observation → learning (capture) → merged learning
+  (steps 1-5) → **always-on artifact** (this step).
+
+### 7. Report
 Tell the user concisely what changed, e.g.:
-> Consolidated UX: merged 3 entries about spacing into `ux/spacing-rules.md`. No information lost. 9 learnings → 7.
+> Consolidated UX: merged 3 entries about spacing into `ux/spacing-rules.md`. No information lost. 9 learnings → 7. Promoted the 4 deploy-pipeline gotchas into `.claude/skills/deploy-debugging/SKILL.md`.
 
 ## What NOT to do
 - Do not delete a learning because it seems minor or old — age is not staleness; these are durable rules.

@@ -132,6 +132,8 @@ These are the subtle errors that look like productivity but create problems:
 
 4. **When in doubt, start with a spec.** If the task is non-trivial and there's no spec, begin with `spec-driven-development`.
 
+5. **Vet third-party skills before installing them.** A skill is instructions your agent will follow with your credentials — treat an untrusted one like an untrusted dependency. Before it enters `.claude/skills/`, run the agent-config supply-chain intake in the `dependency-verification` skill (provenance pin, structural read, hidden-content scan).
+
 ## Lifecycle Sequence
 
 For a complete feature, the typical skill sequence is:

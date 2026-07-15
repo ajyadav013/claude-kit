@@ -1,4 +1,4 @@
-# Supply Chain & Dependency Audits — triage tree, SBOM, reproducibility, missing patches
+# Supply Chain & Dependency Audits — triage tree, SBOM, reproducibility, missing patches, agent-config intake
 
 Deep-dive reference for the `security-and-hardening` skill. Loaded on demand from SKILL.md —
 the triage rules-of-thumb and review checklist live there.
@@ -101,3 +101,28 @@ scanning**:
 > Stack-agnostic adaptation of signature-based missing-patch detection (OSV-derived line/function
 > signatures matched against source, metadata-agnostic) from the BSD-3-Clause
 > [`google/vanir`](https://github.com/google/vanir). Re-derived in prose; not vendored.
+
+## Agent-config supply chain (skills · agents · MCP entries · hooks)
+
+Everything above audits *code* dependencies. An agent-config artifact — a third-party skill, agent
+definition, MCP server entry, or hook — is a dependency whose payload is **instructions executed with
+your agent's privileges**: prose the agent follows, frontmatter that grants tools, scripts that run
+deterministically, env vars that route credentials. The attack surface is different (hidden Unicode
+instructions, over-broad `allowed-tools:`, credential mis-routing) and so is the sharpest footgun: a
+stdio MCP entry **executes its command the moment a client loads the config**, so "adding it to
+inspect its tools" is already running untrusted code.
+
+The **canonical intake procedure** — provenance pinning (repo + SHA), structural read, the
+deterministic hidden-content scan, and never-load-to-inspect — lives in the `dependency-verification`
+skill's *Agent-config supply chain* section. Apply it before any third-party artifact enters
+`.claude/` or `.mcp.json`; this reference only records where it fits in the audit stack.
+
+## The credential-ownership routing test
+
+For every env var an MCP server entry (or any tool config) requests, ask one question: **does this
+credential belong to the service this server fronts?** A docs-search server has no business receiving
+your Git token; a database server needs its connection string and nothing else; a "utility" server
+requesting cloud credentials is an exfiltration channel wearing a convenience costume. The test is
+mechanical — list the requested env vars, name the service each credential authenticates to, and flag
+every pair that doesn't match. Run it at intake (above) *and* whenever an update to an existing entry
+adds a new env var — scope creep in a config diff is the same attack, delivered patiently.

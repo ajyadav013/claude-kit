@@ -108,6 +108,9 @@ Human PRD
 │  [4a-FE] Developer (FE mode)        [4a-BE] Developer (BE)   │
 │    implements in worktree A           implements in worktree B│
 │                                                              │
+│  [4v-FE] Orchestrator VALIDATE      [4v-BE] Orchestrator     │
+│    re-runs checks + scope diff        VALIDATE (same)         │
+│                                                              │
 │  [4b-FE] SDLC Code Reviewer        [4b-BE] SDLC Code        │
 │    reviews frontend code              Reviewer reviews        │
 │    ↕ fix loop (max 5)                 backend code            │
@@ -166,7 +169,7 @@ Done
 Spec-Doc Writer → [UI Designer if UI]
   → Senior Dev → Technical Architect → EM
   → Story Planner (coverage gate)
-  → Developer → SDLC Code Reviewer → Unit Tests
+  → Developer → orchestrator VALIDATE (re-run checks + scope diff) → SDLC Code Reviewer → Unit Tests
   → Tester (full) → Senior Tester (full)
   → PR Raiser
 ```
@@ -174,7 +177,7 @@ No fork/join needed. No merge reviewer needed. Single tester + single senior tes
 
 ### Fast-Track (Mode D) — bug fixes, small changes (< 5 files)
 ```
-Developer → SDLC Code Reviewer → Tester (full) → PR Raiser
+Developer → orchestrator VALIDATE → SDLC Code Reviewer → Tester (full) → PR Raiser
 ```
 Skips: spec, design, senior dev review, tech architect, EM, merge reviewer, senior tester.
 Use when: bug fix, typo, single-component change, config update, docs-only change.
@@ -193,7 +196,7 @@ Parallel pipeline — fork into backend and frontend lanes after spec/design are
 If the PRD contains **multiple independent features**, decompose into separate pipelines that run in parallel, each following Mode A or B. Join all at PR stage.
 
 ### Mode D: Fast-Track (bug fixes, small changes)
-Minimal pipeline for changes touching < 5 files or bug fixes. Skips spec, design, review chain. Goes straight to: Developer → Code Reviewer → Tester → PR Raiser.
+Minimal pipeline for changes touching < 5 files or bug fixes. Skips spec, design, review chain. Goes straight to: Developer → orchestrator VALIDATE → Code Reviewer → Tester → PR Raiser.
 
 ### Mode E: Program / Wave Mode (migrations, repo-wide refactors, irreversible steps)
 For **program-scale** work — many files across multiple subsystems (> ~20 files or > 2 independent
@@ -343,6 +346,15 @@ code is written.
 - **Spawn**: `developer` in **frontend mode** with `isolation: "worktree"`.
 - **Input**: Approved spec + design spec.
 
+**[4v-FE] Independent VALIDATE (you — not a sub-agent):**
+- When the Developer reports done, do **not** take the self-report at face value. In the lane's
+  worktree, re-run the project's test + build/lint commands yourself, and compare
+  `git diff --name-only` against the story's declared file scope.
+- A red check is a defect. **Out-of-scope changes are a defect** — route back to the Developer
+  with the offending file list. The lane does not reach the Code Reviewer until *your own* run
+  is green. (Structural form of the evidence rule: a verdict must be backed by output you
+  captured — `.claude/rules/quality-gates.md` §2.5.)
+
 **[4b-FE] SDLC Code Reviewer:**
 - **Spawn**: `sdlc-code-reviewer` for the frontend diff.
 - **Feedback loop**: Code Reviewer ↔ Developer. Max **5 iterations**.
@@ -360,6 +372,11 @@ code is written.
 **[4a-BE] Developer (backend mode):**
 - **Spawn**: `developer` in **backend mode** with `isolation: "worktree"`.
 - **Input**: Approved backend spec.
+
+**[4v-BE] Independent VALIDATE (you — not a sub-agent):** same contract as [4v-FE] — re-run the
+backend test + lint commands yourself in the lane's worktree, diff `git diff --name-only` against
+the story's file scope; red checks and out-of-scope files are defects that return to the
+Developer before any reviewer spawns.
 
 **[4b-BE] SDLC Code Reviewer:**
 - **Spawn**: `sdlc-code-reviewer` for the backend diff.

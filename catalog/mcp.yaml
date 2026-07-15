@@ -8,12 +8,19 @@
 # rather than a moving `@latest`, so an install is reproducible and a fresh upstream release can't
 # silently change what runs. Bump these deliberately (and review the changelog) — do not switch back
 # to `@latest`. See SECURITY.md and the README "MCP integrations" note.
+#
+# RESTRICTIVE-BY-DEFAULT: where a server supports a restrictive mode, its fragment ships in that mode
+# (read-only flags on, mutation consent on) — loosen deliberately, never by default. Every entry
+# carries a `toxic-flow legs:` note naming which of {untrusted-content · private-data · destructive ·
+# egress} it introduces; when your enabled servers JOINTLY cover untrusted content + private data +
+# egress, the fail-closed sandbox policy applies (`.claude/rules/agent-guardrails.md` §4).
 
 version: 1
 
 servers:
   github:
     label: "GitHub (issues, PRs, repos)"
+    # toxic-flow legs: untrusted-content (issue/PR text from strangers) · private-data (private repos) · destructive (writes) · egress (API)
     # NOTE: the official @modelcontextprotocol/server-github npm package is archived/deprecated upstream
     # (GitHub now ships a Go `github-mcp-server`). Pinned to its last published version for a stable
     # install; switch to the maintained server in a future kit release if you need newer features.
@@ -25,11 +32,13 @@ servers:
         GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
   linear:
     label: "Linear (issues)"
+    # toxic-flow legs: untrusted-content (ticket text) · private-data · destructive (edits issues) · egress (hosted)
     config:
       type: http
       url: "https://mcp.linear.app/mcp"
   jira:
     label: "Jira (issues)"
+    # toxic-flow legs: untrusted-content (ticket text) · private-data · destructive (edits issues) · egress (API)
     config:
       type: stdio
       command: npx
@@ -39,6 +48,7 @@ servers:
         JIRA_API_TOKEN: "${JIRA_API_TOKEN}"
   postgres:
     label: "PostgreSQL (query the database)"
+    # toxic-flow legs: private-data (DB rows) · untrusted-content (user-generated rows); read-only server — no destructive leg
     # NOTE: @modelcontextprotocol/server-postgres is archived/deprecated upstream; pinned to its last
     # published version for a stable install. Consider a maintained Postgres MCP server going forward.
     config:
@@ -48,6 +58,7 @@ servers:
         ["-y", "@modelcontextprotocol/server-postgres@0.6.2", "${DATABASE_URL}"]
   mongodb:
     label: "MongoDB (query the database)"
+    # toxic-flow legs: private-data (DB contents) · untrusted-content (stored docs) · destructive (supports writes)
     config:
       type: stdio
       command: npx
@@ -56,12 +67,14 @@ servers:
         MDB_MCP_CONNECTION_STRING: "${MONGODB_URI}"
   playwright:
     label: "Playwright (browser automation / E2E)"
+    # toxic-flow legs: untrusted-content (ANY web page) · destructive (clicks/submits) · egress (arbitrary sites) — the widest combination in this catalog
     config:
       type: stdio
       command: npx
       args: ["-y", "@playwright/mcp@0.0.77"]
   docs:
     label: "Docs / Context7 (live library docs)"
+    # toxic-flow legs: untrusted-content (fetched pages) · egress (hosted endpoint)
     config:
       type: http
       url: "https://mcp.context7.com/mcp"
@@ -73,6 +86,7 @@ servers:
     # `dependency-verification` and `library-review` skills for where this sits in the dependency lifecycle.
   ms_learn:
     label: "Microsoft Learn Docs (official learn.microsoft.com docs search/fetch)"
+    # toxic-flow legs: egress (hosted) · untrusted-content (low — official docs)
     # First-party Microsoft-hosted MCP (github.com/MicrosoftDocs/mcp) exposing fresh official docs
     # (microsoft_docs_search / _fetch / code-sample search) over a hosted HTTP endpoint — no auth, no
     # credentials generated. Complements the Context7 `docs` entry (general libraries) with
@@ -81,8 +95,18 @@ servers:
     config:
       type: http
       url: "https://learn.microsoft.com/api/mcp"
+  aws_knowledge:
+    label: "AWS Knowledge (official AWS docs, API refs, Well-Architected — search/fetch)"
+    # First-party AWS-hosted MCP (github.com/awslabs/mcp) — the AWS counterpart to `ms_learn` above:
+    # fresh official docs over a hosted HTTP endpoint, no auth, no credentials generated.
+    # toxic-flow legs: egress (hosted endpoint) · untrusted-content (low — official docs).
+    # Snapshot 2026-07-15.
+    config:
+      type: http
+      url: "https://knowledge-mcp.global.api.aws"
   azure:
     label: "Azure (cloud resource management — 200+ tools across Azure services)"
+    # toxic-flow legs: private-data (cloud resources) · destructive (200+ management tools) · egress
     # First-party Azure MCP Server (github.com/microsoft/mcp, @azure/mcp, MIT). Authenticates via
     # DefaultAzureCredential — run `az login` first; no token is stored in this config. Pinned to an
     # exact version (the package's current `latest` is a 3.0 beta — review the changelog before bumping;
@@ -91,8 +115,27 @@ servers:
       type: stdio
       command: npx
       args: ["-y", "@azure/mcp@3.0.0-beta.23", "server", "start"]
+  aws_api:
+    label: "AWS API (control-plane access across AWS services; read-only by default)"
+    # First-party awslabs server (github.com/awslabs/mcp, Apache-2.0) — the AWS counterpart to the
+    # `azure` entry above. Ships in its most-restrictive mode: READ_OPERATIONS_ONLY=true is an
+    # API-classification allowlist (NOT a filesystem guarantee) and REQUIRE_MUTATION_CONSENT=true
+    # gates every mutating call — and BOTH are secondary to your real IAM grants, which remain the
+    # actual authorization boundary. Loosen deliberately, never by default. HONESTY NOTE: awslabs is
+    # consolidating standalone servers into its AWS Agent Toolkit; this package still ships and is
+    # pinned exactly — revisit at the next MCP freshness pass. Auth rides your AWS CLI credential
+    # chain (`aws configure` / SSO); no credentials generated here. Snapshot 2026-07-15.
+    # toxic-flow legs: private-data (cloud resources) · destructive (mutations, consent-gated) · egress.
+    config:
+      type: stdio
+      command: uvx
+      args: ["awslabs.aws-api-mcp-server==1.3.46"]
+      env:
+        READ_OPERATIONS_ONLY: "true"
+        REQUIRE_MUTATION_CONSENT: "true"
   azure_devops:
     label: "Azure DevOps (work items, repos, pipelines, wikis, test plans)"
+    # toxic-flow legs: untrusted-content (work-item text) · private-data · destructive (writes) · egress
     # First-party Azure DevOps MCP Server (github.com/microsoft/azure-devops-mcp, @azure-devops/mcp,
     # MIT) — the Azure-DevOps counterpart to the github/jira/linear issue trackers above. The first arg
     # is your ADO organization name; authenticates via the Azure CLI (`az login`). Snapshot 2026-06-28.
@@ -108,10 +151,25 @@ servers:
   # or Homebrew/Nix/Docker/Windows per the repo's installation guide), then it runs over stdio.
   wassette:
     label: "Wassette (WASM-sandboxed tool execution; needs the `wassette` binary installed)"
+    # toxic-flow legs: untrusted-content (third-party WASM tools) — destructive/egress bounded per-component by the sandbox policy
     config:
       type: stdio
       command: wassette
       args: ["run"]
+  # SkillSpector (github.com/NVIDIA/SkillSpector) — static skill/agent-config scanner: 68
+  # vulnerability patterns across 17 categories (prompt injection, data exfiltration, tool
+  # poisoning, MCP least-privilege, memory poisoning, ...). The optional scan backend for the
+  # third-party vetting canon in the `dependency-verification` skill. NOT an npx/PyPI package —
+  # install from git first (`uv tool install 'skillspector[mcp] @
+  # git+https://github.com/NVIDIA/skillspector.git'`), then it runs over stdio. Referenced only,
+  # never bundled (the wassette precedent). Snapshot 2026-07-15.
+  # toxic-flow legs: untrusted-content (the artifact under scan is hostile by assumption); local-only.
+  skillspector:
+    label: "SkillSpector skill/plugin scanner (needs `uv tool install` from git)"
+    config:
+      type: stdio
+      command: skillspector
+      args: ["mcp"]
   # Sentry (github.com/getsentry/sentry-mcp) — official, vendor-maintained MCP for production error
   # monitoring / issue triage: top unresolved issues, stacktraces, performance & trace data, and Seer
   # root-cause analysis. Fills the error-monitoring gap the `incident-responder` + `observability-engineer`
@@ -124,6 +182,7 @@ servers:
   #   command: npx, args: ["-y", "@sentry/mcp-server@0.36.0"], env: SENTRY_ACCESS_TOKEN: "${SENTRY_ACCESS_TOKEN}".
   sentry:
     label: "Sentry (error monitoring / issue triage; source-available FSL-1.1)"
+    # toxic-flow legs: private-data (stacktraces can carry PII) · untrusted-content (error payloads) · egress (hosted)
     config:
       type: http
       url: "https://mcp.sentry.dev/mcp"
@@ -134,10 +193,36 @@ servers:
   # first use. Point it at the repo via the env var below (e.g. `export REPOWISE_PROJECT_ROOT=$(pwd)`).
   repowise:
     label: "Repowise codebase intelligence (AGPL-3.0; needs `pip install repowise` + `repowise init`)"
+    # toxic-flow legs: private-data (whole-codebase index); local-only — no egress leg
     config:
       type: stdio
       command: repowise
       args: ["mcp", "${REPOWISE_PROJECT_ROOT}", "--transport", "stdio"]
+  # Serena (github.com/oraios/serena, MIT) — free, local, LSP-backed semantic code toolkit:
+  # symbol-level find/reference/edit tools that give precise retrieval instead of whole-file reads.
+  # Install via uv first: `uv tool install serena-agent==1.5.3` (pinned; snapshot 2026-07-15). Two
+  # notes from its docs: raise the MCP client timeout (e.g. MCP_TIMEOUT=60000) — first launch
+  # downloads language servers; and in the `claude-code` context Serena auto-disables its own
+  # file/shell tools (Claude Code's are better there) — it contributes the symbolic layer only.
+  # toxic-flow legs: private-data (whole-codebase symbol index); local-only — no egress leg.
+  serena:
+    label: "Serena semantic code toolkit (LSP symbols; needs `uv tool install serena-agent`)"
+    config:
+      type: stdio
+      command: serena
+      args: ["start-mcp-server", "--context", "claude-code"]
+  semble:
+    label: "Semble semantic code search (local embeddings, CPU-only; runs via uvx)"
+    # (github.com/MinishLab/semble, MIT) — local semantic code search: natural-language queries
+    # return exact snippets at a fraction of grep+read token cost; indexes a repo in ~seconds on
+    # CPU, no API keys or external services. The lightweight complement to `repowise` above
+    # (repowise = churn/risk analytics; semble = meaning search) and to Serena's symbolic tools.
+    # Respects `.sembleignore` for excluding paths from the index. Pinned exactly (snapshot
+    # 2026-07-15). toxic-flow legs: private-data (local code index); local-only — no egress leg.
+    config:
+      type: stdio
+      command: uvx
+      args: ["--from", "semble[mcp]==0.5.1", "semble"]
   # Google Security Operations cluster (github.com/google/mcp-security, Apache-2.0) — four first-party
   # Google MCP servers covering the SOC/operational-security domain the catalog otherwise has no entry
   # for (Sentry above is error-monitoring, not threat-intel/SIEM/SOAR/CSPM):
@@ -153,6 +238,7 @@ servers:
   # credentials are generated here. Enable only the server(s) whose backend you actually have.
   secops:
     label: "Google SecOps / Chronicle SIEM (paid Chronicle backend + ADC required)"
+    # toxic-flow legs: private-data (SIEM events) · untrusted-content (attacker-controlled log data) · egress
     config:
       type: stdio
       command: uvx
@@ -163,6 +249,7 @@ servers:
         CHRONICLE_REGION: "${CHRONICLE_REGION}"
   gti:
     label: "Google Threat Intelligence / VirusTotal (needs VT_APIKEY)"
+    # toxic-flow legs: egress (lookups can reveal your indicators/incident) · private-data (query context)
     config:
       type: stdio
       command: uvx
@@ -171,12 +258,14 @@ servers:
         VT_APIKEY: "${VT_APIKEY}"
   scc:
     label: "Security Command Center — cloud security posture (ADC required)"
+    # toxic-flow legs: private-data (security posture & findings) · egress
     config:
       type: stdio
       command: uvx
       args: ["--from", "scc-mcp==0.1.0", "scc_mcp"]
   secops_soar:
     label: "Google SecOps SOAR / Siemplify (paid SOAR backend; needs SOAR_URL + SOAR_APP_KEY)"
+    # toxic-flow legs: private-data · destructive (response actions / playbooks) · egress
     config:
       type: stdio
       command: uvx

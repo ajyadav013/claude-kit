@@ -11,7 +11,7 @@ Agents use four kinds of memory; this kit splits them across two systems — don
 | **Working** (short-term) | The current task's state — phase, active work, next steps | `.claude/CONTINUITY.md` — ephemeral, this run only |
 | **Episodic** | What happened before — incidents, hard-won fixes, surprises | `agent-memory/debugging/`, `agent-memory/gotchas/` |
 | **Semantic** | Durable facts & decisions — conventions, architecture, API behavior | `agent-memory/architecture/`, `api/`, `patterns/`, `performance/` |
-| **Procedural** | How to do things — repeatable workflows and disciplines | the `.claude/rules/*` and `.claude/skills/*` themselves |
+| **Procedural** | How to do things — repeatable workflows and disciplines | the `.claude/rules/*` and `.claude/skills/*` themselves — and episodic/semantic clusters **graduate here**: when 3+ learnings in a category encode one repeatable procedure (or one learning proves out 3+ times), the `consolidate-learnings` skill's Promote step turns them into a project-local skill/rule |
 
 Working memory is the scratchpad (overwritten constantly); the rest is the notebook (accumulates). Promote a durable CONTINUITY learning into the right `agent-memory/` category via the `remember` skill. Capture is automatic — the `capture-learnings` hook records (in a non-blocking background job) what Claude changed/learned from its own work. How often it fires is the init-time `capture_mode` choice (off · on clean exit · + a SessionStart catch-up for sessions closed abruptly · per task); it routes through the `remember` skill.
 
