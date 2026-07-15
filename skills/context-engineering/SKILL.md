@@ -148,9 +148,21 @@ window earns less attention than the front (the lost-in-the-middle curve, at sca
 flooding thresholds in Anti-Patterns (>5,000 lines is a smell; aim for <2,000 *focused* lines per
 task). When you cross these, compact or split the work — don't push on and hope.
 
+**Making the budget visible.** You can't manage a number you can't see: surface live context usage in
+the session UI where the harness supports it — Claude Code's statusline API can render tokens-used /
+%-of-window (community HUDs such as `claude-hud` build on it; referenced, not bundled). A visible
+percentage turns the ~40% threshold from a vibe into a trigger you actually act on.
+
+**Observable symptoms of subagent context pressure.** A subagent near its budget rarely *says* so —
+it *shows* it: **silent partial completion** (reports done, delivered half), **increasing vagueness**
+(precise `file:line` claims fade into "the relevant files"), and **skipped protocol steps** (stops
+running the verification it ran on earlier items). Treat these as a *context* signal, not a
+competence signal: rotate or replace the worker, and verify what it handed back against the task's
+**must-haves — not mere file existence** (a file existing proves nothing about its completeness).
+
 ## Advanced: progressive disclosure, compaction, offloading
 
-Four primitives keep long runs coherent:
+Five primitives keep long runs coherent:
 
 - **Progressive disclosure** — don't load everything up front. Expose names + one-line descriptions and
   load full detail only on use (how skills and well-designed tools work — see
@@ -162,7 +174,19 @@ Four primitives keep long runs coherent:
   critical work, not only when forced.
 - **Tool-output offloading** — don't dump large tool/command output into context. Keep a few signal
   lines inline and write the full output to a file the agent can open if needed (mirror of the output
-  rules in `.claude/rules/tool-design.md`).
+  rules in `.claude/rules/tool-design.md`). Compress **content-type-aware**, not blindly:
+  - JSON arrays → first ~3 + last ~2 items, **plus 100% of errors**, outliers, and task-relevant matches;
+  - test/CI logs → keep errors, failures, and the summary line; drop the `PASSED` noise;
+  - search results → the exact hits plus a few *diverse* ones, never 500 near-duplicates;
+  - diffs → hunks only, never surrounding whole files;
+  - under **~200 tokens, don't compress at all** — the bookkeeping costs more attention than it saves.
+
+  Make every compression **reversible**: write the full original to a file and leave an inline marker
+  carrying the dropped-item **count** plus the **retrieval path** — never silently drop items. A
+  compression the agent can't undo is a deletion.
+- **Think in code** — when the answer is *computable*, write one **throwaway script that prints only
+  the answer** (a count, a list of names, a pass/fail) instead of reading raw data into context and
+  reasoning over it. Five lines of script replace the thousand lines they read. Delete it after.
 - **Priority-based composition** — when assembling a prompt/context that may exceed the budget, assign
   each piece a **priority** rather than packing in fixed order, and when the total would overflow, drop
   the **lowest-priority** pieces first instead of truncating blindly at the end (which lops off whatever
@@ -176,7 +200,37 @@ Four primitives keep long runs coherent:
 > Compaction: tips for long-running agents." Paraphrased for this kit. The priority-based composition
 > primitive is a stack-agnostic adaptation of the MIT
 > [`microsoft/vscode-prompt-tsx`](https://github.com/microsoft/vscode-prompt-tsx) (priority-tree prompt
-> pruning under token budget); re-derived in prose, not vendored.
+> pruning under token budget); re-derived in prose, not vendored. The content-type compression recipes,
+> the ~200-token floor, and the reversible-marker rule are a stack-agnostic adaptation of the Apache-2.0
+> [`headroomlabs-ai/headroom`](https://github.com/headroomlabs-ai/headroom); "think in code" follows the
+> throwaway-script discipline in [`gsd-build/get-shit-done`](https://github.com/gsd-build/get-shit-done).
+> A deterministic companion exists for the compression recipes: **rtk** proxies common shell commands
+> through a PreToolUse hook and applies them before output ever reaches context (the harness's built-in
+> file/search tools bypass such proxies — it covers shell output only). Referenced, not bundled.
+
+### Retrieval discipline: read symbols, not files
+
+Order retrieval from precise-and-cheap to broad-and-expensive — most tasks never need the bottom rung:
+
+1. **Symbol-level first.** Resolve the *definition* or *references* of the symbol you actually care
+   about — via the harness's LSP tooling, the IDE, or a symbol-level MCP server (the optional
+   `serena` fragment in `catalog/mcp.yaml`). One atomic "go to definition" replaces the 8–12-step
+   open-scroll-grep-open-again dance, and returns tens of relevant lines instead of whole files.
+2. **Semantic search → navigate, don't browse.** Use search to locate the right `file:line`, then
+   expand along the code graph (callers, callees, imports — "find related"), not by opening sibling
+   files on speculation.
+3. **`grep` is for exhaustive literal jobs** — renames, string audits, count-every-occurrence — where
+   completeness beats precision. It is the wrong tool for "understand this feature".
+
+Prefer chunks that **define** a symbol over chunks that merely *mention* it, and down-weight tests,
+shims, and examples unless they are the task. Published symbol-retrieval benchmarks reach ~94% recall
+within a ~2k-token budget when tuned this way — precision at retrieval time is what keeps the session
+out of the degradation zone.
+
+> Symbol-first retrieval and the atomic-call rationale follow the MIT
+> [`oraios/serena`](https://github.com/oraios/serena); the define-over-mention ranking and
+> recall-at-budget framing follow [`MinishLab/semble`](https://github.com/MinishLab/semble).
+> Re-derived in prose; not vendored.
 
 ## Context Packing Strategies
 
@@ -268,6 +322,12 @@ org convention, not fixed by this kit) with a single root index and linked detai
 2. **Discover patterns inductively.** Read broadly and surface recurring structures. Apply the
    **3+-occurrences rule**: any structure that appears in three or more places is a *pattern* and
    earns a `patterns/` doc. Don't pre-decide the list — let the code reveal it.
+   - **Document tribal standards.** Some load-bearing conventions live only in heads. When a
+     recurring pattern has no written source, apply the four-part **tribal test**: would a new
+     developer guess wrong? does the team correct violations in review? is there a *why* behind it?
+     is it stable? Four yeses ⇒ it earns a `patterns/` doc. Elicit the *why* from the human **one
+     pattern at a time** (ask about one, write it down, move on) — never batch a questionnaire; the
+     tenth answer in a batch is a shrug, the tenth answer asked alone is a paragraph.
 3. **Map modules.** Enumerate every module (not just the obvious ones), grouped by role
    (core / supporting / infrastructure / utility); write the module map into `index.md`.
 4. **Map features & architecture.** Group entry points into features; map dependencies, data flows,

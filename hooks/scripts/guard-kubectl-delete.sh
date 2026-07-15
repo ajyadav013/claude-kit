@@ -33,6 +33,7 @@ if printf '%s' "$CMD" | tr -d '"\047\134' | tr ';|&' '\n\n\n' \
   echo "BLOCKED: 'kubectl delete' is disabled by claude-kit -- destructive deletes must not run from an agent session." >&2
   echo "  Use a reversible alternative: 'kubectl scale --replicas=0' to stop a workload, 'kubectl rollout undo' to roll back," >&2
   echo "  or remove the resource from the Git/Helm source and let the pipeline reconcile." >&2
+  echo "  If a true delete is genuinely required, a human operator must run it directly -- do not work around this guard." >&2
   echo "  Read-only checks still work ('kubectl auth can-i delete <res>', 'kubectl get/describe'). (guard-kubectl-delete.sh)" >&2
   exit 2
 fi

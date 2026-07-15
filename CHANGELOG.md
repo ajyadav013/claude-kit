@@ -4,6 +4,85 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.62.0] — 2026-07-15
+
+**OSS-adoption wave 3 — the two L-sized consolidation items that close out the implement-now
+backlog from the 1,345-repo scan** (waves 1–2 = 0.60.0/0.61.0 below). Same discipline: everything
+re-derived as stack-agnostic prose; referenced, never vendored. With this release the scan's
+20-item implement-now backlog is **fully shipped**; the remaining 10 ideas are user-gated
+(listed under "Not adopted" in the 0.60.0 entry) and await an owner decision.
+
+### Added
+
+- **`context-engineering` skill consolidation pass** (merges 8 verified proposals):
+  - **Five primitives** (was four) — new "Think in code" primitive: when the question is
+    aggregation over data, one throwaway script that prints only the answer replaces the
+    thousand lines the agent would otherwise read (from `gsd-build/get-shit-done`).
+  - **Content-type-aware compression recipes** in Tool-output offloading — JSON arrays keep
+    first/last few + 100% of errors/outliers/relevant matches; logs keep errors/failures/summary
+    and drop PASSED noise; search results keep exact + diverse hits; diffs keep hunks only — with
+    a **~200-token floor** below which compression costs more than it saves, and the
+    **reversible-marker discipline**: full original to a file, inline marker with the dropped-item
+    count + retrieval path — a compression the agent can't undo is a deletion (Apache-2.0
+    `headroomlabs-ai/headroom`).
+  - **"Retrieval discipline: read symbols, not files"** — a three-rung ladder: symbol-level
+    retrieval first (harness LSP / IDE / the `serena` MCP fragment; one atomic go-to-definition
+    replaces the 8–12-step open-scroll-grep dance), semantic search + code-graph navigation
+    second, grep only for exhaustive literal jobs; prefer chunks that *define* a symbol over ones
+    that mention it (MIT `oraios/serena` · `MinishLab/semble`).
+  - **"Making the budget visible"** (native statusline API; `jarrodwatts/claude-hud` referenced)
+    and **"Observable symptoms of subagent context pressure"** (silent partial completion,
+    increasing vagueness, skipped protocol steps — verify handoffs against the task's
+    **must-haves, not file existence**), echoed in the orchestrator's rotate-before-degradation
+    bullet.
+  - **Tribal-standards sub-step** in the comprehension pipeline — the four-part tribal test (new
+    dev guesses wrong / corrected in review / has a why / stable) and the one-pattern-at-a-time
+    elicitation loop (from `buildermethods/agent-os`).
+- **`tool-design` rule expansion pass** (merges 7 verified proposals; 9.7k → 17.2k chars):
+  - **§9 Anchor edits to content, not position** — content hash captured at read, re-verified at
+    apply, fail fast with a drift report (fuzzy recovery opt-in only); a byte-identical edit
+    returns "the bug is elsewhere" and N consecutive no-ops is a hard error (MIT
+    `can1357/oh-my-pi`).
+  - **§10 Write the tool description like an API contract** — surface not machinery; the six-part
+    anatomy (purpose, input grammar, 3–8 worked examples, agent-owned failure shapes, WRONG/RIGHT
+    pairs, recap); evidence-based pruning — "the model could infer this" is necessary but never
+    sufficient to cut a line (MIT `gsd-build/get-shit-done`).
+  - **§11 Errors an agent can parse — and denials an agent can act on** — success/error envelope
+    split, wire-stable category IDs with exit codes derived from category, actionable hint
+    carrying the exact recovery command, never branch on an upstream `code == 0` (MIT
+    `larksuite/cli`); plus the **deny-message rubric**: every denial states CASE A (redirect —
+    name the approved route) or CASE B (policy — stop, don't route around).
+  - **§1 pre-run MCP audit** (schema cost compounds per-turn × per-subagent;
+    `enabledMcpjsonServers`/`disabledMcpjsonServers` carry a server without loading it —
+    `mksglu/context-mode`, referenced) and **§4 "Compress at the source"** (compact modes first:
+    failures-only, `--quiet`/`--porcelain`, JSON + selector, dedup-with-count, one-line success
+    acks — Apache-2.0 `rtk-ai/rtk`) + the reversible-compression marker (producer-side twin of
+    the context-engineering rule).
+- **`docs/influences.md`** gains the 1,345-repo OSS adoption scan row (sources, licenses, and the
+  0.60.0–0.62.0 landing map).
+
+### Changed
+
+- **`guard-kubectl-delete.sh`** deny message gains the explicit CASE B clause the new §11 rubric
+  requires: "a human operator must run it directly — do not work around this guard." (The kit's
+  other three guards already named their approved routes; content-only edit, hook registry
+  untouched.)
+- **`agents/orchestrator.md`** rotate-before-degradation bullet now names the three context-
+  pressure symptoms and requires handoff verification against must-haves, not file existence.
+
+### Not adopted (deliberately)
+
+- **The 10 user-gated backlog items remain gated** (Stop-hook guard, warn-context-flood hook,
+  DESIGN.md template, marketplace split, skills export target, React perf overlay, visual-report
+  skill, detect-correction hook, org skill-governance rule, whole-payload compression pass) —
+  each changes kit behavior, scope, or structure in a way the owner should decide, not a scan.
+  Full rationale in the 0.60.0 entry.
+- **Vendoring any scanned code** — every adoption in waves 1–3 is re-derived prose with source
+  attribution; `rtk`, `claude-hud`, `context-mode`, `serena`, and `semble` are referenced or
+  wired as opt-in MCP fragments, never copied in.
+- **Renumbering `tool-design` sections** — the new material lands as §9–§11 after the existing
+  §1–§8 so cross-references from other rules/skills stay stable.
+
 ## [0.61.0] — 2026-07-15
 
 **OSS-adoption wave 2 — nine more items from the 1,345-repo scan backlog** (wave 1 = 0.60.0 below).
