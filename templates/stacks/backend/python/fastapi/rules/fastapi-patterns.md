@@ -149,7 +149,7 @@ old shape.
 ## Pre-removal search recipe
 
 The concrete searches behind the **Pre-Removal Safety Check** in
-`.claude/rules/deprecation-and-migration.md`. Before deleting a symbol, sweep every surface:
+the `deprecation-and-migration` skill. Before deleting a symbol, sweep every surface:
 
 ```bash
 SYM=TheSymbolOrPath           # e.g. OrderResponse  or  /api/v1/orders/{id}

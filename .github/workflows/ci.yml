@@ -81,6 +81,8 @@ jobs:
         run: python scripts/check_mcp_pins.py
       - name: Rule files under the 40k memory limit
         run: python scripts/check_rule_sizes.py
+      - name: Cross-references in prose resolve to shipped files (warn-only)
+        run: python scripts/check_cross_references.py
       - name: Catalog referential integrity
         run: |
           python -c "import sys; from claude_kit import validator; ok, msgs = validator.check_catalog('.'); [print(m) for m in msgs]; sys.exit(0 if ok else 1)"
