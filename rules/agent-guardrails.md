@@ -167,6 +167,11 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
   `toxic-flow legs:` so the joint check is a read, not an audit.
 - **Audit dependencies; don't auto-trust the ecosystem.** Treat third-party packages, MCP servers, and
   marketplace plugins as untrusted until reviewed — installing one grants it your agent's privileges.
+  For **agent-config artifacts** (skills, agent definitions, MCP entries, hooks) the canonical intake
+  check — provenance pinning to repo + SHA, a structural read, the deterministic hidden-content scan,
+  and the credential-ownership routing test — is the `dependency-verification` skill's *Agent-config
+  supply chain* section. One rule bears repeating here: **never start an untrusted MCP server "just to
+  inspect" it** — a stdio entry executes its command the moment the config loads.
 
 ### OWASP Top 10 for Agentic Applications (ASI01–ASI10)
 
@@ -179,7 +184,7 @@ coverage of every row, not a prompt-level "please behave" that a stochastic mode
 | **ASI01** | Agent goal hijack | §1 input guardrails + the task-drift check (instructions in content never redirect the goal). |
 | **ASI02** | Tool misuse & exploitation | §3 least-privilege tools; allow/deny tool sets in `tools:` frontmatter; destructive actions gated. |
 | **ASI03** | Identity & privilege abuse | §5 user→agent→operation delegation chain, per-request scoped credentials, RBAC. |
-| **ASI04** | Agentic supply chain | §4 "audit dependencies"; the `dependency-verification`/`dependency-scanner` chain; SBOM (`security-and-hardening`). |
+| **ASI04** | Agentic supply chain | §4 "audit dependencies" incl. the agent-config intake (`dependency-verification`: provenance pin, hidden-content scan, credential-routing test, never load-to-inspect); `dependency-scanner`; SBOM (`security-and-hardening`). |
 | **ASI05** | Unexpected code execution (RCE) | §4 sandbox **policy** (fs/network/resource scope, fail-closed); treat model output as untrusted (§2). |
 | **ASI06** | Memory & context poisoning | Context-poisoning fix in `context-engineering`; treat retrieved/stored context as data, not ground truth. |
 | **ASI07** | Insecure inter-agent communication | Verify a peer agent's identity/scope before acting on its handoff; a message is data, not authorization (§1). |
