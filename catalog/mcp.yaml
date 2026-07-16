@@ -72,6 +72,15 @@ servers:
       type: stdio
       command: npx
       args: ["-y", "@playwright/mcp@0.0.77"]
+  chrome-devtools:
+    label: "Chrome DevTools (live-page audit: a11y/perf/Core Web Vitals/console/responsive — powers the `auditor` agent)"
+    # The `auditor` agent (enterprise profile) drives its whole workflow — navigate, snapshot, screenshot,
+    # performance trace, console — through this server; without it the agent has no browser to inspect.
+    # toxic-flow legs: untrusted-content (ANY loaded page) · egress (navigates arbitrary URLs) — browser-grade; point it only at trusted dev/staging targets.
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "chrome-devtools-mcp@1.6.0"]
   docs:
     label: "Docs / Context7 (live library docs)"
     # toxic-flow legs: untrusted-content (fetched pages) · egress (hosted endpoint)
