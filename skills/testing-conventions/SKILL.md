@@ -175,6 +175,22 @@ jobs:
       - run: pytest -m integration -v
 ```
 
+### Consumer-Driven Contract Testing (across services)
+
+The "Contract testing pipeline" above validates one repo's schema against its own frontend. When a
+provider serves *multiple independent consumers* (other services, mobile clients, partner APIs),
+generalize it to **consumer-driven contracts (CDC)**: each consumer publishes the exact subset of the
+provider's responses it actually depends on (a *pact*), and the provider replays **every** consumer's
+pact in **its own CI**. The provider then learns it broke a downstream consumer *before* it deploys —
+without standing up a full end-to-end environment — and stays free to change anything no consumer's
+contract pins. CDC is the test-suite counterpart to the cross-service planning in
+`planning-and-task-breakdown` and the expand/contract rollout in `deprecation-and-migration`: green
+pacts are how you know the "contract" (removal) phase is actually safe. _(cross-service test pattern)_
+
+> Per Martin Fowler / Ian Robinson, "Consumer-Driven Contracts" (martinfowler.com). Stack- and
+> tool-agnostic — Pact is one implementation; the discipline (consumer defines, provider verifies in
+> CI) is the point.
+
 ### Security-Regression Tests
 
 Functional tests prove a feature *works*; security-regression tests prove it *can't be abused*. They are

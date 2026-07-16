@@ -55,6 +55,24 @@ Dependencies the stdlib or platform already ships · single-implementation inter
 one product · wrappers that only delegate · modules exporting one thing · dead flags and config ·
 hand-rolled stdlib · speculative "for later" scaffolding.
 
+## The wrong abstraction (when de-duplication went too far)
+
+Over-engineering also hides in the *inverse* of duplication. Watch for a shared abstraction that keeps
+growing **boolean / enum / "mode" parameters** so each caller can fork its behavior down a different
+branch. That parameter accretion is the signature of the **wrong abstraction** — code de-duplicated
+before the right shape was known, so now every caller pays for a generalization that fits none of them,
+and each new requirement wedges in another flag.
+
+The counter-intuitive fix: **re-inline it back into its callers** (yes, re-introducing the
+duplication), then let the *correct* abstraction re-emerge once the real axis of variation is visible.
+**A little duplication is far cheaper than the wrong abstraction** — copied code is a local, obvious
+cost; a wrong abstraction taxes every caller and compounds. Flag it (`shrink:` on the flag-laden
+generalization, recommending re-inlining) when a "reusable" helper is mostly `if mode == …` branches.
+
+> Per Sandi Metz, "The Wrong Abstraction" (prefer duplication over the wrong abstraction). The
+> complement to the `yagni:` tag: `yagni:` catches abstraction built too *early*; this catches
+> abstraction that de-duplicated too *aggressively*.
+
 ## Burden of proof — scrutinize each addition
 
 The five tags catch complexity that already exists. In **diff mode**, also invert the burden of proof

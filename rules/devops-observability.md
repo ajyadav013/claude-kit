@@ -72,6 +72,25 @@ is gone. The SRE pattern is to alert on **how fast the SLO's error budget is bur
 > [`google/prometheus-slo-burn-example`](https://github.com/google/prometheus-slo-burn-example).
 > Re-derived in prose; not vendored — the windows/multipliers are a starting point to tune per SLO.
 
+### Error budgets as a control loop (what you *do* when the budget burns)
+
+Burn-rate alerting tells you the budget is draining; the error budget is also the **decision rule** for
+the team, not just a dashboard number. Close the loop:
+
+- **Spend it, or freeze.** Budget remaining ⇒ you can take launch/velocity risk. Budget **exhausted** ⇒
+  **freeze risky launches** and redirect effort to reliability until you are back in budget — an
+  automatic, blameless policy agreed in advance, not a per-incident argument.
+- **Don't over-achieve the SLO.** Running far *above* target is not free: it means you spent velocity
+  you didn't have to and trained users to depend on reliability you never promised. 100 % is the wrong
+  target — the budget exists to be *used*.
+- **Cap toil.** Manual, repetitive operational work should be bounded (a common ceiling is ≤ ~50 % of
+  an owner's time); past the cap, **automate it or escalate**, because toil that grows with traffic
+  doesn't scale and starves the reliability work the burn-rate signal is asking for.
+
+> Per the Google SRE Book (error budgets as a launch-gating policy, "100 % is the wrong target", toil
+> budgets), sre.google/sre-book. Applied in prose as the organizational counterpart to the burn-rate
+> *detection* above.
+
 ### High-volume logging: rate-limit and defer
 
 Logging on a hot path or in an error burst can become its own incident — the log call dominates CPU, or

@@ -6,6 +6,7 @@ Quick reference checklist for web application performance. Use alongside the `pe
 
 - [Core Web Vitals Targets](#core-web-vitals-targets)
 - [TTFB Diagnosis](#ttfb-diagnosis)
+- [Network Latency Fundamentals](#network-latency-fundamentals)
 - [Frontend Checklist](#frontend-checklist)
 - [Backend Checklist](#backend-checklist)
 - [Measurement Commands](#measurement-commands)
@@ -26,6 +27,29 @@ When TTFB is slow (> 800ms), check each component in DevTools Network waterfall:
 - [ ] **DNS resolution** slow → add `<link rel="dns-prefetch">` or `<link rel="preconnect">` for known origins
 - [ ] **TCP/TLS handshake** slow → enable HTTP/2, consider edge deployment, verify keep-alive
 - [ ] **Server processing** slow → profile backend, check slow queries, add caching
+
+## Network Latency Fundamentals
+
+On a well-provisioned connection most "slow page" problems are **latency**-bound, not bandwidth-bound —
+past ~5 Mbps, adding bandwidth barely moves page-load time, but every millisecond of round-trip time
+(RTT) does. Know these before optimising:
+
+- **RTT is set by distance and bounded by the speed of light** — you can't compress it, only move the
+  bytes closer. **Geographic proximity (CDN / edge) is the single biggest RTT lever.**
+- **Each new connection costs round-trips before any data flows** — DNS + TCP handshake (1 RTT) + TLS
+  (1–2 RTT). **Reuse connections** (keep-alive, pooling, `preconnect`) so you pay this once, not per request.
+- **TCP slow-start makes a fresh connection slow even on a fast link** — the congestion window ramps up
+  over several round-trips, so a cold connection can't use full bandwidth for the first few KB. Another
+  reason to reuse warm connections and keep critical responses small.
+- **Head-of-line (HOL) blocking wastes the link.** HTTP/1.1 lets one response block those behind it on a
+  connection (the origin of old domain-sharding hacks). **HTTP/2** multiplexes many streams over one
+  connection (fixes it at the application layer); a lost packet still stalls all streams at the TCP
+  layer, which **HTTP/3 (QUIC over UDP)** fixes at the transport layer. Prefer H2/H3.
+- **Bandwidth-delay product** (bandwidth × RTT) is how much data must be "in flight" to keep the pipe
+  full; on a high-RTT link a too-small window/buffer leaves the link idle no matter the bandwidth.
+
+> Per Ilya Grigorik, *High Performance Browser Networking* (free full text at hpbn.co). A stack-agnostic
+> primer; the concrete resource hints live in the Network checklist below.
 
 ## Frontend Checklist
 

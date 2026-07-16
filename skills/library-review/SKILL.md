@@ -67,6 +67,18 @@ just one helper from it.
 **✅** Active, regular releases · clear changelog + semver · permissive compatible license · security
 scanning / signed releases · small focused surface · typings available · several reputable dependents.
 
+## Boring is a feature (innovation-token budget)
+
+Prefer **proven, boring** technology for anything that is not your core differentiator. Treat novelty
+as a scarce budget: a team has only a few "innovation tokens" to spend on genuinely-new tech (whose
+failure modes, operational quirks, and hiring pool it doesn't yet know), so **spend them on the
+problems that are actually your product** and take the well-understood option everywhere else. A
+candidate that is exciting but unproven should clear a *higher* bar on Maintenance, Adoption, and
+Security above — not a lower one.
+
+> Per Dan McKinley, *Choose Boring Technology* (boringtechnology.club). A lens over the dimensions
+> above, not a separate score.
+
 ## The decision
 
 Conclude explicitly — never let a dependency slip in undecided:
