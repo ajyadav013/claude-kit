@@ -4,6 +4,83 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.64.0] — 2026-07-16
+
+**Curated engineering-writing sweep — folding widely-taught senior-engineer patterns into the
+existing skill/rule set.** Prompted by a request to learn from a Medium post on "coding patterns
+from senior engineers" and, more broadly, from the canon of freely-readable engineering writing
+(SRE Book, AWS Builders' Library, Google's API Design Guide & Eng Practices, Martin Fowler,
+Brendan Gregg, and the classic distributed-systems / "boring technology" essays). Every pattern
+was checked against what the kit already ships and adopted **only where genuinely novel**;
+everything is re-derived as stack-agnostic prose and **attributed to its public source, never
+vendored**. Reuse-first per golden rule #7 — **0 new skills, agents, or rules; 0 new components**.
+All additions are append-only `###` subsections; no headings were renumbered (cross-refs stay
+stable). (0.63.0 is reserved by the in-flight chrome-devtools-mcp PR #90 — merge that first; see
+the version note in this PR.)
+
+### Added
+
+- **`resilience-engineering` rule — CAP/PACELC as a design-time lens** and a **"Fallbacks and
+  shedding — the sharp edges"** subsection: a provider-wide outage flips *all* traffic to the
+  secondary at once, so size the fallback for full load (or shed) and exercise it — an untested
+  fallback amplifies the outage (static-stability framing, per the AWS Builders' Library).
+- **`devops-observability` rule — "Error budgets as a control loop"**: the budget is the shared
+  release/reliability throttle — burn it fast → freeze features and spend on stability; hold it →
+  spend it on velocity (per the Google SRE Book).
+- **`_references/performance-checklist` — "Network Latency Fundamentals"**: the order-of-magnitude
+  latency table (L1/RAM/SSD/disk/same-DC RTT/cross-region RTT) as the back-of-envelope every design
+  review should start from (per "Latency Numbers Every Programmer Should Know", Dean/Norvig).
+- **`load-testing` — on-CPU vs off-CPU time**, Amdahl's Law, and the Universal Scalability Law:
+  why throughput can *fall* under load (coherency/contention), not just plateau (per Brendan Gregg
+  on off-CPU analysis and Neil Gunther's USL).
+- **`library-review` — "Boring is a feature (innovation-token budget)"**: spend a small, finite
+  budget of novelty on the few places it's a differentiator; default to proven tech elsewhere
+  (per Dan McKinley, "Choose Boring Technology").
+- **`over-engineering-review` — "The wrong abstraction"**: a bad abstraction costs more than
+  duplication; inlining back to duplication is legitimate, not regression (per Sandi Metz).
+- **`deprecation-and-migration` — "Parallel Change (Expand → Migrate → Contract)"**: the
+  three-phase safe-rename/evolve discipline (per Martin Fowler / Danilo Sato), resolving a
+  dangling cross-reference from the planning skill.
+- **`api-pagination-filtering-sorting` — cursor/keyset pagination vs offset**: why `OFFSET n`
+  degrades and drifts under concurrent writes, and when a stable cursor is required.
+- **`redis-caching-patterns` — cache-stampede protection for hot keys**: single-flight/request
+  coalescing plus probabilistic early expiration (per the AWS Builders' Library and the XFetch
+  scheme, Vattani et al.), with a matching anti-pattern entry.
+- **`api-and-interface-design` — three additions**: decouple the API surface from the storage
+  schema (DTO/serializer seam), **Idempotency-Key** mutations with stored-result replay, and
+  **Long-Running Operations** (202 + pollable operation resource) — per Stripe's idempotency
+  design and the Google API Design Guide; plus three matching Red Flags.
+- **`testing-conventions` — Consumer-Driven Contract testing** across services: the consumer
+  publishes a pact, the provider replays every consumer's pact in its own CI (per Fowler / Ian
+  Robinson) — the cross-service twin of the existing contract-testing pipeline.
+- **`code-review-and-quality` — "If you cannot understand it, that *is* the finding"**:
+  incomprehensibility is a defect; "I don't understand this — please clarify or simplify" is a
+  legitimate blocking review comment (per Google's Code Review Developer Guide).
+- **`notifications-and-messaging` — fallback-amplification caveat** on the provider fallback
+  chain, cross-linked to the new `resilience-engineering` static-stability note.
+
+### Changed
+
+- Appended a row to `docs/influences.md` recording this curated engineering-writing sweep.
+
+### Not adopted (deliberately)
+
+- **"Master the tools you hate" / "order-of-magnitude exploration" / "bottom-up strategy
+  synthesis"** — real senior habits, but meta-advice about how an engineer works, not
+  stack-agnostic engineering *conventions* the kit can enforce or check. Out of the kit's lane.
+- **"A shared platform scales the org"** — already the throughline of `library-review` and the
+  YAGNI/over-engineering skills; adding it verbatim would duplicate, not extend.
+- **"Separate simple from easy" (Rich Hickey, *Simple Made Easy*)** — its operative advice already
+  lives in `over-engineering-review` and `code-simplification`; folding in the vocabulary added no
+  new decision the reviewer could act on.
+- **Mechanical-sympathy detail (cache-line/false-sharing/data-locality)** — below the kit's
+  abstraction level; the kept latency table gives the right-altitude version without prescribing
+  memory-layout tactics no stack-agnostic reviewer can apply.
+- **Per-client request-rate estimation for capacity** — fragile in practice and already covered by
+  the retry-budget / load-shedding guidance in `resilience-engineering`.
+- **No new skills/agents/rules.** Every pattern above extends an existing file; nothing warranted a
+  new component (reuse-first, golden rule #7). Component counts are unchanged.
+
 ## [0.62.0] — 2026-07-15
 
 **OSS-adoption wave 3 — the two L-sized consolidation items that close out the implement-now

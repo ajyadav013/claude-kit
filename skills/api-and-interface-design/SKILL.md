@@ -34,6 +34,20 @@ This means: every public behavior — including undocumented quirks, error messa
 
 Avoid forcing consumers to choose between multiple versions of the same dependency or API. Diamond dependency problems arise when different consumers need different versions of the same thing. Design for a world where only one version exists at a time — extend rather than fork.
 
+### Decouple the API Surface from the Storage Schema
+
+The wire contract and the database schema are two different things that change at two different rates.
+If the API just serializes your tables, every storage refactor (splitting a column, normalizing,
+reshaping for a new index) becomes a *breaking API change*, and conversely every API need distorts the
+schema. Design the resource representation for the **consumer**, then map it to storage explicitly
+through a serializer / DTO layer, so either side can evolve behind that seam. This is why `Task` (the
+output type below) is defined separately from any table row — and why "establishing a database schema
+that informs API shape" (in *When to Use*) means *informs*, never *dictates*: Hyrum's Law makes an
+accidentally-exposed column as permanent as a deliberately-promised field.
+
+> Per the Google API Design Guide (resource-oriented design; cloud.google.com/apis/design). Stack-agnostic —
+> the DTO/serializer seam applies equally to REST, GraphQL, and RPC.
+
 ### 1. Contract First
 
 Define the interface before implementing it. The contract is the spec — implementation follows.
@@ -206,6 +220,49 @@ PATCH /api/tasks/123
 { "title": "Updated title" }
 ```
 
+### Idempotent Mutations (Idempotency-Key)
+
+A client that retries a `POST` after a timeout must not create the resource twice — but the network
+can't tell the client whether the first attempt actually landed. Let the client send a unique
+**`Idempotency-Key`** header per logical operation; the server records that key with the result of the
+first successful execution and, on any replay of the same key, returns the **stored result** instead of
+re-running the side effect:
+
+```
+POST /api/payments
+Idempotency-Key: 5f3a…-once-per-operation
+{ "amount": 4200, "currency": "usd" }
+```
+
+Scope keys per endpoint + caller, give them a retention window (e.g. 24h), and key on the *operation*,
+not the request body (a changed body under a reused key is a client error → `422`). This makes
+create/charge/enqueue endpoints safe to retry — the API-surface counterpart to the at-least-once /
+idempotent-consumer discipline in `.claude/rules/resilience-engineering.md`.
+
+> Per Stripe's idempotent-requests design and the Google API Design Guide (cloud.google.com/apis/design).
+> Stack-agnostic; the store behind the key can be any durable KV.
+
+### Long-Running Operations
+
+When an operation can't finish within a request (a large export, a provisioning job, a batch), don't
+hold the connection open and don't fake a synchronous `200`. Return **`202 Accepted`** with an
+**operation resource** — a real, pollable URL — and make that operation a first-class resource with its
+own lifecycle, not an out-of-band job id:
+
+```
+POST /api/exports            → 202 Accepted, { "operation": "/api/operations/abc" }
+GET  /api/operations/abc     → { "done": false }
+GET  /api/operations/abc     → { "done": true, "result": { "url": "/api/exports/abc.csv" } }
+                            // or { "done": true, "error": { "code": "...", "message": "..." } }
+```
+
+The client polls (or is notified via webhook) until `done`. This keeps the API's latency contract
+honest and its failures observable, instead of hiding a slow job behind a request that will eventually
+time out.
+
+> Per the Google API Design Guide's Long-Running Operations pattern (cloud.google.com/apis/design).
+> Stack-agnostic.
+
 ## Type-Safe Interface Patterns
 
 ### Use Discriminated Unions for Variants
@@ -280,6 +337,9 @@ function getTask(id: TaskId): Promise<Task> { ... }
 - List endpoints without pagination
 - Verbs in REST URLs (`/api/createTask`, `/api/getUsers`)
 - Third-party API responses used without validation or sanitization
+- Non-idempotent `POST`/create endpoints with no idempotency key — retries silently double-charge/double-create
+- Long jobs served synchronously (a `POST` that blocks for minutes) instead of returning a `202` + operation resource
+- Response bodies that are 1:1 serializations of database rows (storage schema leaking through the API)
 
 ## Verification
 

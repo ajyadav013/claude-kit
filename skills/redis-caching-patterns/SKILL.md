@@ -46,6 +46,12 @@ Standardize Redis caching implementation with multi-tenant key isolation, TTL st
 
 13. **Cross-link multi-tenancy-patterns and async-python-patterns**: see `multi-tenancy-patterns` for RLS/schema isolation and tenant context propagation; see `async-python-patterns` for asyncio task scheduling, connection pooling, and async context managers.
 
+14. **Cache-stampede protection for hot keys** (single-flight + early recompute): when a popular key expires, many concurrent requests miss *at the same instant* and all recompute it simultaneously — a *thundering herd* that can overload the very origin the cache exists to protect (and the network can't tell them to wait for each other). Two composable defenses; reserve them for genuinely hot keys, since the coordination cost isn't worth it for cold ones:
+    - **Request coalescing / single-flight** — the first miss takes a short per-key lock (`SET {key}:lock <token> NX EX <few s>`), recomputes, and populates the cache; concurrent callers that fail to get the lock briefly wait-and-retry the read (or serve the last good value) instead of stampeding the origin. Only one caller hits the backend per key per expiry. Release the lock by token (compare-and-delete) so a slow holder can't delete a successor's lock.
+    - **Probabilistic early expiration (XFetch)** — store the value's recompute cost and its expiry alongside it, and let each reader *probabilistically* recompute slightly *before* the TTL elapses (the probability rises as expiry nears). One request refreshes the key while it is still warm; everyone else keeps hitting the cache, so the key never actually expires under load. This avoids the synchronized miss entirely, without a lock.
+
+    > Per the AWS Builders Library ("Caching challenges and strategies", aws.amazon.com/builders-library) and the XFetch scheme (Vattani et al., "Optimal Probabilistic Cache Stampede Prevention"). Stack-agnostic; the lock/early-recompute discipline maps to any cache, not just Redis.
+
 ## Skeleton / example
 
 ```python
@@ -495,6 +501,7 @@ class TenantRedis:
 8. **Not logging cache errors**: silent failures are invisible. Log at `warning` or `error` level for monitoring/alerting.
 9. **Mixing sync and async Redis clients**: use `redis.asyncio` consistently in async services (FastAPI, aiohttp). Sync `redis-py` blocks the event loop.
 10. **Storing sensitive data without encryption**: cache should not hold PII/secrets unless encrypted at application layer. Use short TTLs for sensitive data.
+11. **No stampede protection on hot keys**: letting a popular key expire with no coalescing or early recompute means every concurrent miss recomputes at once and can knock over the origin — the failure often looks like a mysterious periodic latency/error spike synced to the TTL. Add single-flight and/or probabilistic early expiration for hot keys (convention 14).
 
 ## References
 

@@ -194,6 +194,29 @@ function getTaskService(userId: string): TaskService {
 }
 ```
 
+### Parallel Change (Expand → Migrate → Contract)
+
+To change an interface, schema, or contract that already has consumers, never edit it in place — evolve
+it in three independently-deployable, reversible phases so the change is never breaking:
+
+```
+Expand   — add the new form alongside the old (new column / field / method / parameter); both work at
+           once, and producers write BOTH forms.
+Migrate  — move every consumer from the old form to the new one, incrementally. When done, the old form
+           has zero readers.
+Contract — remove the old form. (This is exactly the Pre-Removal Safety Check above — verify zero
+           consumers first.)
+```
+
+This is the **schema/interface-level** counterpart to the Strangler pattern (which routes *traffic*
+between whole systems). Use it for the small, high-frequency breaking changes: renaming a database
+column (add new column → dual-write + backfill → switch reads → drop old), changing a function
+signature, evolving an API response field, or changing a message schema consumers deserialize. Because
+each phase ships and rolls back on its own, a breaking change becomes a sequence of safe ones.
+
+> Per Martin Fowler, "Parallel Change" / expand-contract (martinfowler.com). The interface-level twin
+> of Strangler; both keep the old and new forms alive during the move.
+
 ## Zombie Code
 
 Zombie code is code that nobody owns but everybody depends on. It's not actively maintained, has no clear owner, and accumulates security vulnerabilities and compatibility issues. Signs:

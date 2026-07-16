@@ -73,6 +73,26 @@ export default function (data) {
 - p95 within the endpoint's SLO; p99 no more than ~2–3× p95 (bigger gap = tail problems).
 - Throughput scales with concurrency until a plateau — find where it flattens.
 
+## Where the time goes: on-CPU vs off-CPU, and why throughput plateaus
+
+Two ideas explain most load-test curves and stop you optimising the wrong thing:
+
+- **Latency rising while CPU stays low means the service is blocked *off-CPU*** — waiting on a lock, a
+  connection-pool slot, disk/network IO, or a downstream call, not computing. A CPU profiler shows
+  almost nothing in this state; you have to profile the *waiting* (**off-CPU analysis**). So when the
+  latency knee appears (Method step 6), check saturation of the *waited-on* resource — pool, lock,
+  downstream — before touching application code.
+- **Throughput plateaus because of the serial fraction, and can *decline* because of coordination.**
+  **Amdahl's Law**: the part of the work that can't be parallelised caps total speedup no matter how
+  many workers you add. The **Universal Scalability Law** adds a *coherency* penalty — the cost of
+  workers coordinating (contended locks, a shared counter, a hot row): past a point, adding concurrency
+  makes throughput go **down**, not just flat (the retrograde region). A plateau-then-decline as you
+  raise VUs is that signature; the fix is shrinking the serial/contended fraction, not adding workers.
+
+> Off-CPU analysis per Brendan Gregg (brendangregg.com/offcpuanalysis.html); Amdahl's Law and the
+> Universal Scalability Law (Neil Gunther) as public canon. Applied in prose to reading load-test
+> curves; tool-agnostic.
+
 ## Rules
 
 1. **Never load-test production** without explicit approval — test a staging/local stack. See `.claude/rules/human-in-the-loop.md`.

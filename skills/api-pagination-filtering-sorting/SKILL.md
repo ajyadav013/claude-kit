@@ -48,6 +48,10 @@ Standardize HTTP query parameter conventions and response metadata for paginated
 
 15. **Caching paginated responses**: For expensive queries, cache results by a key derived from `(query_params, hierarchy_filters, org_id, run_id)`. Serialize the Pydantic response model to JSON for cache storage. Cache TTL is typically 1 hour. Invalidate cache on data writes. Use Redis or in-memory cache. Avoid caching every page individually; instead cache the full result set or the first page and accept cache misses for deeper pages.
 
+16. **Cursor/keyset pagination — and *why* it beats offset for large or mutating sets**: offset pagination (`LIMIT/OFFSET`) has two failure modes the conventions above don't fix. **Correctness:** when rows are inserted or deleted between two page fetches, the offset shifts, so the client silently **skips rows or sees the same row twice** across page boundaries. **Performance:** the database must scan and discard all `offset` rows before returning the page, so deep pages (`OFFSET 100000`) degrade linearly. **Cursor (keyset) pagination** fixes both by paginating *relative to a stable ordering key* instead of a numeric skip: `WHERE (sort_key, id) > (:last_sort_key, :last_id) ORDER BY sort_key, id LIMIT :n`. Return an **opaque, encoded `next_cursor`** (the last row's ordering key(s) — never a raw offset the client can tamper with) plus `has_next`. It requires a **total, stable sort** — append a unique tiebreaker (e.g. `id`) so ties can't reorder between requests. Trade-off: no "jump to page 50" and no exact `total_pages`. Use offset for small, bounded, human-paged lists; use cursor for infinite scroll, large tables, and any list that mutates under the reader.
+
+> The offset-skips-rows / deep-page-cost rationale and the opaque-cursor convention follow common API design canon (e.g. Stripe's list pagination). Stack-agnostic; the `(sort_key, id)` keyset predicate maps to any ordered store.
+
 ## Skeleton / example
 
 ```python

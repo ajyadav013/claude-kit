@@ -63,6 +63,43 @@ limit where queueing begins**.
 > not vendored — the algorithm maps onto any language's concurrency primitive (semaphore, pool, worker
 > count).
 
+### Partition behavior: choose consistency or availability, per operation (CAP/PACELC)
+
+When the network **partitions**, a replicated store cannot be both consistent and available for a
+write — it must either **reject** the operation (stay consistent) or **accept** it and risk divergence
+(stay available). This is not one system-wide switch: decide **per operation** by its blast radius.
+"Add to cart" can stay available and reconcile later; "charge the card" or "sell the last unit of
+stock" must reject rather than double-spend. And the trade-off does not vanish when the network is
+healthy — **PACELC**'s *else* clause: absent a partition, you still trade **latency against
+consistency**, because stronger consistency costs coordination round-trips. Set that knob per
+operation too (a stale read is fine for a dashboard, not for an authorization check). Don't take a
+datastore's advertised guarantee on faith — assert the one you depend on with fault injection (§3),
+the way partition testing repeatedly surfaces consistency violations the vendor didn't expect.
+
+> Per the CAP / PACELC framing (Eric Brewer; Daniel Abadi) and *Designing Data-Intensive Applications*
+> (Martin Kleppmann); "verify, don't trust the guarantee" follows Kyle Kingsbury's Jepsen partition
+> testing (jepsen.io). Applied in prose to the per-operation choice, independent of any one datastore.
+
+### Fallbacks and shedding — the sharp edges
+
+Two of the patterns in the table bite back if applied naively:
+
+- **A fallback can amplify the outage it's meant to survive.** If the fallback path itself calls a
+  dependency (or retries the failing one), it *adds* load exactly when the system is already failing —
+  turning a partial outage into a total one. The safe fallback returns a **static or cached** value and
+  introduces **no new dependency at failure time** (*static stability*: pre-provision the answer so the
+  degraded path does less work, not more). And always make the fallback **observable** — a silently
+  successful fallback masks a real dependency failure.
+- **Under overload, drop work that has already missed its deadline.** A request whose deadline has
+  passed is worthless to process — its caller has given up (and likely retried), so serving it burns
+  capacity for no one. Check the deadline **at dequeue**, not just at accept, and shed the expired work.
+  When saturated, prefer serving the **newest** requests first (LIFO): it keeps *some* requests fast
+  instead of making *all* of them uniformly slow and stale.
+
+> Per the AWS Builders Library ("Avoiding fallback in distributed systems"; static stability),
+> aws.amazon.com/builders-library, and the CoDel / Google SRE intuition on deadline-aware, LIFO-under-
+> overload queueing. Applied in prose; the discipline is transport- and language-independent.
+
 **Self-check at every remote call:** does it have a timeout and a deadline budget; is its retry
 idempotent, jittered, and budgeted; is there a breaker so a *down* dependency fails fast; and is its
 resource pool isolated so it can't starve the rest?

@@ -46,6 +46,18 @@ Can another engineer (or agent) understand this code without the author explaini
 - Would comments help clarify non-obvious intent? (But don't comment obvious code.)
 - Are there dead code artifacts: no-op variables (`_unused`), backwards-compat shims, or `// removed` comments?
 
+**If you cannot understand it, that *is* the finding.** When a reviewer genuinely can't follow what a
+piece of code does after a fair effort, do not approve it and do not wave it through with a guess — the
+incomprehensibility is itself a defect, because code the next reader (human or agent) can't understand
+can't be safely changed or debugged later. "I don't understand this — please clarify or simplify" is a
+legitimate, blocking review comment, not an admission of reviewer inadequacy; the burden is on the
+author to make the code understandable, not on the reviewer to decode it. (This is also a signal the
+code may be too complex — see `over-engineering-review`.)
+
+> Per Google's Code Review Developer Guide (google.github.io/eng-practices) — if a reviewer doesn't
+> understand a change, it is likely too complex, and the reviewer should ask for clarification or
+> simplification rather than approve.
+
 ### 3. Architecture
 
 Does the change fit the system's design?
