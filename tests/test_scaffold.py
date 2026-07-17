@@ -246,6 +246,25 @@ def test_repowise_mcp_written_when_selected(tmp_path, payload):
     ]
 
 
+def test_grafana_mcp_written_when_selected(tmp_path, payload):
+    """The opt-in grafana server (observability-engineer + incident-responder metrics source) lands as
+    a pinned, read-only (`--disable-write`) uvx stdio entry when selected."""
+    target = tmp_path / "grafana"
+    install(payload, target, mcp=["grafana"])
+    doc = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert "grafana" in doc["mcpServers"]
+    assert doc["mcpServers"]["grafana"]["type"] == "stdio"
+    assert doc["mcpServers"]["grafana"]["command"] == "uvx"
+    assert doc["mcpServers"]["grafana"]["args"] == [
+        "--from",
+        "mcp-grafana==0.17.2",
+        "mcp-grafana",
+        "--disable-write",
+    ]
+    # restrictive-by-default: the read-only flag is present
+    assert "--disable-write" in doc["mcpServers"]["grafana"]["args"]
+
+
 def test_chrome_devtools_mcp_written_when_selected(tmp_path, payload):
     """The opt-in chrome-devtools server (the auditor agent's dependency) lands as a pinned stdio entry."""
     target = tmp_path / "cdt"

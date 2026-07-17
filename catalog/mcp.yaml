@@ -195,6 +195,26 @@ servers:
     config:
       type: http
       url: "https://mcp.sentry.dev/mcp"
+  # Grafana (github.com/grafana/mcp-grafana, Apache-2.0) — official, vendor-maintained MCP for the
+  # metrics / dashboards / alerts side of observability that Sentry (errors) doesn't cover: query
+  # Prometheus/Loki, read dashboards, list alert rules, pull incidents/on-call. Fills the gap the
+  # `observability-engineer` agent owns (SLOs · alerts · dashboards) and that `incident-responder`
+  # already expects — "pull ... a metric" during triage (incident-responder.md §Gather signals). A Go
+  # server also published to PyPI, run via uvx (install `uv` first: https://docs.astral.sh/uv/); pinned
+  # exactly (snapshot 2026-07-17 — do not float). NOT bundled — claude-kit only references it. Ships
+  # RESTRICTIVE: `--disable-write` turns off all create/update tools (reads only); run-panel-query and
+  # admin tools are upstream-disabled by default too. Needs a Grafana instance + a service-account
+  # token (Viewer role suffices for reads); no credentials are generated here.
+  grafana:
+    label: "Grafana (metrics/dashboards/alerts — powers observability-engineer + incident-responder; read-only)"
+    # toxic-flow legs: private-data (dashboards/metrics/logs carry ops data + PII) · untrusted-content (log/label data) · egress (your Grafana). read-only by default — no destructive leg unless you drop --disable-write.
+    config:
+      type: stdio
+      command: uvx
+      args: ["--from", "mcp-grafana==0.17.2", "mcp-grafana", "--disable-write"]
+      env:
+        GRAFANA_URL: "${GRAFANA_URL}"
+        GRAFANA_SERVICE_ACCOUNT_TOKEN: "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
   # Repowise (github.com/repowise-dev/repowise) — optional codebase-intelligence engine exposing an
   # MCP server: deterministic hotspots (churn × complexity), change-risk, co-change coupling, dead
   # code, and a dependency graph. NOT bundled (claude-kit only references it): it is AGPL-3.0, so

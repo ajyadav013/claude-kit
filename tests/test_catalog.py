@@ -79,6 +79,25 @@ def test_sentry_mcp_is_opt_in_and_resolves(payload):
     assert "FSL" in labels["sentry"] or "source-available" in labels["sentry"]
 
 
+def test_grafana_mcp_is_opt_in_and_resolves(payload):
+    """grafana (metrics/dashboards/alerts MCP for the observability-engineer + incident-responder
+    roles) is opt-in only and ships read-only by default."""
+    # Not installed unless explicitly selected.
+    assert (
+        "grafana" not in catalog.resolve(payload, make_selection(payload)).mcp_servers
+    )
+    # Resolves to a pinned uvx stdio launch config, read-only (`--disable-write`), when chosen.
+    plan = catalog.resolve(payload, make_selection(payload, mcp=["grafana"]))
+    cfg = plan.mcp_servers["grafana"]
+    assert cfg["type"] == "stdio"
+    assert cfg["command"] == "uvx"
+    assert "mcp-grafana==0.17.2" in cfg["args"]
+    assert "--disable-write" in cfg["args"]
+    # Surfaced in list-options.
+    labels = {m["id"]: m["label"] for m in catalog.list_options(payload)["mcp"]}
+    assert "grafana" in labels
+
+
 def test_repowise_mcp_is_opt_in_and_resolves(payload):
     """repowise (repowise-inspired codebase intelligence) is an opt-in MCP server, never default."""
     # Not installed unless explicitly selected.

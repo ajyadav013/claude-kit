@@ -4,6 +4,49 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.65.0] — 2026-07-17
+
+**Catalog-additive OSS-adoption pass — one new MCP server that fills a documented, agent-mapped
+gap.** After five convergent *prose*-adoption scans came up null (the kit's engineering-rule/agent
+layer is comprehensive, and adding near-duplicate always-loaded prose only dilutes selection), this
+pass targeted the one adoption path immune to that cost: a `catalog/mcp.yaml` entry — opt-in,
+data-driven, and installed **only when selected** (zero always-loaded context, per golden rule #7
+"extend via the catalog, not code"). An 866-repo AI/Claude/MCP scan surfaced exactly one server that
+clears the reuse-first bar (official/maintained · not already covered · maps to an existing agent's
+documented job). **0 new agents, skills, or rules; 1 new catalog entry.**
+
+### Added
+
+- **`grafana` MCP server** (official [grafana/mcp-grafana](https://github.com/grafana/mcp-grafana),
+  Apache-2.0, `uvx mcp-grafana==0.17.2`) — the **metrics / dashboards / alerts** side of
+  observability that the existing `sentry` entry (errors) doesn't cover: query Prometheus/Loki, read
+  dashboards, list alert rules, pull incidents/on-call. Fills the gap the `observability-engineer`
+  agent owns (SLOs · alerts · dashboards) and that `incident-responder` already expects — it pulls
+  "a metric" during triage. Mirrors the existing `sentry → incident-responder` and
+  `chrome-devtools → auditor` precedent exactly. Ships **read-only** (`--disable-write` turns off all
+  create/update tools; run-panel-query and admin tools are upstream-disabled by default),
+  referenced never bundled, pinned exactly, and fully toxic-flow-leg annotated. Opt-in only — never
+  in the default selection.
+
+### Not adopted (deliberately)
+
+- **Figma MCP** (GLips/Figma-Context-MCP · official Dev Mode server) — *no documented consumer.* The
+  `ui-designer` agent's inputs are the **code/markdown design system** (`.claude/rules/ui-design-system.md`,
+  `docs/references/ui/`) and existing components/tokens — it never imports from an external design
+  tool. Adding Figma would introduce a workflow no agent asks for (speculative/YAGNI).
+- **The maintained `github/github-mcp-server` (Go)** — a genuine upgrade the catalog comment already
+  tracks, but **deferred, not adopted here**: it ships as a Docker image (off-brand for the
+  container-optional kit) or a preview remote endpoint whose auth model needs verification. Changing
+  a heavily-used existing entry belongs in its own focused change, not bundled with an additive one.
+- **Notion / Cloudflare / Firecrawl / Exa MCP servers** — either no matching agent (Notion: no
+  knowledge-base role) or vendor sprawl the kit deliberately avoids (it already ships the two major
+  clouds), or covered by native Claude Code tools (web search/fetch) + `playwright`/`chrome-devtools`.
+- **Code-intelligence servers** (zilliztech/claude-context, DeusData/codebase-memory-mcp,
+  code-review-graph) — the `serena` + `semble` + `repowise` trio already covers symbolic retrieval,
+  semantic search, and churn/risk analytics. No net-new capability.
+- **MCP *frameworks*** (fastmcp, mcp-use, mcp-agent, the inspector) — the kit *consumes* MCP servers;
+  it does not build them.
+
 ## [0.64.0] — 2026-07-16
 
 **Curated engineering-writing sweep — folding widely-taught senior-engineer patterns into the
