@@ -116,7 +116,7 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 | 📐 **Rules & skills** | **25** stack-agnostic core rules + **105** context-activated skills (57 core + 48 stack-collection), pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
 | 🛠️ **Hooks & guards** | **18** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
-| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **23** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
+| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **24** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
 
 Profiles (`lean` · `standard` · `enterprise`), team scopes, autonomy levels, and org capability
 packs decide how much of this actually installs — see

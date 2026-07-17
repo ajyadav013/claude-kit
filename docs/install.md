@@ -76,7 +76,7 @@ config — nothing else:
 3. **Backend language** (default: Python; `none` for frontend-only projects) → **backend framework** (default: FastAPI)
 4. **Database** (PostgreSQL · MongoDB · `none`)
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Chrome DevTools · Docs/MS Learn · Azure · Wassette · Sentry · Repowise · the Google security suite — full list: `claude-kit list-options`) — a
+6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Chrome DevTools · Docs/MS Learn · Azure · Wassette · Sentry · Grafana · Repowise · the Google security suite — full list: `claude-kit list-options`) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
 7. **Learning capture** (`session-end-catchup` default · `session-end` · `per-task` · `off`) — how often
    the background learnings job runs. *Privacy note:* it reads your session transcript + changed files
