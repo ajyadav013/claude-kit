@@ -58,26 +58,34 @@ Write to the appropriate category folder:
 | Performance | `performance/` | Optimization discoveries, bottleneck insights |
 | Gotchas & Pitfalls | `gotchas/` | Things that look right but aren't, common mistakes |
 
-File format:
+File format (canonical — the `remember` skill, the `capture-learnings` hook, and the
+`consolidate-learnings` skill all write/expect exactly this shape):
 ```markdown
 ---
 title: {{descriptive title}}
 category: {{category name}}
 date: {{YYYY-MM-DD}}
+trigger: {{when this applies — e.g. "designing any UI", "writing an HTTP endpoint"}}
 ---
 
 ## Context
 {{What situation led to this learning}}
 
 ## Learning
-{{The key insight — clear, specific, actionable}}
+{{The key insight — a clear, actionable directive: what to do (or avoid) and why}}
 
 ## Evidence
 {{How this was discovered — error messages, debugging steps, etc.}}
 
-## Recommendation
-{{What to do (or avoid) based on this learning}}
+## Apply when
+{{Concrete signal that this learning is relevant to the current task}}
+
+## Related   <!-- optional -->
+- [other entry](../category/file.md) — why it's connected
 ```
+
+Writing style: plain factual voice; state only what the evidence supports (and say how you know);
+match depth to the subject — a small remembered fact stays a few lines.
 
 ### Step 2: Update the index
 
@@ -97,8 +105,8 @@ you write to `architecture/` or `patterns/`, capture the **decision trace**, not
 - A memory that says *"we use X"* is weak; *"we chose X over Y because Z, see PR #123"* lets a future
   agent inherit the **judgment**, defend the decision, and know when it no longer applies.
 
-This is why the file template above leads with **Context** and ends with **Recommendation** — fill them
-with reasoning, not a restatement of the title.
+This is why the file template above leads with **Context** — fill it and **Learning** with reasoning,
+not a restatement of the title.
 
 > Source: "Context Graphs — building persistent memory for the agentic enterprise" (decision traces as
 > the system of record). Paraphrased for this kit.
@@ -111,4 +119,5 @@ Use lowercase kebab-case: `state-selector-infinite-loop.md`, `auth-token-refresh
 
 - Before writing, check if a similar memory already exists — update it instead of duplicating
 - If a memory becomes outdated (code changed, pattern no longer applies), remove or update it
+- When editing or removing an entry, update any entries whose `## Related` lines point to it
 - Keep MEMORY.md index concise — one line per entry, under 150 characters

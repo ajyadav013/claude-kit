@@ -83,6 +83,21 @@ def test_persisted_artifact_schemas_accept_representative_docs():
         assert schemas.validate_doc(lock, "mcp-lock", stack) == []
         snap = {"schema": 1, "profile": "standard", "scope": "team", "mode": "B"}
         assert schemas.validate_doc(snap, "pipeline-snapshot", stack) == []
+        # 0.66.0: optional machine-derived identity anchors (git/pr) are typed and accepted
+        snap_with_identity = {
+            **snap,
+            "git": {
+                "branch": "feat/x",
+                "sha": "abc123",
+                "worktrees": {"backend": "/tmp/wt-b"},
+            },
+            "pr": {"number": "7", "url": "https://example.test/pr/7", "state": "open"},
+        }
+        assert (
+            schemas.validate_doc(snap_with_identity, "pipeline-snapshot", stack) == []
+        )
+        bad_identity = {**snap, "git": {"branch": 42}}
+        assert schemas.validate_doc(bad_identity, "pipeline-snapshot", stack) != []
         bad_snap = {"schema": 1, "profile": "not-a-profile"}
         assert schemas.validate_doc(bad_snap, "pipeline-snapshot", stack) != []
 

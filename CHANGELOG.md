@@ -4,6 +4,80 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.66.0] — 2026-07-23
+
+**Memory-subsystem absorption pass from [basic-memory](https://github.com/basicmachines-co/basic-memory)
+(user-named source; AGPL-3.0 — ideas absorbed in our own words, zero code or prose copied).** A
+118-agent extract→verify→refute workflow mapped 36 candidate disciplines against the kit's live
+memory subsystem (10 already covered, 18 killed adversarially, 8 survived) and a final by-hand
+re-verification adopted **five** — all enrichments of existing files: **0 new agents, skills,
+rules, or hooks; component counts unchanged.**
+
+### Fixed
+- **Canonical learning shape — `rules/agent-memory.md` format drift.** The rule's file-format block
+  had drifted from the shape the other three capture paths write and expect (`skills/remember`,
+  `skills/consolidate-learnings`, `hooks/scripts/capture-learnings.sh`): it omitted the `trigger:`
+  frontmatter field and ended with `## Recommendation` instead of `## Apply when`. All four
+  artifacts now agree on `{title, category, date, trigger}` + `Context / Learning / Evidence /
+  Apply when`, so retrieval hooks are never silently missing from rule-guided captures.
+
+### Added
+- **Repo-identity anchors in the resume snapshot** (`rules/continuity.md`,
+  `schemas/pipeline-snapshot.schema.json`, `templates/CONTINUITY.template.md`,
+  `agents/orchestrator.md`, `commands/abort.md`): optional `git` (branch / sha / per-lane
+  worktrees) and `pr` (number / url / state / base / head) objects in
+  `.claude/state/pipeline-snapshot.json`, populated **from commands, never from conversation
+  memory**, plus a `## Repo State` CONTINUITY section. On resume, the checkout's identity is
+  verified with a fresh `git rev-parse` **before** acting on snapshot state, and `/claude-kit:abort`
+  now treats `git.worktrees` as the authoritative list of what a run created instead of parsing
+  freeform CONTINUITY prose.
+- **`## Attempted & Ruled Out (this session)`** in the CONTINUITY template and protocol: dead-ends
+  (approach → why ruled out) are checkpoint content, read at turn start so a resumed session does
+  not re-propose an approach that already failed without new evidence.
+- **Optional reciprocal `## Related` links between memory entries** (`skills/remember`,
+  `rules/agent-memory.md`, `skills/consolidate-learnings`): when a capture touches, extends, or
+  contradicts a distinct existing entry, both files gain a one-line pointer; consolidation unions
+  Related lines into the canonical file and repoints links to merged-away siblings; editing or
+  removing an entry updates its inbound links. Entries stop being islands without any graph
+  runtime — the reader is the traversal engine.
+- **Advisory shape-check in `consolidate-learnings`**: the merge pass flags entries missing
+  `trigger:` or a body section, repairs them from the entry's own content where obvious, and
+  reports the rest — **never** deleting or skipping an entry for non-conformance (a lossy learning
+  beats no learning).
+
+### Changed
+- **The Promote step now proposes before writing** (`skills/consolidate-learnings`): graduating
+  learnings into `.claude/skills/` or `.claude/rules/` is a scope expansion under
+  `rules/human-in-the-loop.md` (project-wide files), so the cluster, target path, and
+  update-vs-create choice are presented for confirmation first, and the promoted artifact carries
+  provenance (source entry filenames + dates). Aligns the skill with the kit's own HITL rule.
+- `docs/influences.md`: added the basic-memory adoption row.
+
+### Not adopted (deliberately)
+- **A PreCompact checkpoint hook** — the discipline's real payload (the model flushing a semantic
+  resume checkpoint at the compaction boundary) is architecturally impossible for a shell hook: the
+  PreCompact event has no model turn and cannot inject context, so a port hollows out to a file
+  copy of state that is already on disk. The kit's existing coverage is the achievable part:
+  `rules/continuity.md` mandates write-early / pre-compaction insurance and the dual-probe
+  checkpoint standard, and `load-continuity.sh` reloads on `SessionStart:compact`.
+- **Typed relation graphs, forward references, permalinks, and `memory://` addressing** — load-bearing
+  only with basic-memory's runtime (SQLite index + MCP traversal tools); the kit has no consumer for
+  a relation *type*, and `supersedes` chains contradict the kit's edit-in-place doctrine (stale
+  entries are corrected or removed, not superseded-and-kept). The untyped reciprocal `## Related`
+  pointer is the fit-for-purpose subset (the reader is the consumer).
+- **Picoschema note validation, schema inference, and drift detection** — runtime CLI features; the
+  advisory shape-check absorbs the warn-only conformance idea without the machinery.
+- **A `basic_memory` MCP catalog entry** — the memory tool-job already has a fully wired native
+  provider (`rules/agent-memory.md` + `remember`/`consolidate-learnings` + the capture/load hooks,
+  all file-based by design); an MCP memory server would be a competing duplicate, and the catalog
+  doctrine rejects consumer-less servers (the Figma precedent).
+- **Per-section regeneration-ownership markers for mixed-authorship docs** — off-theme for this
+  pass and the kit's generated files are wholly generated (never mixed); the docs skills already
+  teach "edit the source, regenerate the output."
+- **Categorized inline observations, orientation briefs, recency-windowed recall, depth-limited
+  traversal, files-are-truth index rebuilds** — verified as already covered by the kit's category
+  folders, CONTINUITY protocol, MEMORY.md index injection, and trigger-based selective attachment.
+
 ## [0.65.0] — 2026-07-17
 
 **Catalog-additive OSS-adoption pass — one new MCP server that fills a documented, agent-mapped

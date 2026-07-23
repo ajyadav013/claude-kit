@@ -41,9 +41,18 @@ Schema (keep it small and truthful — omit a field rather than guess it):
   "open_findings": { "critical": 0, "high": 0, "medium": 0 },
   "gate_evidence": { "<gate token>": "<path to the evidence artifact>" },
   "gate_overrides": { "<gate token>": "<why a blocking gate was force-closed>" },
+  "git": { "branch": "<branch>", "sha": "<HEAD sha>", "worktrees": { "<lane>": "<path>" } },
+  "pr": { "number": "<n>", "url": "<url>", "state": "<open|merged|closed>", "base": "<base>", "head": "<head>" },
   "next": "<the immediate next action>"
 }
 ```
+
+The optional `git` / `pr` objects are the run's **machine-derived identity anchors** — populate them
+from commands (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`, `git worktree list`, a
+read-only `gh pr view`), **never from conversation memory**; omit any field you cannot prove. On
+resume, compare `git.branch`/`git.sha` against a fresh `git rev-parse` **before touching anything** —
+a mismatch means the checkout moved since the snapshot; stop and verify rather than acting on stale
+state. (`abort` likewise treats `git.worktrees` as the authoritative list of what this run created.)
 
 A gate is PASS only when zero **critical/high/medium** findings remain open (low/cosmetic may pass with notes). `gate_evidence` records the artifact backing each passed gate; `gate_overrides` is written **only** when a gate is deliberately force-closed despite open blocking findings, so a reviewer (or `claude-kit pipeline validate`) can surface and re-examine it.
 
@@ -59,16 +68,20 @@ A gate is PASS only when zero **critical/high/medium** findings remain open (low
 
 **At the start of every turn / session / after compaction:**
 1. Read `.claude/CONTINUITY.md`.
-2. Read **Mistakes & Learnings** first — do not repeat past errors this session.
+2. Read **Mistakes & Learnings** and **Attempted & Ruled Out** first — do not repeat past errors,
+   and do not re-propose a ruled-out approach without new evidence.
 3. Check **Current Phase** and **Active Tasks**; resume from **Next Steps**.
 4. Treat every entry as *last-known* state, not current truth: before acting on a note that names a file, command, or gate result, confirm it still holds (the verify-before-trust checks in `.claude/rules/agent-memory.md`).
 
 **At the end of every turn, and at every pipeline stage transition:**
 1. Update **Current Phase** and **Active Tasks**.
 2. Move finished work to **Completed (this session)**.
-3. Append any new **Decisions Made** and **Mistakes & Learnings**.
+3. Append any new **Decisions Made** and **Mistakes & Learnings** — and record dead-ends in
+   **Attempted & Ruled Out** (approach → why ruled out): an approach that failed *this session* is
+   exactly what the next session will otherwise re-suggest.
 4. Rewrite **Next Steps** so the next turn can act with zero re-derivation.
-5. Update **Modified Files** and **Test/Build Status**.
+5. Update **Modified Files**, **Repo State** (from commands — `git rev-parse`, `git status` — never
+   from memory), and **Test/Build Status**.
 
 **Write CONTINUITY before** spawning or awaiting subagents, before a risky operation, and whenever context is getting long (pre-compaction insurance).
 
@@ -92,6 +105,9 @@ A gate is PASS only when zero **critical/high/medium** findings remain open (low
 ## Mistakes & Learnings
 - [what went wrong] -> [what we learned]  (promote durable ones to agent-memory)
 
+## Attempted & Ruled Out (this session)
+- [approach] — [why ruled out; do not re-propose without new evidence]
+
 ## Next Steps
 1. [immediate next action]
 2. [following action]
@@ -104,6 +120,10 @@ A gate is PASS only when zero **critical/high/medium** findings remain open (low
 
 ## Modified Files
 - [path] — [what changed]
+
+## Repo State (from commands, never from memory)
+- branch: [git rev-parse --abbrev-ref HEAD]   HEAD: [short sha]   dirty: [n files]
+- PR: [number/url/state, when one exists]
 
 ## Test/Build Status
 - [linter/formatter status]   [type checker status]   [test runner status]   [build status]
