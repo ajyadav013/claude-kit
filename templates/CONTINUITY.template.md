@@ -19,6 +19,9 @@
 ## Mistakes & Learnings
 - [none]  (promote durable ones to agent-memory via the remember skill)
 
+## Attempted & Ruled Out (this session)
+- [none]  (approach — why ruled out; do not re-propose without new evidence)
+
 ## Next Steps
 1. [await next requirement]
 
@@ -30,6 +33,10 @@
 
 ## Modified Files
 - [none]
+
+## Repo State (from commands, never from memory)
+- branch: [unknown — run git to derive]   HEAD: [unknown]   dirty: [unknown]
+- PR: [none]
 
 ## Test/Build Status
 - backend: [unknown]   frontend: [unknown]

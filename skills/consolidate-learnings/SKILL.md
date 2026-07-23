@@ -16,6 +16,11 @@ Keep the agent-memory knowledge base lean and non-redundant. This runs **periodi
 ### 1. Read the current state
 - Read `.claude/agent-memory/MEMORY.md`.
 - For each category folder (`ux/`, `architecture/`, `debugging/`, `patterns/`, `api/`, `performance/`, `gotchas/`), read every `*.md` learning file.
+- **Advisory shape check** (while reading): flag any entry missing the `trigger:` frontmatter or a
+  body section (`Context` / `Learning` / `Evidence` / `Apply when`). Repair from the entry's own
+  content where the fix is obvious (e.g. derive `trigger` from an existing `Apply when`); otherwise
+  list it in the step-7 report. **Never delete or skip an entry for non-conformance** — a lossy
+  learning beats no learning; the shape exists to make retrieval reliable, not to gate capture.
 
 ### 2. Group within each category
 Compare entries **within the same category** (cross-category merges are rare — only do them if a learning is clearly filed in the wrong category; then move it). Identify:
@@ -29,6 +34,8 @@ For each group of 2+ redundant entries, produce ONE canonical file:
 - Combine the `Learning` text so no nuance from any member is lost — union of the directives, deduplicated.
 - Keep the **earliest** `date` as the origin; optionally note "(consolidated YYYY-MM-DD)".
 - Concatenate distinct `Evidence` if it adds value; otherwise keep the strongest.
+- Union the members' `## Related` lines into the canonical file (dedup), and **repoint** any other
+  entry whose `## Related` line targets a merged-away sibling to the canonical file instead.
 - Write the merged content into the best-named existing file, then delete the now-redundant sibling files in that group.
 
 Preserve the standard entry format (frontmatter: `title`, `category`, `date`, `trigger`; body: `Context`, `Learning`, `Evidence`, `Apply when`).
@@ -56,6 +63,12 @@ After the merge pass, check each category for learnings that have outgrown the m
   `.claude/rules/` (for always-on constraints). Both are non-kit files, so `claude-kit upgrade`
   never touches them. Replace the graduated entries with ONE pointer line in `MEMORY.md`
   (`- promoted to .claude/skills/<domain>/ — <date>`), so the history of where they went survives.
+- **Propose before writing.** Promotion turns quietly-accumulated memory into always-on shared
+  config — a scope expansion under `.claude/rules/human-in-the-loop.md` (rules/skills are
+  project-wide files). Before creating or updating the artifact, present the cluster, the target
+  path, and the update-vs-create choice to the user, and proceed only on confirmation. Carry
+  provenance into the promoted artifact: name the source entries (filenames + dates) it was
+  distilled from, so its authority is traceable back to the evidence.
 - **Update-vs-create decision tree** (apply in order):
   1. An existing skill already covers the domain → **update it, never fork** a sibling.
   2. Partial overlap → **broaden the existing skill** to absorb the new procedure.

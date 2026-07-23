@@ -46,6 +46,45 @@
         "string",
         "null"
       ]
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "branch": {
+          "type": "string"
+        },
+        "sha": {
+          "type": "string"
+        },
+        "worktrees": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true
+    },
+    "pr": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": [
+            "string",
+            "integer"
+          ]
+        },
+        "url": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "base": {
+          "type": "string"
+        },
+        "head": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true

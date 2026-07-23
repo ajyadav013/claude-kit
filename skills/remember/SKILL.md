@@ -43,7 +43,7 @@ If unsure, pick the closest fit; UX preferences go in `ux/`.
 
 ### 2. Check for an existing entry
 
-Read `.claude/agent-memory/MEMORY.md` and skim the relevant category folder. If a similar learning exists, **edit that file** (refine, add nuance, correct it) rather than creating a duplicate. While you're there, sanity-check that the existing entry is still accurate against the current code — if it has gone stale (a renamed file, a changed flag, behavior that no longer holds), fix or remove it rather than stacking a contradicting entry beside it (the verify-before-trust checks in `.claude/rules/agent-memory.md`).
+Read `.claude/agent-memory/MEMORY.md` and skim the relevant category folder. If a similar learning exists, **edit that file** (refine, add nuance, correct it) rather than creating a duplicate. While you're there, sanity-check that the existing entry is still accurate against the current code — if it has gone stale (a renamed file, a changed flag, behavior that no longer holds), fix or remove it rather than stacking a contradicting entry beside it (the verify-before-trust checks in `.claude/rules/agent-memory.md`). When the new learning **touches, extends, or contradicts** a distinct existing entry (rather than duplicating it), keep both — and add a reciprocal `## Related` line in each file so a future reader of either entry finds the other.
 
 ### 3. Write the learning file
 
@@ -68,9 +68,12 @@ trigger: {when this applies — e.g. "designing any UI", "writing an HTTP endpoi
 
 ## Apply when
 {Concrete signal that this learning is relevant to the current task}
+
+## Related   <!-- optional — only when a genuinely connected entry exists -->
+- [other entry](../category/filename.md) — why it's connected
 ```
 
-The `trigger` and `Apply when` fields matter most — they are how a future session knows to pull this learning before acting.
+The `trigger` and `Apply when` fields matter most — they are how a future session knows to pull this learning before acting. `## Related` is optional: link only entries that genuinely connect (extends, contradicts-then-resolved, same subsystem), so a reader of one finds the other without scanning the whole store.
 
 ### 4. Update the index
 

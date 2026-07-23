@@ -12,7 +12,10 @@ did not create.
    **Active Tasks** and the orchestrator's `PIPELINE:` line to see which lanes/worktrees this run
    created. If no run is in progress, say so and stop.
 2. **List worktrees:** `git worktree list`. Identify **only** the worktrees this run created for its
-   lanes (the `developer` lanes use the Agent tool's `isolation: "worktree"`). **Never** remove a
+   lanes (the `developer` lanes use the Agent tool's `isolation: "worktree"`). When
+   `.claude/state/pipeline-snapshot.json` records a `git.worktrees` map, treat it as the
+   authoritative list of what this run created (cross-check each path against `git worktree list`);
+   fall back to the CONTINUITY prose only when the snapshot lacks it. **Never** remove a
    worktree this run did not create, and never the primary checkout.
 3. **Remove them:** `git worktree remove <path>` for each identified worktree. Unchanged worktrees are
    auto-cleaned by the Agent tool; this handles any that remain. Add `--force` **only** after telling

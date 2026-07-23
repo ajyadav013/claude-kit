@@ -1119,3 +1119,50 @@ def test_loop_script_installed_executable_and_kit_owned(tmp_path, payload):
     )
     rec = {r.path: r.owner for r in opts.files}
     assert rec.get(".claude/scripts/sdlc-loop.sh") == "kit"
+
+
+def test_learning_shape_parity_across_capture_paths(payload):
+    """0.66.0 drift fix: all four artifacts that write/expect a learning agree on one shape.
+
+    rules/agent-memory.md had drifted (no ``trigger:``, ended with ``## Recommendation``) from the
+    shape the remember skill, the consolidate-learnings skill, and the capture-learnings hook use.
+    This pin fails if any of the four loses the canonical markers — or if the drift marker returns.
+    """
+    sources = {
+        "rules/agent-memory.md": payload / "rules" / "agent-memory.md",
+        "skills/remember": payload / "skills" / "remember" / "SKILL.md",
+        "skills/consolidate-learnings": payload
+        / "skills"
+        / "consolidate-learnings"
+        / "SKILL.md",
+        "hooks/capture-learnings.sh": payload
+        / "hooks"
+        / "scripts"
+        / "capture-learnings.sh",
+    }
+    for name, path in sources.items():
+        text = path.read_text(encoding="utf-8")
+        assert "trigger" in text, (
+            f"{name}: canonical 'trigger' frontmatter field missing"
+        )
+        assert "Apply when" in text, f"{name}: canonical 'Apply when' section missing"
+    memory_rule = sources["rules/agent-memory.md"].read_text(encoding="utf-8")
+    assert "## Recommendation" not in memory_rule, (
+        "rules/agent-memory.md drifted again: '## Recommendation' is not part of the "
+        "canonical learning shape (use '## Apply when')"
+    )
+
+
+def test_continuity_template_and_rule_sections_stay_in_sync(payload):
+    """The seed template and the rule's inline template must carry the same checkpoint sections."""
+    template = (payload / "templates" / "CONTINUITY.template.md").read_text(
+        encoding="utf-8"
+    )
+    rule = (payload / "rules" / "continuity.md").read_text(encoding="utf-8")
+    for section in ("Attempted & Ruled Out", "Repo State"):
+        assert section in template, f"CONTINUITY.template.md missing section: {section}"
+        assert section in rule, f"rules/continuity.md missing section: {section}"
+    # identity anchors documented in the rule's snapshot schema
+    assert '"git"' in rule and '"pr"' in rule, (
+        "rules/continuity.md snapshot schema lost the git/pr identity anchors"
+    )
