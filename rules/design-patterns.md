@@ -420,3 +420,7 @@ export default api;
 | Constrained string values | Enum (backend) or union type (frontend) |
 | Multiple implementations | Strategy (interface/protocol) |
 | Cross-cutting render concern | Error Boundary |
+
+For system-scale design decisions — rate limiting, load balancing, fan-out, ID generation, service
+boundaries — see the `system-design-patterns` skill; for distributing state — consistent hashing,
+sharding, replication/quorum — see `distributed-systems-patterns`.

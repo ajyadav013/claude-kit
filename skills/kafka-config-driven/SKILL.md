@@ -170,6 +170,66 @@ def start_consumer():
     asyncio.run(main())
 ```
 
+## Event-backbone design: partition keys, ordering, DLQs, sagas
+
+Design decisions one level above the config maps: what to key events by, where poison messages go, and how multi-service workflows run over the log. Per the conventions above, the consumer layer stays a thin router — everything in this section lives in topic design and in the application handlers that `topics_configurations` dispatches to.
+
+### Partition keys are the ordering contract
+- Kafka orders events only within a partition, and all events sharing a key land on the same partition — so choosing the partition key IS choosing what stays ordered.
+- Key by the entity whose events must serialize: order ID so "payment confirmed" can never be processed before "order placed", user ID for account lifecycle events, author ID for post fan-out. Unrelated entities then flow in parallel across partitions.
+- Watch for hot keys: a celebrity author or a whale customer funnels every one of its events through a single partition, and that partition's throughput becomes the entity's ceiling. If a few entities dominate traffic, give them a dedicated path (separate topic, pull-based handling) rather than re-keying the whole stream.
+- Consumer-group parallelism is bounded by partition count: N partitions feed at most N active consumers in one group; extra instances sit idle. Size the partition count for target parallelism up front — adding partitions later changes key-to-partition routing and breaks the same-key ordering contract for entities already in flight.
+
+### Dead-letter design at the handler level
+Retry/DLQ is deliberately NOT wired at the consumer layer (see "Config flow and offset management" above); this is what the application handlers should do instead.
+- Retry inside the handler with bounded attempts and backoff; transient failures (timeouts, brief downstream outages) usually clear within a few attempts.
+- After the final attempt fails, publish the poison message to `<topic>.dlq` with failure metadata — exception summary, handler name, source topic/partition/offset, attempt count, timestamp — then return normally so the consumer commits and the partition keeps flowing. One poison message must never stall every entity queued behind it.
+- Alert on DLQ depth and oldest-message age; a DLQ that grows silently is data loss on a delay.
+- Build replay as a first-class path, not an afterthought: a small re-publisher reads the DLQ and re-emits events to the source topic once the fix ships. Keep the original partition key so replayed events land back in their ordering scope; idempotent handlers make replay (and ordinary at-least-once redelivery) safe.
+
+```python
+# my_module/handlers.py — retry and DLQ live here, not in the consumer layer
+import asyncio
+
+from services.kafka.producer.producer import AsyncEventBridge
+
+MAX_ATTEMPTS = 3
+DLQ_TOPIC = "my-topic.dlq"
+
+async def process_message(message):
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            await handle(message)  # idempotent: redelivery and DLQ replay are both safe
+            return
+        except TransientDownstreamError as exc:
+            if attempt == MAX_ATTEMPTS:
+                await send_to_dlq(message, exc, attempt)
+                return  # handler "succeeds" so the consumer commits and the partition keeps flowing
+            await asyncio.sleep(2 ** attempt)
+
+async def send_to_dlq(message, exc, attempts):
+    emitter = await AsyncEventBridge().get_event_emitter()
+    await emitter.add_event_to_queue(
+        topics=[DLQ_TOPIC],
+        partition_value=message.key,  # preserve the key so replay keeps its ordering scope
+        event={
+            "payload": message.value,
+            "error": repr(exc),
+            "source": {"topic": message.topic, "partition": message.partition, "offset": message.offset},
+            "attempts": attempts,
+        },
+        serialization_format="JSON",
+    )
+    await emitter.emit_events()
+```
+
+### Sagas over the log
+- Model a multi-service workflow (order created -> inventory reserved -> payment completed -> order confirmed) as an explicit state machine whose transitions are events on the backbone — never as an implicit chain you hope every consumer completes.
+- Give every failure edge exactly one compensating action: a payment failure publishes an event that releases the inventory reservation; an inventory failure means payment is never attempted. No partial state is ever permanent.
+- Choreography (each service subscribes to the previous step's event and reacts) fits short, linear flows with few participants — nothing extra to run, but the workflow exists only implicitly across services. Orchestration (one coordinator consumes status events and emits command events) fits flows that need timeouts, visibility into stuck instances, or more than a handful of steps — at the cost of one more service to own.
+- Retry-from-offset is the recovery primitive: with manual commit-after-processing (this skill's default), a crashed step resumes from its own offset instead of the whole flow replaying; idempotency keys on each step make the resulting redelivery harmless.
+- When a saga accumulates timers, versioned long-running state, or human approval steps, a workflow engine beats a hand-rolled state machine — see the `temporal-developer` skill.
+
 ## Anti-patterns to avoid
 
 - DO NOT hard-code broker hosts, keytabs, or certificates in code; always load from environment or config.
@@ -187,3 +247,4 @@ def start_consumer():
 - [Consumer and Producer Patterns](references/consumer-producer-patterns.md) — Deep inventory of config map variants and bootstrap loops
 - [Config and SASL Kerberos](references/config-and-sasl-kerberos.md) — Full SASL_SSL+GSSAPI wiring with certificate management
 - [Troubleshooting and Patterns](references/troubleshooting-and-patterns.md) — Common issues, solutions, performance tuning, and migration strategies
+- [htn-apache-kafka-crash-course.md](references/htn-apache-kafka-crash-course.md) — Own-words digest of Kafka fundamentals: partitioning and per-key ordering, consumer groups, retention and replay

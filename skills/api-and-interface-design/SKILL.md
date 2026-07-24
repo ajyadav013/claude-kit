@@ -263,6 +263,61 @@ time out.
 > Per the Google API Design Guide's Long-Running Operations pattern (cloud.google.com/apis/design).
 > Stack-agnostic.
 
+### HTTP Caching & Payload Efficiency
+
+Every response declares a caching policy whether you write one or not — with no `Cache-Control`
+header, browsers and CDNs fall back to heuristics and *guess* how long your data stays valid.
+Choose the policy per endpoint, deliberately, as part of the contract:
+
+```
+Cache-Control: public, max-age=31536000   → shared reference data; CDNs may cache it
+Cache-Control: private, max-age=60        → per-user data; browser may cache, shared caches must not
+Cache-Control: no-store                   → sensitive payloads (auth, payment, PII) — never cached
+Cache-Control: max-age=30, stale-while-revalidate=300
+                                          → serve the stale copy instantly, refresh in the background
+```
+
+Default: `no-store` for anything authenticated or per-user until you decide otherwise; an explicit
+`max-age` for anything shareable. And if a body varies on a negotiated request header (encoding,
+language), list that header in **`Vary`** — omitting it is how a shared cache hands one client's
+compressed variant to a client that can't decode it.
+
+**Conditional requests skip the re-transfer.** Fingerprint each response with an **`ETag`**; the
+client echoes it back and an unchanged resource costs a tiny `304` instead of a full body
+(`Last-Modified` / `If-Modified-Since` is the coarser time-based equivalent):
+
+```
+GET /api/tasks/123
+If-None-Match: "a1b2c3"
+→ 304 Not Modified            // no body — the client's cached copy is still valid
+```
+
+The same fingerprint doubles as an **optimistic-concurrency token** on writes — require `If-Match`
+and reject a stale write with `412` instead of silently letting the last writer win:
+
+```
+PATCH /api/tasks/123
+If-Match: "a1b2c3"
+{ "title": "Updated title" }
+→ 412 Precondition Failed     // someone else changed it since the client read it
+```
+
+**`Retry-After` completes the rate-limit contract.** A bare `429` or `503` invites blind client
+retry loops; pairing it with `Retry-After: 30` turns them into scheduled backoff. If an endpoint
+can return `429`, it should say when to come back.
+
+**Payload size is a contract too.** Three bounds, cheapest first:
+
+- **Compression** — honor `Accept-Encoding` and compress JSON bodies (gzip works everywhere,
+  Brotli compresses further over HTTPS); large text payloads routinely shrink ~5–10×, nearly free.
+- **Sparse fieldsets** — give over-fetch-prone list endpoints a field-selection param
+  (`?fields=id,title,status`) so list views stop paying for detail-view payloads.
+- **Pagination caps** — the first payload bound of all: no list endpoint returns unbounded rows.
+  Query-param conventions live in `api-pagination-filtering-sorting`.
+
+> Per RFC 9110/9111 (HTTP semantics, caching, conditional requests). Stack-agnostic — these are
+> wire-level contracts that browsers, CDNs, and gateways enforce identically for any backend.
+
 ## Type-Safe Interface Patterns
 
 ### Use Discriminated Unions for Variants
@@ -352,3 +407,7 @@ After designing an API:
 - [ ] New fields are additive and optional (backward compatible)
 - [ ] Naming follows consistent conventions across all endpoints
 - [ ] API documentation or types are committed alongside the implementation
+
+## References
+
+- [htn-http-routing.md](references/htn-http-routing.md) · [htn-rest-api-design.md](references/htn-rest-api-design.md) — own-words digests of the HTTP/routing and REST API design source articles

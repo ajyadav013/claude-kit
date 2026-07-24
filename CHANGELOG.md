@@ -4,6 +4,88 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.67.0] — 2026-07-24
+
+**System-design absorption pass from
+[Technical-Engineering-Articles](https://github.com/harshit3011/Technical-Engineering-Articles)
+(user-named source; MIT list-repo indexing 46 public X threads by
+[@Harry_The_Nerd](https://x.com/Harry_The_Nerd) — thread content © the author; ideas absorbed in
+our own words, zero verbatim text, attribution in every digest and `docs/influences.md`).**
+All 46 threads fetched (logged-out browser render, no login walls); a 92-agent digest→verify
+pipeline classified 614 candidate patterns against the live kit (236 absent / 159 partial /
+170 covered / 49 not-absorbable) with a 3-claim fidelity spot-check per digest (46/46 passed 3/3),
+then a global adversarial refute deduplicated the composite-app repeats and enforced the caps:
+**exactly 2 new skills, exactly 6 extensions, everything else digest-only.**
+
+### Added
+- **`system-design-patterns` collection skill** — system-scale building blocks: back-of-envelope
+  estimation & read/write asymmetry, rate-limiting algorithms, load balancing, CDN/edge, the
+  caching hierarchy (L1/L2/L3, precompute, selective), URL shortening & unique-ID generation,
+  notification and news-feed fan-out, autocomplete/typeahead, chat/real-time sync, data-modeling
+  building blocks (metadata/blob split, expiring holds, calendar inventory), microservice boundary
+  criteria (four-part acceptance test, distributed-monolith diagnostic, Conway's Law), and a
+  composite-application pattern map. 24 attributed `htn-` digests in `references/`.
+- **`distributed-systems-patterns` collection skill** — distributing state: consistent hashing,
+  partitioning/sharding (and the cache → replicas → shard-last ladder), replication & quorum
+  (N/W/R), distributed KV-store anatomy (hinted handoff, read repair, anti-entropy, vector
+  clocks), distributed cache design, failure detection/gossip, and B-tree vs LSM storage engines.
+  CAP/PACELC and clocks stay cross-linked to the always-loaded `resilience-engineering` rule —
+  never duplicated. 6 attributed `htn-` digests in `references/`.
+- **[`docs/system-design-threads.md`](docs/system-design-threads.md)** — the 46-row coverage map:
+  every thread's fetch status, digest location, and kit outcome (including the 3 deliberately
+  not absorbed).
+- **Six capped SKILL.md extensions** (each independently gap-verified against the live kit):
+  - `gcs-file-storage-patterns` — *Direct-to-storage uploads (presigned PUT)*: seven independent
+    designs converge on client → presigned PUT → bucket with async post-processing; the skill's
+    existing examples routed upload bytes through the API tier.
+  - `redis-caching-patterns` — *Beyond-cache Redis*: purpose-fit native structures, MULTI/EXEC +
+    WATCH + Lua atomicity, eviction-policy selection (LRU vs LFU), RDB/AOF persistence trade-offs.
+  - `kafka-config-driven` — *Event-backbone design*: partition-key choice as the ordering
+    contract, handler-level DLQ + replay (building on the skill's pinned no-consumer-layer-DLQ
+    convention), saga orchestration with compensating actions.
+  - `python-dao-and-database` — *Concurrency control*: optimistic locking (version column),
+    MVCC as the mental model, deadlock discipline (lock ordering, timeouts, retry-the-victim);
+    cross-references the existing isolation-level reference instead of duplicating it.
+  - `api-and-interface-design` — *HTTP caching & payload efficiency*: Cache-Control vocabulary,
+    ETag/If-None-Match conditional requests, Retry-After, compression negotiation, sparse
+    fieldsets (previously zero hits for any of these across the kit).
+  - `auth-and-rbac` — *Choosing an authorization model & OAuth 2.0 delegation*: RBAC vs ABAC vs
+    ACL as a decision with migration signals, and authorization-code delegation (PKCE, what to
+    store) distinct from the skill's existing in-app JWT/session mechanics.
+- **13 further digests** filed in the `references/` of already-covering skills with zero SKILL.md
+  changes (`design-patterns-and-conventions` ×3, `auth-and-rbac` ×2, `api-and-interface-design`
+  ×2, plus `performance-optimization`, `observability-and-logging`, `async-python-patterns`, and
+  the extension digests above), preserving the covered-vs-extended distinction.
+
+### Changed
+- `rules/design-patterns.md` gains a two-line pointer to the two new skills (the only
+  always-loaded touch; reaches `technical-architect`, which mandatory-reads that rule).
+- Count anchors: **107 skills (57 core + 50 stack-collection)** in `README.md`,
+  `docs/stack-skills/README.md` (+2 catalog rows), and `docs/skill-audit.md`.
+- `docs/skill-audit.md` also corrects **pre-existing count drift** (it still said
+  104 = 56 + 48 while the tree held 105 = 57 + 48 since 0.58.x) — deliberate drift correction,
+  with the dated 2026-07 lane-mapping measurement left intact as a historical record.
+
+### Not adopted (deliberately)
+- **AWS SAA-C03 exam thread** — cloud-certification prep; no SDLC substance for a stack-agnostic
+  configuration kit. Coverage-map row only.
+- **Claude CCA-F exam thread** — exam prep; the platform facts it teaches (model tiers, batch
+  API, context discipline) are already covered by `anthropic-vertex-integration`,
+  `model-tiers`, and `context-engineering`. Coverage-map row only.
+- **Writing-advice thread** — personal craft guidance, out of kit scope. Coverage-map row only.
+- **A third new skill** (e.g. "search & discovery" or "marketplace patterns") — the remaining
+  absent patterns (geo/proximity, layered search funnels, escrow payouts, double-blind reviews)
+  are carried by the composite-app digests and pattern map; a skill each would dilute
+  auto-selection for content that arises only inside those composites.
+- **57 of the 63 proposed extensions** — killed by the global refute to honor the ≤6 cap; every
+  kill either deduplicated a composite-app repeat (absorbed once into the new skills), landed as
+  digest-only references (CORS mechanics, State-pattern LLD, GIL threads-vs-processes,
+  notification delivery-log, engine-sympathetic JavaScript, batch-API/temporal-anchoring), or
+  would have duplicated the always-loaded `resilience-engineering` rule (backpressure, CAP,
+  retries — already covered there).
+- **Raw thread captures** — never committed; the gitignored harvest scratch is deleted before
+  commit and digests carry a structural fidelity check instead of quotes.
+
 ## [0.66.0] — 2026-07-23
 
 **Memory-subsystem absorption pass from [basic-memory](https://github.com/basicmachines-co/basic-memory)

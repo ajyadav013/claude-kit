@@ -489,6 +489,92 @@ class TenantRedis:
         return self._redis
 ```
 
+## Beyond-cache Redis: structures, atomicity, eviction, persistence
+
+Everything above treats Redis as a cache — string values under a TTL, safe to lose and recompute.
+Redis is equally an operational store (rate limiters, queues, rankings, membership checks), and
+that role forces four decisions a pure cache never surfaces. Frame each as a choice with a
+default, the same way the conventions above do:
+
+1. **Purpose-fit structure selection** — don't serialize everything into JSON-blob strings; pick
+   the native structure that makes the hot operation O(1)/O(log N) instead of
+   deserialize-modify-reserialize:
+    - **Hash** for object-like records accessed field-by-field (`HSET user:{id} email …`,
+      `HGET user:{id} email`) — read or update one field without round-tripping the whole object
+      through the serializer.
+    - **Sorted set** for anything ordered by score: leaderboards (`ZADD` + `ZREVRANGE` give top-N
+      and rank for free) and sliding rate-limit windows (score = request timestamp;
+      `ZREMRANGEBYSCORE` prunes entries older than the window, `ZCARD` counts the remainder).
+    - **Set** for membership and uniqueness (tags, seen-IDs, permission flags) with native
+      union/intersection/difference — no read-everything-then-scan in application code.
+    - **List** for queues: producers `LPUSH`, consumers `BRPOP` (blocking pop, no poll loop). For
+      crash-safety, atomically move each job into a per-consumer processing list and delete it
+      only after completion so a dead consumer leaves the job recoverable.
+    - **String + `INCR`** for counters — a single-command atomic increment, no read-modify-write.
+
+    Default: if a value is always read and written whole, a JSON string under the conventions
+    above is right; the moment you operate on *parts* of a value or need ordering/membership
+    semantics, switch structures rather than growing application-side logic.
+
+2. **Atomicity — match the tool to the operation.** Every single command is already atomic (Redis
+   executes commands one at a time on one thread), so `INCR` or `SET … NX` need nothing extra.
+   For compound operations:
+    - **MULTI/EXEC** queues commands and runs them as one uninterruptible batch — with **no
+      rollback**: if a queued command errors, the rest still run. Use it for grouped writes that
+      are individually safe, never for all-or-nothing semantics.
+    - **WATCH** turns MULTI/EXEC into optimistic check-and-set: watch the key, read, queue the
+      update; EXEC aborts if the key changed underneath, and the client retries. Right for
+      low-contention read-modify-write cycles.
+    - **Server-side Lua (`EVAL`)** runs a whole script as one atomic unit — the only way to make
+      read-decide-write logic atomic. Canonical case: an atomic rate-limit counter that
+      increments, checks the cap, and sets the window expiry in one step. Cache scripts and
+      invoke by SHA (`EVALSHA`) so the body isn't resent on every call.
+    - **Pipelining is not atomicity** — it batches round trips for throughput (other clients'
+      commands may interleave). Use it to amortize network latency (convention 7), not for
+      consistency.
+
+    Default: plain commands where one suffices; Lua when the logic must read *and* write
+    atomically; MULTI/EXEC only for independent grouped updates; WATCH when contention is low
+    and a retry loop is acceptable.
+
+3. **Eviction policy per workload** (`maxmemory-policy`) — when the memory cap is hit, the policy
+   decides what disappears, and the wrong pick either silently drops data or refuses writes at
+   peak:
+    - **Cache workloads**: `allkeys-lru` is the standard choice; prefer `allkeys-lfu` when the
+      hot set is popularity-skewed (a few keys dominate reads) so access *frequency*, not
+      recency, decides survival.
+    - **Store workloads** (queues, locks, counters): `noeviction` — silently evicting a lock or a
+      queued job is data loss; better that writes fail loudly and alert someone.
+    - **Mixed instances**: `volatile-lru`/`volatile-lfu`/`volatile-ttl` evict only TTL-bearing
+      keys, so cache entries (which carry TTLs per convention 4) are reclaimable while durable
+      keys without TTLs survive.
+
+    Default: `allkeys-lfu` for a dedicated cache instance; `noeviction` the moment anything
+    non-recomputable shares the instance — and prefer splitting cache and store into separate
+    instances so the choice stays unambiguous.
+
+4. **Persistence per role, decided explicitly** — never inherit whatever the deployment template
+   shipped:
+    - **RDB snapshots**: a background fork writes a compact point-in-time dump — small files,
+      fast restarts, cheap backups — but everything since the last snapshot is lost on a crash.
+      Fits data with an acceptable, bounded loss window.
+    - **AOF**: every write is appended and replayed at startup; `appendfsync everysec` is the
+      standard setting — bounds loss to about one second without paying a per-write fsync.
+      Costs: larger files, slower restarts, periodic rewrites to compact the log.
+    - **Hybrid RDB+AOF** (Redis ≥ 4.0): the AOF rewrite embeds an RDB snapshot at the head and
+      appends subsequent commands — snapshot-fast restart plus AOF-grade durability. The
+      production default when Redis holds anything you can't recompute.
+    - **Persistence off** is legitimate for a pure cache: every value is recomputable from the
+      origin, a cold restart is just a warm-up period, and the in-memory fallback (convention 2)
+      already covers the outage case. Maximum throughput, zero disk.
+
+    Default: persistence off (or RDB-only if you want faster warm restarts) on cache instances;
+    hybrid RDB+AOF on anything operational.
+
+> Distilled from [htn-a-complete-guide-to-redis.md](references/htn-a-complete-guide-to-redis.md),
+> an own-words digest whose operational sections (structures, transactions, eviction,
+> persistence) back this section.
+
 ## Anti-patterns to avoid
 
 1. **Using `KEYS *` for pattern matching**: blocks Redis for large keyspaces. Use `SCAN` with `match` and `count`.
@@ -508,5 +594,6 @@ class TenantRedis:
 - [repo-evidence.md](references/repo-evidence.md) — genericized source snippets
 - [cache-manager-and-fallback.md](references/cache-manager-and-fallback.md) — CacheManager, in-memory fallback, initialization patterns
 - [namespacing-and-invalidation.md](references/namespacing-and-invalidation.md) — TenantRedis, key formatting, SCAN-based invalidation, pipelined bulk delete
+- [htn-a-complete-guide-to-redis.md](references/htn-a-complete-guide-to-redis.md) — operational-Redis digest: data structures, transactions/Lua, eviction, persistence, replication, security
 - `multi-tenancy-patterns` — tenant isolation, RLS, schema context
 - `async-python-patterns` — asyncio.create_task, connection pooling, lifespan hooks
