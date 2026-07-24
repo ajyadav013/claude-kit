@@ -6,7 +6,7 @@ This document analyzes claude-kit's skill inventory — classification, sizing, 
 
 **Date:** 2026-07-03 (count anchors refreshed 2026-07-24 at 0.67.0)
 **Version audited:** 0.57.0
-**Total skills on disk:** 107 (57 core + 50 stack-collection)
+**Total skills on disk:** 108 (57 core + 51 stack-collection)
 
 ---
 
@@ -20,7 +20,7 @@ Skills are classified by the presence of a `README.md` file in their directory:
 This classification is exactly how `scripts/check_docs_consistency.py::_count_skills()` counts them. That function walks `skills/`, skips any entry that is not a directory or whose name starts with `_` (so the shared `_references/` support directory is not counted as a skill), and splits the rest on README presence. The expected split is pinned as anchors that CI checks against the docs:
 
 - 57 core skills (no `README.md`).
-- 50 stack-collection skills (with `README.md`).
+- 51 stack-collection skills (with `README.md`).
 
 Per-profile counts were measured on a `react + fastapi + postgres` project initialized with `--scope individual` for each profile (lean, standard, enterprise), by counting the files actually written under `.claude/`.
 
@@ -33,10 +33,10 @@ Token estimates are approximate, calculated as `total_bytes / 4`.
 | Category | Count | Description |
 |----------|-------|-------------|
 | **Core skills** | 57 | Stack-agnostic capabilities (e.g., `sdlc`, `code-review-and-quality`, `test-driven-development`, `planning-and-task-breakdown`, `debugging-and-error-recovery`) |
-| **Stack-collection skills** | 50 | Stack or domain-specific skills (e.g., `fastapi-service-patterns`, `react-hook-form-zod-patterns`, `system-design-patterns`, `kubectl-operations`) |
-| **Total** | **107** | Full on-disk inventory (excludes the shared `_references/` support directory) |
+| **Stack-collection skills** | 51 | Stack or domain-specific skills (e.g., `fastapi-service-patterns`, `react-hook-form-zod-patterns`, `system-design-patterns`, `kubectl-operations`) |
+| **Total** | **108** | Full on-disk inventory (excludes the shared `_references/` support directory) |
 
-The 50 collection skills are stack/domain add-ons. Note that `postgres-specialist`, `migration-specialist`, and `db-performance-reviewer` are DB-overlay **agents** (under `templates/stacks/db/postgres/agents/`), not skills — they are counted in the agent footprint below, not here.
+The 51 collection skills are stack/domain add-ons. Note that `postgres-specialist`, `migration-specialist`, and `db-performance-reviewer` are DB-overlay **agents** (under `templates/stacks/db/postgres/agents/`), not skills — they are counted in the agent footprint below, not here.
 
 ---
 
@@ -48,7 +48,7 @@ Measured on a `react + fastapi + postgres` project with `--scope individual`:
 |---------|--------|--------|-------|-------------------------------|
 | **lean** | 8 | 15 | 36 | ~46K |
 | **standard** | 26 | 42 | 36 | ~121K |
-| **enterprise** | 31 | 107 | 36 | ~895K+ |
+| **enterprise** | 31 | 108 | 36 | ~895K+ |
 
 **Notes:**
 
@@ -62,12 +62,12 @@ Measured on a `react + fastapi + postgres` project with `--scope individual`:
 
 ## Finding: Enterprise Over-Install of Stack-Collection Skills
 
-The enterprise profile uses `skills: all` in `catalog/profiles.yaml`, which installs **every skill in the payload** — including all 50 stack-collection skills, regardless of whether the project selected those stacks.
+The enterprise profile uses `skills: all` in `catalog/profiles.yaml`, which installs **every skill in the payload** — including all 51 stack-collection skills, regardless of whether the project selected those stacks.
 
 **Impact:**
 
 - A `react + fastapi + postgres` project receives skills for stacks and domains it did not select (e.g., MongoDB, Kafka, Temporal, Kubernetes, GCP, and the planned Vue/Svelte/Django/Node collections' analogues) — roughly **895K tokens on disk** vs. standard's **~121K**.
-- That is about **7× the on-disk skill footprint** of the standard profile. By skill count the ratio is smaller (107 vs 42, ~2.5×); the 7× gap is driven by size — collection skills carry a `README.md` plus more content per directory. Most of these files are irrelevant to the chosen stack.
+- That is about **7× the on-disk skill footprint** of the standard profile. By skill count the ratio is smaller (108 vs 42, ~2.6×); the 7× gap is driven by size — collection skills carry a `README.md` plus more content per directory. Most of these files are irrelevant to the chosen stack.
 
 **Important nuance (do not overstate):** Skills are **on-demand** (activated by context/user request), so this is **disk/selection bloat**, not always-resident context bloat. The harness does not load all skill files into every prompt. What it does do is:
 
@@ -133,7 +133,7 @@ Potential approaches — all MUST stay `catalog/*.yaml` / config changes with NO
 
 **Next steps (if pursued):**
 
-1. Measure the actual selection-time overhead of a 107-skill vs 42-skill install (do not assume it).
+1. Measure the actual selection-time overhead of a 108-skill vs 42-skill install (do not assume it).
 2. Prototype a `stack-relevant` mapping as pure data in `stacks.yaml`, resolved by the existing lookup.
 3. Add the variant to `catalog/profiles.yaml` and measure the resulting footprint against the numbers above.
 
@@ -176,7 +176,7 @@ for whoever picks this up.
 
 ## Conclusion
 
-- **Total skill inventory:** 107 (57 core + 50 stack-collection).
+- **Total skill inventory:** 108 (57 core + 51 stack-collection).
 - **Enterprise over-install:** ~7× the on-disk skill footprint (~895K vs ~121K tokens) because `skills: all` installs cross-stack collection skills.
 - **Risk level:** low for resident context (on-demand activation), but disk/selection bloat is measurable.
 - **Action taken:** document the trade-off. Optionally evaluate a stack-relevant filter as a config-level change (no `resolve()` branching).

@@ -217,6 +217,37 @@ each phase ships and rolls back on its own, a breaking change becomes a sequence
 > Per Martin Fowler, "Parallel Change" / expand-contract (martinfowler.com). The interface-level twin
 > of Strangler; both keep the old and new forms alive during the move.
 
+### Shadow Verification Before Cutover
+
+Strangler and expand-contract both hinge on one moment — switching reads (or traffic) to the new
+path. Never take that step on faith because the backfill "finished"; prove equivalence on real
+traffic first, and make the switch itself trivially reversible:
+
+- **Shadow reads.** After backfill, keep serving from the old path while also reading the new path
+  and comparing results out-of-band. Log every mismatch with enough context to classify it —
+  backfill bug, in-flight write race, or semantic drift (the new path is "correct" but different).
+  Each class has a different fix; a bare mismatch count tells you nothing.
+- **Per-item fallback.** If the new path errors or mismatches for an item, serve the old value.
+  Verification must never degrade users — it's a measurement, not a bet.
+- **Budget the dark traffic.** Shadow a bounded percentage first — comparison costs real compute
+  and real load on the new store — and ramp only as the mismatch rate approaches zero. The cutover
+  gate is a mismatch-rate SLO, not a calendar date.
+- **Dark launch for behavior swaps.** When replacing a protocol, codec, or component (no stored
+  data to diff), run the new implementation against real traffic with its output discarded,
+  comparing behavior and cost before any user sees it.
+- **Logical before physical.** When restructuring where data lives, prove the new logical
+  schema/topology first: verifiers and routing that model the *future* layout while data still
+  sits in the old system (pre-split logical shards, virtual partitions enforced by a linter). The
+  physical move then becomes a mechanical, already-verified step.
+- **Fast, reversible cutover.** Keep the switch instant and two-way — a flag or router-level flip,
+  never a deploy. At the moment of switch, verify replication parity with an explicit watermark
+  (e.g. a replication position or transaction ID — GTID/LSN in many databases — the new side must
+  have replayed), and hold the old path warm until the new one has survived real traffic.
+
+Retry and fallback *mechanics* (timeouts, backoff, circuit breaking) are owned by
+`.claude/rules/resilience-engineering.md`; this section is about using them to verify a migration
+before committing to it.
+
 ## Zombie Code
 
 Zombie code is code that nobody owns but everybody depends on. It's not actively maintained, has no clear owner, and accumulates security vulnerabilities and compatibility issues. Signs:
