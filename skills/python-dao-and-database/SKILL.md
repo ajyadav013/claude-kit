@@ -52,6 +52,63 @@ Standard DAO patterns and database session lifecycle for async SQLAlchemy and Mo
 - MISSING: specific `IntegrityError` handling for unique constraint violations; most methods raise generic exceptions
 - For critical transactions: use `with_for_update()` for row-level locking or set isolation level (see `advanced-query-patterns.md`)
 
+### Concurrency control: optimistic locking, MVCC, deadlock discipline
+
+Isolation levels and pessimistic `with_for_update()` locking are covered in `advanced-query-patterns.md`; this section is about choosing between the two strategies and surviving the conflicts the database resolves by aborting your transaction.
+
+**Optimistic locking (version column)**
+- Add a version counter to the row; every write becomes `UPDATE ... WHERE id = :id AND version = :expected` (with `version = version + 1` in the SET)
+- Zero rows updated means a concurrent writer won — that is NOT "row missing"; retry the whole read-modify-write cycle or surface a 409-style conflict to the caller
+- SQLAlchemy native mechanism: `__mapper_args__ = {"version_id_col": ...}` — the mapper appends the version predicate to UPDATE/DELETE automatically and raises `StaleDataError` when zero rows match
+- Prefer optimistic when contention is low or think-time is long (a user editing a form for minutes): nothing is held while they think, there is no lock to leak, and conflicts are rare enough that retries are cheap
+- Prefer pessimistic (`with_for_update()`) when contention is high and the transaction is short: under heavy contention, optimistic retry storms cost more than a briefly held row lock
+
+**MVCC as the mental model**
+- Postgres/InnoDB give every transaction a consistent snapshot: readers never block writers and writers never block readers — a reader simply sees the older row version
+- MVCC does NOT prevent read-then-write races: two transactions can each read balance=100 from their snapshots, each subtract 50, and both write 50. Snapshot reads say nothing about application-level read-modify-write — that is exactly what the version column or `with_for_update()` is for (the balance-update case in `advanced-query-patterns.md` is the anchor example)
+- Under REPEATABLE READ / SERIALIZABLE, write-write conflicts are resolved by aborting one transaction (Postgres serialization failure, SQLSTATE 40001) — a retryable outcome, not a bug; catch it and rerun the whole transaction
+- Stale row versions accumulate until vacuum/purge reclaims them; a long-running transaction pins its snapshot and blocks that cleanup — one more reason to keep transactions short
+
+**Deadlock discipline**
+- Acquire row locks in a single global order in every code path (e.g., always lock accounts by ascending PK); one path locking A then B while another locks B then A is the canonical deadlock
+- Keep transactions short: never hold an open transaction across network calls, external APIs, or user think-time
+- Set timeouts so a stuck lock fails fast instead of queueing forever: Postgres `lock_timeout` / `statement_timeout`, or `with_for_update(nowait=True)` per query
+- The database detects lock cycles and aborts a victim (Postgres SQLSTATE 40P01) — like serialization failures, an EXPECTED, retryable error path: catch, rollback, retry the whole transaction
+
+**Retry skeleton**
+
+```python
+import asyncio
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm.exc import StaleDataError
+
+# Optimistic locking: version column enforced by the mapper
+class Document(Base):
+    __tablename__ = "documents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    version_id: Mapped[int] = mapped_column(nullable=False)
+    __mapper_args__ = {"version_id_col": version_id}
+
+RETRYABLE_SQLSTATES = {"40001", "40P01"}  # serialization_failure, deadlock_detected
+
+async def run_txn_with_retry(txn, max_attempts: int = 3):
+    """txn opens a fresh session, does the read-modify-write, commits, closes."""
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await txn()
+        except StaleDataError:  # optimistic version check lost the race
+            if attempt == max_attempts:
+                raise
+        except DBAPIError as e:  # deadlock victim / serialization failure
+            if getattr(e.orig, "sqlstate", None) not in RETRYABLE_SQLSTATES or attempt == max_attempts:
+                raise
+        await asyncio.sleep(0.05 * attempt)  # add jitter in production
+```
+
+- Retry the WHOLE transaction with fresh session state — never just the failing statement; the snapshot that produced the conflict is gone
+- Bound attempts and back off with jitter; once the budget is spent, surface the conflict instead of looping forever
+
 **Bulk operations**
 - Insert: `bulk_add_objects(create_objects_list: List[dict])` uses `session.add_all(orm_objects)` (efficient)
 - Update: `bulk_update(update_objects_list: List[dict], pk_field_name=None)` loops per row with individual `update()` statements (inefficient; flag for optimization)
@@ -317,3 +374,4 @@ class UserDao(BaseDao):
 - [other-db-mongodb.md](./references/other-db-mongodb.md) — static-class MongoDB DAO pattern (sync pymongo)
 - [advanced-query-patterns.md](./references/advanced-query-patterns.md) — eager loading (selectinload, joinedload), query optimization, transaction isolation, row-level locking, alembic migrations, N+1 prevention
 - [mongodb-advanced.md](./references/mongodb-advanced.md) — aggregation pipelines, bulk upserts (UpdateOne + bulk_write), index creation (IndexModel), batched/cursor pagination
+- [htn-databases-in-depth-part-2.md](./references/htn-databases-in-depth-part-2.md) — own-words digest of database internals (MVCC, lock-based concurrency, isolation levels, WAL/recovery, B-tree implementation) backing the concurrency-control section

@@ -50,6 +50,35 @@ Standardize Google Cloud Storage file operations following production service pa
 
 15. **Error handling**: wrap GCS operations in try/except, catch generic `Exception`, log the error with structured logging (include `bucket_name`, `file_path`, `time_taken`), and return a tuple `(success: bool, result_or_error_message)` for graceful degradation.
 
+## Direct-to-storage uploads (presigned PUT)
+
+The upload conventions above (2, 3, 7) route file bytes through the API service, and convention 4 signs URLs mostly for downloads. For user-generated media — profile photos, video, arbitrary attachments — invert the flow: the API tier issues a short-lived signed **PUT** URL, the client uploads the bytes directly to the bucket, and the gateway/API never carries the payload. Control-plane traffic (auth, metadata, the URL grant) goes through the API; the data plane goes around it. The signing mechanics are the same v4 call as convention 4 with `method="PUT"` — see [signed-urls-and-reads.md](references/signed-urls-and-reads.md) — so this section covers the flow around the URL, not the URL itself.
+
+1. **When to go direct vs through-API**: upload direct-to-storage when payloads are large, binary, or user-generated — a multi-MB file proxied through the service ties up a worker for the whole transfer and makes the API tier the bandwidth bottleneck. Keep through-API uploads (conventions 2/7) for small payloads the service itself produces or must validate inline: CSV/JSON exports, YAML config, generated reports.
+
+2. **Issue step**: an authenticated endpoint creates a metadata row with status `pending`, picks the blob path server-side (convention 12 naming — never let the client choose the path), generates the signed PUT URL, and returns `{"upload_url": ..., "blob_path": ...}`. Keep the expiration to minutes, not hours.
+
+3. **Sign the constraints into the URL**: pass `content_type=` and `headers={"x-goog-content-length-range": "0,<max_bytes>"}` to `generate_signed_url` so GCS itself rejects an upload whose Content-Type or size differs from what was granted — the client must send the exact same headers or the signature check fails:
+
+   ```python
+   signed_url = blob.generate_signed_url(
+       version="v4",
+       method="PUT",
+       expiration=timedelta(minutes=15),
+       content_type=content_type,  # client must send this exact header
+       headers={"x-goog-content-length-range": f"0,{max_bytes}"},  # size cap enforced by GCS
+       credentials=target_credentials,
+   )
+   ```
+
+4. **Completion signal**: prefer a bucket notification (Pub/Sub `OBJECT_FINALIZE`) over trusting a client "done" callback — the event fires only when bytes actually landed. If you also expose a client confirm endpoint, treat it as UX acceleration; the storage event remains the authority that flips the metadata row `pending → ready`.
+
+5. **Async post-processing**: the finalize event drives variant rendering (thumbnail/medium/full), virus or content scanning, and the metadata row update; the CDN path (convention 9) serves only the processed variants. The trade-off of bypassing the API tier is that nothing inspected the bytes at upload time — treat the raw-upload prefix as untrusted and never serve it publicly.
+
+6. **Deterministic variant layout**: land raw uploads under a quarantine prefix (`uploads/raw/{asset_id}`) and write processed variants under a predictable scheme (`media/{asset_id}/{variant}`) so any service can compute a serving URL by convention instead of querying a lookup table — the cost is that the path scheme becomes a contract you cannot casually change.
+
+7. **Orphaned-blob sweep**: some clients request a URL and never upload, or upload and never confirm. Run a periodic reconcile job that deletes `pending` rows older than the URL expiry with no matching blob, and deletes blobs under the raw-upload prefix with no matching metadata row. A bucket lifecycle rule (delete objects under the prefix after N days) is a cheap backstop.
+
 ## Skeleton / example
 
 ```python
@@ -288,3 +317,4 @@ async def get_signed_url(file_path: str):
 - [repo-evidence.md](references/repo-evidence.md) — source patterns and snippets
 - [data-engineering-bigquery-gcs](../data-engineering-bigquery-gcs/SKILL.md) — for batch ETL and BigQuery integration
 - [file-export-and-reporting](../file-export-and-reporting/SKILL.md) — for HTTP download endpoints and report generation
+- [htn-design-instagram.md](../system-design-patterns/references/htn-design-instagram.md), [htn-design-youtube-hld.md](../system-design-patterns/references/htn-design-youtube-hld.md) — system-design rationale for direct-to-storage uploads (gateway bypass, storage-event post-processing)

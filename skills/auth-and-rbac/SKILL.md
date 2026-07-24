@@ -82,6 +82,53 @@ FastAPI authentication and authorization patterns derived from production identi
 
 **Role enum**: Define `class Role(str, Enum): L1 = "L1"; L2 = "L2"; ADMIN = "ADMIN"` for domain-specific roles; store as string column with enum constraint.
 
+### Choosing an authorization model & OAuth 2.0 delegation
+
+Everything above assumes RBAC. That is usually right, but treat the authorization model as a decision, not a default — and know when to delegate identity to an external provider instead of owning credentials at all.
+
+**The three models**:
+
+- **RBAC (roles → permissions)** — users hold roles; roles bundle permission sets (admin = full CRUD, editor = read+write, member = read-only). Easiest to audit and administer; the right default for org/team products where a small, stable set of permission tiers answers most access questions.
+- **ABAC (attribute predicates)** — decisions are policy functions over attributes of the subject, resource, and context: "the author may edit their own draft", "department matches", "within business hours", "resource not archived". Reach for it when access depends on ownership, tenancy, time, or resource state — conditions a static role cannot express. More expressive, harder to audit.
+- **ACL (per-object grant lists)** — each resource carries its own principal→rights list, the document-sharing / filesystem model. The natural fit for sharing-centric products (docs, files, folders); maximally precise, but management cost scales with resources × users, so it needs tooling.
+
+**Decision heuristics**:
+
+- Permission tiers are few, stable, and org-wide → RBAC (this skill's role dependencies and hierarchy checks are exactly this).
+- Rules keep referencing who owns the resource, which tenant it belongs to, what state it is in, or when the request happens → ABAC predicates alongside your roles.
+- Users grant each other access object-by-object → ACL rows on those resources.
+
+**The hybrid most systems actually run**: RBAC for coarse tiers plus ABAC-style ownership checks in business logic (`if resource.owner_id != caller_user_id and not is_sys_admin(session): 403`). Name it explicitly — "RBAC + ownership" — so reviewers treat both layers as intentional, and enforce it at every depth (route guard, service-level ownership check, query scoping to the caller's rows); relying on the route guard alone is the classic IDOR root cause.
+
+**Migration pressure signals**:
+
+- **Role explosion** — compound roles multiplying (`editor_finance_emea_readonly`) means your rules are really attribute predicates; move those conditions into ABAC checks instead of minting more roles.
+- **Per-resource sharing requests** — users wanting to grant specific people access to specific objects cannot be expressed as a role tier; those objects need ACL entries.
+
+**OAuth 2.0 authorization-code flow** — for social login ("Login with Google/GitHub") or calling a third-party API on the user's behalf:
+
+1. Your app redirects the browser to the provider's authorization server (`client_id`, `redirect_uri`, requested scopes, `state`).
+2. The user authenticates and consents at the provider — your system never sees their password.
+3. The provider redirects back to your `redirect_uri` with a short-lived, single-use authorization code.
+4. Your backend exchanges code + client secret for tokens in a server-to-server call.
+5. Your backend verifies the returned identity, then links or creates the local user row.
+
+**Why the code indirection**: browser redirects are observable (URLs land in history, proxies, logs, referrers), so nothing in a redirect may be a usable credential. An intercepted code is worthless without the client secret held server-side. Never use the legacy implicit flow, which returns the access token directly in the URL fragment.
+
+**PKCE for public clients**: SPAs and mobile apps cannot hold a client secret; use authorization-code + PKCE, where a per-request code verifier/challenge pair replaces the secret in the exchange.
+
+**Callback CSRF protection**: generate a random `state` value per authorization request, bind it to the initiating session, and reject any callback whose `state` does not match — otherwise an attacker can splice their own authorization code into a victim's login.
+
+**What to persist**: the provider's stable subject identifier linked to your own user row (`provider` + `provider_subject_id` columns); match returning users on that pair, not on email, which can change or be reassigned at the provider.
+
+**The provider's access token is not your session**: it is scoped to the provider's API, has a lifetime you do not control, and your services cannot validate it. After linking identity, issue your own session or JWT via the chains above; store the provider token (encrypted at rest) only if you actually call the provider's API on the user's behalf.
+
+**Authentication vs delegation**: OAuth 2.0 by itself only delegates authorization — permission to call the provider's API. Logging users in is OpenID Connect's job: it layers a signed ID token of identity claims on the same code flow. For social login, request `openid email profile` scopes and verify the ID token (signature, `iss`, `aud`, `exp`, nonce) — never infer identity from mere possession of an access token.
+
+**After identity is established**: nothing downstream changes — session creation, fingerprinting, refresh-token rotation, and the role dependencies all follow the session/JWT conventions earlier in this skill; the IdP only replaces the password-verification step.
+
+**Trade-off to state in the design doc**: delegation sheds password-storage liability for those users but adds a hard dependency on the provider's availability and account policies; decide up front whether such accounts are IdP-only or may fall back to a local password.
+
 ### API Gateway User Identity Forwarding
 
 **x-user-data header pattern**: API gateway extracts authenticated user from session/JWT, serializes `{email, username, userId, role?, organization_id?}` as JSON, forwards as `x-user-data` header to downstream services.
@@ -296,3 +343,4 @@ async def get_current_client(token: str = Depends(oauth2_scheme)) -> TokenData:
 - [tokens-and-hashing.md](./references/tokens-and-hashing.md) — JWT RS256, argon2id, TOTP/Email OTP with pyotp
 - [security-hardening.md](./references/security-hardening.md) — Rate limiting, password expiry, account lockout, session fingerprinting
 - [repo-evidence.md](./references/repo-evidence.md) — Real file paths and snippets from source repos
+- [htn-design-an-authentication-system.md](./references/htn-design-an-authentication-system.md) · [htn-serialization-deserialization-authentication-and-authorizati.md](./references/htn-serialization-deserialization-authentication-and-authorizati.md) — Digested source articles behind the authz-model (RBAC/ABAC/ACL) and OAuth 2.0 delegation section
