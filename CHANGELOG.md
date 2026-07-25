@@ -4,6 +4,113 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.68.0] — 2026-07-24
+
+**Absorption pass over the [ashishps1](https://github.com/ashishps1) trilogy (user-named sources):
+[awesome-low-level-design](https://github.com/ashishps1/awesome-low-level-design) (GPL-3.0) ·
+[awesome-system-design-resources](https://github.com/ashishps1/awesome-system-design-resources)
+(GPL-3.0) · [awesome-engineering-articles](https://github.com/ashishps1/awesome-engineering-articles)
+(MIT).** Linked lessons © AlgoMaster.io; articles © their companies; the two GPL repos carry Java
+solution code — **ideas absorbed in our own words, zero code and zero prose copied**, attribution in
+every digest and `docs/influences.md`. Every one of the **596 listed items got a coverage-map row**;
+248 were triaged deep (all LLD lessons/problems, all fetchable system-design articles, and the 63
+engineering articles whose Topics tags hit the kit's gap surface — the user-approved
+triage-by-topic), 221 captures survived plain-HTTP fetching, and a **112-agent digest→verify
+pipeline classified 1,547 candidate patterns** against the live kit (390 absent / 621 partial /
+502 covered / 34 not-absorbable; 218/221 digests passed the 3-claim fidelity check, 3 honest
+thin-capture flags). The global refute ran in the main loop (no synth agent) and enforced the caps:
+**exactly 1 new skill, exactly 6 SDP/DSP changes, exactly 1 convergence-justified extension.**
+
+### Added
+- **`object-oriented-design` collection skill** — the class-level (LLD) design layer the kit
+  previously carried only in digests: OOP pillars as design decisions (encapsulation as invariant
+  enforcement, composition-first inheritance discipline, runtime-type-checks as a
+  missing-abstraction smell), class relationships (association/aggregation/composition/dependency
+  decision axes, unidirectional-by-default references), SOLID/DRY/YAGNI/KISS as decision heuristics
+  (cross-linked to `over-engineering-review`, never duplicated), the **22-pattern GoF selection
+  table** (problem shape → pattern → trade-off → digest), UML as communication (five diagram types,
+  tool-neutral and text-first), concurrency-primitive **vocabulary** (mutex/semaphore/CAS, the
+  predicate re-check loop — flagged independently by four lessons — Coffman-condition deadlock
+  prevention; practice cross-linked to `async-python-patterns` and `python-dao-and-database`), and
+  the **33-problem → pattern map**. 94 attributed `alld-` digests in `references/`.
+- **Three coverage maps** — [`docs/lld-catalog.md`](docs/lld-catalog.md) (113 rows),
+  [`docs/system-design-resources.md`](docs/system-design-resources.md) (140 rows),
+  [`docs/engineering-articles.md`](docs/engineering-articles.md) (343 rows with Topics/Year
+  metadata and per-row triage outcome): every item's fetch status, digest location, and kit
+  outcome — including honest "not fetched" rows for hosts that refuse plain-HTTP clients.
+- **Six capped changes to the two 0.67.0 skills** (each gap re-verified against the live kit
+  during the main-loop refute):
+  - `system-design-patterns` §*Edge and traffic path* — forward vs reverse proxy, the ordered
+    API-gateway pipeline, DNS as a design surface (TTL as a failover lever), client- vs
+    server-side service discovery, least-response-time routing, series-vs-parallel availability
+    math and the three-condition SPOF test.
+  - `system-design-patterns` §*Realtime transport* — the short-poll → long-poll → SSE → WebSocket
+    selection ladder on two axes (direction × frequency); middlebox compatibility; "late-or-lost"
+    as the transport question; connection-count autoscaling, drain-on-deploy, and
+    thundering-herd-bounded node sizing for persistent-connection tiers (previously the kit taught
+    only the WebSocket branch).
+  - `system-design-patterns` §*Choosing the datastore* — access-pattern-first SQL-vs-NoSQL
+    framework, ACID as working vocabulary, index selectivity, latency-vs-throughput as
+    independent axes.
+  - `distributed-systems-patterns` §*Distributed locking and fencing* — efficiency-vs-correctness
+    lock triage, why TTL leases break under pauses, **fencing tokens** (the resource is the final
+    arbiter), fence-the-old-primary at failover scale, idempotent/monotonic writes as the
+    lock-free alternative.
+  - `distributed-systems-patterns` §*Batch vs stream processing* — bounded-vs-unbounded input as
+    the primary fork, windowed aggregation, failure granularity, micro-batching, batch resource
+    windows.
+  - `distributed-systems-patterns` — a **consensus paragraph** in §Replication and quorum (leader
+    election + replicated log + majority commit; when consensus is needed vs when
+    leader-follower + quorums suffice; never hand-roll). This makes the 0.67.0 pointer in
+    `system-design-patterns` §Service decomposition — which already delegated "consensus" here —
+    actually true.
+- **`deprecation-and-migration` §Shadow Verification Before Cutover** — the one
+  convergence-justified extension beyond the two pattern skills (five independent sources:
+  shadow reads with per-item fallback, budgeted dark traffic with a mismatch-rate SLO as the
+  cutover gate, dark launches for protocol swaps, logical-before-physical staging, fast reversible
+  cutover with parity watermarks).
+- **121 further digests** filed references-only across the owning skills with zero SKILL.md
+  changes — `system-design-patterns` ×58, `distributed-systems-patterns` ×40 (net of the
+  extension-feeding digests above), plus `api-and-interface-design` ×4, `otel-tracing` ×3,
+  `debugging-and-error-recovery` ×2, `python-dao-and-database` ×2, and one each in
+  `observability-and-logging`, `over-engineering-review`, `code-simplification`, `bug-hunt`,
+  `graphql-patterns`, preserving the covered-vs-extended distinction.
+
+### Changed
+- `rules/design-patterns.md` — the existing skill pointer gains one clause routing class-level
+  object design (SOLID trade-offs, GoF selection, UML, concurrency primitives) to
+  `object-oriented-design` (the only always-loaded touch).
+- Count anchors: **108 skills (57 core + 51 stack-collection)** in `README.md`,
+  `docs/stack-skills/README.md` (+1 catalog row), and `docs/skill-audit.md`.
+- `docs/influences.md` — one combined trilogy row with per-repo license notes.
+
+### Not adopted (deliberately)
+- **GPL-3.0 solution code (33 LLD problems, Java)** — never copied, in any form: the harvest
+  fetched only the problem statements; digests describe entities, state machines, and pattern
+  choices in prose; a pre-commit grep gate confirms zero code fences across all `alld-` digests.
+- **YouTube videos (44), courses, books, newsletters** — note-only rows; the kit absorbs written
+  engineering substance it can verify, not video content.
+- **The 10 classic distributed-systems papers** (Paxos, Dynamo, GFS, Bigtable, Spanner, LSM, …) —
+  note-only rows; their kit-relevant concepts are taught by `distributed-systems-patterns`
+  (quorums, consensus, storage engines, locking) and `rules/resilience-engineering.md`, and a
+  paper-summary layer would duplicate them.
+- **280 of the 343 engineering articles** — topics outside the kit's gap surface (125 are
+  ai/ml-tagged: recommender systems, model serving, GenAI product work — out of scope for a
+  stack-agnostic SDLC configuration kit). All noted with Topics/Year in the coverage map.
+- **A §End-to-end integrity (checksums) section** — killed by the refute to hold the ≤6 cap: the
+  gap is real but narrower than the six shipped (threat-model-driven checksum selection and
+  windowed integrity validation live on as digests in `distributed-systems-patterns/references/`).
+- **An outbox/CDC extension** to `kafka-config-driven` — three independent ABSENT votes make it a
+  genuine gap, but it exceeded this release's extension budget; digests filed
+  (`asdr-022`, `asdr-042`), explicitly a candidate for the next pass.
+- **123 of the 130 machine-proposed extension candidates** — killed in the main-loop refute:
+  covered on re-grep, digest-sufficient, composite repeats, or they would duplicate the
+  always-loaded `resilience-engineering` rule (constant-work fallbacks, RTO/RPO sizing,
+  retry-feedback loops).
+- **Raw captures** — never committed: the gitignored harvest scratch is deleted before commit;
+  27 items that refused plain-HTTP fetching (Medium/Cloudflare bot walls, dead Substack
+  redirects, one unreachable host) are honest "not fetched" map rows — no mirrors, no bypasses.
+
 ## [0.67.0] — 2026-07-24
 
 **System-design absorption pass from

@@ -91,6 +91,33 @@ Run the numbers before drawing boxes. The estimate does not need precision — i
 
 6. **Respect the critical path.** The balancer sits on every single request, so its routing decision must stay in-memory and add under a millisecond; a slow balancer degrades the entire system uniformly.
 
+## Edge and traffic path
+
+Load balancing decides which replica serves the request; this section is the rest of the journey — the proxies, gateway, DNS resolution, and discovery machinery on the way there, plus the availability math that says when the path itself is the weak link.
+
+1. **Forward and reverse proxies differ only in whom they represent.** A forward proxy stands in for clients: outbound traffic detours through it, the destination sees only the proxy's address, and the position enables egress policy — filtering, monitoring, shared caching, location masking. A reverse proxy stands in for the server fleet: one advertised entry point hides every origin, which is why the edge duties — TLS termination, static caching, request inspection, load distribution — all live there. One hides who is asking; the other hides who is answering.
+
+2. **The proxy replaces the client on the wire — preserve identity deliberately.** Behind any reverse proxy or balancer, the socket's source address is the proxy, not the user; the true client travels in forwarded headers that are client-forgeable unless a proxy you control strips or overwrites them at the trust boundary. And never treat an address as identity anyway — rate limiting by public IP punishes everyone behind one NAT.
+
+3. **An API gateway is one front door instead of per-service exposure.** Without it, every client must know where each service lives and every team re-implements auth and throttling; with it, the cross-cutting checks run once, centrally. Two disciplines keep it honest:
+    - run the pipeline in cost order — authenticate, rate-limit, route, transform — so cheap, security-critical rejections happen before any backend work, and keep transformation a thin adapter layer (business logic accumulating at the edge belongs in services);
+    - for a single monolith with one client type, a gateway is an extra hop plus an extra component to operate — skip it until multiple services or client types earn it.
+
+4. **DNS resolution is a design surface, not plumbing.** The path is a chain of caches (browser, OS, recursive resolver) backed by a delegation walk down to the domain's authoritative server, so the expensive full walk is the rare cold case. Two levers follow:
+    - TTL is a routing and failover control: short TTLs let you shift traffic fast at the price of more lookups; long TTLs pin clients to a stale answer for the length of an incident;
+    - answering one name with several addresses is free load distribution — but it is health-blind and staleness-bound, a coarse first tier in front of real balancers, never a substitute for one.
+
+5. **Service discovery replaces hardcoded addresses with a registry.** The registry is the single source of truth mapping logical service names to live instances, enriched with health, version, and weight metadata. The design splits:
+    - client-side discovery — callers query the registry and pick an instance themselves: full routing control, no extra hop, discovery logic duplicated into every consumer;
+    - server-side discovery — a balancer or gateway does the lookup: thin clients, one more hop, one more critical component;
+    - either way, health checks must evict failing instances and clean shutdown must deregister — a stale entry routes traffic into the void — and contracts bind to stable names, never addresses: an IP is a routing coordinate, not an identity.
+
+6. **Least-response-time routing is the refinement past round-robin.** Round-robin assumes equal capacity and equal request cost; least-connections corrects for in-flight work; least-response-time additionally weights live latency, steering around a backend that degrades without dropping connections. The price is measurement infrastructure — feedback-driven routing is only as good as its signals, and noisy latency samples route worse than dumb rotation.
+
+7. **Run the series/parallel availability math over the whole path.** Dependencies in series multiply availabilities down — three 99.9% hops compound to roughly 99.7% — while redundant peers in parallel multiply failure probabilities away — two 99.9% nodes reach about six nines. Every element in this section sits in series on the request path unless made redundant, and the redundancy must reach every layer: a replicated fleet behind a lone gateway has solved nothing.
+
+8. **Apply the three-condition SPOF test to each hop.** A component is a single point of failure when it is simultaneously single-instance, stateful-or-unique, and on the critical path — miss any condition and it is not one (a dead recommendation service degrades a page; it does not take checkout down). Audit the recovery path as well as the serving path: a registry that cannot be restarted, or a manual DNS failover nobody has rehearsed, is a SPOF that surfaces only mid-incident. Handling the failures that remain — timeouts, retries, circuit breakers — is owned by `rules/resilience-engineering.md`.
+
 ## CDN and edge delivery
 
 1. **The cacheability rule is binary.** If every user receives identical bytes (assets, media, public pages), cache it at the edge. Never cache:
@@ -246,6 +273,33 @@ Delivery mechanics (providers, templates, device tokens) live in `notifications-
 
 10. **Media never transits the message pipeline.** Clients upload via pre-signed URLs directly to object storage; the message carries only the URL and metadata; recipients fetch from the CDN edge, keeping socket servers free of large payloads.
 
+## Realtime transport
+
+Chat and real-time sync (above) sizes the socket fleet that high-frequency chat traffic forces; this section owns the transport selection below that extreme, where the middle rungs win real workloads. Two axes decide — delivery direction and update frequency — and the ladder is climbed only as far as the traffic justifies.
+
+1. **The selection ladder: short polling → long polling → SSE → WebSocket.**
+    - short polling — the client asks on a fixed interval; almost every response is empty and worst-case delivery latency is the interval. The floor for comparison, rarely the answer;
+    - long polling — near-real-time over ordinary HTTP; right when server-push events are sparse (seconds or minutes apart);
+    - SSE (server-sent events) — one-way server push over a plain HTTP stream; right when the server talks and the client never streams back;
+    - WebSocket — persistent full-duplex; earned only by high-frequency traffic flowing both ways.
+
+    Sparse server-push justifies long polling or SSE; only high-frequency bidirectional traffic justifies a socket.
+
+2. **Long polling is a legitimate choice, not a strawman.** The server parks the request until data exists or a timeout fires; either way the client re-requests immediately, forming a continuous loop. No new protocol, no upgrade support, nothing for middleboxes to object to. The costs are honest ones: parked requests hold server resources, and each delivery pays a reconnect before the next update can arrive.
+
+3. **SSE owns one-way push.** Feeds, notifications, progress streams — the server pushes over one long-lived HTTP response, and reconnection is built into the contract, so the client-side machinery a socket demands (heartbeats, reconnect policy) comes largely for free. When the client needs to stream back, you have outgrown it.
+
+4. **Ask the late-or-lost question before buying delivery guarantees.** If a late update is worthless — cursor positions, presence, live scores, anything superseded by the next update — prefer freshest-wins delivery: drop the stale update and send the latest, rather than faithfully delivering data nobody wants anymore. Guaranteed ordered delivery is for updates that remain true after they are late.
+
+5. **Middlebox compatibility is a real selection criterion.** Long polling traverses restrictive firewalls and proxies because it is indistinguishable from plain HTTP; a WebSocket upgrade can be silently blocked by infrastructure you do not control. Weigh the deployment environment, not just the traffic shape.
+
+6. **One client API, degradable transport.** Libraries that expose a single messaging API and silently fall back from WebSocket to long polling when the upgrade fails buy hostile-network compatibility without maintaining two code paths — the degraded rung is slower, not broken, which is exactly the property the ladder exists to give you.
+
+7. **Persistent-connection tiers carry their own operations manual:**
+    - autoscale on connection count, not CPU — parked sockets consume memory while CPU sits idle, so CPU-based scaling policies never fire;
+    - drain connections from the application on deploy — balancer deregistration assumes in-flight requests finish naturally, and long-lived connections never do; on the deregistration signal, close connections gradually so clients migrate without a spike;
+    - size nodes by thundering-herd math, not maximum capacity — every node death converts its whole connection count into a simultaneous reconnect storm, so smaller nodes bound the storm; jittered reconnect backoff (owned by `rules/resilience-engineering.md`) bounds it from the client side.
+
 ## Data-modeling building blocks
 
 1. **Separate metadata from blobs.** Never store large payloads in the relational database — big blobs degrade it. The row holds a pointer (owner, key, object-storage URL, timestamps); the content lives in object storage. The database stays small and fast; the read becomes a two-hop fetch (metadata, then blob).
@@ -272,6 +326,35 @@ Delivery mechanics (providers, templates, device tokens) live in `notifications-
     - Row counts explode (millions of units × 365 days), but the composite key keeps every check an index scan.
     - Guard the authoritative path with the database's own row locks (`SELECT … FOR UPDATE` over the date rows): if the truth already lives in the relational store, native transactional locking is simpler and strictly correct versus bolting a separate distributed lock alongside it.
     - Serve the high-QPS *search* path from an approximate fast structure — per-month bitmaps, one bit per day, combined with a bitwise AND across the range. Slight staleness is fine precisely because the final booking re-checks under the lock. Spend consistency only where the invariant demands it.
+
+## Choosing the datastore
+
+Data-modeling (above) matches individual query shapes to structures; this section is the store-level decision — which engine family, what its transactions actually promise, and which performance axis you are buying.
+
+1. **Start from access patterns and consistency needs, never ideology.** "SQL vs NoSQL" is not a category war but a bundle of workload questions: what shape are the reads and writes, how correct must each operation be, how far must it scale, and can the team operate it. The family fits:
+    - relational — cross-entity invariants, ad-hoc queries, multi-record transactions (money, orders, inventory); the default until a workload proves otherwise;
+    - document — aggregate-shaped reads: the whole object fetched together, under an evolving schema;
+    - key-value — hot-path lookups by unique key (sessions, counters); throughput over query richness;
+    - wide-column — write-heavy time-series and event streams, partitioned and clustered by time;
+    - graph — traversal-dominant queries (mutuals, fraud rings); first-degree edges stay a plain indexed join table.
+
+    "Schemaless" only relocates the schema into application code — flexible stores trade migration ceremony for the risk of silently divergent records.
+
+2. **Use ACID as working vocabulary, one line per property:**
+    - *Atomicity* — grouped writes commit or roll back as one unit;
+    - *Consistency* — committed state satisfies the schema's declared rules;
+    - *Isolation* — concurrent transactions cannot see each other's intermediate states, to a degree set by the isolation level — a chosen trade of anomaly protection against blocking and retries, not a default to inherit;
+    - *Durability* — acknowledged commits survive a crash, within the failure classes the configuration actually covers.
+
+    Then name which property each operation relies on: a balance transfer leans on atomicity and isolation, an audit record on durability, a uniqueness rule on consistency. Most operations need one or two, not the acronym.
+
+3. **No external side effects inside transactions.** Rollback cannot un-send an email or un-call a payment API, and a slow external call inside a transaction holds locks against everyone else. Keep transactions short and database-only; bridge to other systems with idempotency keys, outbox records, and retries.
+
+4. **Selectivity gates index value.** An index pays off only when the filter narrows the search to a small fraction of rows — a unique email indexes well, a lone boolean flag buys nothing — and every index is a standing write tax, maintained on each insert and update. Derive indexes from the queries the application actually runs, verify the planner uses them, and hunt unused ones for deletion.
+
+5. **Latency and throughput are independent axes with separate root causes.** Latency is per-operation delay (distance, handshakes, an overloaded node); throughput is aggregate capacity (bottleneck paths, retransmits, processing limits). A store can be excellent on one and terrible on the other, so a performance requirement needs both numbers. Measuring and diagnosing them is owned by `observability-and-logging` and `load-testing` — this skill only insists the axes stay separate.
+
+6. **Polyglot persistence is normal — and every extra store is an operational liability.** A relational system of record plus purpose-built stores for cache, search, and analytics is the mature shape, but each addition brings its own backup, upgrade, on-call, and failure story. A database choice is an on-call choice; before adding a store, put it through the `over-engineering-review` skill.
 
 ## Service decomposition and microservice boundaries
 
@@ -349,7 +432,7 @@ HLD rows compose the traffic/caching/fan-out blocks; the LLD rows (YouTube LLD, 
 
 ## References
 
-Digests synthesized from public X threads by Harshit Khosla ([@Harry_The_Nerd](https://x.com/Harry_The_Nerd)) — own-words summaries, no verbatim text.
+Own-words digests of public sources, no verbatim text; per-file attribution lives in each digest's frontmatter. The `htn-*` digests synthesize X threads by Harshit Khosla ([@Harry_The_Nerd](https://x.com/Harry_The_Nerd)); `asdr-*` digest the AlgoMaster system-design series (plus one AWS explainer); `aea-*` digest company engineering-blog articles.
 
 - [htn-design-bit-ly-and-pastebin.md](references/htn-design-bit-ly-and-pastebin.md) — rounded-constant estimation, Base62 keys, read/write service split, metadata/blob separation, dual-store expiry purge
 - [htn-design-a-rate-limiter.md](references/htn-design-a-rate-limiter.md) — the 429/Retry-After contract, four window algorithms, centralized counters, fail-open vs fail-closed
@@ -375,6 +458,24 @@ Digests synthesized from public X threads by Harshit Khosla ([@Harry_The_Nerd](h
 - [htn-design-a-basic-music-system.md](references/htn-design-a-basic-music-system.md) — aggregation lifecycles, canonical store + reference sharing, complexity accounting
 - [htn-design-a-parking-lot.md](references/htn-design-a-parking-lot.md) — type-indexed availability, policy-in-comparator ordering, thin entities
 - [htn-security-scaling-performance-concurrency-parallelism.md](references/htn-security-scaling-performance-concurrency-parallelism.md) — vertical-then-horizontal posture, database-first bottleneck levers, statelessness prerequisite
+- [asdr-013-proxy-vs-reverse-proxy.md](references/asdr-013-proxy-vs-reverse-proxy.md) — direction-of-representation axis, single controlled ingress, TLS termination at the edge
+- [asdr-011-ip-addresses.md](references/asdr-011-ip-addresses.md) — IPs as routing coordinates not identity, names in contracts, forwarded-header trust boundaries
+- [asdr-019-api-gateway.md](references/asdr-019-api-gateway.md) — one front door, ordered gateway pipeline, edge transformation as adapter layer
+- [asdr-012-domain-name-system-dns.md](references/asdr-012-domain-name-system-dns.md) — cache-and-delegate resolution, TTL freshness trade, DNS-level load spreading
+- [asdr-044-service-discovery.md](references/asdr-044-service-discovery.md) — registry as source of truth, client-side vs server-side discovery, health-checked eviction
+- [asdr-016-load-balancing.md](references/asdr-016-load-balancing.md) — five algorithms, static vs feedback-driven split, least-response-time signal quality
+- [asdr-002-availability.md](references/asdr-002-availability.md) — nines budgeting, series-vs-parallel composition math, layer-complete redundancy
+- [asdr-004-spof.md](references/asdr-004-spof.md) — three-condition SPOF test, runtime vs recovery graphs, shared-fate detection
+- [asdr-059-long-polling-vs-websockets.md](references/asdr-059-long-polling-vs-websockets.md) — parked-request mechanics, frequency-matched transport, fallback abstraction libraries
+- [asdr-021-websockets.md](references/asdr-021-websockets.md) — upgrade handshake, frame overhead, heartbeat and reconnect machinery
+- [asdr-015-tcp-vs-udp.md](references/asdr-015-tcp-vs-udp.md) — late-or-lost as the deciding question, freshest-wins delivery, transport reliability ≠ operation success
+- [aea-033-how-canva-enables-real-time-collaboration-with-rsocket.md](references/aea-033-how-canva-enables-real-time-collaboration-with-rsocket.md) — multiplexed socket gateway, per-channel backpressure, application-driven draining
+- [aea-174-evolving-netflix-s-websocket-proxy-for-the-future.md](references/aea-174-evolving-netflix-s-websocket-proxy-for-the-future.md) — connection-count autoscaling, herd-bounded node sizing, staggered reconnects
+- [asdr-027-sql-vs-nosql.md](references/asdr-027-sql-vs-nosql.md) — workload-shape decision framework, schema location not absence, relational default
+- [asdr-032-databases-types.md](references/asdr-032-databases-types.md) — fifteen database families, access-pattern triage, per-family disqualifiers
+- [asdr-067-latency-vs-throughput.md](references/asdr-067-latency-vs-throughput.md) — independent performance axes, per-axis root-cause taxonomy, bandwidth ceiling vs realized throughput
+- [asdr-026-acid-transactions.md](../python-dao-and-database/references/asdr-026-acid-transactions.md) — bounded ACID promises, isolation as explicit trade, no external side effects in transactions
+- [asdr-028-database-indexes.md](../python-dao-and-database/references/asdr-028-database-indexes.md) — selectivity gates index value, query-first index design, standing write tax
 - `distributed-systems-patterns` — state distribution, replication, and consensus underneath these building blocks
 - `redis-caching-patterns` — cache implementation conventions: namespacing, TTLs, invalidation, stampede protection
 - `kafka-config-driven` — the event-log/consumer-group machinery behind the queue-buffered fan-out patterns

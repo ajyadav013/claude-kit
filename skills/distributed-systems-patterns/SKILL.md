@@ -138,6 +138,11 @@ Scope boundary — this skill owns **data placement and replication mechanics**.
 
 6. **Lag-aware read routing for async topologies.** Quorum overlap covers the leaderless path; leader-follower systems with async followers instead need routing discipline: session-sticky reads to the leader after a recent write, or followers that report replication position so the router can exclude any replica behind the client's last write. Either mechanism turns "eventual" into a named, testable guarantee.
 
+7. **Consensus is what sits underneath leader election — use one, never build one.** Leader-follower replication begs a question the topology itself cannot answer: who is the leader, especially while the old one may still be alive? Consensus protocols (the Raft/Paxos family) answer it with three interlocked mechanisms — elect a leader by majority vote, replicate every operation into a log, commit an entry only once a majority acknowledges it — so every replica applies the same operations in the same order: the single-copy illusion, held even through leader crashes and partitions, because a majority can exist on at most one side. That strength has a narrow home:
+    - **Reach for consensus where a small amount of state must be exactly right for everything else to work** — cluster metadata and membership (the coordination service in the KV anatomy below), leader election itself, distributed locks, configuration.
+    - **Keep the data plane off it.** Majority commit on every operation costs latency and throughput; most data tiers get what they actually need from leader-follower replication plus the N/W/R arithmetic above.
+    - **Never hand-roll it.** Correct consensus under partial failure is among the hardest constructions in distributed systems; run a battle-tested coordination service (etcd/ZooKeeper-class) or lean on your store's built-in protocol — DynamoDB's engineers credit a formally verified Paxos core with a decade of safe structural evolution.
+
 ## Anatomy of a distributed KV store
 
 The Dynamo/Cassandra lineage combines the pieces above into a standard machine. Knowing the anatomy lets you evaluate any store's documentation quickly — each mechanism exists to answer one specific failure.
@@ -237,6 +242,58 @@ The Dynamo/Cassandra lineage combines the pieces above into a standard machine. 
              → interim reads fall through to the DB — degraded, not down
     ```
 
+## Distributed locking and fencing
+
+1. **Triage every lock by what a failure costs — the class decides all the machinery downstream:**
+    - **Efficiency locks** prevent duplicated work: one scheduled run instead of five, one cache rebuild instead of a stampede (the herd-protection lock above is exactly this class). A rare double execution costs a duplicate email or some wasted compute, so a single lock node with atomic acquire-if-absent and a TTL is the right amount of machinery — documented loudly as best-effort.
+    - **Correctness locks** guard read-modify-writes of durable state where two concurrent holders corrupt data or lose money. No lock alone — however many nodes vote on it — can deliver this guarantee; it needs the fencing contract below.
+    - **The middle ground is a trap.** Elaborate multi-node locking schemes without resource-side enforcement cost more than the efficiency tier needs and guarantee less than the correctness tier demands. Pick an end.
+
+2. **TTL leases are mandatory and insufficient.** The lease must expire or a crashed holder wedges the system forever — but expiry opens the failure window: any client can pause (GC, page fault, CPU starvation, packets stalled in the network) past its own lease, then wake and keep writing in the honest belief that it still holds a lock that has long since been granted to someone else. Re-checking validity just before the write closes nothing; the pause can land between the check and the write. Real production data-corruption incidents trace to exactly this window.
+
+3. **Fencing tokens make the resource the final arbiter.** The lock service issues a strictly monotonically increasing token with each acquisition; every write to the protected resource carries the holder's token; the resource rejects any token lower than the highest it has already accepted. The stale holder's late write now bounces harmlessly:
+
+    ```
+    client A acquires lock (token 33) → stalls in a GC pause … lease expires
+    client B acquires lock (token 34) → writes with 34 → accepted
+    client A wakes, believing it still holds the lock → writes with 33 → REJECTED (34 already seen)
+    ```
+
+    A coordination service's transaction id or version counter serves as the token. Two hard consequences: a lock service that cannot issue ordered tokens cannot protect correctness no matter how many nodes it runs, and a resource that cannot check tokens should push you toward restructuring the operation (compare-and-set, transactions, idempotency) rather than trusting lease timing.
+
+4. **Fence the old primary before promoting the new one.** Failover is the same problem at cluster scale: before clients are repointed, the old primary must be made provably unable to accept writes — stop the machine, flip it read-only, cut its network path. Skip the fence and a partition leaves two writable primaries forking the dataset; production split-brain forks lasting seconds have taken days to reconcile. When a partition makes the old primary's state unverifiable, the disciplined move is to pause the failover and escalate to a human rather than promote — an explicit consistency-over-availability call. Detection timing and the majority-quorum membership rule live in the gossip section below.
+
+5. **The lock-free alternative: idempotent, monotonic writes.** Before adding any correctness lock, check whether the operation can stop needing one. When applying a write twice equals applying it once (idempotent) and state only moves forward — set a flag, take a maximum, add to a set (monotonic) — lost updates and stale-writer damage become impossible by construction: a delayed duplicate lands on a state it cannot regress. Compare-and-set on a version column, commutative merges, and append-then-dedupe pipelines are all this move. A lock you can delete beats any lock you have to get right.
+
+6. **Locks compose with retries and timeouts — respect the ownership boundary.** Bounded acquisition attempts with jitter, and never holding a lease across a call that can block longer than the lease, are the retry/timeout discipline owned by `.claude/rules/resilience-engineering.md`; the concrete single-cluster stampede-lock implementation lives in `redis-caching-patterns`.
+
+## Batch vs stream processing
+
+1. **Bounded vs unbounded input is the primary fork.** Ask "does this input ever finish?" before any tooling question. A finite, predictable dataset — a day of orders, a month of payroll, a table to backfill — suits **batch**: let records accumulate, then process the whole set as one scheduled unit. A never-ending event flow — clicks, sensor readings, payments to screen — suits **stream**: process each event as it arrives. Everything else about the two models follows from that one property:
+
+    | Property | Batch | Stream |
+    |----------|-------|--------|
+    | Input | Bounded — the set completes | Unbounded — events never stop |
+    | Optimizes for | Throughput, whole-set consistency | Reaction time (seconds or less) |
+    | Staleness | Built in — the accumulation window | Near zero |
+    | Failure unit | The run — bounded, rerunnable | The event — recover while consuming |
+    | Operations | Scheduled window; fixable offline | Continuous; monitored around the clock |
+
+2. **Windowed aggregation is the consequence of unboundedness.** A stream never finishes, so "the total" does not exist — every aggregate is scoped to a declared time window: error rate over the last five minutes, per-user spend this hour. Window semantics (length, overlap, how late events count) are product decisions that change what the number means, not framework configuration details.
+
+3. **Failure granularity is where the models truly diverge.** A mid-run batch error can force reprocessing the whole unit — but the unit is bounded and rerunnable, which keeps batch recovery operationally simple: fix, rerun, done. A stream must recover per event while continuing to consume, and any computation that spans events (a per-user running total) needs durable per-key state maintained across distributed nodes. That fault-tolerant state management is the genuinely hard part of streaming and the reason stream-processing frameworks exist — use one rather than hand-rolling per-key state recovery.
+
+4. **Micro-batching is the deliberate hybrid.** Process small chunks on a short interval: near-real-time latency with batch execution simplicity. Price this option first whenever "fresh within a few seconds" is fresh enough — many requirements stated as "real-time" are micro-batch requirements wearing an urgent hat.
+
+5. **Schedule batch around its resource spike.** A batch run concentrates CPU, memory, and IO pressure into its window; aimed at peak interactive hours it becomes a self-inflicted incident. Run heavy jobs off-peak — and note that the materialized-view refreshes in the partitioning section above are small batch jobs deserving the same scheduling discipline.
+
+6. **When the input shape alone doesn't decide, three factors do:**
+    - **Value decay** — if an event's value decays in seconds (fraud signals, live monitoring), stream; if the deadline is a reporting period, batch.
+    - **Transformation weight** — heavy multi-pass algorithmic work over the full dataset leans batch.
+    - **Operational appetite** — streaming is a continuous operating commitment (scaling, monitoring, recovery at all hours); batch fails and recovers inside a maintenance window.
+
+7. **The ingestion buffer is shared territory.** The durable broker that decouples producer rate from consumer rate — so a downed consumer loses nothing — is taught in `system-design-patterns` (Notification fan-out) and is a stream's front door; a batch job consuming event data is just a scheduled drain of the same buffer. Operation-level batching — grouping many small writes into one large one — is this section's trade-off replayed at storage-engine scale (the "batching generalizes buffering" point in the engines section below).
+
 ## Failure detection and gossip
 
 1. **A central health-checker doesn't scale and is its own single point of failure.** One process pinging thousands of nodes is a bottleneck, and when *it* dies the cluster goes blind. Failure detection should be as decentralized as the data it protects.
@@ -331,7 +388,7 @@ Distributed stores are local storage engines glued together by everything above 
 
 ## References
 
-Digests (own-words summaries of the source threads, in `references/`):
+Digests (own-words summaries of the sources, in `references/`):
 
 - [htn-design-consistent-hashing.md](references/htn-design-consistent-hashing.md) — mod-N failure math, the ring, vnodes (100–200/node), capacity weighting, production sightings
 - [htn-design-a-distributed-key-value-store.md](references/htn-design-a-distributed-key-value-store.md) — Dynamo-style anatomy: RF=3 write-time replication, N/W/R worked examples, vector clocks, gossip cadence, LSM + WAL per node, coordination service
@@ -339,8 +396,13 @@ Digests (own-words summaries of the source threads, in `references/`):
 - [htn-tricky-hld-patterns-for-interviews.md](references/htn-tricky-hld-patterns-for-interviews.md) — write-behind trade-offs, thundering-herd defenses, read-replica architecture and lag, materialized views, bulk processing, pattern→bottleneck triage map
 - [htn-databases-in-depth-part-1.md](references/htn-databases-in-depth-part-1.md) — engine layering, the page abstraction, why BSTs fail on disk, B+tree design, the buffering/immutability/ordering triad, index cost model
 - [htn-databases-in-depth-part-3.md](references/htn-databases-in-depth-part-3.md) — LSM anatomy (memtable/WAL/SSTable/levels), the three amplifications, leveled vs size-tiered compaction, B-tree variants (COW, Bw-tree)
+- [asdr-046-distributed-locking.md](references/asdr-046-distributed-locking.md) — efficiency-vs-correctness lock triage, pause-past-expiry failure, fencing tokens with resource-side rejection, asynchronous-model safety discipline
+- [asdr-062-strong-vs-eventual-consistency.md](references/asdr-062-strong-vs-eventual-consistency.md) — acknowledge-after vs acknowledge-then-replicate, consensus for global write order, client-centric consistency ladder, data-criticality triage
+- [asdr-030-data-replication.md](references/asdr-030-data-replication.md) — replication vs backup, log-based CDC, sync/async split, partial resynchronization, multi-writer conflict spectrum
+- [aea-098-flipkart-s-mysql-highly-available-setup.md](references/aea-098-flipkart-s-mysql-highly-available-setup.md) — agent/monitor/orchestrator failover pipeline, false-positive filtering, fence-before-promote, pause-and-escalate under unverifiable partitions
+- [aea-011-lessons-learned-from-10-years-of-dynamodb.md](references/aea-011-lessons-learned-from-10-years-of-dynamodb.md) — constant-work anti-bimodality, traffic-adaptive partitioning, continuous verification, log replicas, formally verified Paxos core
 
-Attribution: the htn-* digests are synthesized from public X threads by Harshit Khosla (@Harry_The_Nerd) — own-words summaries, no verbatim text.
+Attribution: the htn-* digests are synthesized from public X threads by Harshit Khosla (@Harry_The_Nerd); the asdr-* and aea-* digests summarize the public articles named in each file's frontmatter — all own-words summaries, no verbatim text.
 
 Related skills and rules:
 

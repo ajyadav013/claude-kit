@@ -423,4 +423,6 @@ export default api;
 
 For system-scale design decisions — rate limiting, load balancing, fan-out, ID generation, service
 boundaries — see the `system-design-patterns` skill; for distributing state — consistent hashing,
-sharding, replication/quorum — see `distributed-systems-patterns`.
+sharding, replication/quorum — see `distributed-systems-patterns`; for class-level object design —
+SOLID trade-offs, GoF pattern selection, UML sketches, concurrency primitives — see
+`object-oriented-design`.
