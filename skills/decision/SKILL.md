@@ -44,3 +44,4 @@ Record an architecture decision as an ADR. The user will describe the decision a
 - If a decision supersedes a previous ADR, update the old ADR's status to `Superseded by [NNNN]`
 - Don't create ADRs for trivial decisions (library version bumps, minor refactors, bug fixes)
 - When unsure whether something deserves an ADR, err on the side of recording it — it's easier to delete than to reconstruct rationale later
+- For an existing codebase with no recorded decisions, backfill in batch first — see "Retroactive Backfill" in the `documentation-and-adrs` skill; the template's "Reconstructed from" line marks back-filled ADRs

@@ -54,6 +54,18 @@ resume, compare `git.branch`/`git.sha` against a fresh `git rev-parse` **before 
 a mismatch means the checkout moved since the snapshot; stop and verify rather than acting on stale
 state. (`abort` likewise treats `git.worktrees` as the authoritative list of what this run created.)
 
+The sha comparison catches a checkout that *moved*; it cannot catch one that is **behind**. Snapshot
+and CONTINUITY timestamps are self-reported — they can look fresh while commits have landed
+out-of-band (another worktree, a teammate, CI). So on resume also verify **upstream currency**:
+`git fetch`, then `git rev-list --left-right --count @{upstream}...HEAD` (left = commits behind,
+right = ahead). **Behind** → the snapshot may describe state the remote has since changed;
+reconcile (usually `git pull --rebase`) before trusting it. **Diverged** (both sides > 0) → stop
+and reconcile before planning any new work on that tip. No upstream configured, or the fetch fails
+offline → note it and continue; the check is advisory, never a hard stop. (Currency and staleness
+checks adapted, in the kit's own terms, from the MIT-licensed
+[`pborenstein/handoff`](https://github.com/pborenstein/handoff) `session-pickup` skill,
+© 2026 Philip Borenstein.)
+
 A gate is PASS only when zero **critical/high/medium** findings remain open (low/cosmetic may pass with notes). `gate_evidence` records the artifact backing each passed gate; `gate_overrides` is written **only** when a gate is deliberately force-closed despite open blocking findings, so a reviewer (or `claude-kit pipeline validate`) can surface and re-examine it.
 
 **Resume by reloading, not by re-running.** On resume, read the snapshot as *context* to decide where to continue — then continue from there. Do **not** re-run setup that already ran, re-apply edits already committed, or re-open a gate already PASSed. Re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes. The snapshot records what was *true when written*, so the verify-before-trust check still applies (`.claude/rules/agent-memory.md`): if a "passed" gate's artifact is gone, treat it as not passed. If the snapshot is absent or unparseable, fall back to the freeform CONTINUITY state (back-compatible) and proceed.
@@ -73,6 +85,10 @@ A gate is PASS only when zero **critical/high/medium** findings remain open (low
 3. Check **Current Phase** and **Active Tasks**; resume from **Next Steps**.
 4. Treat every entry as *last-known* state, not current truth: before acting on a note that names a file, command, or gate result, confirm it still holds (the verify-before-trust checks in `.claude/rules/agent-memory.md`).
 
+The `load-continuity.sh` hook warns when the live file hasn't been written for 7+ days. Treat such
+state as **historical context**, not a current plan: verify it against `git log` / `git status`
+(and the upstream-currency check above) before resuming from its **Next Steps**.
+
 **At the end of every turn, and at every pipeline stage transition:**
 1. Update **Current Phase** and **Active Tasks**.
 2. Move finished work to **Completed (this session)**.
@@ -84,6 +100,32 @@ A gate is PASS only when zero **critical/high/medium** findings remain open (low
    from memory), and **Test/Build Status**.
 
 **Write CONTINUITY before** spawning or awaiting subagents, before a risky operation, and whenever context is getting long (pre-compaction insurance).
+
+## Size budget & rotation (hot state vs. cold archive)
+
+`CONTINUITY.md` is **hot state**, and hot state has a hard budget: keep the live file under
+**~8,000 bytes (~150 lines)** — the size the `load-continuity.sh` SessionStart hook injects
+**uncut**. Past that, the hook still fires but trims the *middle* of the file out of the
+injection — and the middle is where **Decisions Made** and **Mistakes & Learnings** sit, so an
+over-budget file silently mutilates exactly the sections resume depends on. The read-side trim is
+the safety net, not the mechanism. The mechanism is writing small.
+
+When a phase completes — or the file nears the budget — **rotate, don't let the hook trim**:
+
+1. Compress the finished phase to 3–5 lines under **Completed (this session)**: outcome, key
+   decisions by one-line reference, where the evidence lives (artifact path / commit / PR).
+2. Move the displaced detail to `.claude/state/continuity-archive.md` — an **append-only cold
+   file** in the gitignored runtime-state dir the hook already ensures exists. It is never
+   injected into context; open it on demand when an archived detail is actually needed.
+3. The archive is spillover for *run history only* — durable lessons still promote to
+   `agent-memory/` (Rule 4), decisions of record still become ADRs, and neither store is
+   duplicated into it.
+
+The test, after rotating: the live file alone still passes both probes below. If the next session
+would need the archive just to answer "where am I," you rotated too much. (Hot/cold rotation
+adapted, in the kit's own terms, from the MIT-licensed
+[`pborenstein/handoff`](https://github.com/pborenstein/handoff) `project-tracking` skill,
+© 2026 Philip Borenstein.)
 
 ## Template
 
@@ -158,7 +200,7 @@ the MIT-licensed [`athola/claude-night-market`](https://github.com/athola/claude
 
 ## Rules
 
-1. **Keep it short.** Working memory, not a transcript. Overwrite stale content; do not append endlessly.
+1. **Keep it short.** Working memory, not a transcript. Overwrite stale content; do not append endlessly — stay under the size budget above and rotate completed detail to the archive.
 2. **Truthful state only.** If tests are failing, say so. CONTINUITY must never claim green when it isn't.
 3. **Orchestrator owns the phase line.** Mirror the `PIPELINE:` state line into **Current Phase**.
 4. **Promote, don't hoard.** Durable lessons go to `agent-memory/` via `remember`; CONTINUITY keeps only what this run needs.

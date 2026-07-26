@@ -2,6 +2,9 @@
 
 > Seed template. The `load-continuity.sh` SessionStart hook copies this to `.claude/CONTINUITY.md`
 > (gitignored) on first run. Overwrite the sections below as work progresses — keep it short and truthful.
+> Budget: stay under ~8,000 bytes (~150 lines) — what the hook injects **uncut**. When a phase
+> completes, compress it here and move the detail to `.claude/state/continuity-archive.md`
+> (append-only cold storage, never auto-loaded).
 > Protocol: read at turn start, write at turn end. See `.claude/rules/continuity.md`.
 
 ## Current Phase
