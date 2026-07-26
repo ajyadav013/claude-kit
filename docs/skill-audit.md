@@ -93,7 +93,7 @@ The following skills are candidates for **review** (not deletion). They plausibl
 - `api-and-interface-design` / `graphql-patterns` / `api-pagination-filtering-sorting` — three API-design skills; the latter two are patterns under the first.
 - `python-dao-and-database` / `alembic-migrations` — Python persistence skills; scope may overlap around schema/migration.
 - `frontend-ui-engineering` / `radix-tailwind-component-patterns` / `react-hook-form-zod-patterns` — one general frontend skill plus two narrower pattern skills.
-- `security-and-hardening` / `shannon-ai-pentest` / `zap-vapt-scanning` / `threat-model` / `safety-critical-patterns` — five security-domain skills; consider whether some are pattern sub-skills of `security-and-hardening`.
+- `security-and-hardening` / `shannon-ai-pentest` / `strix-ai-pentest` / `zap-vapt-scanning` / `threat-model` / `safety-critical-patterns` — six security-domain skills (three are external-pentest-tool drivers: Shannon, Strix, ZAP); consider whether some are pattern sub-skills of `security-and-hardening`.
 
 ### Lower-priority review candidates
 

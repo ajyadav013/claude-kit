@@ -4,6 +4,64 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.70.0] — 2026-07-26
+
+**Dynamic penetration testing — a `strix-ai-pentest` skill + a first-class `pentest-scanner` agent
+that drives Strix, Shannon, or ZAP** (user request: *"use [usestrix/strix] to do penetration testing…
+when the user asks for testing, or the testing agent is provoked by the orchestrator, it should have an
+agent doing penetration testing… make sure we do Shannon as well as Strix."*). The kit's security stage
+was entirely **static** (secret / dependency / OWASP / policy readers), and pentesting was
+documentation-only (`shannon-ai-pentest` / `zap-vapt-scanning`) with **no agent that actually runs one**.
+This adds the missing dynamic, exploit-validation lane — reachable both on an explicit user request and
+via the orchestrator's security stage.
+
+### Added
+
+- **`strix-ai-pentest` skill** (collection; SKILL.md + README.md + `references/operating-guide.md`) —
+  a **documentation-only** driver for [Strix](https://github.com/usestrix/strix) (usestrix), the
+  open-source (**Apache-2.0**) AI penetration-testing CLI `strix-agent`. Covers install
+  (`pipx install strix-agent`), Docker sandbox, LiteLLM provider config
+  (OpenAI/Anthropic/Vertex/Bedrock/Azure/local/ChatGPT-sub), targets (repo/URL/domain/IP,
+  `--target-list`, `--mount`), `--scan-mode quick|standard|deep`, `--scope-mode diff`/`--diff-base`,
+  `--instruction[-file]`, headless `-n` with CI exit codes, `--max-budget-usd`, the `strix view`
+  dashboard + live steering, output layout, GitHub Actions/GitLab/Jenkins CI, and safety.
+- **`pentest-scanner` agent** (security sub-scanner, tier `specialist`) — a **dynamic** scanner that
+  runs a real, **PoC-validated** penetration test by driving whichever authorized tool is installed:
+  **Strix** (flexible default), **Shannon** (white-box source→exploit), or **ZAP** (DAST + PDF). It is
+  **conditional and authorization-gated**: an explicit **preflight** (dynamic pentest requested + an
+  authorized **non-production** target + Docker + tool + LLM key) must pass, otherwise it returns
+  `SKIPPED` and **does not block** the Security Clear gate — so pipelines without pentest tooling behave
+  exactly as before. Reports only; PoC-proven Critical/High findings feed the gate and route via the
+  Defect Loop.
+
+### Changed
+
+- **Wiring (both entry paths):** `security-reviewer` now lists `pentest-scanner` as the optional fifth
+  (dynamic) scanner and dispatches it conditionally; `orchestrator` Stage 5.4 documents the conditional
+  dispatch and adds the three pentest skills to its Security skill-routing row; `tester` points a user's
+  *pentest* request to `pentest-scanner` (out of the functional-testing lane).
+- **Profile promotion:** `pentest-scanner` + the three pentest skills (`strix-ai-pentest`,
+  `shannon-ai-pentest`, `zap-vapt-scanning`) are now installed at the **standard** tier (previously
+  Shannon/ZAP were enterprise-only), co-locating the agent with the skills it drives. `lean ⊂ standard ⊂
+  enterprise` is preserved.
+- **Counts:** agents **28 → 29**, skills **108 → 109** (57 core + **52** collection). Docs updated
+  (`README.md`, `docs/agents.md`, `docs/stack-skills/README.md`, `docs/skill-audit.md`,
+  `docs/influences.md`).
+
+### Not adopted (deliberately)
+
+- **Vendoring Strix's source** — even though Apache-2.0 permits it, claude-kit ships configuration/prose,
+  not tools; the skill stays documentation-only and you install `strix-agent` yourself (same posture as
+  the AGPL `shannon-ai-pentest` and the bundled-but-thin `zap-vapt-scanning`).
+- **Making pentest a mandatory gate scanner** — it would break every pipeline lacking Docker, an LLM key,
+  or an authorized target, and would risk auto-attacking targets. It is opt-in and non-blocking instead.
+- **Auto-running against live targets** — the `pentest-scanner` preflight refuses production / unstated
+  authorization / untrusted targets; a real pentest only runs on explicit request against an authorized
+  non-production target.
+- **A bundled Strix GitHub Actions workflow or a Strix-platform/MCP integration** — the skill documents
+  the CI patterns and the managed platform ([app.strix.ai](https://app.strix.ai)) rather than shipping a
+  workflow file or a new MCP fragment (no agent consumer, avoids vendor sprawl).
+
 ## [0.69.0] — 2026-07-26
 
 **Absorption pass over [pborenstein/handoff](https://github.com/pborenstein/handoff) (user-named

@@ -49,6 +49,11 @@ profiles:
       - dependency-scanner
       - owasp-reviewer
       - policy-validator
+      # pentest-scanner is the optional DYNAMIC scanner (drives Strix/Shannon/ZAP). The
+      # security-reviewer dispatches it only on request + an authorized non-prod target; it is
+      # non-blocking (returns SKIPPED) when its preflight fails, so the security-clear gate is
+      # unchanged for projects without pentest tooling.
+      - pentest-scanner
     skills:
       - spec-driven-development
       - planning-and-task-breakdown
@@ -78,6 +83,12 @@ profiles:
       # .claude/config/deploy.yaml). Deploy execution stays gated by the user's permission settings.
       - deploy
       - threat-model
+      # Pentest skills — driven by the pentest-scanner agent for dynamic penetration testing.
+      # Document-only drivers for externally-installed tools; safe to install (no tool runs until
+      # explicitly invoked against an authorized target).
+      - strix-ai-pentest
+      - shannon-ai-pentest
+      - zap-vapt-scanning
       - accessibility-review
       - over-engineering-review
       - simplification-debt
