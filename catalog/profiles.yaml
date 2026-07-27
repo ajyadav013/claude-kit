@@ -94,6 +94,7 @@ profiles:
       - over-engineering-review
       - simplification-debt
       - task-tracker-sync
+      - ticketing-and-traceability
       - bug-hunt
       - test-plan-review
     # contract-clear self-skips when the stack exposes no API contract surface, so it is inert for

@@ -26,6 +26,8 @@ Read the project's architecture from `CLAUDE.md`, `.claude/rules/code-organizati
 
 Write to `docs/specs/{feature-name}_spec.md` using the naming convention: lowercase, hyphenated, with `_spec.md` suffix.
 
+This file is the source for the project wiki: Part 1 (Specification) is the **functional** documentation and Part 2 (Developer Documentation) is the **technical** documentation. When a local ticket store is in use, the wiki pages under `docs/project/wiki/` link to it rather than copying it (`ticketing-and-traceability`).
+
 ## Part 1: Specification
 
 ```markdown

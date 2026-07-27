@@ -15,6 +15,11 @@ across so the tracker mirrors the plan instead of a flat dump of tickets.
 This skill **consumes** a breakdown; it never invents one. If no plan exists yet, run
 `planning-and-task-breakdown` (or the `story-planner` agent) first, then sync its output.
 
+When the project keeps a local git-native ticket store (`ticketing-and-traceability`,
+`docs/project/tickets/`), this skill **mirrors** it outward: the local store is the source of truth,
+and each local ticket becomes one external issue. Put the external issue URL back on the local ticket
+so the two stay cross-linked.
+
 ## When to Use
 
 - A plan / story breakdown is approved and the user wants it in the tracker for execution.

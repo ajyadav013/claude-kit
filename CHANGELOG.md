@@ -4,6 +4,64 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.72.0] — 2026-07-27
+
+**Ticket-first traceability — a local git-native ticket store, per-change work-log, project wiki, and
+ticket↔commit linkage** (user request: *"the orchestrator … post consulting the personas [should] create
+a ticket before starting any work, document every step — what it changed, why, which files, what
+decisions — update the wiki with functional/technical docs and decision records, and link tickets to
+commits so you can trace any change back to its reasoning"*). The orchestrator already consulted the
+personas, critiqued the plan, and broke it into stories; what was missing was the traceability spine that
+ties an approved plan to the commits that implement it. This adds one, git-native and in-repo, modelled on
+[Claude-Project-Tracker](https://github.com/rpostulart/Claude-Project-Tracker) (ideas only — that repo has
+no license, so **zero code was copied**).
+
+### Added
+
+- **`ticketing-and-traceability` skill** (core; SKILL.md) — defines a **local git-native ticket store**
+  under `docs/project/tickets/` (one Markdown ticket per story + a JSON index), the `<PREFIX>-<N>` id
+  scheme (PREFIX derived from the project, N allocated from the index), the `OPEN → IN PROGRESS → IN
+  REVIEW → DONE` lifecycle, the **work-log discipline** (append what/why/which-files/decisions per step),
+  the three-page **wiki** (functional → the spec, technical → dev docs + design spec, decisions → the
+  ADRs — indexes that link, never duplicate), the **ticket↔commit linkage** convention, and the optional
+  hand-off to `task-tracker-sync` for mirroring to an external tracker. Zero setup, no server, no account.
+- **Orchestrator `Stage TK: Ticket Creation`** — a new pipeline step *after* the persona consultation +
+  plan approval + story-breakdown coverage gate and *before* implementation lanes: one OPEN ticket per
+  story, wiki updated, optional external mirror. Work-log entries are appended at the VALIDATE/JOIN steps;
+  tickets close at the PR stage. Advisory — skipped (with a noted reason) where the skill isn't installed.
+
+### Changed
+
+- **Advisory discipline (no new hooks, no new rule):** `rules/mandatory-workflow.md` gains a **step 1g —
+  Ticket Creation & Traceability** and a rewritten *Commit & ticket format* section (link every commit to
+  its ticket id; the PR Raiser reads the id from the local store rather than asking); `rules/documentation.md`
+  gains a *Project wiki* note. Rules stay at **25**.
+- **Reused-skill wiring (reuse-first):** `git-workflow-and-versioning` gains a *Linking Commits to Tickets*
+  subsection; `documentation-and-adrs` notes ADRs are the wiki's decisions pillar; `task-tracker-sync` notes
+  it mirrors the local store outward (local store = source of truth).
+- **Agent wiring:** `pr-raiser` reads the ticket id from `docs/project/tickets/`, writes `[<PREFIX>-N]`
+  into commits, adds a *Ticket* line to the PR template, and closes tickets to DONE; `story-planner` notes
+  each story maps to one ticket; `spec-doc-writer` notes its `_spec.md` is the functional/technical wiki
+  source; `orchestrator` adds a *Ticketing / traceability* skill-routing row.
+- **Catalog:** `ticketing-and-traceability` installed at the **standard** profile (enterprise inherits;
+  lean stays fast-track). Preserves `lean ⊂ standard ⊂ enterprise`.
+- **Counts:** skills **110 → 111** (**58** core + 53 collection); agents unchanged at 29, rules at 25.
+  Docs updated (`README.md`, `docs/skill-audit.md`, `docs/influences.md`).
+
+### Not adopted (deliberately)
+
+- **The reference repo's Deno server + web Kanban/list/wiki UI (`server.ts`, `ui/`)** — claude-kit ships
+  configuration and prose, not a running service; the store is plain Markdown + JSON you read with git.
+- **Blocking enforcement hooks** — the discipline is **advisory** (a pipeline step + a rule + a skill), by
+  explicit user choice; no hook refuses work without a ticket or rejects an un-tagged commit, so
+  `gen_hooks.py --check` and the hook surface are unchanged.
+- **A competing external-tracker skill** — the local store is the source of truth and the existing
+  `task-tracker-sync` handles the optional GitHub/Linear/Jira mirror; no duplication (golden rule #8).
+- **Per-user id counters / assignee boards / status columns** from the reference — the git-native ticket
+  file + JSON index already give a full audit trail; the rest is UI the kit doesn't ship.
+- **Copying any Claude-Project-Tracker code** — it carries no license (all rights reserved); the ideas were
+  re-expressed in the kit's own terms and stack-agnostic form, with nothing vendored.
+
 ## [0.71.0] — 2026-07-27
 
 **Third pentest tool — a `pentesterflow-pentest` skill for human-in-the-loop pentesting** (user

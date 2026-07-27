@@ -63,6 +63,9 @@ Link to CLAUDE.md for the engineering delivery workflow.
 ### Update Rule
 After adding or modifying any endpoint, env var, service, or major feature, the developer must update README.md to reflect the change. The code reviewer must verify README.md is current.
 
+### Project wiki (when a local ticket store is in use)
+When the project keeps a local ticket store (`.claude/skills/ticketing-and-traceability/SKILL.md`), the "wiki" is the three index pages under `docs/project/wiki/` — **functional** (the spec), **technical** (developer docs + design spec), and **decisions** (the ADRs under `docs/decisions/`). These pages *link* those documents rather than duplicating them, and are kept current per ticket.
+
 ---
 
 ## 2. Module Docstrings — Every File

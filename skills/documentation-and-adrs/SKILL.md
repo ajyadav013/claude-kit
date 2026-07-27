@@ -305,7 +305,7 @@ Special consideration for AI agent context:
 
 - **CLAUDE.md / rules files** — Document project conventions so agents follow them
 - **Spec files** — Keep specs updated so agents build the right thing
-- **ADRs** — Help agents understand why past decisions were made (prevents re-deciding)
+- **ADRs** — Help agents understand why past decisions were made (prevents re-deciding). When a local ticket store is in use, ADRs are the **decisions** pillar of the project wiki (`docs/project/wiki/decisions.md`) and are linked from the ticket that made them — see `ticketing-and-traceability`.
 - **Inline gotchas** — Prevent agents from falling into known traps
 
 ## Generated-doc quality gate
