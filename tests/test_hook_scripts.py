@@ -112,6 +112,30 @@ def test_load_continuity_silent_without_any_file(tmp_path: Path) -> None:
     assert proc.stdout == ""
 
 
+def test_load_continuity_warns_when_stale(tmp_path: Path) -> None:
+    import os
+    import time
+
+    live = tmp_path / ".claude" / "CONTINUITY.md"
+    live.parent.mkdir(parents=True)
+    live.write_text("# CONTINUITY\n\nCurrent task: X\n", encoding="utf-8")
+    old = time.time() - 10 * 86400
+    os.utime(live, (old, old))
+    proc = _run("load-continuity.sh", project_dir=tmp_path)
+    assert proc.returncode == 0
+    assert "days ago" in proc.stdout  # staleness warning fired
+    assert "Current task: X" in proc.stdout  # content still injected
+
+
+def test_load_continuity_no_staleness_warning_when_fresh(tmp_path: Path) -> None:
+    live = tmp_path / ".claude" / "CONTINUITY.md"
+    live.parent.mkdir(parents=True)
+    live.write_text("# CONTINUITY\n\nCurrent task: X\n", encoding="utf-8")
+    proc = _run("load-continuity.sh", project_dir=tmp_path)
+    assert proc.returncode == 0
+    assert "days ago" not in proc.stdout
+
+
 def test_load_learnings_emits_index_with_entries(tmp_path: Path) -> None:
     mem = tmp_path / ".claude" / "agent-memory"
     mem.mkdir(parents=True)

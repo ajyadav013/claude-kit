@@ -4,6 +4,74 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.69.0] — 2026-07-26
+
+**Absorption pass over [pborenstein/handoff](https://github.com/pborenstein/handoff) (user-named
+source; MIT, © 2026 Philip Borenstein) — session-continuity skills built around a hot-state /
+cold-storage split.** Ideas absorbed in the kit's own words with attribution; zero prose copied.
+All 18 repo files read; 7 candidate disciplines extracted and adversarially verified against the
+live kit (one verify agent per candidate, every verdict with file:line citations); 4 adopted,
+3 deliberately not. **0 new agents/skills/rules/hooks — every adoption is a prose/script extension
+of an existing surface.**
+
+### Added
+- **Size budget & rotation for working memory** (`rules/continuity.md` §"Size budget & rotation",
+  the CONTINUITY template header, and the `load-continuity.sh` messages): the live
+  `.claude/CONTINUITY.md` now carries a **write-side budget — ~8,000 bytes / ~150 lines, the size
+  the SessionStart hook injects uncut** — and a rotation protocol: when a phase completes (or the
+  file nears the budget), compress it to 3–5 lines and move the displaced detail to
+  `.claude/state/continuity-archive.md`, an append-only cold file in the already-gitignored
+  runtime-state dir that is never auto-injected. Previously the only size control was the hook's
+  read-side middle-trim, which silently cuts exactly the sections resume depends on (Decisions
+  Made, Mistakes & Learnings); this repo's own live file had reached ~94 KB (11.7× the cap) —
+  empirical proof the soft "keep it short" rule doesn't hold without a number and a destination.
+  The trim notice and the hook's closing instruction now point at the rotation protocol.
+- **Upstream-currency check on resume** (`rules/continuity.md`, resume-snapshot section): the
+  existing `git.sha` comparison catches a checkout that *moved*; the new check catches one that is
+  **behind** — `git fetch`, then `git rev-list --left-right --count @{upstream}...HEAD`. Behind →
+  reconcile (usually `git pull --rebase`) before trusting the snapshot; diverged → stop and
+  reconcile before planning new work; no upstream / offline → advisory note, never a hard stop.
+  Rationale: snapshot and CONTINUITY timestamps are self-reported and can look fresh while commits
+  landed out-of-band (another worktree, a teammate, CI).
+- **7-day staleness warning** (`hooks/scripts/load-continuity.sh` + a Protocol note in
+  `rules/continuity.md`): the SessionStart hook now checks the live file's mtime (GNU/BSD-portable
+  `stat`, degrading to a silent no-op on any failure) and prepends a warning when the file hasn't
+  been written in 7+ days — stale working memory is historical context to verify against
+  `git log`/`git status`, not a plan to resume. Two new behavioral tests pin the warning and its
+  absence on fresh files.
+- **Retroactive ADR backfill** (`skills/documentation-and-adrs` §"Retroactive Backfill", plus a
+  Guidelines pointer in `skills/decision`): the process half of what the kit's ADR template
+  already anticipated with its "Reconstructed from `<source>`" provenance line — mine git history
+  for decision points (`git log --grep` on decide/choose/instead/switch/migrate/refactor), group
+  the history into 3–6 eras, write only the 5–10 decisions that **still constrain the code**,
+  time-box the exercise to hours, and stop: no ADR-per-commit, and no invented rationale — a
+  back-filled ADR that guesses at *why* is worse than no ADR.
+
+### Not adopted (deliberately)
+- **Uninitialized-directory guard** (handoff's report → suggest-init → STOP before wrapup/pickup
+  work) — the kit prevents this failure mode *by construction* rather than by detection:
+  `load-continuity.sh` seeds the live file from the (plugin-bundled) template and no-ops when
+  none exists, and the CLI already fails with "run `claude-kit init`" in `validate`, `upgrade`,
+  and `status`. A prose detection guard would duplicate the seeding subsystem.
+- **Per-phase chronicle files** (`docs/chronicles/phase-N.md` with slim numbered entries) — every
+  chronicle field already has a typed home in the kit (gate-evidence artifacts, the sprint
+  archive, ADRs, the CHANGELOG discipline, agent-memory decision traces), and `doc-consolidation`'s
+  posture is the inverse: harvest run-generated markdown *into* canonical stores, then delete. A
+  chronicles tree would be a fifth, competing history store; its one legitimate fragment —
+  spillover run history — is absorbed by the new CONTINUITY cold archive instead.
+- **Meta-repo pattern** (`project-repo`: a coordinating repo with explicitly-gitignored member
+  dirs and shared meta-level docs) — the kit is a per-project scaffolder and explicitly treats
+  repo layout as an organizational choice outside its prescription surface
+  (`system-design-patterns`); multi-repo *changes* and *comprehension* already have homes
+  (`planning-and-task-breakdown` §cross-service, `context-engineering`), and org scope distributes
+  packs into each repo's own install. Different axis; not adopted.
+- **Committed tracking files** (handoff commits its CONTEXT/IMPLEMENTATION/DECISIONS files) — the
+  kit deliberately keeps CONTINUITY gitignored (high diff churn) and routes durable content to
+  committed `agent-memory/` and ADRs; adopting committed hot state would reverse a documented
+  design decision (`rules/continuity.md` §CONTINUITY vs. agent-memory).
+- **The 50-line figure itself** — the kit's budget derives from its own hook's 8,000-byte
+  injection cap, not an imported constant.
+
 ## [0.68.0] — 2026-07-24
 
 **Absorption pass over the [ashishps1](https://github.com/ashishps1) trilogy (user-named sources):

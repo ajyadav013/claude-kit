@@ -27,8 +27,19 @@ fi
 
 [ -f "$LIVE" ] || exit 0
 
+# Staleness check: a live file untouched for 7+ days is historical context, not a current plan.
+# Portable mtime: GNU stat first (-c fails on BSD/darwin), BSD stat as fallback; any failure or
+# non-numeric result degrades to "fresh" (no warning) -- advisory only, never a hard failure.
+NOW=$(date +%s 2>/dev/null || echo 0)
+MTIME=$(stat -c %Y "$LIVE" 2>/dev/null || stat -f %m "$LIVE" 2>/dev/null || echo "")
+case "$MTIME" in *[!0-9]* | "") MTIME=$NOW ;; esac
+AGE_DAYS=$(((NOW - MTIME) / 86400))
+
 echo "## Working memory (.claude/CONTINUITY.md) -- read before acting; write back before the turn ends:"
 echo
+if [ "$AGE_DAYS" -ge 7 ]; then
+  printf '> WARNING: CONTINUITY.md was last written %s days ago -- treat it as historical context. Verify against git log/git status (and upstream currency) before resuming from its Next Steps.\n\n' "$AGE_DAYS"
+fi
 
 # Bound the injected size. This file is dumped into context on EVERY session start, and a mature
 # CONTINUITY.md can grow to tens of KB. Cap it to a digest that keeps BOTH ends -- the top
@@ -43,10 +54,10 @@ if [ "$SIZE" -le "$CAP" ]; then
   cat "$LIVE"
 else
   head -c 5500 "$LIVE"
-  printf '\n\n...[middle of CONTINUITY.md trimmed to save context -- %s bytes total; open .claude/CONTINUITY.md for the full working memory]...\n\n' "$SIZE"
+  printf '\n\n...[middle of CONTINUITY.md trimmed to save context -- %s bytes total, over the %s-byte budget; open .claude/CONTINUITY.md for the full working memory, then rotate completed detail to .claude/state/continuity-archive.md per .claude/rules/continuity.md]...\n\n' "$SIZE" "$CAP"
   tail -c 2000 "$LIVE"
 fi
 echo
-echo "Resume from \"Next Steps\". If you change phase or finish work, update CONTINUITY.md before ending the turn. Promote durable lessons to .claude/agent-memory/ via the remember skill."
+echo "Resume from \"Next Steps\". If you change phase or finish work, update CONTINUITY.md before ending the turn. Keep the live file under ~8,000 bytes -- rotate completed-phase detail to .claude/state/continuity-archive.md. Promote durable lessons to .claude/agent-memory/ via the remember skill."
 
 exit 0

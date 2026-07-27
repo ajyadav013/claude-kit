@@ -89,6 +89,31 @@ PROPOSED → ACCEPTED → (SUPERSEDED or DEPRECATED)
 - **Don't delete old ADRs.** They capture historical context.
 - When a decision changes, write a new ADR that references and supersedes the old one.
 
+### Retroactive Backfill (existing codebases)
+
+An established codebase full of unrecorded decisions doesn't need a historian — it needs the
+handful of decisions that **still bind today**. Time-box the whole exercise to a few hours:
+
+1. **Mine the history for decision points:**
+
+   ```bash
+   git log --all --oneline --grep="decide\|choose\|instead\|switch\|migrate\|refactor"
+   git log --reverse --format="%ad %s" --date=short | head    # project timeline, oldest first
+   ```
+
+2. **Sketch the eras.** Group the history into 3–6 phases around major milestones (rewrites,
+   version releases, architecture pivots). Phase boundaries are where decisions cluster.
+3. **Write only the decisions that still constrain the code** — aim for 5–10 ADRs, not fifty.
+   Mark each `Accepted`, and keep the "Reconstructed from `<source>`" provenance line from the
+   ADR template so readers know it was back-filled, not contemporaneous.
+4. **Stop.** Don't document every commit, and don't invent rationale you can't evidence from
+   commits, code, or people — a back-filled ADR that guesses at *why* is worse than no ADR.
+   From here forward, record decisions as they're made.
+
+(Backfill process adapted, in this kit's terms, from the MIT-licensed
+[`pborenstein/handoff`](https://github.com/pborenstein/handoff) `project-tracking` skill,
+© 2026 Philip Borenstein.)
+
 ## Inline Documentation
 
 ### When to Comment
