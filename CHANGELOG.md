@@ -4,6 +4,52 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.71.0] — 2026-07-27
+
+**Third pentest tool — a `pentesterflow-pentest` skill for human-in-the-loop pentesting** (user
+request: *"check PentesterFlow/agent for pen test as well… make sure to have all shannon, pentesterflow
+and strix while doing penetration testing"*). The 0.70.0 pentest lane covered **autonomous** AI
+pentesting (Strix, Shannon) and **DAST** (ZAP) but had no **human-in-the-loop / analyst-controlled**
+option — the supervised, approval-gated mode that scoped engagements and bug bounty rely on. This adds
+[PentesterFlow](https://github.com/PentesterFlow/agent) as a fourth tool the `pentest-scanner` agent can
+drive, so Strix, Shannon, and PentesterFlow are all available for penetration testing.
+
+### Added
+
+- **`pentesterflow-pentest` skill** (collection; SKILL.md + README.md + `references/operating-guide.md`)
+  — a **documentation-only** driver for [PentesterFlow](https://github.com/PentesterFlow/agent), the
+  open-source (**Apache-2.0**) human-in-the-loop agentic offensive-security CLI `pentesterflow`. Covers
+  install (`install.sh` standalone binary — **no Docker**), local/hosted backends (Ollama, LM Studio,
+  Kimi, Groq, OpenRouter, DeepSeek, Gemini, OpenAI-compatible), the approval-gated permission model,
+  `--target`/`--resume`/`--burp`/`--yolo` flags + slash commands, built-in skills (recon, webvuln, ssrf,
+  ssti, jwt, graphql, race, takeover, supabase, deserialize), evidence-backed `confirm_finding` reports
+  (`./findings/*.md`), the Burp bridge + `pentesterflow-browser-mcp`, memory/coverage, and safety.
+
+### Changed
+
+- **`pentest-scanner` agent** now drives **four** tools — its tool-selection table, preflight probe, and
+  description add **PentesterFlow** (the supervised, no-Docker, local-model / Burp-friendly option)
+  alongside Strix, Shannon, and ZAP. The conditional, authorization-gated, non-blocking preflight is
+  unchanged; the Docker requirement is now noted as tool-specific (PentesterFlow needs none).
+- **Wiring:** the skill is referenced from `security-reviewer`, `orchestrator` (Stage 5.4 + the Security
+  skill-routing row), and `tester`, and installed at the **standard** profile alongside the other pentest
+  skills.
+- **Counts:** skills **109 → 110** (57 core + **53** collection); agents unchanged at 29. Docs updated
+  (`README.md`, `docs/agents.md`, `docs/stack-skills/README.md`, `docs/skill-audit.md`,
+  `docs/influences.md`).
+
+### Not adopted (deliberately)
+
+- **Vendoring PentesterFlow's source** — even though Apache-2.0 permits it, claude-kit ships prose, not
+  tools; the skill stays documentation-only and you install the `pentesterflow` binary yourself (same
+  posture as the other three pentest skills).
+- **A separate agent** — `pentest-scanner` is already tool-agnostic, so PentesterFlow is a new tool it
+  can select, not a new agent (no roster growth, no gate-behavior change).
+- **A `pentesterflow-browser-mcp` catalog fragment** — the browser-capture MCP is documented in the
+  skill; it is not added to `catalog/mcp.yaml` (no always-on agent consumer, and it is engagement-local).
+- **`--yolo` / auto-approval in any default flow** — PentesterFlow's value is the human-in-the-loop
+  approval gate; the skill and agent keep it approval-gated (YOLO is flagged labs-only).
+
 ## [0.70.0] — 2026-07-26
 
 **Dynamic penetration testing — a `strix-ai-pentest` skill + a first-class `pentest-scanner` agent

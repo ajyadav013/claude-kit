@@ -21,7 +21,7 @@ A security audit of the merged change: zero hardcoded secrets, zero Critical/Hig
 1. `{feature-name}_spec.md` — what the change does (endpoints, data, auth surface)
 2. `CLAUDE.md` and `.claude/rules/quality-gates.md` — the severity model + project auto-Criticals
 3. `.claude/rules/code-organization.md` (auth & permission patterns), `.claude/rules/testing.md` (security test requirements), `.claude/rules/documentation.md` (security documentation)
-4. `.claude/skills/security-and-hardening/SKILL.md` — and, when a **dynamic pentest** is in scope, `.claude/skills/strix-ai-pentest/SKILL.md` (plus `shannon-ai-pentest` / `zap-vapt-scanning`)
+4. `.claude/skills/security-and-hardening/SKILL.md` — and, when a **dynamic pentest** is in scope, `.claude/skills/strix-ai-pentest/SKILL.md` (plus `shannon-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning`)
 5. `.claude/CONTINUITY.md` — resume state; report your phase status in your handoff (the Orchestrator writes it back — you run read-only)
 6. `.claude/agent-memory/` — check `gotchas/`, `api/`, `architecture/` for prior security learnings
 

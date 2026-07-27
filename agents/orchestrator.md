@@ -467,7 +467,7 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
 ### Stage 5.4: Security (gate: Security Clear) — after test coverage, before DevOps
 - **Spawn**: `security-reviewer` with the merged code + spec.
 - It dispatches four **static** sub-scanners **in parallel** — `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` — and aggregates findings by severity.
-- **Dynamic pentest (conditional)**: when the user requests a penetration test, or an authorized **non-production** target is available, `security-reviewer` also dispatches `pentest-scanner` — a real, dynamic pentest driving `strix-ai-pentest` / `shannon-ai-pentest` / `zap-vapt-scanning` and returning **PoC-validated** findings. It self-runs a preflight (authorized non-prod target + Docker + tool + LLM key) and returns `SKIPPED` (**non-blocking**) when not applicable; its proven Critical/High findings join the gate. This also serves an explicit user "run a pentest" request.
+- **Dynamic pentest (conditional)**: when the user requests a penetration test, or an authorized **non-production** target is available, `security-reviewer` also dispatches `pentest-scanner` — a real, dynamic pentest driving `strix-ai-pentest` / `shannon-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning` and returning **PoC-validated** findings. It self-runs a preflight (authorized non-prod target + Docker + tool + LLM key) and returns `SKIPPED` (**non-blocking**) when not applicable; its proven Critical/High findings join the gate. This also serves an explicit user "run a pentest" request.
 - **Project-specific auto-Criticals** (never downgrade): authorization leak (missing scoping for multi-tenant systems), hardcoded secret, secret/PII in logs, banned blocking calls in async code paths (if project is async).
 - On Critical/High/Medium → route to the relevant dev lane via the **Defect Loop**; re-run only the affected scanner after the fix (max 2 security cycles).
 - **Gate**: `SECURITY CLEAR`.
@@ -615,7 +615,7 @@ decision tree is the fallback router). Baseline map:
 | Implementation | `incremental-implementation` · `context-engineering` · the stack overlay skills for the lane (e.g. API lane → `api-and-interface-design`; UI lane → `frontend-ui-engineering`) · `doubt-driven-development` when stakes are high/unfamiliar |
 | Code review | `code-review-and-quality` · `over-engineering-review` (when warranted) |
 | Testing | `test-driven-development` · `unit-test` · `browser-testing-with-devtools` (UI) · `test-plan-review` (senior) |
-| Security | `security-and-hardening` · `security-verification` · `threat-model` (new surface) · `strix-ai-pentest` / `shannon-ai-pentest` / `zap-vapt-scanning` (dynamic pentest — on request / authorized target) |
+| Security | `security-and-hardening` · `security-verification` · `threat-model` (new surface) · `strix-ai-pentest` / `shannon-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning` (dynamic pentest — on request / authorized target) |
 | Audit workers (Mode E Wave 0) | read-only exploration + `scope`; report format per the manifest |
 | Gate runners | `smoke-test` / `manual-test` / the project's regression suite |
 | Debugging / defect loop | `debugging-and-error-recovery` · `bug-hunt` |

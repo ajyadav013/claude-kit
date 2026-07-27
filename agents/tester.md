@@ -17,7 +17,7 @@ After code review is approved, validate that the implementation works correctly.
 > **Penetration/exploit testing is a separate lane — not yours.** You verify the app behaves per spec
 > (functional, integration, UI). A real **penetration test** (running exploits against the target) is
 > performed by `pentest-scanner` in the security stage (Phase 5.4), which drives the
-> `strix-ai-pentest` / `shannon-ai-pentest` / `zap-vapt-scanning` skills against an **authorized**
+> `strix-ai-pentest` / `shannon-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning` skills against an **authorized**
 > target. When the user asks for a *pentest / security exploit test* (rather than functional tests),
 > route to `pentest-scanner`, not here.
 

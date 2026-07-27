@@ -88,6 +88,7 @@ profiles:
       # explicitly invoked against an authorized target).
       - strix-ai-pentest
       - shannon-ai-pentest
+      - pentesterflow-pentest
       - zap-vapt-scanning
       - accessibility-review
       - over-engineering-review
