@@ -83,7 +83,7 @@ metadata; Claude still auto-selects by description.
 | **Build** | `developer`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`, and `db-performance-reviewer` for PostgreSQL) |
 | **Test** | `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `auditor` |
 | **Rigor** | `devils-advocate`, `acceptance-reviewer`, `risk-classifier` (enterprise + org) |
-| **Secure** | `security-reviewer` + `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` |
+| **Secure** | `security-reviewer` + `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` (static) + `pentest-scanner` (optional dynamic pentest — Strix / Shannon / PentesterFlow / ZAP) |
 | **Ship** | `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` (enterprise) |
 | **Org personas** | `pm-copilot`, `founder-prototype-agent`, `support-ticket-engineer`, `data-workflow-agent`, `internal-tools-builder` (organization scope only) |
 
@@ -102,7 +102,7 @@ write code themselves and require human approval before any change. They pair wi
 
 ## The full roster
 
-**28 specialized roles**, each tagged with a `tier` and installed per profile — plus per-database
+**29 specialized roles**, each tagged with a `tier` and installed per profile — plus per-database
 **overlay agents** and, in organization scope, **persona agents**:
 
 | Agent | Role |
@@ -124,7 +124,8 @@ write code themselves and require human approval before any change. They pair wi
 | `acceptance-reviewer` | Verifies delivery against acceptance criteria before the human gate |
 | `risk-classifier` | Read-only — classifies work low/medium/high/restricted and names the required gates (enterprise + org) |
 | `security-reviewer` | Security stage coordinator — owns the Security Clear gate |
-| `secret-scanner` · `dependency-scanner` · `owasp-reviewer` · `policy-validator` | The four parallel security sub-scanners |
+| `secret-scanner` · `dependency-scanner` · `owasp-reviewer` · `policy-validator` | The four parallel **static** security sub-scanners |
+| `pentest-scanner` | Optional **dynamic** sub-scanner — runs a real, PoC-validated penetration test via Strix / Shannon / PentesterFlow / ZAP; conditional + authorization-gated, non-blocking when skipped |
 | `devops-engineer` | CI/build/release, env, migrations, runbook — container-optional; owns Pipeline Green |
 | `observability-engineer` | SLOs, health/readiness, structured logging, alerts — owns Observability Ready |
 | `incident-responder` | Production-incident triage, mitigation, and postmortem (enterprise scope) |

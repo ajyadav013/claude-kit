@@ -93,6 +93,22 @@ update auth module
 - `docs` — Documentation only
 - `chore` — Tooling, dependencies, config
 
+### Linking Commits to Tickets
+
+When the project tracks work in tickets, every commit should name its ticket id so history is
+traceable both ways. Put the id in the subject or a footer:
+
+```
+feat: add email validation to registration  [PROJ-12]
+
+Ticket: PROJ-12
+```
+
+Now `git log --grep='PROJ-12'` returns the whole change, and `git blame` → commit → ticket recovers
+the reasoning behind any line. With a local git-native ticket store, the id is the one opened before
+work started; record the commit hashes back on the ticket when it closes. See
+`ticketing-and-traceability` for the store format and lifecycle.
+
 ### 4. Keep Concerns Separate
 
 Don't combine formatting changes with behavior changes. Don't combine refactors with features. Each type of change should be a separate commit — and ideally a separate PR:

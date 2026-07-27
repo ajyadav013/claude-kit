@@ -6,7 +6,7 @@ This document analyzes claude-kit's skill inventory — classification, sizing, 
 
 **Date:** 2026-07-03 (count anchors refreshed 2026-07-24 at 0.67.0)
 **Version audited:** 0.57.0
-**Total skills on disk:** 108 (57 core + 51 stack-collection)
+**Total skills on disk:** 111 (58 core + 53 stack-collection)
 
 ---
 
@@ -19,8 +19,8 @@ Skills are classified by the presence of a `README.md` file in their directory:
 
 This classification is exactly how `scripts/check_docs_consistency.py::_count_skills()` counts them. That function walks `skills/`, skips any entry that is not a directory or whose name starts with `_` (so the shared `_references/` support directory is not counted as a skill), and splits the rest on README presence. The expected split is pinned as anchors that CI checks against the docs:
 
-- 57 core skills (no `README.md`).
-- 51 stack-collection skills (with `README.md`).
+- 58 core skills (no `README.md`).
+- 53 stack-collection skills (with `README.md`).
 
 Per-profile counts were measured on a `react + fastapi + postgres` project initialized with `--scope individual` for each profile (lean, standard, enterprise), by counting the files actually written under `.claude/`.
 
@@ -93,7 +93,7 @@ The following skills are candidates for **review** (not deletion). They plausibl
 - `api-and-interface-design` / `graphql-patterns` / `api-pagination-filtering-sorting` — three API-design skills; the latter two are patterns under the first.
 - `python-dao-and-database` / `alembic-migrations` — Python persistence skills; scope may overlap around schema/migration.
 - `frontend-ui-engineering` / `radix-tailwind-component-patterns` / `react-hook-form-zod-patterns` — one general frontend skill plus two narrower pattern skills.
-- `security-and-hardening` / `shannon-ai-pentest` / `zap-vapt-scanning` / `threat-model` / `safety-critical-patterns` — five security-domain skills; consider whether some are pattern sub-skills of `security-and-hardening`.
+- `security-and-hardening` / `shannon-ai-pentest` / `strix-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning` / `threat-model` / `safety-critical-patterns` — seven security-domain skills (four are external-pentest-tool drivers: Shannon, Strix, PentesterFlow, ZAP); consider whether some are pattern sub-skills of `security-and-hardening`.
 
 ### Lower-priority review candidates
 
@@ -176,7 +176,7 @@ for whoever picks this up.
 
 ## Conclusion
 
-- **Total skill inventory:** 108 (57 core + 51 stack-collection).
+- **Total skill inventory:** 111 (58 core + 53 stack-collection).
 - **Enterprise over-install:** ~7× the on-disk skill footprint (~895K vs ~121K tokens) because `skills: all` installs cross-stack collection skills.
 - **Risk level:** low for resident context (on-demand activation), but disk/selection bloat is measurable.
 - **Action taken:** document the trade-off. Optionally evaluate a stack-relevant filter as a config-level change (no `resolve()` branching).

@@ -112,8 +112,8 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 | Area | What you get |
 |------|--------------|
 | 🔁 **Pipeline & quality gates** | Gate-enforced progression — a phase advances only with zero open Critical/High/Medium findings — plus a fast-track for small changes and an anti-sycophancy `devils-advocate` pass |
-| 🤖 **Agent roster** | **28** tiered agents led by an Orchestrator that never writes code, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
-| 📐 **Rules & skills** | **25** stack-agnostic core rules + **108** context-activated skills (57 core + 51 stack-collection), pulled into context on demand |
+| 🤖 **Agent roster** | **29** tiered agents led by an Orchestrator that never writes code, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
+| 📐 **Rules & skills** | **25** stack-agnostic core rules + **111** context-activated skills (58 core + 53 stack-collection), pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
 | 🛠️ **Hooks & guards** | **18** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
 | 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **24** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
@@ -218,7 +218,7 @@ that matters most: **native gives you the agents; claude-kit gives you the gover
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar collections | Large libraries of individual subagent prompts you pick from | A smaller, opinionated set wired into a sequenced pipeline — agents are stages that hand off and block on each other, not a menu |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec-driven development as a platform: constitution → spec → tasks → analyze, plus label-driven CI stages | The same coverage-gate idea absorbed into a broader in-session lifecycle — review, security, build, test, release, and observability gates with enforced severity blocking. Complementary: their CI stages, this kit's gate depth ([details](docs/autonomous-operation.md)) |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | Portable configuration, not a running process — no daemon, no lock-in, no app code |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A catalog-driven generator: resolves your stack/profile/scope into the right subset of 25 rules, 28 agents, 108 skills, gates, and hooks — kept upgradeable with your edits preserved |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A catalog-driven generator: resolves your stack/profile/scope into the right subset of 25 rules, 29 agents, 111 skills, gates, and hooks — kept upgradeable with your edits preserved |
 
 **Choose claude-kit when** you want a consistent, gate-enforced autonomous-SDLC setup that's the
 same across every repo and stack, installs in seconds, and ships nothing you have to run. It is

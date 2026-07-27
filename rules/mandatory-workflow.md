@@ -194,6 +194,28 @@ CANNOT start until coverage is complete.
 
 ---
 
+## 1g — Ticket Creation & Traceability `[Orchestrator]`
+Before any implementation agent is spawned — and after the plan is persona-approved and the story
+breakdown passes its coverage gate — **open a ticket for each story**. This is the "create a ticket
+before starting work" discipline, and it is the anchor everything downstream links to.
+
+Using `.claude/skills/ticketing-and-traceability/SKILL.md`:
+- **Ticket per story**, status `OPEN`, in the local git-native store `docs/project/tickets/`, seeded
+  with the *why* (traced to the spec requirement ids), links to the spec / design / any ADRs, and the
+  story's declared file scope.
+- **Work-log every step.** As each story is implemented and validated, append an entry to its ticket:
+  what changed, why, which files (from `git diff --name-only`), and any decision made. A decision
+  expensive to reverse graduates to an ADR (`.claude/skills/documentation-and-adrs/SKILL.md`).
+- **Keep the wiki current.** The functional/technical/decision pages under `docs/project/wiki/` index
+  the spec, developer docs, and ADRs — link them, never duplicate.
+- **Link commits to tickets** (see *Commit & ticket format* below) so any change traces back to its
+  reasoning.
+
+This is **advisory discipline**, not a hard gate: where `ticketing-and-traceability` isn't installed
+(e.g. the lean profile), skip it and note the skip. Nothing here blocks the pipeline.
+
+---
+
 # Phase 2 — Development (Stages 4-5)
 
 ## 2a — Read Existing Code & Confirm Scope `[Developer]`
@@ -377,9 +399,12 @@ commit ticket ID is needed; the deploy environment is needed. See
 
 ## Commit & ticket format (customize per project)
 The default is **Conventional Commits**: `type(scope): summary` where `type` ∈
-`feat|fix|refactor|test|docs|chore`. If your team uses ticket-prefixed commits, define that
-format here (e.g. `ID:<TICKET>; <summary>`) and the PR Raiser will follow it. Always ask the
-user for the ticket ID — never guess.
+`feat|fix|refactor|test|docs|chore`. **Link every commit to its ticket** by naming the ticket id in
+the subject or a footer (`feat: add invoice export  [<PREFIX>-7]`, or a `Ticket: <PREFIX>-7` footer),
+so `git log --grep` and `git blame` trace any change back to its reasoning. When the local ticket store
+(`docs/project/tickets/`) is in use, the PR Raiser reads the id opened at ticket creation (step 1g)
+rather than asking; ask the user for a ticket id only when no local ticket exists. If your team uses a
+different ticket-prefixed format, define it here and the PR Raiser will follow it.
 
 ## Files that require user approval before editing
 Build config, dependency manifests + lockfiles, CI config, app entry points, shared component

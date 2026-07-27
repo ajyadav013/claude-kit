@@ -77,7 +77,10 @@ cd frontend && {project-package-manager} run test 2>/dev/null || echo "No fronte
 
 ### Step 5: Commit Hygiene
 
-- **Ask the user for the ticket ID** before committing if a commit format is specified in `mandatory-workflow.md`.
+- **Ticket linkage.** If a local ticket store exists (`docs/project/tickets/`), read the ticket id the
+  orchestrator opened at Stage TK and put it in each commit (`… [<PREFIX>-N]`, per
+  `ticketing-and-traceability` and `mandatory-workflow.md`) — do **not** ask the user. Ask for an id
+  only when no local ticket exists and `mandatory-workflow.md` requires one.
 - Verify all commit messages follow the project format.
 - **Branch naming** follows `<type>/<short-description>`:
   - `feat/user-invitations`, `fix/session-expiry-bug`, `chore/upgrade-dependencies`
@@ -108,6 +111,7 @@ Use `gh pr create` with a structured description:
 ## Spec Traceability
 - Spec: `docs/specs/{feature-name}_spec.md`
 - Design Spec: `docs/specs/{feature-name}_design-spec.md` (if applicable)
+- Ticket(s): `docs/project/tickets/{PREFIX}-{N}-{slug}.md` (if a local ticket store is in use)
 
 ## Test Evidence
 - Backend tests: {count} passing
@@ -119,6 +123,10 @@ Use `gh pr create` with a structured description:
 ## Breaking Changes
 {None, or list of breaking changes}
 ```
+
+After the PR is created, **close the tickets**: set each to DONE and record the commit hashes + PR URL
+on the ticket and in `docs/project/tickets/index.json` (`ticketing-and-traceability`). Skip when no
+local ticket store is in use.
 
 ### Step 7: Report
 Return to the Orchestrator:

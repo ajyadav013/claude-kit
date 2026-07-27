@@ -338,6 +338,28 @@ code is written.
 
 ---
 
+### Stage TK: Ticket Creation (after story breakdown, before implementation)
+
+With the plan approved by the personas and the story breakdown past its coverage gate, open a ticket
+for each story **before** spawning any implementation agent — this is the "create a ticket before
+starting work" discipline. Using `ticketing-and-traceability`:
+
+- **Create** one **OPEN** ticket per story at `docs/project/tickets/<PREFIX>-<N>-<slug>.md` (allocate
+  `N` from `docs/project/tickets/index.json`), seeded from the story: the *why* (traced to the spec
+  requirement ids), links to the spec / design-spec / any ADRs, and the story's declared file scope.
+- **Update the wiki** indexes under `docs/project/wiki/` (functional → the spec, technical → the
+  design-spec, decisions → the ADRs) so they point at the new documents — index, never duplicate.
+- **Optional external mirror**: if the project runs an issue tracker, hand the tickets to
+  `task-tracker-sync` to reflect them in GitHub/Linear/Jira; the local store stays authoritative.
+- **Fast-track (Mode D)**: collapse to a single ticket for the change rather than one per story.
+- **Not installed**: if `ticketing-and-traceability` isn't in the active profile (e.g. lean), skip
+  this stage and note the skip in CONTINUITY.md — the pipeline proceeds unchanged.
+
+The ticket id assigned here rides with the work: implementation lanes append work-log entries to it
+(VALIDATE / JOIN below), and the PR stage links its commits and closes it.
+
+---
+
 ### FORK POINT 2: Implementation (Mode B only)
 
 #### Lane A (Frontend Implementation):
@@ -354,6 +376,9 @@ code is written.
   with the offending file list. The lane does not reach the Code Reviewer until *your own* run
   is green. (Structural form of the evidence rule: a verdict must be backed by output you
   captured — `.claude/rules/quality-gates.md` §2.5.)
+- **Work-log the step** on the story's ticket (`ticketing-and-traceability`): what changed, why, and
+  the files from `git diff --name-only`; advance the ticket `OPEN → IN PROGRESS`. Skip silently if the
+  ticket store isn't in use.
 
 **[4b-FE] SDLC Code Reviewer:**
 - **Spawn**: `sdlc-code-reviewer` for the frontend diff.
@@ -397,6 +422,7 @@ Developer before any reviewer spawns.
   - Shared types/enums are consistent
   - README.md and documentation updated for both stacks
 - **Gate**: `VERIFIED` signal from merge-reviewer.
+- On `VERIFIED`, advance each implemented story's ticket to **IN REVIEW** (`ticketing-and-traceability`).
 
 ---
 
@@ -466,7 +492,8 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
 
 ### Stage 5.4: Security (gate: Security Clear) — after test coverage, before DevOps
 - **Spawn**: `security-reviewer` with the merged code + spec.
-- It dispatches four sub-scanners **in parallel** — `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` — and aggregates findings by severity.
+- It dispatches four **static** sub-scanners **in parallel** — `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` — and aggregates findings by severity.
+- **Dynamic pentest (conditional)**: when the user requests a penetration test, or an authorized **non-production** target is available, `security-reviewer` also dispatches `pentest-scanner` — a real, dynamic pentest driving `strix-ai-pentest` / `shannon-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning` and returning **PoC-validated** findings. It self-runs a preflight (authorized non-prod target + Docker + tool + LLM key) and returns `SKIPPED` (**non-blocking**) when not applicable; its proven Critical/High findings join the gate. This also serves an explicit user "run a pentest" request.
 - **Project-specific auto-Criticals** (never downgrade): authorization leak (missing scoping for multi-tenant systems), hardcoded secret, secret/PII in logs, banned blocking calls in async code paths (if project is async).
 - On Critical/High/Medium → route to the relevant dev lane via the **Defect Loop**; re-run only the affected scanner after the fix (max 2 security cycles).
 - **Gate**: `SECURITY CLEAR`.
@@ -500,6 +527,8 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
 ### Stage 6: PR Raiser (Always Sequential)
 - **Spawn**: `pr-raiser` with all code + test evidence.
 - Documentation checks, lint, build, tests, commit formatting.
+- **Tickets**: `pr-raiser` references each commit's ticket id, records the commits + PR URL on the
+  tickets, and moves them to **DONE** (`ticketing-and-traceability`). Skip when the ticket store isn't in use.
 - **Expected output**: PR URL + status report.
 - **On failure**: Route back to the appropriate Developer lane.
 
@@ -610,15 +639,16 @@ decision tree is the fallback router). Baseline map:
 |----------------|--------------------|
 | Spec & dev docs | `spec-driven-development` · `interview-me` (if ambiguous) · `scope` |
 | Story planning | `planning-and-task-breakdown` |
+| Ticketing / traceability (Stage TK) | `ticketing-and-traceability` · `documentation-and-adrs` (link ADRs) · `task-tracker-sync` (optional external mirror) |
 | Design (UI) | `ui-ux-design` · `component-design` |
 | Implementation | `incremental-implementation` · `context-engineering` · the stack overlay skills for the lane (e.g. API lane → `api-and-interface-design`; UI lane → `frontend-ui-engineering`) · `doubt-driven-development` when stakes are high/unfamiliar |
 | Code review | `code-review-and-quality` · `over-engineering-review` (when warranted) |
 | Testing | `test-driven-development` · `unit-test` · `browser-testing-with-devtools` (UI) · `test-plan-review` (senior) |
-| Security | `security-and-hardening` · `security-verification` · `threat-model` (new surface) |
+| Security | `security-and-hardening` · `security-verification` · `threat-model` (new surface) · `strix-ai-pentest` / `shannon-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning` (dynamic pentest — on request / authorized target) |
 | Audit workers (Mode E Wave 0) | read-only exploration + `scope`; report format per the manifest |
 | Gate runners | `smoke-test` / `manual-test` / the project's regression suite |
 | Debugging / defect loop | `debugging-and-error-recovery` · `bug-hunt` |
-| PR / delivery | `git-workflow-and-versioning` · `shipping-and-launch` |
+| PR / delivery | `git-workflow-and-versioning` · `ticketing-and-traceability` (link commits · close tickets) · `shipping-and-launch` |
 | Knowledge closeout (Mode E final wave) | `refresh-docs` · `documentation-and-adrs` · `remember` · `consolidate-learnings` |
 
 Only route to skills that are actually installed (profiles install different subsets); when a listed

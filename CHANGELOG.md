@@ -4,6 +4,168 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.72.0] — 2026-07-27
+
+**Ticket-first traceability — a local git-native ticket store, per-change work-log, project wiki, and
+ticket↔commit linkage** (user request: *"the orchestrator … post consulting the personas [should] create
+a ticket before starting any work, document every step — what it changed, why, which files, what
+decisions — update the wiki with functional/technical docs and decision records, and link tickets to
+commits so you can trace any change back to its reasoning"*). The orchestrator already consulted the
+personas, critiqued the plan, and broke it into stories; what was missing was the traceability spine that
+ties an approved plan to the commits that implement it. This adds one, git-native and in-repo, modelled on
+[Claude-Project-Tracker](https://github.com/rpostulart/Claude-Project-Tracker) (ideas only — that repo has
+no license, so **zero code was copied**).
+
+### Added
+
+- **`ticketing-and-traceability` skill** (core; SKILL.md) — defines a **local git-native ticket store**
+  under `docs/project/tickets/` (one Markdown ticket per story + a JSON index), the `<PREFIX>-<N>` id
+  scheme (PREFIX derived from the project, N allocated from the index), the `OPEN → IN PROGRESS → IN
+  REVIEW → DONE` lifecycle, the **work-log discipline** (append what/why/which-files/decisions per step),
+  the three-page **wiki** (functional → the spec, technical → dev docs + design spec, decisions → the
+  ADRs — indexes that link, never duplicate), the **ticket↔commit linkage** convention, and the optional
+  hand-off to `task-tracker-sync` for mirroring to an external tracker. Zero setup, no server, no account.
+- **Orchestrator `Stage TK: Ticket Creation`** — a new pipeline step *after* the persona consultation +
+  plan approval + story-breakdown coverage gate and *before* implementation lanes: one OPEN ticket per
+  story, wiki updated, optional external mirror. Work-log entries are appended at the VALIDATE/JOIN steps;
+  tickets close at the PR stage. Advisory — skipped (with a noted reason) where the skill isn't installed.
+
+### Changed
+
+- **Advisory discipline (no new hooks, no new rule):** `rules/mandatory-workflow.md` gains a **step 1g —
+  Ticket Creation & Traceability** and a rewritten *Commit & ticket format* section (link every commit to
+  its ticket id; the PR Raiser reads the id from the local store rather than asking); `rules/documentation.md`
+  gains a *Project wiki* note. Rules stay at **25**.
+- **Reused-skill wiring (reuse-first):** `git-workflow-and-versioning` gains a *Linking Commits to Tickets*
+  subsection; `documentation-and-adrs` notes ADRs are the wiki's decisions pillar; `task-tracker-sync` notes
+  it mirrors the local store outward (local store = source of truth).
+- **Agent wiring:** `pr-raiser` reads the ticket id from `docs/project/tickets/`, writes `[<PREFIX>-N]`
+  into commits, adds a *Ticket* line to the PR template, and closes tickets to DONE; `story-planner` notes
+  each story maps to one ticket; `spec-doc-writer` notes its `_spec.md` is the functional/technical wiki
+  source; `orchestrator` adds a *Ticketing / traceability* skill-routing row.
+- **Catalog:** `ticketing-and-traceability` installed at the **standard** profile (enterprise inherits;
+  lean stays fast-track). Preserves `lean ⊂ standard ⊂ enterprise`.
+- **Counts:** skills **110 → 111** (**58** core + 53 collection); agents unchanged at 29, rules at 25.
+  Docs updated (`README.md`, `docs/skill-audit.md`, `docs/influences.md`).
+
+### Not adopted (deliberately)
+
+- **The reference repo's Deno server + web Kanban/list/wiki UI (`server.ts`, `ui/`)** — claude-kit ships
+  configuration and prose, not a running service; the store is plain Markdown + JSON you read with git.
+- **Blocking enforcement hooks** — the discipline is **advisory** (a pipeline step + a rule + a skill), by
+  explicit user choice; no hook refuses work without a ticket or rejects an un-tagged commit, so
+  `gen_hooks.py --check` and the hook surface are unchanged.
+- **A competing external-tracker skill** — the local store is the source of truth and the existing
+  `task-tracker-sync` handles the optional GitHub/Linear/Jira mirror; no duplication (golden rule #8).
+- **Per-user id counters / assignee boards / status columns** from the reference — the git-native ticket
+  file + JSON index already give a full audit trail; the rest is UI the kit doesn't ship.
+- **Copying any Claude-Project-Tracker code** — it carries no license (all rights reserved); the ideas were
+  re-expressed in the kit's own terms and stack-agnostic form, with nothing vendored.
+
+## [0.71.0] — 2026-07-27
+
+**Third pentest tool — a `pentesterflow-pentest` skill for human-in-the-loop pentesting** (user
+request: *"check PentesterFlow/agent for pen test as well… make sure to have all shannon, pentesterflow
+and strix while doing penetration testing"*). The 0.70.0 pentest lane covered **autonomous** AI
+pentesting (Strix, Shannon) and **DAST** (ZAP) but had no **human-in-the-loop / analyst-controlled**
+option — the supervised, approval-gated mode that scoped engagements and bug bounty rely on. This adds
+[PentesterFlow](https://github.com/PentesterFlow/agent) as a fourth tool the `pentest-scanner` agent can
+drive, so Strix, Shannon, and PentesterFlow are all available for penetration testing.
+
+### Added
+
+- **`pentesterflow-pentest` skill** (collection; SKILL.md + README.md + `references/operating-guide.md`)
+  — a **documentation-only** driver for [PentesterFlow](https://github.com/PentesterFlow/agent), the
+  open-source (**Apache-2.0**) human-in-the-loop agentic offensive-security CLI `pentesterflow`. Covers
+  install (`install.sh` standalone binary — **no Docker**), local/hosted backends (Ollama, LM Studio,
+  Kimi, Groq, OpenRouter, DeepSeek, Gemini, OpenAI-compatible), the approval-gated permission model,
+  `--target`/`--resume`/`--burp`/`--yolo` flags + slash commands, built-in skills (recon, webvuln, ssrf,
+  ssti, jwt, graphql, race, takeover, supabase, deserialize), evidence-backed `confirm_finding` reports
+  (`./findings/*.md`), the Burp bridge + `pentesterflow-browser-mcp`, memory/coverage, and safety.
+
+### Changed
+
+- **`pentest-scanner` agent** now drives **four** tools — its tool-selection table, preflight probe, and
+  description add **PentesterFlow** (the supervised, no-Docker, local-model / Burp-friendly option)
+  alongside Strix, Shannon, and ZAP. The conditional, authorization-gated, non-blocking preflight is
+  unchanged; the Docker requirement is now noted as tool-specific (PentesterFlow needs none).
+- **Wiring:** the skill is referenced from `security-reviewer`, `orchestrator` (Stage 5.4 + the Security
+  skill-routing row), and `tester`, and installed at the **standard** profile alongside the other pentest
+  skills.
+- **Counts:** skills **109 → 110** (57 core + **53** collection); agents unchanged at 29. Docs updated
+  (`README.md`, `docs/agents.md`, `docs/stack-skills/README.md`, `docs/skill-audit.md`,
+  `docs/influences.md`).
+
+### Not adopted (deliberately)
+
+- **Vendoring PentesterFlow's source** — even though Apache-2.0 permits it, claude-kit ships prose, not
+  tools; the skill stays documentation-only and you install the `pentesterflow` binary yourself (same
+  posture as the other three pentest skills).
+- **A separate agent** — `pentest-scanner` is already tool-agnostic, so PentesterFlow is a new tool it
+  can select, not a new agent (no roster growth, no gate-behavior change).
+- **A `pentesterflow-browser-mcp` catalog fragment** — the browser-capture MCP is documented in the
+  skill; it is not added to `catalog/mcp.yaml` (no always-on agent consumer, and it is engagement-local).
+- **`--yolo` / auto-approval in any default flow** — PentesterFlow's value is the human-in-the-loop
+  approval gate; the skill and agent keep it approval-gated (YOLO is flagged labs-only).
+
+## [0.70.0] — 2026-07-26
+
+**Dynamic penetration testing — a `strix-ai-pentest` skill + a first-class `pentest-scanner` agent
+that drives Strix, Shannon, or ZAP** (user request: *"use [usestrix/strix] to do penetration testing…
+when the user asks for testing, or the testing agent is provoked by the orchestrator, it should have an
+agent doing penetration testing… make sure we do Shannon as well as Strix."*). The kit's security stage
+was entirely **static** (secret / dependency / OWASP / policy readers), and pentesting was
+documentation-only (`shannon-ai-pentest` / `zap-vapt-scanning`) with **no agent that actually runs one**.
+This adds the missing dynamic, exploit-validation lane — reachable both on an explicit user request and
+via the orchestrator's security stage.
+
+### Added
+
+- **`strix-ai-pentest` skill** (collection; SKILL.md + README.md + `references/operating-guide.md`) —
+  a **documentation-only** driver for [Strix](https://github.com/usestrix/strix) (usestrix), the
+  open-source (**Apache-2.0**) AI penetration-testing CLI `strix-agent`. Covers install
+  (`pipx install strix-agent`), Docker sandbox, LiteLLM provider config
+  (OpenAI/Anthropic/Vertex/Bedrock/Azure/local/ChatGPT-sub), targets (repo/URL/domain/IP,
+  `--target-list`, `--mount`), `--scan-mode quick|standard|deep`, `--scope-mode diff`/`--diff-base`,
+  `--instruction[-file]`, headless `-n` with CI exit codes, `--max-budget-usd`, the `strix view`
+  dashboard + live steering, output layout, GitHub Actions/GitLab/Jenkins CI, and safety.
+- **`pentest-scanner` agent** (security sub-scanner, tier `specialist`) — a **dynamic** scanner that
+  runs a real, **PoC-validated** penetration test by driving whichever authorized tool is installed:
+  **Strix** (flexible default), **Shannon** (white-box source→exploit), or **ZAP** (DAST + PDF). It is
+  **conditional and authorization-gated**: an explicit **preflight** (dynamic pentest requested + an
+  authorized **non-production** target + Docker + tool + LLM key) must pass, otherwise it returns
+  `SKIPPED` and **does not block** the Security Clear gate — so pipelines without pentest tooling behave
+  exactly as before. Reports only; PoC-proven Critical/High findings feed the gate and route via the
+  Defect Loop.
+
+### Changed
+
+- **Wiring (both entry paths):** `security-reviewer` now lists `pentest-scanner` as the optional fifth
+  (dynamic) scanner and dispatches it conditionally; `orchestrator` Stage 5.4 documents the conditional
+  dispatch and adds the three pentest skills to its Security skill-routing row; `tester` points a user's
+  *pentest* request to `pentest-scanner` (out of the functional-testing lane).
+- **Profile promotion:** `pentest-scanner` + the three pentest skills (`strix-ai-pentest`,
+  `shannon-ai-pentest`, `zap-vapt-scanning`) are now installed at the **standard** tier (previously
+  Shannon/ZAP were enterprise-only), co-locating the agent with the skills it drives. `lean ⊂ standard ⊂
+  enterprise` is preserved.
+- **Counts:** agents **28 → 29**, skills **108 → 109** (57 core + **52** collection). Docs updated
+  (`README.md`, `docs/agents.md`, `docs/stack-skills/README.md`, `docs/skill-audit.md`,
+  `docs/influences.md`).
+
+### Not adopted (deliberately)
+
+- **Vendoring Strix's source** — even though Apache-2.0 permits it, claude-kit ships configuration/prose,
+  not tools; the skill stays documentation-only and you install `strix-agent` yourself (same posture as
+  the AGPL `shannon-ai-pentest` and the bundled-but-thin `zap-vapt-scanning`).
+- **Making pentest a mandatory gate scanner** — it would break every pipeline lacking Docker, an LLM key,
+  or an authorized target, and would risk auto-attacking targets. It is opt-in and non-blocking instead.
+- **Auto-running against live targets** — the `pentest-scanner` preflight refuses production / unstated
+  authorization / untrusted targets; a real pentest only runs on explicit request against an authorized
+  non-production target.
+- **A bundled Strix GitHub Actions workflow or a Strix-platform/MCP integration** — the skill documents
+  the CI patterns and the managed platform ([app.strix.ai](https://app.strix.ai)) rather than shipping a
+  workflow file or a new MCP fragment (no agent consumer, avoids vendor sprawl).
+
 ## [0.69.0] — 2026-07-26
 
 **Absorption pass over [pborenstein/handoff](https://github.com/pborenstein/handoff) (user-named

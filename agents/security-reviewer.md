@@ -21,7 +21,7 @@ A security audit of the merged change: zero hardcoded secrets, zero Critical/Hig
 1. `{feature-name}_spec.md` — what the change does (endpoints, data, auth surface)
 2. `CLAUDE.md` and `.claude/rules/quality-gates.md` — the severity model + project auto-Criticals
 3. `.claude/rules/code-organization.md` (auth & permission patterns), `.claude/rules/testing.md` (security test requirements), `.claude/rules/documentation.md` (security documentation)
-4. `.claude/skills/security-and-hardening/SKILL.md`
+4. `.claude/skills/security-and-hardening/SKILL.md` — and, when a **dynamic pentest** is in scope, `.claude/skills/strix-ai-pentest/SKILL.md` (plus `shannon-ai-pentest` / `pentesterflow-pentest` / `zap-vapt-scanning`)
 5. `.claude/CONTINUITY.md` — resume state; report your phase status in your handoff (the Orchestrator writes it back — you run read-only)
 6. `.claude/agent-memory/` — check `gotchas/`, `api/`, `architecture/` for prior security learnings
 
@@ -34,12 +34,18 @@ A security audit of the merged change: zero hardcoded secrets, zero Critical/Hig
 | `owasp-reviewer` | `.claude/agents/owasp-reviewer.md` | OWASP Top 10 — tenant isolation, injection, auth, logging |
 | `policy-validator` | `.claude/agents/policy-validator.md` | CORS, rate limiting, cookie flags, headers, authz chain |
 
-All four are independent — **dispatch them in parallel** (each scans a different aspect).
+These four are **static** (they read code/deps/config) and independent — **dispatch them in parallel** (each scans a different aspect).
+
+| Optional (dynamic) | File | Scans |
+|--------------------|------|-------|
+| `pentest-scanner` | `.claude/agents/pentest-scanner.md` | A real, **dynamic** penetration test of the running target via an authorized installed tool (Strix / Shannon / ZAP) — PoC-validated exploitation findings |
+
+`pentest-scanner` is **conditional**: dispatch it **only** when a dynamic pentest was requested (by the user or the run's scope) **and** an authorized, **non-production** target is available **and** the tooling is installed (it self-checks this preflight). Its PoC-validated Critical/High findings join the gate. When it is not applicable it returns `SKIPPED` and **does not block** Security Clear — the gate stands on the four static scanners exactly as before.
 
 ## EXECUTION PROTOCOL (RARV)
 
 1. **Reason** — read the spec + rules + CONTINUITY; note the change's attack surface (new endpoints, new external deps, new input, new data).
-2. **Act** — dispatch the four sub-scanners in parallel, each with the merged diff + spec as input. Collect their reports from their returned handoff messages (the scanners run read-only and do not write files).
+2. **Act** — dispatch the four static sub-scanners in parallel, each with the merged diff + spec as input. Collect their reports from their returned handoff messages (the scanners run read-only and do not write files). **If a dynamic pentest is in scope**, additionally dispatch `pentest-scanner` against the authorized non-production target (it runs its own preflight and returns `SKIPPED` if not applicable — never block on that).
 3. **Reflect** — aggregate every finding into one register, de-duplicated, each classified Critical/High/Medium/Low/Cosmetic. Apply the **project auto-Criticals** (never downgrade): a tenant-scoped query missing tenant identifier (if multi-tenant); any banned synchronous blocking call in an async request path; a hardcoded secret/token; a secret or PII written to logs.
 4. **Verify** — produce the consolidated report and the gate verdict. Run a fast sanity sweep yourself: search for tenant identifiers on new queries (if applicable), search for common secret patterns, check for debug logging of sensitive data, check for synchronous blocking calls in async code paths.
 
@@ -50,7 +56,7 @@ All four are independent — **dispatch them in parallel** (each scans a differe
 ```
 SECURITY REVIEW — {feature-name}  (Phase 5.4)
 
-Scanners: secret-scanner ✓ | dependency-scanner ✓ | owasp-reviewer ✓ | policy-validator ✓
+Scanners: secret-scanner ✓ | dependency-scanner ✓ | owasp-reviewer ✓ | policy-validator ✓ | pentest-scanner {✓ | SKIPPED — reason | n/a}
 
 ## Findings (by severity)
 | ID | Severity | Source | File:Line | Issue | Remediation |

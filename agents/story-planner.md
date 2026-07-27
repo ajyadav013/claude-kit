@@ -35,9 +35,12 @@ A story breakdown (write it where the spec lives, or to `.claude/state/` for the
 5. **Traceability** — every acceptance criterion in the spec maps to at least one story; flag any
    criterion with no story (a gap) and any story with no criterion (scope creep).
 
-When a task tracker is configured, mirror the stories to it (one issue per story, dependencies
-carried across) using the `task-tracker-sync` skill (`.claude/skills/task-tracker-sync/SKILL.md`) —
-it is tracker-agnostic (GitHub / Linear / Jira) and idempotent. Sync after the coverage gate passes.
+Each story is the source for exactly **one ticket**: after the coverage gate passes, the orchestrator
+opens one local ticket per story at Stage TK (`ticketing-and-traceability`), carrying the story's
+*why*, its spec/design links, and its file scope. When a task tracker is also configured, mirror the
+stories/tickets to it (one issue per story, dependencies carried across) using the `task-tracker-sync`
+skill (`.claude/skills/task-tracker-sync/SKILL.md`) — it is tracker-agnostic (GitHub / Linear / Jira)
+and idempotent. The local store stays authoritative.
 
 ## Constraints
 
