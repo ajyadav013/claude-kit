@@ -4,6 +4,59 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.73.0] — 2026-07-27
+
+**A runtime ticket chart — `claude-kit tickets` shows which ticket is in flight and what it cost**
+(user request: *"a chart to show which ticket is in progress and its details — how many tokens were
+used, which model, time, status, agent used … runtime and not a pic or screenshot"*). 0.72.0 recorded
+what changed and why; this answers what the work cost, live.
+
+### Added
+
+- **`claude-kit tickets`** — a text board, one row per ticket: ID · TITLE · STATUS · AGENT · MODEL ·
+  TOKENS · CACHE · TIME · COMMITS, ordered in-progress first. Variants: `--graph` (ticket dependency
+  graph), `--graph-git` (commit graph annotated with each commit's ticket), `PROJ-12` (detail view with
+  the per-ticket work log and full telemetry), `--watch N` (re-render every N seconds), `--json`.
+- **`src/claude_kit/telemetry.py`** — read-only, metadata-only aggregation of Claude Code session
+  transcripts, attributed to tickets by `gitBranch`. Deduplicates by `requestId`: streaming repeats each
+  usage block, so a naive sum overstated output tokens **3.3×** (622 raw records → 219 real requests on
+  the session this was measured against). Cache reads get their own counter rather than being folded
+  into input, because they routinely exceed fresh input by three orders of magnitude.
+- **`src/claude_kit/tickets.py`** — ticket store loader and renderers. Relation model adopted from
+  [quazardous/aiball](https://github.com/quazardous/aiball) (MIT, © 2026 David Berlioz — concepts
+  re-expressed, no code copied): `depends_on`/`blocks` **gate** whether a ticket is actionable, while
+  `child_of`/`parent_of` lineage deliberately does not. Adds a derived **BLOCKED** display status, and
+  the board header always prints the open count beside actionable so a fully-gated backlog can never
+  read as "nothing to do".
+- **`capture-ticket-telemetry.sh`** (Stop hook, standard profile) — persists the figures into the
+  gitignored `.claude/state/ticket-telemetry.json` so history survives transcript pruning. Detached,
+  throttled to once per 60s (`CLAUDE_KIT_TELEMETRY_INTERVAL`), no-ops without `jq`, without the
+  `claude-kit` CLI, or before a ticket store exists; opt out with `CLAUDE_KIT_NO_TELEMETRY=1`. It shells
+  out to `tickets --json` rather than re-deriving totals in `jq`, so the dedupe rule has exactly one
+  tested implementation instead of two that can drift.
+
+### Changed
+
+- Hook scripts 18 → **19**. Rules (25), agents (29), and skills (111) are unchanged — this release adds
+  no skill, no agent, and no rule.
+- Telemetry is **branch-scoped**, since `gitBranch` is the only ticket-shaped key a transcript carries.
+  Tickets sharing a branch therefore show that branch's totals, and both the board and the detail view
+  say so explicitly rather than implying the figure belongs to one ticket.
+
+### Not adopted (deliberately)
+
+- **aiball's service shape** — its daemon, web board, and PTY proxy. Same rejection as 0.72.0's
+  reference repo: the kit ships configuration, not a running service. The chart is a command you run.
+- **Hardcoded model pricing.** A cost column would need a price table that silently rots; tokens and
+  model id are reported instead, and any rate table stays the user's to supply.
+- **Message content.** Only usage counters, model ids, agent names, timestamps, and the branch are read
+  — never prompt or response text, matching the learning-capture posture in `SECURITY.md`.
+- **A per-turn full rescan.** Re-reading every transcript on each Stop was measured at ~0.9s over
+  200 MB; the hook throttles instead.
+- **`--graph=git` as an optional-value flag.** `--graph` with an inline value depends on Click's
+  `flag_value`, which is deprecated in the Click that typer 0.26 vendors and errors on a bare `--graph`.
+  Two plain booleans (`--graph` / `--graph-git`) behave identically across the supported typer range.
+
 ## [0.72.0] — 2026-07-27
 
 **Ticket-first traceability — a local git-native ticket store, per-change work-log, project wiki, and

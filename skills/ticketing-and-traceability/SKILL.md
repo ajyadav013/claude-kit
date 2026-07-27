@@ -146,6 +146,22 @@ This is the "trace any change back to its reasoning" requirement, enforced by co
   into the ticket's `index.json` entry and, if useful, the work-log. Now the link is navigable both
   ways: commit → ticket (via the message) and ticket → commits (via the index).
 
+## Seeing the board
+
+When the pip CLI is installed, `claude-kit tickets` renders the store as a live chart — one row per
+ticket with its status, the agent and model that did the work, tokens, cache, and elapsed time, ordered
+in-progress first. `--graph` shows the dependency graph (what is blocked by what), `--graph-git` walks
+the commit graph with each commit's ticket attached, `claude-kit tickets <PREFIX>-<N>` opens one
+ticket's detail with its full work log, and `--watch 5` re-renders while a run is in flight.
+
+Two conventions make those figures work, so record them:
+
+- **Put the branch on the ticket** (`- **Branch:** feat/…`). Usage is attributed by branch; a ticket
+  with no branch shows no telemetry. Tickets sharing a branch share its totals.
+- **Declare dependencies in `index.json`** under `relations`: `depends_on` / `blocks` gate whether a
+  ticket is workable and surface it as **BLOCKED**; `child_of` / `parent_of` express structure and
+  deliberately do *not* gate. `relates_to` and `duplicates` are informational.
+
 ## Optional external mirror
 
 The local store is always the source of truth. If the project runs an external tracker and wants the

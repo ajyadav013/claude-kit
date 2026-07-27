@@ -110,7 +110,9 @@ def test_init_capture_mode_config_and_default(tmp_path):
     pt = tmp_path / "pt"
     assert runner.invoke(app, ["init", str(pt), "--config", str(cfg)]).exit_code == 0
     ev = events(pt)
-    assert "capture-learnings.sh" in ev["Stop"] and ev["Stop"].rstrip().endswith("stop")
+    # Assert the dispatch argument on the capture entry itself; other hooks also bind Stop, so
+    # its position in the concatenated command string is incidental.
+    assert 'capture-learnings.sh" stop' in ev["Stop"]
     assert "capture-learnings.sh" not in ev["SessionEnd"]
 
     # --defaults: the recommended catch-up default (SessionEnd end + SessionStart catchup).
@@ -396,3 +398,144 @@ def test_status_skill_count_matches_validate(tmp_path):
     assert status_n == validate_n
     # The shared-reference dir exists but is support content, not a skill.
     assert (target / ".claude" / "skills" / "_references").is_dir()
+
+
+def _ticket_store(root, status="IN PROGRESS", relations=None):
+    """Write a one-ticket store; returns the project root."""
+    import json as _json
+
+    directory = root / "docs" / "project" / "tickets"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "DEMO-1-thing.md").write_text(
+        f"# DEMO-1: Do the thing\n\n- **Status:** {status}\n- **Branch:** feat/demo\n",
+        encoding="utf-8",
+    )
+    (directory / "DEMO-2-other.md").write_text(
+        "# DEMO-2: Other thing\n\n- **Status:** OPEN\n",
+        encoding="utf-8",
+    )
+    (directory / "index.json").write_text(
+        _json.dumps(
+            {"prefix": "DEMO", "tickets": {"DEMO-2": {"relations": relations or {}}}}
+        ),
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_tickets_board_without_a_store_is_friendly_not_a_traceback(tmp_path):
+    """A freshly scaffolded project has no tickets yet — that must not look like a crash."""
+    result = runner.invoke(
+        app, ["tickets", "--path", str(tmp_path), "--transcript-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "no tickets yet" in result.stdout
+    assert "Traceback" not in result.stdout
+
+
+def test_tickets_board_renders_without_any_transcripts(tmp_path):
+    """Regression: telemetry is optional — the board still renders when there is none."""
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app, ["tickets", "--path", str(tmp_path), "--transcript-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "DEMO-1" in result.stdout
+    assert "IN PROGRESS" in result.stdout
+
+
+def test_tickets_header_reports_open_and_actionable(tmp_path):
+    _ticket_store(tmp_path, relations={"depends_on": ["DEMO-1"]})
+    result = runner.invoke(
+        app, ["tickets", "--path", str(tmp_path), "--transcript-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 0
+    assert "2 open" in result.stdout and "1 actionable" in result.stdout
+    assert "BLOCKED" in result.stdout
+
+
+def test_tickets_graph_flag(tmp_path):
+    _ticket_store(tmp_path, relations={"child_of": ["DEMO-1"]})
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--graph",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "DEMO-1" in result.stdout and "DEMO-2" in result.stdout
+
+
+def test_tickets_graph_and_graph_git_are_mutually_exclusive(tmp_path):
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app, ["tickets", "--path", str(tmp_path), "--graph", "--graph-git"]
+    )
+    assert result.exit_code == 2
+    assert "only one" in result.stdout
+
+
+def test_tickets_detail_view(tmp_path):
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "DEMO-1",
+            "--path",
+            str(tmp_path),
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "Do the thing" in result.stdout
+    assert "no telemetry recorded" in result.stdout
+
+
+def test_tickets_unknown_id_exits_nonzero(tmp_path):
+    """Scripts need to distinguish 'no such ticket' from a successful render."""
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "DEMO-99",
+            "--path",
+            str(tmp_path),
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 2
+    assert "unknown ticket" in result.stdout
+
+
+def test_tickets_json_is_machine_readable(tmp_path):
+    import json as _json
+
+    _ticket_store(tmp_path, relations={"depends_on": ["DEMO-1"]})
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--json",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    payload = _json.loads(result.stdout)
+    assert payload["prefix"] == "DEMO"
+    assert payload["counts"]["open"] == 2
+    blocked = next(t for t in payload["tickets"] if t["id"] == "DEMO-2")
+    assert blocked["display_status"] == "BLOCKED"
+    assert blocked["blockers"] == ["DEMO-1"]
+    assert blocked["actionable"] is False

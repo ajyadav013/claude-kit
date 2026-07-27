@@ -104,7 +104,9 @@ profiles:
     # NOTE: the agent-side capture hooks (capture-learnings / -catchup / -stop) are deliberately NOT
     # listed here — they are installed by the init-time `capture_mode` choice via catalog/capture.yaml
     # (see catalog._apply_capture_mode), not by profile membership. load-learnings (recall) stays.
-    hooks: [load-continuity, load-learnings, load-autonomy, guard-rm-rf, guard-push-main, guard-destructive-git, protect-secrets, guard-commit-secrets, warn-shared-modules, warn-llm-io, lint-fix, type-check]
+    # capture-ticket-telemetry rides with the ticketing-and-traceability skill above: it is unrelated
+    # to capture_mode, self-throttles, and no-ops until a ticket store exists.
+    hooks: [load-continuity, load-learnings, load-autonomy, guard-rm-rf, guard-push-main, guard-destructive-git, protect-secrets, guard-commit-secrets, warn-shared-modules, warn-llm-io, lint-fix, type-check, capture-ticket-telemetry]
 
   enterprise:
     label: "Enterprise — adds DevOps, Observability, full audit + acceptance"

@@ -17,6 +17,7 @@ exports the kit's configuration. Install: `pip install claude-code-kit` (see
 | `pipeline validate · status · close-gate · abort` | Inspect/mutate the `/sdlc` state files (gate/lane/evidence coherence); **does not run** the pipeline |
 | `list-options` | List available frontend/backend/database/profile/MCP options |
 | `status [path]` | Show what's installed, the selection, and working memory |
+| `tickets [ID] [--path DIR] [--graph\|--graph-git] [--watch N] [--json]` | Live ticket board with tokens / model / agent / elapsed per ticket; `--graph` for the dependency graph, `--graph-git` for the commit graph, an `ID` for the detail view |
 | `version` | Print the version |
 | `package-org-pack` · `install-org-pack` | **Planned** — packaging/distribution of org capability packs. Today these are hidden stubs that describe the intended behavior and exit 2; org packs already install via `init` (organization scope) |
 
@@ -26,6 +27,33 @@ worktrees); plus the `/sdlc` skill inside any scaffolded project.
 
 > When MCP servers are selected, `init` also writes a derived **`.mcp.lock.json`** pinning each
 > server's resolved package version — inspect it (or run `doctor --mcp`) to see exactly what would run.
+
+## The ticket chart (`claude-kit tickets`)
+
+Reads the local ticket store (`docs/project/tickets/`, created by the `ticketing-and-traceability`
+skill) and joins it with usage figures parsed live from the Claude Code session transcript:
+
+```
+CKIT  4 tickets  3 open  2 actionable  1 blocked  1 in progress  1 done
+
+ID      TITLE                              STATUS       AGENT      MODEL     TOKENS  CACHE  TIME  COMMITS
+CKIT-2  Ticket board and dependency graph  IN PROGRESS  developer  opus-4-8  34.5k   5.9M   9m    -
+CKIT-3  Wire the tickets CLI command       BLOCKED      -          -         -       -      -     -
+```
+
+Three things worth knowing:
+
+- **`BLOCKED` is derived, not stored.** A ticket is blocked when something it `depends_on` is still
+  open. Sub-tickets (`child_of`) are *not* blocked by an open parent. The header always shows the open
+  count next to actionable, so a fully-gated backlog can't be mistaken for an empty one.
+- **Telemetry is per branch.** `gitBranch` is the only ticket-shaped key a transcript carries, so
+  tickets sharing a branch show that branch's totals — the board footnotes this and the detail view
+  names the tickets that share the figure.
+- **Only metadata is read** — token counts, model ids, agent names, timestamps, branch. Never message
+  content. `--watch N` re-renders every N seconds; figures move as each turn completes.
+
+Without a ticket store the command prints a short hint; without transcripts the board still renders
+with `-` in the telemetry columns.
 
 ## Safe upgrades — how your edits are protected
 
