@@ -12,8 +12,10 @@ the validate-* checks, and the Stop-hook degrade/scoping paths.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -564,3 +566,172 @@ def test_lint_fix_failure_emits_stop_feedback_json(tmp_path: Path) -> None:
     )
     assert quiet.returncode == 0
     assert quiet.stdout == ""
+
+
+# --- capture-ticket-telemetry (Stop) ------------------------------------------------------
+
+
+def _ticket_store(root: Path) -> Path:
+    """Minimal ticket store — the hook's precondition for doing anything."""
+    directory = root / "docs" / "project" / "tickets"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "T-1-x.md").write_text(
+        "# T-1: x\n\n- **Status:** OPEN\n", encoding="utf-8"
+    )
+    return directory
+
+
+def _fake_claude_kit(tmp_path: Path, body: str) -> Path:
+    """A stand-in `claude-kit` on PATH, so the hook is tested without the real scan."""
+    bindir = tmp_path / "fakebin"
+    bindir.mkdir(exist_ok=True)
+    exe = bindir / "claude-kit"
+    exe.write_text(f"#!/usr/bin/env bash\n{body}\n", encoding="utf-8")
+    exe.chmod(0o755)
+    return bindir
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_noop_without_a_ticket_store(tmp_path: Path) -> None:
+    """No store means nothing to attribute telemetry to — stay silent, write nothing."""
+    bindir = _fake_claude_kit(tmp_path, 'echo "{}"')
+    proc = _run(
+        "capture-ticket-telemetry.sh",
+        payload={"cwd": str(tmp_path)},
+        extra_env={"PATH": f"{bindir}:{os.environ['PATH']}"},
+    )
+    assert proc.returncode == 0
+    assert not (tmp_path / ".claude" / "state").exists()
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_noop_without_the_cli(tmp_path: Path) -> None:
+    """Plugin-only installs have no `claude-kit` binary; the hook must degrade, not fail."""
+    _ticket_store(tmp_path)
+    # Drop only the directories that provide claude-kit — bash and jq must stay reachable,
+    # or the test would prove the shell is missing rather than the CLI.
+    without_cli = os.pathsep.join(
+        d
+        for d in os.environ["PATH"].split(os.pathsep)
+        if d and not (Path(d) / "claude-kit").exists()
+    )
+    proc = _run(
+        "capture-ticket-telemetry.sh",
+        payload={"cwd": str(tmp_path)},
+        extra_env={"PATH": without_cli},
+    )
+    assert proc.returncode == 0
+    assert not (tmp_path / ".claude" / "state" / "ticket-telemetry.json").exists()
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_writes_only_gitignored_state(tmp_path: Path) -> None:
+    _ticket_store(tmp_path)
+    bindir = _fake_claude_kit(tmp_path, 'echo "{\\"counts\\":{\\"total\\":1}}"')
+    proc = _run(
+        "capture-ticket-telemetry.sh",
+        payload={"cwd": str(tmp_path)},
+        extra_env={"PATH": f"{bindir}:{os.environ['PATH']}"},
+    )
+    assert proc.returncode == 0
+
+    snapshot = tmp_path / ".claude" / "state" / "ticket-telemetry.json"
+    for _ in range(50):  # the write is detached, so poll briefly
+        if snapshot.is_file():
+            break
+        time.sleep(0.1)
+    assert snapshot.is_file(), (
+        "the snapshot should land under the gitignored .claude/state/"
+    )
+    assert json.loads(snapshot.read_text(encoding="utf-8"))["counts"]["total"] == 1
+    # Nothing outside .claude/state/ may be touched.
+    assert not (tmp_path / "docs" / "project" / "tickets" / "index.json").exists()
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_opt_out(tmp_path: Path) -> None:
+    _ticket_store(tmp_path)
+    bindir = _fake_claude_kit(tmp_path, 'echo "{}"')
+    proc = _run(
+        "capture-ticket-telemetry.sh",
+        payload={"cwd": str(tmp_path)},
+        extra_env={
+            "PATH": f"{bindir}:{os.environ['PATH']}",
+            "CLAUDE_KIT_NO_TELEMETRY": "1",
+        },
+    )
+    assert proc.returncode == 0
+    time.sleep(0.3)
+    assert not (tmp_path / ".claude" / "state" / "ticket-telemetry.json").exists()
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_throttles_repeat_runs(tmp_path: Path) -> None:
+    """A burst of short turns must not re-scan the transcript set every time."""
+    _ticket_store(tmp_path)
+    counter = tmp_path / "runs.txt"
+    bindir = _fake_claude_kit(tmp_path, f'echo x >> "{counter}"\necho "{{\\"n\\":1}}"')
+    env = {"PATH": f"{bindir}:{os.environ['PATH']}"}
+
+    snapshot = tmp_path / ".claude" / "state" / "ticket-telemetry.json"
+    _run("capture-ticket-telemetry.sh", payload={"cwd": str(tmp_path)}, extra_env=env)
+    for _ in range(50):
+        if snapshot.is_file():
+            break
+        time.sleep(0.1)
+    assert counter.read_text().count("x") == 1
+
+    _run("capture-ticket-telemetry.sh", payload={"cwd": str(tmp_path)}, extra_env=env)
+    time.sleep(0.4)
+    assert counter.read_text().count("x") == 1, (
+        "second run within the interval is throttled"
+    )
+
+    # Interval 0 disables the throttle.
+    _run(
+        "capture-ticket-telemetry.sh",
+        payload={"cwd": str(tmp_path)},
+        extra_env=dict(env, CLAUDE_KIT_TELEMETRY_INTERVAL="0"),
+    )
+    for _ in range(50):
+        if counter.read_text().count("x") == 2:
+            break
+        time.sleep(0.1)
+    assert counter.read_text().count("x") == 2
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_refreshes_the_board_only_when_it_exists(
+    tmp_path: Path,
+) -> None:
+    """The board file's presence is the opt-in: terminal-only users never pay to render it."""
+    _ticket_store(tmp_path)
+    calls = tmp_path / "calls.txt"
+    bindir = _fake_claude_kit(tmp_path, f'echo "$*" >> "{calls}"\necho "{{}}"')
+    env = {
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "CLAUDE_KIT_TELEMETRY_INTERVAL": "0",
+    }
+
+    # No board yet -> only the JSON snapshot is produced.
+    _run("capture-ticket-telemetry.sh", payload={"cwd": str(tmp_path)}, extra_env=env)
+    for _ in range(50):
+        if calls.is_file():
+            break
+        time.sleep(0.1)
+    time.sleep(0.3)
+    assert "--json" in calls.read_text()
+    assert "--html" not in calls.read_text()
+
+    # Once the board exists, it gets refreshed too.
+    board = tmp_path / ".claude" / "state" / "ticket-board.html"
+    board.parent.mkdir(parents=True, exist_ok=True)
+    board.write_text("<html></html>", encoding="utf-8")
+    calls.write_text("", encoding="utf-8")
+
+    _run("capture-ticket-telemetry.sh", payload={"cwd": str(tmp_path)}, extra_env=env)
+    for _ in range(50):
+        if "--html" in calls.read_text():
+            break
+        time.sleep(0.1)
+    assert "--html" in calls.read_text()

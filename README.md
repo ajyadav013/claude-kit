@@ -115,7 +115,8 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 | 🤖 **Agent roster** | **29** tiered agents led by an Orchestrator that never writes code, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
 | 📐 **Rules & skills** | **25** stack-agnostic core rules + **111** context-activated skills (58 core + 53 stack-collection), pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
-| 🛠️ **Hooks & guards** | **18** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
+| 🛠️ **Hooks & guards** | **19** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
+| 📊 **Traceability & live board** | A git-native ticket per story with a work-log and commit linkage, plus `claude-kit tickets` — a terminal chart and a browser Kanban board showing each lane's status, agent, model, tokens and elapsed time ([below](#parallel-lanes-and-the-live-ticket-board)) |
 | 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **24** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
 
 Profiles (`lean` · `standard` · `enterprise`), team scopes, autonomy levels, and org capability
@@ -180,6 +181,64 @@ See the real captured run in [`examples/real-run/`](examples/real-run/) — a fe
 every gate on a Go project, with the verbatim state file, agent verdicts, diff, and an asciicast —
 or the [synthetic walkthrough](examples/react-fastapi-postgres-feature/) of the default stack. To
 capture your own publishable run: [`docs/capture-a-real-run.md`](docs/capture-a-real-run.md).
+
+---
+
+## Parallel lanes and the live ticket board
+
+The orchestrator never writes code — it splits work, spawns agents, and refuses to advance a gate.
+Once the spec clears the EM gate, `story-planner` produces stories and marks which ones are
+**independent**. Each independent story becomes a **lane**: its own ticket, its own branch, its own
+implement → review → test loop, running at the same time as the others.
+
+```mermaid
+flowchart LR
+    STORY["story-planner<br/>(marks independents)"] --> TK["One OPEN ticket per story"]
+    TK --> L1["Lane A — backend<br/>senior-backend-dev → code-review"]
+    TK --> L2["Lane B — frontend<br/>senior-frontend-dev → code-review"]
+    TK --> L3["Lane C — …"]
+    L1 --> MR{{"Gate: Merge Reviewer<br/>(the join)"}}
+    L2 --> MR
+    L3 --> MR
+    MR --> T1["unit-tester"]
+    MR --> T2["e2e-tester"]
+    MR --> T3["senior-tester<br/>(independent verification)"]
+    T1 --> TCG{{"Gate: Test coverage<br/>+ Devil's Advocate"}}
+    T2 --> TCG
+    T3 --> TCG
+    TCG --> DONE["Tickets → DONE,<br/>commits linked"]
+```
+
+Two things make this observable rather than a black box:
+
+- **A ticket is opened before any lane starts** and accumulates a work-log entry per meaningful step —
+  what changed, why, which files, what was decided (`ticketing-and-traceability`). Commits carry the
+  ticket id, so `git log --grep=` walks it in either direction.
+- **Lanes are branches, and telemetry is keyed on the branch.** `claude-kit tickets` reads the Claude
+  Code session transcripts (metadata only — usage counters, model id, agent name, timestamp) and
+  attributes tokens, cache, elapsed time, and the agent that ran to whichever ticket names that branch.
+
+### The board
+
+```bash
+claude-kit tickets                # board: one row per ticket, in-progress first
+claude-kit tickets --watch 5      # re-render every 5s while a run is in flight
+claude-kit tickets --graph        # dependency DAG — what is blocked by what
+claude-kit tickets --graph-git    # the commit graph with each commit's ticket attached
+claude-kit tickets CKIT-74        # one ticket: full work log + per-lane telemetry
+claude-kit tickets --html         # a Kanban board in your browser
+```
+
+`--html` writes a self-contained page to `.claude/state/ticket-board.html` and prints a `file://` URL.
+It is a **file, not a server** — the page refreshes itself and the `capture-ticket-telemetry` Stop hook
+rewrites it after each turn, so an open tab tracks a running pipeline live with nothing daemonised:
+
+![The claude-kit ticket board — Kanban columns for in progress, in review, actionable, blocked and done, each card showing model, tokens, cache, elapsed time and commit](docs/images/ticket-board.png)
+
+Token counts are **deduplicated by request id** — streaming rewrites the same usage block many times,
+and a naive sum overstates output by ~3× — and cache reads are counted separately from fresh input
+because they routinely differ by three orders of magnitude. Full reference:
+[`docs/cli.md`](docs/cli.md#the-ticket-chart-claude-kit-tickets).
 
 ---
 

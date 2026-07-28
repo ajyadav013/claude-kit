@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Optional
@@ -19,15 +20,18 @@ import typer
 
 from claude_kit import (
     __version__,
+    board_html,
     catalog,
     pipeline,
     prompts,
     report,
     scaffold,
+    telemetry,
     upgrader,
     validator,
 )
 from claude_kit import export as exporter
+from claude_kit import tickets as tickets_mod
 from claude_kit.models import ResolvedPlan, Selection
 
 # Planned-but-unimplemented commands are hidden from `--help` by default so they
@@ -588,6 +592,140 @@ def status(
             typer.echo(f"    {line}")
     else:
         typer.echo("\n  no CONTINUITY.md yet (no pipeline run recorded).")
+
+
+def _load_ticket_view(
+    target: Path, transcript_dir: Optional[str]
+) -> "tickets_mod.Store":
+    """Load the ticket store and join live per-branch telemetry onto it."""
+    store = tickets_mod.load_store(target)
+    projects_root = Path(transcript_dir).expanduser() if transcript_dir else None
+    tickets_mod.attach_telemetry(store, telemetry.collect(target, projects_root))
+    return store
+
+
+def write_board_html(store: "tickets_mod.Store", target: Path, refresh: int) -> Path:
+    """Write the HTML board under the project's gitignored state dir; return the path."""
+    out = target / board_html.BOARD_REL
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(board_html.render_html(store, refresh=refresh), encoding="utf-8")
+    return out
+
+
+def _render_tickets(
+    store: "tickets_mod.Store", target: Path, ticket_id: Optional[str], graph: str
+) -> list[str]:
+    if ticket_id:
+        return tickets_mod.render_detail(store, ticket_id, target)
+    if graph == "git":
+        return tickets_mod.render_git_graph(store, target)
+    if graph == "deps":
+        return tickets_mod.render_graph(store)
+    return tickets_mod.render_board(store)
+
+
+@app.command()
+def tickets(
+    ticket_id: Optional[str] = typer.Argument(
+        None, help="show one ticket in detail (e.g. PROJ-12); omit for the whole board"
+    ),
+    path: str = typer.Option(".", "--path", help="target project dir (default: .)"),
+    graph: bool = typer.Option(
+        False, "--graph", help="render the ticket dependency graph instead of the board"
+    ),
+    graph_git: bool = typer.Option(
+        False,
+        "--graph-git",
+        help="render the commit graph, annotated with each commit's ticket",
+    ),
+    watch: Optional[int] = typer.Option(
+        None, "--watch", help="re-render every N seconds until interrupted (min 1)"
+    ),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON summary instead of text"
+    ),
+    html: bool = typer.Option(
+        False,
+        "--html",
+        help=f"write a self-contained Kanban board to {board_html.BOARD_REL} and print its URL",
+    ),
+    refresh: int = typer.Option(
+        10,
+        "--refresh",
+        help="browser auto-refresh interval in seconds for --html (0 disables)",
+    ),
+    transcript_dir: Optional[str] = typer.Option(
+        None,
+        "--transcript-dir",
+        help="override the Claude Code projects dir telemetry is read from",
+    ),
+) -> None:
+    """Show the ticket board with live token, model, agent, and timing figures."""
+    target = Path(path).expanduser().resolve()
+    if graph and graph_git:
+        typer.echo("--graph and --graph-git are alternatives; pass only one.")
+        raise typer.Exit(2)
+    mode = "git" if graph_git else "deps" if graph else ""
+
+    def emit() -> int:
+        """Render once. Returns a process exit code so an unknown id is detectable by scripts."""
+        store = _load_ticket_view(target, transcript_dir)
+        if html:
+            out = write_board_html(store, target, refresh)
+            typer.echo(f"wrote {out}")
+            typer.echo(f"open file://{out}")
+            if refresh > 0:
+                typer.echo(
+                    f"the page reloads every {refresh}s; the Stop hook keeps the file current"
+                )
+            return 0
+        if json_out:
+            counts = store.counts()
+            typer.echo(
+                json.dumps(
+                    {
+                        "target": str(target),
+                        "prefix": store.prefix,
+                        "store_exists": store.exists,
+                        "counts": counts,
+                        "tickets": [
+                            dict(
+                                t.to_dict(),
+                                display_status=store.display_status(t),
+                                blockers=store.blockers(t),
+                                actionable=store.is_actionable(t),
+                            )
+                            for t in store.ordered()
+                        ],
+                    },
+                    indent=2,
+                )
+            )
+            return 0
+        for line in _render_tickets(store, target, ticket_id, mode):
+            typer.echo(line)
+        if ticket_id and not (
+            ticket_id in store.tickets or ticket_id.upper() in store.tickets
+        ):
+            return (
+                2  # same lookup render_detail uses, so the message and the code agree
+            )
+        return 0
+
+    if watch is None:
+        raise typer.Exit(emit())
+
+    interval = max(1, watch)
+    try:
+        while True:
+            # Home the cursor and clear, so the board updates in place rather than scrolling.
+            typer.echo("\033[H\033[2J", nl=False)
+            if emit():
+                raise typer.Exit(2)
+            typer.echo(f"\n(refreshing every {interval}s — Ctrl-C to stop)")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        typer.echo("")
 
 
 @app.command()

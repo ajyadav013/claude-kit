@@ -240,6 +240,15 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "script": "capture-learnings.sh",
         "arg": "stop",
     },
+    # Keeps ticket token/model/timing figures in the repo after the session transcript they were
+    # derived from is gone. Self-throttling and detached, so the per-turn cost is ~nothing.
+    "capture-ticket-telemetry": {
+        "event": "Stop",
+        "matcher": "",
+        "entry": _script_entry("capture-ticket-telemetry.sh"),
+        "script": "capture-ticket-telemetry.sh",
+        "arg": "",
+    },
 }
 
 #: Hooks the plugin ships but the pip CLI does NOT — the single declared exception to "the registry

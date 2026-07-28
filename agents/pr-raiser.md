@@ -128,6 +128,11 @@ After the PR is created, **close the tickets**: set each to DONE and record the 
 on the ticket and in `docs/project/tickets/index.json` (`ticketing-and-traceability`). Skip when no
 local ticket store is in use.
 
+If the `claude-kit` CLI is available, run `claude-kit tickets <PREFIX>-<N>` before closing and copy the
+final figures (requests, tokens, cache, model, elapsed) into the ticket's work log. They are derived
+from the session transcript, which lives outside the repo and will not survive it — writing them onto
+the ticket is what makes the cost part of the permanent record.
+
 ### Step 7: Report
 Return to the Orchestrator:
 - PR URL
