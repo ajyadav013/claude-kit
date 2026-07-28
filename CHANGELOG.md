@@ -4,6 +4,67 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.74.0] — 2026-07-28
+
+**An AI-engineering evidence layer — 63 attributed digests from a 72-item reading list, and a measured
+answer to where the kit's AI coverage is actually thin.** This release ships **no skill, no agent, no
+rule, and no `SKILL.md`, rule, or catalog change** — only reference material and the coverage map that
+accounts for it. Adoption is a separate, reviewed step.
+
+### Added
+
+- **[`docs/ai-engineering-articles.md`](docs/ai-engineering-articles.md)** — coverage map for 72
+  maintainer-supplied URLs (harness engineering · context engineering · agent/LLM observability ·
+  model routing and provider failover · MCP and agent security · structured outputs · quantization ·
+  speculative decoding · prefill/decode · KV cache · prompt and semantic caching · distillation · RAG).
+  Every row is accounted for, including the ones that shipped nothing.
+- **24 `aie-*` reference digests** into six existing skills' `references/` — `context-engineering` (10),
+  `langfuse-llm-tracing` (6), `security-and-hardening` (5), and one each in `threat-model`,
+  `multi-tenancy-patterns`, `debugging-and-error-recovery`.
+- **39 digests staged** under `docs/references/llm-app/` for a possible LLM-application **stack
+  overlay**. Inference tuning and RAG architecture are stack-specific domain knowledge in the same way
+  React hooks are, so golden rule #1 keeps them out of the agnostic core until a stack exists to own
+  them. `docs/` is not bundled into the wheel, so these cost `pip install` users nothing.
+
+### Changed
+
+- Nothing in the installable payload behaves differently. The only wheel-visible change is the 24 new
+  `references/` files; no counts move, because a skill gaining a digest is zero-drift by design.
+
+### The measured finding
+
+Coverage was lopsided in a way that was worth measuring before writing anything: **33 files already
+touch OpenTelemetry, 20 touch MCP, 5 prompt injection, 4 structured output — while RAG, prompt/semantic
+caching and quantization had literally zero.** Accordingly 14 of the 20 agent-operation articles came
+back as *reinforces* rather than *new*, and the genuinely-new core gaps are narrow and specific:
+
+- **Harness guarantees as replayable certificates** decoupled from model choice — no repo file
+  mentions structural guarantees in this sense.
+- **MCP as a protocol with its own security model** (OAuth delegation; read-only Resources escalating
+  into privileged Tool calls) rather than only a supply-chain intake problem, which is how all 20
+  existing MCP mentions frame it.
+- **Agent-tenant isolation as a compute concern** — `multi-tenancy-patterns` is entirely database-layer
+  (RLS, per-tenant schemas, tenant-scoped caching).
+- **Silent-failure attribution in agent traces** — `debugging-and-error-recovery` cannot reach these
+  because its triage begins at "Reproduce".
+
+Each of those four was re-verified by grep against the repo rather than taken on the digesting agent's
+word.
+
+### Not adopted (deliberately)
+
+- **Any core adoption.** The digests are evidence; changing a rule or skill on the strength of one
+  article is how near-duplicates creep in and dilute skill auto-selection. That decision is reviewed
+  separately.
+- **LLM-serving guidance in the stack-agnostic core.** Quantization and KV-cache policy are domain
+  knowledge, not SDLC practice.
+- **Six sources whose hosts refuse automated clients** — `preprints.org` (×2), `media.defense.gov`,
+  `deepchecks.com`, `tblocks.com`, and an OpenReview paper behind a Cloudflare challenge. Recorded as
+  honest not-fetched rows, never bypassed. The digesting agent for the OpenReview paper declined to
+  substitute a similarly-titled arXiv paper it could not confirm was the same work.
+- **Raw captures.** Never committed; the gitignored scratch is deleted, and each digest carries a
+  three-item fidelity check instead of quotations.
+
 ## [0.73.0] — 2026-07-28
 
 **A runtime ticket chart — `claude-kit tickets` shows which ticket is in flight and what it cost**
