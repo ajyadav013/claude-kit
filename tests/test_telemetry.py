@@ -260,3 +260,42 @@ def test_human_duration_scales():
     assert telemetry.human_duration(48 * 60) == "48m"
     assert telemetry.human_duration(72 * 60) == "1h12m"
     assert telemetry.human_duration(51 * 3600) == "2d3h"
+
+
+def test_agent_name_is_collected_from_non_usage_records(tmp_path):
+    """`agentName` marks a subagent turn and can arrive on a record that carries no usage block.
+
+    Reading it only from usage records left the AGENT column structurally unfillable — across every
+    transcript on this machine the two fields never co-occurred.
+    """
+    records = [
+        {"gitBranch": "feat/x", "agentName": "senior-backend-dev"},
+        _record("r", branch="feat/x", out=50),
+    ]
+    entry = telemetry.scan([_transcript(tmp_path, records)])["feat/x"]
+
+    assert entry.agents == ["senior-backend-dev"]
+    assert entry.requests == 1 and entry.output_tokens == 50
+
+
+def test_agent_is_credited_only_to_the_branch_its_own_record_names(tmp_path):
+    """Transcripts interleave branches and agents; inferring across a file smears them."""
+    records = [
+        {"gitBranch": "feat/one", "agentName": "tester"},
+        {"gitBranch": "feat/two", "agentName": "developer"},
+        _record("a", branch="feat/one"),
+        _record("b", branch="feat/two"),
+    ]
+    result = telemetry.scan([_transcript(tmp_path, records)])
+
+    assert result["feat/one"].agents == ["tester"]
+    assert result["feat/two"].agents == ["developer"]
+
+
+def test_agent_only_entry_is_not_treated_as_empty(tmp_path):
+    """A named lane with no billed turn yet should still render its agent, not a dash."""
+    records = [{"gitBranch": "feat/x", "agentName": "unit-tester"}]
+    entry = telemetry.scan([_transcript(tmp_path, records)])["feat/x"]
+
+    assert not entry.empty
+    assert entry.requests == 0 and entry.agents == ["unit-tester"]

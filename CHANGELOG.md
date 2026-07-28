@@ -4,7 +4,7 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [0.73.0] — 2026-07-27
+## [0.73.0] — 2026-07-28
 
 **A runtime ticket chart — `claude-kit tickets` shows which ticket is in flight and what it cost**
 (user request: *"a chart to show which ticket is in progress and its details — how many tokens were
@@ -48,6 +48,14 @@ what changed and why; this answers what the work cost, live.
 
 - Hook scripts 18 → **19**. Rules (25), agents (29), and skills (111) are unchanged — this release adds
   no skill, no agent, and no rule.
+- **README gains a "Parallel lanes and the live ticket board" section** — how the orchestrator forks
+  independent stories into concurrent lanes, joins them at the merge-reviewer gate, fans out to the
+  testing agents, and how the board makes that visible — with a screenshot of the rendered board
+  (`docs/images/ticket-board.png`; `docs/` is not bundled into the wheel).
+- **`agentName` is now read from records that carry no usage block.** It never co-occurs with
+  `requestId` + `usage` in a transcript, so reading it only from billed turns left the AGENT column
+  structurally unfillable. Each agent is credited strictly to the branch its own record names —
+  inferring across a file smears them (one sampled transcript held 18 agent names against 54 branches).
 - Telemetry is **branch-scoped**, since `gitBranch` is the only ticket-shaped key a transcript carries.
   Tickets sharing a branch therefore show that branch's totals, and both the board and the detail view
   say so explicitly rather than implying the figure belongs to one ticket.

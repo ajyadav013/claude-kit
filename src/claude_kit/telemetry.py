@@ -166,7 +166,8 @@ class Telemetry:
 
     @property
     def empty(self) -> bool:
-        return self.requests == 0
+        """Nothing worth rendering. Agent names count: a lane can be named before it is billed."""
+        return self.requests == 0 and not self.agents
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -226,12 +227,17 @@ def scan(paths: Iterable[Path], branch: Optional[str] = None) -> "dict[str, Tele
 
     for path in paths:
         for record in _iter_records(path):
-            usage = record.get("message", {}).get("usage")
-            if not isinstance(usage, dict):
-                continue
-
             record_branch = record.get("gitBranch") or ""
             if branch is not None and record_branch != branch:
+                continue
+
+            usage = record.get("message", {}).get("usage")
+            if not isinstance(usage, dict):
+                # Not a billed turn, but it may still name the agent that ran it. Only credit the
+                # branch the record itself states — transcripts interleave many branches and many
+                # agents, so inferring one from the other across a file smears them badly (measured:
+                # 18 agent names against 54 branches in a single file).
+                _note_agent(groups, record, record_branch)
                 continue
 
             key = _usage_key(record)
@@ -255,9 +261,7 @@ def scan(paths: Iterable[Path], branch: Optional[str] = None) -> "dict[str, Tele
             ):
                 entry.models.append(model)
 
-            agent = record.get("agentName")
-            if isinstance(agent, str) and agent and agent not in entry.agents:
-                entry.agents.append(agent)
+            _note_agent(groups, record, record_branch)
 
             stamp = parse_timestamp(record.get("timestamp"))
             if stamp is not None:
@@ -267,6 +271,23 @@ def scan(paths: Iterable[Path], branch: Optional[str] = None) -> "dict[str, Tele
                     entry.last_seen = stamp
 
     return groups
+
+
+def _note_agent(
+    groups: "dict[str, Telemetry]", record: dict[str, Any], record_branch: str
+) -> None:
+    """Record ``agentName`` against the branch the record itself declares.
+
+    ``agentName`` marks a turn taken by a spawned subagent; the orchestrator's lanes are exactly
+    where it appears. Plain main-loop work has no agent, so an empty list renders as ``-`` and means
+    "no subagent ran here" rather than "the data is missing".
+    """
+    agent = record.get("agentName")
+    if not isinstance(agent, str) or not agent:
+        return
+    entry = groups.setdefault(record_branch, Telemetry())
+    if agent not in entry.agents:
+        entry.agents.append(agent)
 
 
 def _as_int(value: Any) -> int:
