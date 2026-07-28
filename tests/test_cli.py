@@ -539,3 +539,52 @@ def test_tickets_json_is_machine_readable(tmp_path):
     assert blocked["display_status"] == "BLOCKED"
     assert blocked["blockers"] == ["DEMO-1"]
     assert blocked["actionable"] is False
+
+
+def test_tickets_html_writes_a_self_contained_board(tmp_path):
+    from claude_kit import board_html
+
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--html",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+
+    board = tmp_path / board_html.BOARD_REL
+    assert board.is_file(), "the board lands under the gitignored .claude/state/"
+    assert "file://" in result.stdout, "the printed URL is how you actually open it"
+
+    html = board.read_text(encoding="utf-8")
+    assert "DEMO-1" in html and "Do the thing" in html
+    assert '<meta http-equiv="refresh" content="10">' in html
+    assert "<script" not in html and "https://" not in html
+
+
+def test_tickets_html_refresh_zero_produces_a_static_page(tmp_path):
+    from claude_kit import board_html
+
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--html",
+            "--refresh",
+            "0",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    html = (tmp_path / board_html.BOARD_REL).read_text(encoding="utf-8")
+    assert 'http-equiv="refresh"' not in html

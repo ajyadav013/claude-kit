@@ -110,7 +110,14 @@ class Store:
         return sorted(self.tickets.values(), key=lambda t: _id_sort_key(t.id))
 
     def blockers(self, ticket: Ticket) -> list[str]:
-        """Ids of unfinished tickets this one depends on. Empty means nothing gates it."""
+        """Ids of unfinished tickets this one depends on. Empty means nothing gates it.
+
+        A finished ticket reports no blockers whatever its ``depends_on`` list says — the work
+        already happened, so nothing is holding it up. Without this, a DONE card renders the
+        contradiction "DONE · blocked by X".
+        """
+        if not ticket.is_open:
+            return []
         out: list[str] = []
         for kind in GATING_KINDS:
             for other_id in ticket.related(kind):
@@ -120,7 +127,14 @@ class Store:
         return out
 
     def is_blocked(self, ticket: Ticket) -> bool:
-        return ticket.is_open and bool(self.blockers(ticket))
+        """Not yet started, and something unfinished gates it.
+
+        Deliberately restricted to ``OPEN``. A ticket that is already IN PROGRESS or IN REVIEW has
+        someone on it, and reporting that as "blocked" would replace the more useful fact with a
+        less useful one. The unmet dependency is not lost: the graph, the detail view, and the HTML
+        card all print the ``blocked by`` note from :meth:`blockers` whatever the status.
+        """
+        return ticket.status.upper() == "OPEN" and bool(self.blockers(ticket))
 
     def is_actionable(self, ticket: Ticket) -> bool:
         """Open and nothing gates it - the work that can actually start now."""

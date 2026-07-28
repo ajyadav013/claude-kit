@@ -20,6 +20,7 @@ import typer
 
 from claude_kit import (
     __version__,
+    board_html,
     catalog,
     pipeline,
     prompts,
@@ -603,6 +604,14 @@ def _load_ticket_view(
     return store
 
 
+def write_board_html(store: "tickets_mod.Store", target: Path, refresh: int) -> Path:
+    """Write the HTML board under the project's gitignored state dir; return the path."""
+    out = target / board_html.BOARD_REL
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(board_html.render_html(store, refresh=refresh), encoding="utf-8")
+    return out
+
+
 def _render_tickets(
     store: "tickets_mod.Store", target: Path, ticket_id: Optional[str], graph: str
 ) -> list[str]:
@@ -635,6 +644,16 @@ def tickets(
     json_out: bool = typer.Option(
         False, "--json", help="emit a machine-readable JSON summary instead of text"
     ),
+    html: bool = typer.Option(
+        False,
+        "--html",
+        help=f"write a self-contained Kanban board to {board_html.BOARD_REL} and print its URL",
+    ),
+    refresh: int = typer.Option(
+        10,
+        "--refresh",
+        help="browser auto-refresh interval in seconds for --html (0 disables)",
+    ),
     transcript_dir: Optional[str] = typer.Option(
         None,
         "--transcript-dir",
@@ -651,6 +670,15 @@ def tickets(
     def emit() -> int:
         """Render once. Returns a process exit code so an unknown id is detectable by scripts."""
         store = _load_ticket_view(target, transcript_dir)
+        if html:
+            out = write_board_html(store, target, refresh)
+            typer.echo(f"wrote {out}")
+            typer.echo(f"open file://{out}")
+            if refresh > 0:
+                typer.echo(
+                    f"the page reloads every {refresh}s; the Stop hook keeps the file current"
+                )
+            return 0
         if json_out:
             counts = store.counts()
             typer.echo(

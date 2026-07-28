@@ -17,6 +17,13 @@ what changed and why; this answers what the work cost, live.
   TOKENS · CACHE · TIME · COMMITS, ordered in-progress first. Variants: `--graph` (ticket dependency
   graph), `--graph-git` (commit graph annotated with each commit's ticket), `PROJ-12` (detail view with
   the per-ticket work log and full telemetry), `--watch N` (re-render every N seconds), `--json`.
+- **`claude-kit tickets --html`** — the same data as a **browser Kanban board**
+  (IN PROGRESS · IN REVIEW · ACTIONABLE · BLOCKED · DONE), written to the gitignored
+  `.claude/state/ticket-board.html`. It is a *file, not a server*: a `<meta refresh>` tag plus the Stop
+  hook rewriting the file gives live progress with no daemon and no port. Fully self-contained — inline
+  CSS, no JavaScript, no fonts, no images, no CDN — so opening it makes zero network requests and
+  ticket titles never leave the machine. Respects OS light/dark preference; `--refresh N` tunes the
+  reload (`0` = static snapshot). Every interpolated value is HTML-escaped.
 - **`src/claude_kit/telemetry.py`** — read-only, metadata-only aggregation of Claude Code session
   transcripts, attributed to tickets by `gitBranch`. Deduplicates by `requestId`: streaming repeats each
   usage block, so a naive sum overstated output tokens **3.3×** (622 raw records → 219 real requests on
@@ -29,7 +36,9 @@ what changed and why; this answers what the work cost, live.
   the board header always prints the open count beside actionable so a fully-gated backlog can never
   read as "nothing to do".
 - **`capture-ticket-telemetry.sh`** (Stop hook, standard profile) — persists the figures into the
-  gitignored `.claude/state/ticket-telemetry.json` so history survives transcript pruning. Detached,
+  gitignored `.claude/state/ticket-telemetry.json` so history survives transcript pruning, and
+  refreshes the HTML board **only if that file already exists**, so its presence is the opt-in and
+  terminal-only users never pay to render a page they don't look at. Detached,
   throttled to once per 60s (`CLAUDE_KIT_TELEMETRY_INTERVAL`), no-ops without `jq`, without the
   `claude-kit` CLI, or before a ticket store exists; opt out with `CLAUDE_KIT_NO_TELEMETRY=1`. It shells
   out to `tickets --json` rather than re-deriving totals in `jq`, so the dedupe rule has exactly one
@@ -42,11 +51,18 @@ what changed and why; this answers what the work cost, live.
 - Telemetry is **branch-scoped**, since `gitBranch` is the only ticket-shaped key a transcript carries.
   Tickets sharing a branch therefore show that branch's totals, and both the board and the detail view
   say so explicitly rather than implying the figure belongs to one ticket.
+- **`BLOCKED` only overrides `OPEN`.** A ticket that is already IN PROGRESS or IN REVIEW has someone on
+  it, so reporting it as "blocked" would replace the more useful fact with a less useful one; the unmet
+  dependency is still named on the graph, the detail view, and the HTML card. Relatedly, a **closed
+  ticket now reports no blockers at all** — a DONE card previously rendered the contradiction
+  "DONE · blocked by X".
 
 ### Not adopted (deliberately)
 
-- **aiball's service shape** — its daemon, web board, and PTY proxy. Same rejection as 0.72.0's
-  reference repo: the kit ships configuration, not a running service. The chart is a command you run.
+- **aiball's daemon and PTY proxy**, and a long-running server for the board. The kit ships
+  configuration, not a running service — so the browser view is a generated file plus a meta-refresh,
+  which needs no port, no process, and no lifecycle to manage. (A `--serve` mode remains possible
+  later if polling ever proves insufficient.)
 - **Hardcoded model pricing.** A cost column would need a price table that silently rots; tokens and
   model id are reported instead, and any rate table stays the user's to supply.
 - **Message content.** Only usage counters, model ids, agent names, timestamps, and the branch are read

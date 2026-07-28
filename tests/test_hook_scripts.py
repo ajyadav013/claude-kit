@@ -698,3 +698,40 @@ def test_capture_ticket_telemetry_throttles_repeat_runs(tmp_path: Path) -> None:
             break
         time.sleep(0.1)
     assert counter.read_text().count("x") == 2
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_refreshes_the_board_only_when_it_exists(
+    tmp_path: Path,
+) -> None:
+    """The board file's presence is the opt-in: terminal-only users never pay to render it."""
+    _ticket_store(tmp_path)
+    calls = tmp_path / "calls.txt"
+    bindir = _fake_claude_kit(tmp_path, f'echo "$*" >> "{calls}"\necho "{{}}"')
+    env = {
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "CLAUDE_KIT_TELEMETRY_INTERVAL": "0",
+    }
+
+    # No board yet -> only the JSON snapshot is produced.
+    _run("capture-ticket-telemetry.sh", payload={"cwd": str(tmp_path)}, extra_env=env)
+    for _ in range(50):
+        if calls.is_file():
+            break
+        time.sleep(0.1)
+    time.sleep(0.3)
+    assert "--json" in calls.read_text()
+    assert "--html" not in calls.read_text()
+
+    # Once the board exists, it gets refreshed too.
+    board = tmp_path / ".claude" / "state" / "ticket-board.html"
+    board.parent.mkdir(parents=True, exist_ok=True)
+    board.write_text("<html></html>", encoding="utf-8")
+    calls.write_text("", encoding="utf-8")
+
+    _run("capture-ticket-telemetry.sh", payload={"cwd": str(tmp_path)}, extra_env=env)
+    for _ in range(50):
+        if "--html" in calls.read_text():
+            break
+        time.sleep(0.1)
+    assert "--html" in calls.read_text()

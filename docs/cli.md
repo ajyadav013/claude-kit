@@ -17,7 +17,7 @@ exports the kit's configuration. Install: `pip install claude-code-kit` (see
 | `pipeline validate · status · close-gate · abort` | Inspect/mutate the `/sdlc` state files (gate/lane/evidence coherence); **does not run** the pipeline |
 | `list-options` | List available frontend/backend/database/profile/MCP options |
 | `status [path]` | Show what's installed, the selection, and working memory |
-| `tickets [ID] [--path DIR] [--graph\|--graph-git] [--watch N] [--json]` | Live ticket board with tokens / model / agent / elapsed per ticket; `--graph` for the dependency graph, `--graph-git` for the commit graph, an `ID` for the detail view |
+| `tickets [ID] [--path DIR] [--graph\|--graph-git] [--html] [--watch N] [--json]` | Live ticket board with tokens / model / agent / elapsed per ticket; `--graph` for the dependency graph, `--graph-git` for the commit graph, `--html` for a browser Kanban board, an `ID` for the detail view |
 | `version` | Print the version |
 | `package-org-pack` · `install-org-pack` | **Planned** — packaging/distribution of org capability packs. Today these are hidden stubs that describe the intended behavior and exit 2; org packs already install via `init` (organization scope) |
 
@@ -54,6 +54,26 @@ Three things worth knowing:
 
 Without a ticket store the command prints a short hint; without transcripts the board still renders
 with `-` in the telemetry columns.
+
+### In the browser (`--html`)
+
+```bash
+claude-kit tickets --html          # writes .claude/state/ticket-board.html, prints a file:// URL
+```
+
+That produces a Kanban board — **IN PROGRESS · IN REVIEW · ACTIONABLE · BLOCKED · DONE** — with one
+card per ticket showing its model, tokens, cache, elapsed time, agent, branch, commits, and any
+blocker. Open the printed `file://` URL and leave the tab up.
+
+It is a **file, not a server**. Nothing runs in the background: a `<meta http-equiv="refresh">` tag
+makes the browser re-read the file, and the `capture-ticket-telemetry` Stop hook rewrites it as the
+session progresses — together that gives live progress with no daemon and no port. The hook only
+refreshes the board *if the file already exists*, so generating it once is what opts you in.
+
+The page is fully self-contained: inline CSS, no JavaScript, no fonts, no images, no CDN. Opening it
+makes zero network requests, so ticket titles never leave the machine. It follows your OS light/dark
+preference. Use `--refresh 0` for a static snapshot you want to keep or share, or `--refresh 30` to
+slow the reload down.
 
 ## Safe upgrades — how your edits are protected
 

@@ -154,6 +154,11 @@ in-progress first. `--graph` shows the dependency graph (what is blocked by what
 the commit graph with each commit's ticket attached, `claude-kit tickets <PREFIX>-<N>` opens one
 ticket's detail with its full work log, and `--watch 5` re-renders while a run is in flight.
 
+For a browser view, `claude-kit tickets --html` writes a Kanban board to
+`.claude/state/ticket-board.html` and prints a `file://` URL. It is a plain file, not a server — the
+page reloads itself and the Stop hook keeps it current, so it tracks progress live with nothing
+running in the background.
+
 Two conventions make those figures work, so record them:
 
 - **Put the branch on the ticket** (`- **Branch:** feat/…`). Usage is attributed by branch; a ticket

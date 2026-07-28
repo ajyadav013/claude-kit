@@ -19,9 +19,13 @@
 #   * Throttled: rewrites at most once per CLAUDE_KIT_TELEMETRY_INTERVAL seconds (default 60), so a
 #     burst of short turns doesn't re-scan the transcript set every time.
 #   * Detached background job -- the hook returns immediately and never delays the next prompt.
-#   * Writes ONE gitignored path (.claude/state/), so it produces no commit noise.
+#   * Writes only inside the gitignored .claude/state/, so it produces no commit noise.
 #   * Metadata only: token counts, model ids, agent names, timestamps. No message content.
 #   * Opt out with CLAUDE_KIT_NO_TELEMETRY=1.
+#
+# It also refreshes the HTML board -- but ONLY if that file already exists. Its presence is the
+# opt-in signal: you get it by running `claude-kit tickets --html` once, and from then on the browser's
+# auto-refresh shows live progress. Terminal-only users never pay for a render they don't look at.
 set -u
 
 [ -n "${CLAUDE_KIT_NO_TELEMETRY:-}" ] && exit 0
@@ -38,6 +42,7 @@ PROJECT_DIR=$(printf '%s' "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 
 STATE_DIR="$PROJECT_DIR/.claude/state"
 SNAPSHOT="$STATE_DIR/ticket-telemetry.json"
+BOARD="$STATE_DIR/ticket-board.html"
 
 INTERVAL="${CLAUDE_KIT_TELEMETRY_INTERVAL:-60}"
 case "$INTERVAL" in '' | *[!0-9]*) INTERVAL=60 ;; esac
@@ -66,6 +71,8 @@ mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
   else
     rm -f "$TMP" 2>/dev/null
   fi
+  # Only when the board already exists -- see the opt-in note in the header.
+  [ -f "$BOARD" ] && claude-kit tickets --path "$PROJECT_DIR" --html >/dev/null 2>&1
 ) >/dev/null 2>&1 &
 
 exit 0
