@@ -48,16 +48,20 @@ INTERVAL="${CLAUDE_KIT_TELEMETRY_INTERVAL:-60}"
 case "$INTERVAL" in '' | *[!0-9]*) INTERVAL=60 ;; esac
 
 # Throttle: skip when the existing snapshot is younger than the interval. `find -newermt` is not
-# portable, so compare mtimes via stat, tolerating either BSD or GNU syntax.
+# portable, so compare mtimes via stat, tolerating either GNU or BSD syntax.
+#
+# GNU is tried FIRST on purpose. BSD `stat` has no `-c` at all, so it errors and falls through
+# cleanly -- whereas on GNU `stat -f` means "filesystem status" and `%m` is the mount point, so
+# BSD-first would *succeed* on Linux, return `/`, and silently disable the throttle.
 if [ -f "$SNAPSHOT" ] && [ "$INTERVAL" -gt 0 ]; then
-  MTIME=$(stat -f %m "$SNAPSHOT" 2>/dev/null || stat -c %Y "$SNAPSHOT" 2>/dev/null || echo 0)
-  NOW=$(date +%s 2>/dev/null || echo 0)
-  case "$MTIME$NOW" in
-  *[!0-9]* | '') ;; # unreadable clock or mtime -- fall through and just write
-  *)
-    [ $((NOW - MTIME)) -lt "$INTERVAL" ] && exit 0
-    ;;
-  esac
+  MTIME=$(stat -c %Y "$SNAPSHOT" 2>/dev/null || stat -f %m "$SNAPSHOT" 2>/dev/null || echo '')
+  NOW=$(date +%s 2>/dev/null || echo '')
+  case "$MTIME" in '' | *[!0-9]*) MTIME='' ;; esac
+  case "$NOW" in '' | *[!0-9]*) NOW='' ;; esac
+  # An unreadable clock or mtime falls through and just writes -- better a redundant scan than none.
+  if [ -n "$MTIME" ] && [ -n "$NOW" ] && [ $((NOW - MTIME)) -lt "$INTERVAL" ]; then
+    exit 0
+  fi
 fi
 
 mkdir -p "$STATE_DIR" 2>/dev/null || exit 0
