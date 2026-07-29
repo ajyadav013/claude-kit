@@ -6,30 +6,53 @@ All notable changes to claude-kit are documented here. The format follows
 
 ## [0.74.0] — 2026-07-28
 
-**An AI-engineering evidence layer — 63 attributed digests from a 72-item reading list, and a measured
-answer to where the kit's AI coverage is actually thin.** This release ships **no skill, no agent, no
-rule, and no `SKILL.md`, rule, or catalog change** — only reference material and the coverage map that
-accounts for it. Adoption is a separate, reviewed step.
+**The kit learns to build AI products, not just to be one — 63 attributed digests from a 72-item
+reading list, four new LLM-application skills, and three targeted extensions to existing guidance.**
+The measured thesis of the pass: the kit covered AI thoroughly from the *"I am an agent"* side and
+almost not at all from the *"I am building an AI product"* side.
 
 ### Added
 
-- **[`docs/ai-engineering-articles.md`](docs/ai-engineering-articles.md)** — coverage map for 72
-  maintainer-supplied URLs (harness engineering · context engineering · agent/LLM observability ·
-  model routing and provider failover · MCP and agent security · structured outputs · quantization ·
-  speculative decoding · prefill/decode · KV cache · prompt and semantic caching · distillation · RAG).
-  Every row is accounted for, including the ones that shipped nothing.
-- **24 `aie-*` reference digests** into six existing skills' `references/` — `context-engineering` (10),
-  `langfuse-llm-tracing` (6), `security-and-hardening` (5), and one each in `threat-model`,
-  `multi-tenancy-patterns`, `debugging-and-error-recovery`.
-- **39 digests staged** under `docs/references/llm-app/` for a possible LLM-application **stack
-  overlay**. Inference tuning and RAG architecture are stack-specific domain knowledge in the same way
-  React hooks are, so golden rule #1 keeps them out of the agnostic core until a stack exists to own
-  them. `docs/` is not bundled into the wheel, so these cost `pip install` users nothing.
+- **Four new stack-collection skills** carrying the 39 LLM-application digests:
+  - **`llm-inference-optimization`** (16 digests) — the prefill/decode phase split as the first
+    diagnostic, quantization's *task-shaped* accuracy cost, speculative-decoding economics, KV-cache
+    sizing, prefix-cache reuse and eviction. Where the sources disagree (they do, on five points
+    including INT4 accuracy loss and whether spec-decoding composes with quantization) the skill says
+    so rather than picking a winner.
+  - **`rag-and-model-tuning`** (10) — the retrieve-vs-tune adaptation ladder, structural chunking,
+    hybrid dense+lexical search with rank fusion, reranking, and the separation of retrieval quality
+    from answer quality in evaluation.
+  - **`llm-gateway-and-routing`** (8) — request tiering, fallback chains, health-aware failover,
+    model deprecation as a planned event rather than an incident, and schema-constrained outputs as
+    the contract that makes provider substitution safe.
+  - **`llm-caching-strategies`** (5) — provider prompt/prefix caching versus application-side semantic
+    caching, and the correctness rule that a similarity score can *never* authorize a cache hit on its
+    own, because an embedding encodes no tenant, permission set, or document version.
+- **[`docs/ai-engineering-articles.md`](docs/ai-engineering-articles.md)** — coverage map for all 72
+  maintainer-supplied URLs. Every row is accounted for, including the ones that shipped nothing.
+- **63 attributed `aie-*` reference digests** — 24 into six existing skills' `references/`
+  (`context-engineering` 10, `langfuse-llm-tracing` 6, `security-and-hardening` 5, and one each in
+  `threat-model`, `multi-tenancy-patterns`, `debugging-and-error-recovery`), 39 into the four new
+  skills above.
 
 ### Changed
 
-- Nothing in the installable payload behaves differently. The only wheel-visible change is the 24 new
-  `references/` files; no counts move, because a skill gaining a digest is zero-drift by design.
+- **`rules/agent-guardrails.md` §4** — a tool's *definition* is now treated as untrusted input, not
+  only its output. All 20 prior MCP mentions framed MCP as a supply-chain intake problem; this adds
+  the layer the model re-reads every turn: description-borne instructions, **rug-pull** mutability
+  after approval (re-verify at invocation, not only at load), cross-server **name shadowing**, and
+  read primitives escalating into write primitives.
+- **`skills/multi-tenancy-patterns`** — a new *Agent and LLM Tenancy* section. The skill was entirely
+  database-layer; an agent boundary miss is unbounded because leaked rows become reasoning and then
+  actions. Covers structural (non-adversarial) retrieval leakage, re-applying authorization on every
+  expansion hop, prefix/semantic caches as cross-tenant side channels, and telemetry as its own leak
+  surface.
+- **`rules/goal-setting-and-monitoring.md` §4** — silent-failure attribution. Correction is not
+  attribution: a retry that succeeds travels an independent path and explains nothing. Adds
+  prefix-preserving replay, faithfulness gating, and *earliest decisive step* targeting — plus the
+  instrumentation consequence that spans must record enough to **replay** a node, not merely read it.
+- **`docs/stack-skills/README.md`** — collection count **53 → 57**, four catalog rows, four routing
+  hints.
 
 ### The measured finding
 
@@ -38,8 +61,8 @@ touch OpenTelemetry, 20 touch MCP, 5 prompt injection, 4 structured output — w
 caching and quantization had literally zero.** Accordingly 14 of the 20 agent-operation articles came
 back as *reinforces* rather than *new*, and the genuinely-new core gaps are narrow and specific:
 
-- **Harness guarantees as replayable certificates** decoupled from model choice — no repo file
-  mentions structural guarantees in this sense.
+- **Harness guarantees as replayable certificates** decoupled from model choice — claimed as a gap by
+  the digests, and the one that did not survive verification (see below).
 - **MCP as a protocol with its own security model** (OAuth delegation; read-only Resources escalating
   into privileged Tool calls) rather than only a supply-chain intake problem, which is how all 20
   existing MCP mentions frame it.
@@ -48,16 +71,30 @@ back as *reinforces* rather than *new*, and the genuinely-new core gaps are narr
 - **Silent-failure attribution in agent traces** — `debugging-and-error-recovery` cannot reach these
   because its triage begins at "Reproduce".
 
-Each of those four was re-verified by grep against the repo rather than taken on the digesting agent's
-word.
+Each was re-verified by grep rather than taken on the digesting agent's word — and that verification
+**killed one of the four and narrowed another**. `rules/tool-design.md` already cites the canonical
+harness article by name, so the certificates gap was largely illusory; and
+`rules/goal-setting-and-monitoring.md` already names the GenAI semantic conventions (an earlier grep
+missed it only because the phrase wraps a line), leaving a much narrower gap than the digests claimed.
+Three of four shipped; the fourth was dropped on the evidence.
 
 ### Not adopted (deliberately)
 
-- **Any core adoption.** The digests are evidence; changing a rule or skill on the strength of one
-  article is how near-duplicates creep in and dilute skill auto-selection. That decision is reviewed
-  separately.
+- **A fourth `catalog/stacks.yaml` kind for LLM applications.** This was the original plan and it was
+  wrong on a point of fact: `stacks.yaml` supports exactly `frontend`/`backend`/`database`,
+  `models.Selection` hard-codes five stack fields, and `catalog.py` carries dedicated
+  `_frontend()`/`_backend()` functions — so a fourth axis is a **code** change across `Selection`,
+  `prompts.py`, `resolve()` (which golden rule #7 requires stay branch-free), `render.py` and
+  `export.py`, not the data change it appeared to be. Every existing stack id is a language,
+  framework, or engine; none is a *domain*. The stack **collection** already hosts LLM content
+  (`anthropic-vertex-integration`, `langfuse-llm-tracing`) and needs no catalog change at all, so
+  that is where this went.
+- **Harness guarantees as replayable certificates.** Dropped after verification, not after debate —
+  `tool-design.md` already cites that source, and a near-duplicate section is exactly how skill
+  auto-selection gets diluted.
 - **LLM-serving guidance in the stack-agnostic core.** Quantization and KV-cache policy are domain
-  knowledge, not SDLC practice.
+  knowledge, not SDLC practice — they belong in the collection, which is opt-in, never in the
+  always-installed rule set.
 - **Six sources whose hosts refuse automated clients** — `preprints.org` (×2), `media.defense.gov`,
   `deepchecks.com`, `tblocks.com`, and an OpenReview paper behind a Cloudflare challenge. Recorded as
   honest not-fetched rows, never bypassed. The digesting agent for the OpenReview paper declined to

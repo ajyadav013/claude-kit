@@ -7,10 +7,11 @@ never bypassed. Ideas absorbed in the kit's own words with attribution; no text 
 (see `docs/influences.md`). Digests are named `aie-*.md`, numbered by this map's global row index.
 
 Digests for **agent-operation** topics ship into the owning skill's `references/`. Digests for
-**LLM-serving infrastructure** (quantization, KV cache, caching, RAG, gateways, provider failover)
-are staged under `docs/references/llm-app/` pending a decision on an LLM-application stack overlay —
-that material is stack-specific domain knowledge, and golden rule #1 keeps it out of the
-stack-agnostic core. Nothing in this pass changed a `SKILL.md`, a rule, or the catalog.
+**LLM-application engineering** (quantization, KV cache, caching, RAG, gateways, provider failover)
+ship into four new **stack-collection skills** — `llm-inference-optimization`,
+`llm-caching-strategies`, `rag-and-model-tuning`, and `llm-gateway-and-routing`. That material is
+stack-specific domain knowledge, and golden rule #1 keeps it out of the stack-agnostic core; the
+collection is where such knowledge already lives, so no `catalog/stacks.yaml` change was needed.
 
 ## Harness engineering
 
@@ -48,12 +49,12 @@ stack-agnostic core. Nothing in this pass changed a `SKILL.md`, a rule, or the c
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [LLM routing in production: choosing the right model for every request](https://blog.logrocket.com/llm-routing-right-model-for-requests/) | yes | `docs/references/llm-app/aie-018-llm-routing-in-production-choosing-the-right-model-for-eve.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [LLM Failover & Load Balancing for Provider Outages](https://www.truefoundry.com/blog/llm-failover-load-balancing-provider-outages) | yes | `docs/references/llm-app/aie-019-llm-failover-and-load-balancing-for-provider-outages.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [Adaptive Model Routing and Fallback Logic: routing around LLM provider outages with Bifrost](https://dev.to/kuldeep_paul/adaptive-model-routing-and-fallback-logic-routing-around-llm-provider-outages-with-bifrost-4g3m) | yes | `docs/references/llm-app/aie-020-adaptive-model-routing-and-fallback-logic-routing-around-p.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 4 | [Build an LLM Fallback Layer Before Your Model Vanishes](https://theroadtoenterprise.com/blog/model-agnostic-ai-layer-fallbacks) | yes | `docs/references/llm-app/aie-021-build-an-llm-fallback-layer-before-your-model-vanishes.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 5 | [Three-Tier LLM Routing: Fast, Smart, and Power Model Stacks](https://www.mindstudio.ai/blog/set-up-ai-model-router-llm-stack-c2610) | yes | `docs/references/llm-app/aie-022-three-tier-llm-routing-fast-smart-and-power-model-stacks.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 6 | [What our provider fallback actually looks like after a few months in prod (Reddit r/LLMDevs)](https://www.reddit.com/r/LLMDevs/comments/1ulbef7/what_our_provider_fallback_actually_looks_like/) | yes | `docs/references/llm-app/aie-023-what-our-provider-fallback-actually-looks-like-after-month.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [LLM routing in production: choosing the right model for every request](https://blog.logrocket.com/llm-routing-right-model-for-requests/) | yes | `skills/llm-gateway-and-routing/references/aie-018-llm-routing-in-production-choosing-the-right-model-for-eve.md` | reference digest in `llm-gateway-and-routing` |
+| 2 | [LLM Failover & Load Balancing for Provider Outages](https://www.truefoundry.com/blog/llm-failover-load-balancing-provider-outages) | yes | `skills/llm-gateway-and-routing/references/aie-019-llm-failover-and-load-balancing-for-provider-outages.md` | reference digest in `llm-gateway-and-routing` |
+| 3 | [Adaptive Model Routing and Fallback Logic: routing around LLM provider outages with Bifrost](https://dev.to/kuldeep_paul/adaptive-model-routing-and-fallback-logic-routing-around-llm-provider-outages-with-bifrost-4g3m) | yes | `skills/llm-gateway-and-routing/references/aie-020-adaptive-model-routing-and-fallback-logic-routing-around-p.md` | reference digest in `llm-gateway-and-routing` |
+| 4 | [Build an LLM Fallback Layer Before Your Model Vanishes](https://theroadtoenterprise.com/blog/model-agnostic-ai-layer-fallbacks) | yes | `skills/llm-gateway-and-routing/references/aie-021-build-an-llm-fallback-layer-before-your-model-vanishes.md` | reference digest in `llm-gateway-and-routing` |
+| 5 | [Three-Tier LLM Routing: Fast, Smart, and Power Model Stacks](https://www.mindstudio.ai/blog/set-up-ai-model-router-llm-stack-c2610) | yes | `skills/llm-gateway-and-routing/references/aie-022-three-tier-llm-routing-fast-smart-and-power-model-stacks.md` | reference digest in `llm-gateway-and-routing` |
+| 6 | [What our provider fallback actually looks like after a few months in prod (Reddit r/LLMDevs)](https://www.reddit.com/r/LLMDevs/comments/1ulbef7/what_our_provider_fallback_actually_looks_like/) | yes | `skills/llm-gateway-and-routing/references/aie-023-what-our-provider-fallback-actually-looks-like-after-month.md` | reference digest in `llm-gateway-and-routing` |
 
 ## Agent and MCP security
 
@@ -72,8 +73,8 @@ stack-agnostic core. Nothing in this pass changed a `SKILL.md`, a rule, or the c
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [LLM Structured Outputs: Schema Validation for Real Pipelines (2026)](https://collinwilkins.com/articles/structured-output) | yes | `docs/references/llm-app/aie-032-llm-structured-outputs-schema-validation-for-real-pipeline.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [guidance-ai/llguidance: super-fast structured outputs](https://github.com/guidance-ai/llguidance) | yes | `docs/references/llm-app/aie-033-llguidance-super-fast-structured-outputs.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [LLM Structured Outputs: Schema Validation for Real Pipelines (2026)](https://collinwilkins.com/articles/structured-output) | yes | `skills/llm-gateway-and-routing/references/aie-032-llm-structured-outputs-schema-validation-for-real-pipeline.md` | reference digest in `llm-gateway-and-routing` |
+| 2 | [guidance-ai/llguidance: super-fast structured outputs](https://github.com/guidance-ai/llguidance) | yes | `skills/llm-gateway-and-routing/references/aie-033-llguidance-super-fast-structured-outputs.md` | reference digest in `llm-gateway-and-routing` |
 
 ## Agent failure attribution
 
@@ -91,68 +92,68 @@ stack-agnostic core. Nothing in this pass changed a `SKILL.md`, a rule, or the c
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [Accelerating LLM inference with post-training weight and activation quantization using AWQ and GPTQ on Amazon SageMaker AI](https://aws.amazon.com/blogs/machine-learning/accelerating-llm-inference-with-post-training-weight-and-activation-using-awq-and-gptq-on-amazon-sagemaker-ai/) | yes | `docs/references/llm-app/aie-038-accelerating-llm-inference-with-post-training-quantization.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [LLM Quantization Explained: INT4, INT8, FP8, AWQ, and GPTQ in 2026](https://vrlatech.com/llm-quantization-explained-int4-int8-fp8-awq-and-gptq-in-2026/) | yes | `docs/references/llm-app/aie-039-llm-quantization-explained-int4-int8-fp8-awq-and-gptq.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [LLM Quantization: BF16 vs FP8 vs INT4](https://aimultiple.com/llm-quantization) | yes | `docs/references/llm-app/aie-040-llm-quantization-bf16-vs-fp8-vs-int4.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [Accelerating LLM inference with post-training weight and activation quantization using AWQ and GPTQ on Amazon SageMaker AI](https://aws.amazon.com/blogs/machine-learning/accelerating-llm-inference-with-post-training-weight-and-activation-using-awq-and-gptq-on-amazon-sagemaker-ai/) | yes | `skills/llm-inference-optimization/references/aie-038-accelerating-llm-inference-with-post-training-quantization.md` | reference digest in `llm-inference-optimization` |
+| 2 | [LLM Quantization Explained: INT4, INT8, FP8, AWQ, and GPTQ in 2026](https://vrlatech.com/llm-quantization-explained-int4-int8-fp8-awq-and-gptq-in-2026/) | yes | `skills/llm-inference-optimization/references/aie-039-llm-quantization-explained-int4-int8-fp8-awq-and-gptq.md` | reference digest in `llm-inference-optimization` |
+| 3 | [LLM Quantization: BF16 vs FP8 vs INT4](https://aimultiple.com/llm-quantization) | yes | `skills/llm-inference-optimization/references/aie-040-llm-quantization-bf16-vs-fp8-vs-int4.md` | reference digest in `llm-inference-optimization` |
 
 ## Speculative decoding
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [Faster, cheaper, just as smart: improving the economics of LLM inference with speculative decoding](https://www.redhat.com/en/blog/solving-economics-llm-inference-speculative-decoding) | yes | `docs/references/llm-app/aie-041-improving-the-economics-of-llm-inference-with-speculative.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [Speculative Decoding, Quantization, and Distillation Tradeoffs](https://redpumpkin.ai/blog/speculative-decoding-quantization-and-distillation-tradeoffs) | yes | `docs/references/llm-app/aie-042-speculative-decoding-quantization-and-distillation-tradeof.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [Speculative Decoding and Quantization — LLM Inference](https://theorempath.com/topics/speculative-decoding-and-quantization) | yes | `docs/references/llm-app/aie-043-speculative-decoding-and-quantization-llm-inference.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [Faster, cheaper, just as smart: improving the economics of LLM inference with speculative decoding](https://www.redhat.com/en/blog/solving-economics-llm-inference-speculative-decoding) | yes | `skills/llm-inference-optimization/references/aie-041-improving-the-economics-of-llm-inference-with-speculative.md` | reference digest in `llm-inference-optimization` |
+| 2 | [Speculative Decoding, Quantization, and Distillation Tradeoffs](https://redpumpkin.ai/blog/speculative-decoding-quantization-and-distillation-tradeoffs) | yes | `skills/llm-inference-optimization/references/aie-042-speculative-decoding-quantization-and-distillation-tradeof.md` | reference digest in `llm-inference-optimization` |
+| 3 | [Speculative Decoding and Quantization — LLM Inference](https://theorempath.com/topics/speculative-decoding-and-quantization) | yes | `skills/llm-inference-optimization/references/aie-043-speculative-decoding-and-quantization-llm-inference.md` | reference digest in `llm-inference-optimization` |
 
 ## Prefill vs decode
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [Prefill and Decode: a technical guide to the two phases of inference](https://www.weka.io/learn/ai-ml/prefill-and-decode/) | yes | `docs/references/llm-app/aie-044-prefill-and-decode-a-technical-guide-to-the-two-phases-of.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [Prefill vs Decode: LLM inference phases explained](https://redis.io/blog/prefill-vs-decode/) | yes | `docs/references/llm-app/aie-045-prefill-vs-decode-llm-inference-phases-explained.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [Prefill vs Decode: LLM Inference Optimization (Outcome School)](https://outcomeschool.com/blog/prefill-vs-decode-llm-inference-optimization) | yes | `docs/references/llm-app/aie-046-prefill-vs-decode-llm-inference-optimization.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 4 | [LLM Inference Optimization — Prefill vs Decode (Towards AI)](https://pub.towardsai.net/llm-inference-optimization-prefill-vs-decode-6e003d48b2ca) | yes | `docs/references/llm-app/aie-047-llm-inference-optimization-prefill-vs-decode.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 5 | [The LLM Inference Optimization Stack: quantization to speculative decoding, part 1](https://www.digitalocean.com/community/tutorials/llm-inference-optimization-stack-part-1) | yes | `docs/references/llm-app/aie-048-the-llm-inference-optimization-stack-quantization-to-specu.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [Prefill and Decode: a technical guide to the two phases of inference](https://www.weka.io/learn/ai-ml/prefill-and-decode/) | yes | `skills/llm-inference-optimization/references/aie-044-prefill-and-decode-a-technical-guide-to-the-two-phases-of.md` | reference digest in `llm-inference-optimization` |
+| 2 | [Prefill vs Decode: LLM inference phases explained](https://redis.io/blog/prefill-vs-decode/) | yes | `skills/llm-inference-optimization/references/aie-045-prefill-vs-decode-llm-inference-phases-explained.md` | reference digest in `llm-inference-optimization` |
+| 3 | [Prefill vs Decode: LLM Inference Optimization (Outcome School)](https://outcomeschool.com/blog/prefill-vs-decode-llm-inference-optimization) | yes | `skills/llm-inference-optimization/references/aie-046-prefill-vs-decode-llm-inference-optimization.md` | reference digest in `llm-inference-optimization` |
+| 4 | [LLM Inference Optimization — Prefill vs Decode (Towards AI)](https://pub.towardsai.net/llm-inference-optimization-prefill-vs-decode-6e003d48b2ca) | yes | `skills/llm-inference-optimization/references/aie-047-llm-inference-optimization-prefill-vs-decode.md` | reference digest in `llm-inference-optimization` |
+| 5 | [The LLM Inference Optimization Stack: quantization to speculative decoding, part 1](https://www.digitalocean.com/community/tutorials/llm-inference-optimization-stack-part-1) | yes | `skills/llm-inference-optimization/references/aie-048-the-llm-inference-optimization-stack-quantization-to-specu.md` | reference digest in `llm-inference-optimization` |
 
 ## KV cache management
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [Automatic Prefix Caching — design (vLLM docs)](https://docs.vllm.ai/en/stable/design/prefix_caching/) | yes | `docs/references/llm-app/aie-049-automatic-prefix-caching-design-in-vllm.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [PEEK: Predictive Queue-Informed KV Cache Management for LLM Serving](https://arxiv.org/html/2607.02525v1) | yes | `docs/references/llm-app/aie-050-peek-predictive-queue-informed-kv-cache-management-for-llm.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [EpiCache: Episodic KV Cache Management for Long-Term Conversation on Resource-Constrained Environments](https://icml.cc/virtual/2026/poster/65405) | yes | `docs/references/llm-app/aie-051-epicache-episodic-kv-cache-management-for-long-term-conver.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 4 | [Automatic Prefix Caching — implementation details (vLLM v0.6.2)](https://docs.vllm.ai/en/v0.6.2/automatic_prefix_caching/details.html) | yes | `docs/references/llm-app/aie-052-automatic-prefix-caching-implementation-details-vllm.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 5 | [Understanding vLLM KV cache (forum thread)](https://discuss.vllm.ai/t/understanding-vllm-kv-cache/2061) | yes | `docs/references/llm-app/aie-053-understanding-vllm-kv-cache.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [Automatic Prefix Caching — design (vLLM docs)](https://docs.vllm.ai/en/stable/design/prefix_caching/) | yes | `skills/llm-inference-optimization/references/aie-049-automatic-prefix-caching-design-in-vllm.md` | reference digest in `llm-inference-optimization` |
+| 2 | [PEEK: Predictive Queue-Informed KV Cache Management for LLM Serving](https://arxiv.org/html/2607.02525v1) | yes | `skills/llm-inference-optimization/references/aie-050-peek-predictive-queue-informed-kv-cache-management-for-llm.md` | reference digest in `llm-inference-optimization` |
+| 3 | [EpiCache: Episodic KV Cache Management for Long-Term Conversation on Resource-Constrained Environments](https://icml.cc/virtual/2026/poster/65405) | yes | `skills/llm-inference-optimization/references/aie-051-epicache-episodic-kv-cache-management-for-long-term-conver.md` | reference digest in `llm-inference-optimization` |
+| 4 | [Automatic Prefix Caching — implementation details (vLLM v0.6.2)](https://docs.vllm.ai/en/v0.6.2/automatic_prefix_caching/details.html) | yes | `skills/llm-inference-optimization/references/aie-052-automatic-prefix-caching-implementation-details-vllm.md` | reference digest in `llm-inference-optimization` |
+| 5 | [Understanding vLLM KV cache (forum thread)](https://discuss.vllm.ai/t/understanding-vllm-kv-cache/2061) | yes | `skills/llm-inference-optimization/references/aie-053-understanding-vllm-kv-cache.md` | reference digest in `llm-inference-optimization` |
 
 ## Prompt and semantic caching
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [Prompt caching vs semantic caching: how to make AI agents faster](https://redis.io/blog/prompt-caching-vs-semantic-caching/) | yes | `docs/references/llm-app/aie-054-prompt-caching-vs-semantic-caching-how-to-make-ai-agents-f.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [The Cache Has Layers: prompt caching, semantic caching, and when each one betrays you](https://acethecloud.com/blog/prompt-caching-semantic-caching-tradeoffs/) | yes | `docs/references/llm-app/aie-055-the-cache-has-layers-prompt-caching-semantic-caching-and-w.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [Prompt Caching in 2026: cut LLM costs, keep quality](https://www.digitalapplied.com/blog/prompt-caching-2026-cut-llm-costs-engineering-guide) | yes | `docs/references/llm-app/aie-056-prompt-caching-cut-llm-costs-keep-quality.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 4 | [Semantic Caching: boost LLM speed & reduce costs](https://www.truefoundry.com/blog/semantic-caching) | yes | `docs/references/llm-app/aie-057-semantic-caching-boost-llm-speed-and-reduce-costs.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 5 | [Optimize LLM response costs and latency with effective caching](https://aws.amazon.com/blogs/database/optimize-llm-response-costs-and-latency-with-effective-caching/) | yes | `docs/references/llm-app/aie-058-optimize-llm-response-costs-and-latency-with-effective-cac.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [Prompt caching vs semantic caching: how to make AI agents faster](https://redis.io/blog/prompt-caching-vs-semantic-caching/) | yes | `skills/llm-caching-strategies/references/aie-054-prompt-caching-vs-semantic-caching-how-to-make-ai-agents-f.md` | reference digest in `llm-caching-strategies` |
+| 2 | [The Cache Has Layers: prompt caching, semantic caching, and when each one betrays you](https://acethecloud.com/blog/prompt-caching-semantic-caching-tradeoffs/) | yes | `skills/llm-caching-strategies/references/aie-055-the-cache-has-layers-prompt-caching-semantic-caching-and-w.md` | reference digest in `llm-caching-strategies` |
+| 3 | [Prompt Caching in 2026: cut LLM costs, keep quality](https://www.digitalapplied.com/blog/prompt-caching-2026-cut-llm-costs-engineering-guide) | yes | `skills/llm-caching-strategies/references/aie-056-prompt-caching-cut-llm-costs-keep-quality.md` | reference digest in `llm-caching-strategies` |
+| 4 | [Semantic Caching: boost LLM speed & reduce costs](https://www.truefoundry.com/blog/semantic-caching) | yes | `skills/llm-caching-strategies/references/aie-057-semantic-caching-boost-llm-speed-and-reduce-costs.md` | reference digest in `llm-caching-strategies` |
+| 5 | [Optimize LLM response costs and latency with effective caching](https://aws.amazon.com/blogs/database/optimize-llm-response-costs-and-latency-with-effective-caching/) | yes | `skills/llm-caching-strategies/references/aie-058-optimize-llm-response-costs-and-latency-with-effective-cac.md` | reference digest in `llm-caching-strategies` |
 
 ## Distillation and fine-tuning
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [Distillation with Programmatic Data Curation: smarter LLMs, 5-30x cheaper inference](https://www.tensorzero.com/blog/distillation-programmatic-data-curation-smarter-llms-5-30x-cheaper-inference/) | yes | `docs/references/llm-app/aie-059-distillation-with-programmatic-data-curation-cheaper-infer.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [Efficient Knowledge Injection in LLMs via Self-Distillation](https://arxiv.org/html/2412.14964v2) | yes | `docs/references/llm-app/aie-060-efficient-knowledge-injection-in-llms-via-self-distillatio.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [Distilling Many-Shot In-Context Learning into a Cheat Sheet (ACL Findings EMNLP 2025)](https://aclanthology.org/2025.findings-emnlp.930.pdf) | yes | `docs/references/llm-app/aie-061-distilling-many-shot-in-context-learning-into-a-cheat-shee.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 4 | [LLM Fine-tuning: customize large language models](https://billtcheng2013.medium.com/llm-fine-tuning-7986bb8e939f) | yes | `docs/references/llm-app/aie-062-llm-fine-tuning-customize-large-language-models.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [Distillation with Programmatic Data Curation: smarter LLMs, 5-30x cheaper inference](https://www.tensorzero.com/blog/distillation-programmatic-data-curation-smarter-llms-5-30x-cheaper-inference/) | yes | `skills/rag-and-model-tuning/references/aie-059-distillation-with-programmatic-data-curation-cheaper-infer.md` | reference digest in `rag-and-model-tuning` |
+| 2 | [Efficient Knowledge Injection in LLMs via Self-Distillation](https://arxiv.org/html/2412.14964v2) | yes | `skills/rag-and-model-tuning/references/aie-060-efficient-knowledge-injection-in-llms-via-self-distillatio.md` | reference digest in `rag-and-model-tuning` |
+| 3 | [Distilling Many-Shot In-Context Learning into a Cheat Sheet (ACL Findings EMNLP 2025)](https://aclanthology.org/2025.findings-emnlp.930.pdf) | yes | `skills/rag-and-model-tuning/references/aie-061-distilling-many-shot-in-context-learning-into-a-cheat-shee.md` | reference digest in `rag-and-model-tuning` |
+| 4 | [LLM Fine-tuning: customize large language models](https://billtcheng2013.medium.com/llm-fine-tuning-7986bb8e939f) | yes | `skills/rag-and-model-tuning/references/aie-062-llm-fine-tuning-customize-large-language-models.md` | reference digest in `rag-and-model-tuning` |
 
 ## Retrieval-augmented generation
 
 | # | Item | Fetched | Digest | Kit outcome |
 |---|------|---------|--------|-------------|
-| 1 | [The Architect's Guide to Production RAG: navigating challenges and building scalable AI](https://www.ragie.ai/blog/the-architects-guide-to-production-rag-navigating-challenges-and-building-scalable-ai) | yes | `docs/references/llm-app/aie-063-the-architects-guide-to-production-rag.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 2 | [RAG Best Practices: chunking, hybrid search, reranking](https://codewheel.ai/blog/rag-architecture-guide/) | yes | `docs/references/llm-app/aie-064-rag-best-practices-chunking-hybrid-search-reranking.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 3 | [Fine Tuning vs. Retrieval Augmented Generation for Less Popular Knowledge (v3)](https://arxiv.org/html/2403.01432v3) | yes | `docs/references/llm-app/aie-065-fine-tuning-vs-retrieval-augmented-generation-for-less-pop.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 1 | [The Architect's Guide to Production RAG: navigating challenges and building scalable AI](https://www.ragie.ai/blog/the-architects-guide-to-production-rag-navigating-challenges-and-building-scalable-ai) | yes | `skills/rag-and-model-tuning/references/aie-063-the-architects-guide-to-production-rag.md` | reference digest in `rag-and-model-tuning` |
+| 2 | [RAG Best Practices: chunking, hybrid search, reranking](https://codewheel.ai/blog/rag-architecture-guide/) | yes | `skills/rag-and-model-tuning/references/aie-064-rag-best-practices-chunking-hybrid-search-reranking.md` | reference digest in `rag-and-model-tuning` |
+| 3 | [Fine Tuning vs. Retrieval Augmented Generation for Less Popular Knowledge (v3)](https://arxiv.org/html/2403.01432v3) | yes | `skills/rag-and-model-tuning/references/aie-065-fine-tuning-vs-retrieval-augmented-generation-for-less-pop.md` | reference digest in `rag-and-model-tuning` |
 | 4 | [Fine Tuning vs. Retrieval Augmented Generation for Less Popular Knowledge (v1)](https://arxiv.org/html/2403.01432v1) | yes | — | deduplicated — duplicate of `aie-065` (same paper, v3) |
-| 5 | [Building Production-Grade RAG Architecture: the engineering playbook](https://www.cloudaeon.com/insights/building-production-grade-rag-architecture:-the-engineering-playbook) | yes | `docs/references/llm-app/aie-067-building-production-grade-rag-architecture-the-engineering.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 6 | [Best RAG Tools, Frameworks, and Libraries](https://aimultiple.com/retrieval-augmented-generation) | yes | `docs/references/llm-app/aie-068-best-rag-tools-frameworks-and-libraries.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
-| 7 | [RAG Evaluation Metrics: improve RAG](https://customgpt.ai/rag-evaluation-metrics/) | yes | `docs/references/llm-app/aie-069-rag-evaluation-metrics.md` | digest staged for the planned LLM-app stack overlay — not yet wired |
+| 5 | [Building Production-Grade RAG Architecture: the engineering playbook](https://www.cloudaeon.com/insights/building-production-grade-rag-architecture:-the-engineering-playbook) | yes | `skills/rag-and-model-tuning/references/aie-067-building-production-grade-rag-architecture-the-engineering.md` | reference digest in `rag-and-model-tuning` |
+| 6 | [Best RAG Tools, Frameworks, and Libraries](https://aimultiple.com/retrieval-augmented-generation) | yes | `skills/rag-and-model-tuning/references/aie-068-best-rag-tools-frameworks-and-libraries.md` | reference digest in `rag-and-model-tuning` |
+| 7 | [RAG Evaluation Metrics: improve RAG](https://customgpt.ai/rag-evaluation-metrics/) | yes | `skills/rag-and-model-tuning/references/aie-069-rag-evaluation-metrics.md` | reference digest in `rag-and-model-tuning` |
 | 8 | [RAG Evaluation Metrics: answer relevancy, faithfulness, and real-world accuracy](https://deepchecks.com/rag-evaluation-metrics-answer-relevancy-faithfulness-accuracy/) | no | — | not fetched (http=403) — honest row, no digest |
 | 9 | [RAG Framework Explained for Enterprise AI and LLMs](https://tblocks.com/guides/rag-framework/) | no | — | not fetched (http=403) — honest row, no digest |
 | 10 | [Building a Security and Reliability Evaluation Suite for Retrieval-Augmented Generation (RAG) Systems](https://www.preprints.org/manuscript/202510.0418/v1) | no | — | not fetched (http=403) — honest row, no digest |
@@ -166,4 +167,4 @@ stack-agnostic core. Nothing in this pass changed a `SKILL.md`, a rule, or the c
 
 ---
 
-*72 items noted; 63 shipped digests (24 into existing skills, 39 staged).*
+*72 items noted; 63 shipped digests — 24 into six existing skills, 39 into four new stack-collection skills.*

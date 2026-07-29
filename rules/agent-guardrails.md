@@ -187,6 +187,28 @@ agent on a broken foundation.* Before worrying about prompt injection, enforce t
   and the credential-ownership routing test — is the `dependency-verification` skill's *Agent-config
   supply chain* section. One rule bears repeating here: **never start an untrusted MCP server "just to
   inspect" it** — a stdio entry executes its command the moment the config loads.
+- **Treat a tool's *definition* as untrusted input, not only its output.** The intake check above
+  governs the artifact you install; this governs the metadata the model re-reads every turn. A tool's
+  name and description are part of the prompt, so a server can carry directives there that an operator
+  scanning a tool picker never sees — apply the same hidden-content scan you apply to skills and agent
+  definitions. Three properties of the tool layer make one-time approval insufficient on its own:
+  - **Definitions are mutable after approval (the "rug pull").** A server can present a benign tool set
+    at review time and change it afterwards, silently reusing the trust it earned on day one. Re-verify
+    at **invocation**, not only at load, and treat a functional change to an approved tool the way you
+    treat a changed dependency hash — as something that must be re-approved, not absorbed.
+  - **Connected servers share one namespace.** When two servers expose a plausibly-named function, a
+    call can be routed to the wrong one while the operator believes the trusted server handled it.
+    Namespace tool names per server and keep a canonical record of which server owns which name;
+    collision detection is the client's job, not the user's.
+  - **Read primitives escalate into write primitives.** Read-only access is approved casually because
+    "it can't do anything" — but the content it returns becomes the instruction stream for a tool that
+    *can* write. This is the toxic-flow check applied *within* one server: scope the read+write
+    combination, not each capability alone.
+
+  > Stack-agnostic adaptation of the MCP threat systematization in Gaire et al., "SoK: Security and
+  > Safety in the Model Context Protocol Ecosystem" (arXiv 2512.08290) — cross-primitive escalation,
+  > rug-pull mutability, and server shadowing. Re-derived in prose; the digest and the wider MCP
+  > threat set live in the `threat-model` and `security-and-hardening` skills.
 
 ### OWASP Top 10 for Agentic Applications (ASI01–ASI10)
 

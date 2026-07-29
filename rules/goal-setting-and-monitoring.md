@@ -75,10 +75,37 @@ the run itself** instead of reconstructing it after the fact. Model the run as a
 - **Use a stable attribute vocabulary** (a documented convention — e.g. the emerging GenAI semantic
   conventions) so runs stay comparable across sessions and tools, the way `.claude/rules/evals.md`
   needs N-comparable numbers.
+- **Record enough to *replay* a node, not merely read it.** Persist each span's input state next to its
+  outcome so the run can be resumed from an arbitrary prefix. That is what upgrades a trace from a
+  post-mortem artifact into a diagnostic instrument (see error attribution below) — and it is an
+  architectural commitment to durable, resumable runs, not a logging flag you flip on later.
 
 This turns "I think the run is progressing" into a measured session you can grade
 (`.claude/rules/evals.md`) and trend. (This is *agent-run* telemetry; **app and LLM** observability
 live in the `observability-and-logging`, `otel-tracing`, and `langfuse-llm-tracing` skills.)
+
+**Attribute silent failures by intervention, not by retry.** As agents get more capable their dominant
+failure mode is *silent*: no exception, no malformed output, no failed gate — the run completes and the
+answer is simply wrong. Triage that keys on exceptions, exit codes, or schema violations finds nothing
+there, so detection has to be semantic: check the answer, or audit the trace against the §1 criteria.
+Attribution then needs care, because **producing a right answer on a second attempt proves nothing about
+the first** — a plain retry travels an independent path, so it corrects without explaining. To find the
+step that actually mattered, replay from a candidate node with the original prefix intact and one
+*specific* hypothesized fix applied; the two trajectories then diverge only at that step, which is what
+makes the comparison evidence rather than coincidence. Confirm the replay really followed the hypothesis
+before believing an outcome flip — an agent that ignores the patch and succeeds by an unrelated route has
+told you nothing. What you are looking for is the earliest **decisive** step (the earliest one whose
+correction lets the run finish correctly), not the earliest visible mistake, and it is a *sufficient*
+intervention point rather than a proven unique root cause.
+
+Treat this as development-time machinery: it costs several replays per attribution and assumes you can
+re-execute a prefix without repeating side effects. It belongs in CI, regression suites over agent
+workflows, and eval harnesses (`.claude/rules/evals.md`) — not in live incident response, where
+`.claude/rules/agent-resilience.md` and the `incident-responder` path apply instead.
+
+> Stack-agnostic adaptation of intervention-supported error attribution for silent agent failures
+> (prefix-preserving replay, faithfulness gating, earliest-decisive-step targeting) from Lin et al.,
+> arXiv 2606.09071. Re-derived in prose; the digest lives in the `debugging-and-error-recovery` skill.
 
 **Budget the run before you launch it.** Spend is a criterion too — declare it up front like any
 other goal, derived from the orchestration shape: single agent ≈ 1×, maker-checker ≈ 2×,
