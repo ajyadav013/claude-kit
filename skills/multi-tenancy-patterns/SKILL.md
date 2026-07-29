@@ -94,6 +94,24 @@ Stack-agnostic multi-tenant isolation and tenant resolution patterns derived fro
 
 **Set TTLs**: Don't cache tenant data indefinitely; use `setex` with reasonable expiration (e.g., 1-60 minutes) to limit stale data blast radius. _(Production pattern)_
 
+### Agent and LLM Tenancy
+
+Every control above assumes a boundary miss returns wrong data to one requester and stops there. An agent platform has no such containment — leaked rows become reasoning input, and the blast radius grows to whatever the agent's tools can reach. Retrieval, cache, compute, and telemetry each need their own boundary; getting one right while ignoring another still leaves the platform exploitable.
+
+**Resolve tenant context in a service, never in the model**: A context window is attacker-reachable and a model is probabilistic, so neither can be where tenancy is decided. Backend services resolve the tenant and hand the model data that is already scoped. Treat delegating privilege separation or authorization bounds checks to an LLM as the vulnerability itself, not as a design shortcut. _(OWASP LLM06)_
+
+**Carry an authorization envelope on every call**: Every tool call, retrieval, and model request should travel with an explicit action-type / resource-id / tenant-id envelope that the receiving service checks, rather than trusting that whoever called it already filtered correctly.
+
+**Prefilter the vector store by tenant metadata — and re-apply it on every expansion hop**: Cross-tenant retrieval leakage is frequently *structural* rather than adversarial; shared vendors, products, and people create organic entity links, so ordinary well-behaved queries surface other tenants' chunks. Metadata prefilters on a vector-only search hold up. The failure mode is a *second* retrieval stage — knowledge-graph traversal, multi-hop expansion, a rerank over a wider candidate pool — that never re-applies the authorization the vector layer applied. Scope every hop, not just the first.
+
+**Partition prefix and semantic caches per tenant**: A shared cache is a cross-tenant side channel in two distinct ways. A prefix/KV-cache hit is observable through time-to-first-token, which leaks whether another tenant's prompt shares your prefix — enough, iterated, to reconstruct it. A semantic cache keyed on embedding similarity can hand one tenant another tenant's stored answer outright. Partition both and accept the lower hit rate. This is the same rule as "always include tenant_scope in cache keys," applied to caches that are not keyed by a string you control.
+
+**Match compute isolation to the threat model of model-generated code**: When the agent executes code it wrote, the sandbox *is* a tenancy boundary. Shared-kernel containers have a documented escape history; user-space syscall interception and per-workload microVMs each buy a stronger boundary at an overhead cost. Choose deliberately based on whether untrusted generated code actually runs, and be skeptical of vendor-published overhead figures.
+
+**Segregate and redact telemetry before it reaches a shared backend**: Agent traces carry reasoning steps, retrieved chunks, tool parameters, and generated code, so observability becomes its own leak surface. Route tenant-sensitive spans through pipelines segregated by risk tier and redact in the collector's transform stage rather than at query time. Store prompt context as a hash instead of raw text so the audit trail does not manufacture a second copy of the data.
+
+**Envelope-encrypt per tenant so deletion is provable**: A per-tenant key-encryption key turns "delete this tenant's data" into "destroy this tenant's key" — crypto-shredding puts the data beyond reach across every replica and backup without hunting down each copy.
+
 ## Skeleton / example
 
 ```python
@@ -224,6 +242,10 @@ async def cache_get(tenant_scope: str, ns: str, key: str) -> str | None:
 - **Allowing org_admin to bypass RLS without path checks** — validate org hierarchy (path prefix) for delegated admin roles.
 - **Omitting org_id from Silver/Gold tables** — multi-org analytics requires org_id on every table for efficient scoping and RLS.
 - **Omitting tenant scope from cache keys** — leads to cross-tenant data leaks; always include `{tenant_id}:{org_id}` in Redis keys.
+- **Authorizing retrieval only at the first hop** — a metadata prefilter that graph expansion or reranking never re-applies is not a boundary.
+- **Sharing a prefix or semantic cache across tenants** — hits are observable through response timing, and similarity lookups can return another tenant's answer.
+- **Letting the model resolve or enforce tenancy** — authorization belongs in a service; a context window is attacker-reachable input, not a control plane.
+- **Shipping raw agent traces to a shared observability backend** — reasoning steps, retrieved chunks, and tool parameters are tenant data; segregate and redact before export.
 
 ## References
 
@@ -231,3 +253,4 @@ async def cache_get(tenant_scope: str, ns: str, key: str) -> str | None:
 - [tenant-resolution.md](./references/tenant-resolution.md) — Resolution order, middleware, context shape, schema vs RLS context
 - [isolation-strategies.md](./references/isolation-strategies.md) — RLS / multi-pool / lazy connectors / schema-based; when to use which
 - [caching-patterns.md](./references/caching-patterns.md) — Tenant-scoped cache keys, namespace invalidation, Redis patterns
+- [aie-029-multi-tenant-isolation-for-ai-agents-security-architecture.md](./references/aie-029-multi-tenant-isolation-for-ai-agents-security-architecture.md) — Agent-platform tenancy: retrieval/cache/compute/telemetry boundaries (source digest for *Agent and LLM Tenancy*)
