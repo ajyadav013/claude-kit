@@ -93,13 +93,18 @@ A **unanimous PASS is suspicious**, not reassuring — independent AI reviewers 
 
 The Devil's Advocate assumes the artifact is guilty and hunts for what everyone missed. Its verdict:
 - **UPHELD** — found a real Critical/High/Medium issue → gate FAILs, route to the fix lane.
+- **CONFIRMED-WITH-COSTS** — no blocking finding, but a durable cost worth recording → gate PASSes.
 - **CONFIRMED** — genuinely clean after adversarial effort → gate PASSes.
 
-Where the agent is installed, a gate reached by unanimous PASS is not PASS until the Devil's Advocate returns CONFIRMED. See `.claude/agents/devils-advocate.md` (present in the standard and enterprise profiles).
+Where the agent is installed, a gate reached by unanimous PASS is not PASS until the Devil's Advocate returns CONFIRMED or CONFIRMED-WITH-COSTS. See `.claude/agents/devils-advocate.md` (present in the standard and enterprise profiles).
+
+Every verdict also carries a **premortem** (assume it shipped and failed — the likeliest cause and the earliest signal) and a **balance sheet** (what the approach gets right, and what it costs). A critique that only lists defects cannot be weighed against doing nothing, and leaves no record of *why* an accepted downside was accepted.
+
+**CONFIRMED-WITH-COSTS is not a soft UPHELD.** It never carries a Critical/High/Medium — anything blocking is UPHELD. Each recorded cost names an accepting role and a concrete revisit trigger, and the Orchestrator writes it to `CONTINUITY.md` so it survives the gate that accepted it. A cost with no owner or no trigger is a hedge, not a cost: it is dropped and the verdict is plain CONFIRMED. Where the project keeps ADRs, a cost that shapes the architecture belongs in one (see `.claude/rules/documentation.md`).
 
 ### Devil's Advocate on the plan (standard+)
 
-The same adversarial pass also runs **once on the plan** — the spec + developer documentation — before EM approval is final, in any profile that installs the agent (standard and enterprise). It challenges the plan's assumptions: the weakest or most-volatile requirement, an untestable acceptance criterion, a hidden dependency, a missing requirement, and unjustified scope. An **UPHELD** verdict routes back to the Spec / Dev Doc Writer and the spec gate stays open until **CONFIRMED**. The **lean** fast track omits this pass; the Spec Writer's own self-critique (its RARV cycle) is the safeguard there. This is the planning-phase counterpart of the gate critique above — catching a flawed plan on paper is far cheaper than catching it after implementation.
+The same adversarial pass also runs **once on the plan** — the spec + developer documentation — before EM approval is final, in any profile that installs the agent (standard and enterprise). It challenges the plan's assumptions: the weakest or most-volatile requirement, an untestable acceptance criterion, a hidden dependency, a missing requirement, and unjustified scope. Its premortem is the highest-value part of this pass — the cheapest moment to ask "assume we built this and it failed" is before anyone has built it. An **UPHELD** verdict routes back to the Spec / Dev Doc Writer and the spec gate stays open until **CONFIRMED** (or **CONFIRMED-WITH-COSTS**, whose recorded trade-offs carry into the story breakdown). The **lean** fast track omits this pass; the Spec Writer's own self-critique (its RARV cycle) is the safeguard there. This is the planning-phase counterpart of the gate critique above — catching a flawed plan on paper is far cheaper than catching it after implementation.
 
 ---
 

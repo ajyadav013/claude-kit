@@ -168,11 +168,15 @@ Feedback loops with the Dev Doc Writer, **max 3 iterations**, then escalate.
 Before EM approval is treated as final, the Orchestrator spawns the `devils-advocate` agent once on the
 spec + developer documentation. It argues the plan is wrong: the weakest or most-volatile requirement,
 an untestable acceptance criterion, a hidden dependency, a missing requirement, unjustified scope, the
-step most likely to fail. An **UPHELD** verdict (any Critical/High/Medium) routes back to the Spec /
-Dev Doc Writer and the gate stays open; **CONFIRMED** lets planning proceed. The **lean** fast track
+step most likely to fail. It also runs a **premortem** (assume this shipped and failed — likeliest
+cause, earliest signal) and returns a **merits-and-costs balance sheet**, so the plan can be weighed
+rather than merely attacked. An **UPHELD** verdict (any Critical/High/Medium) routes back to the Spec /
+Dev Doc Writer and the gate stays open; **CONFIRMED** lets planning proceed, as does
+**CONFIRMED-WITH-COSTS** — whose named trade-offs carry forward into the story breakdown. The **lean** fast track
 skips this pass (it does not install the agent); there, the Spec Writer's own self-critique in its RARV
 cycle is the safeguard.
-**Gate:** in standard+, EM `APPROVED` is not final until the plan critique returns CONFIRMED.
+**Gate:** in standard+, EM `APPROVED` is not final until the plan critique returns CONFIRMED (or
+CONFIRMED-WITH-COSTS).
 
 ## 1f — Story Breakdown & Coverage Gate `[Story Planner]`
 With the EM-approved spec, the **Story Planner** decomposes it into the smallest set of
@@ -319,8 +323,10 @@ accessible selectors; each test is independent.
 Parallel reviewers/testers assess **independently** (no shared findings) and each returns
 PASS/FAIL with severity-classified findings. Any Critical/High/Medium → gate FAILs.
 **Anti-sycophancy:** a **unanimous PASS** triggers the `devils-advocate` agent, which assumes
-the work is guilty. The gate is not PASS until it returns **CONFIRMED**; an **UPHELD** verdict
-re-opens the defect loop. See `.claude/rules/quality-gates.md`.
+the work is guilty. The gate is not PASS until it returns **CONFIRMED** or **CONFIRMED-WITH-COSTS**;
+an **UPHELD** verdict re-opens the defect loop. Its verdict carries a premortem and a
+merits-and-costs balance sheet; any accepted cost is recorded in `CONTINUITY.md` with an owner and
+a revisit trigger. See `.claude/rules/quality-gates.md`.
 
 ## 3b.6 — Security (gate: Security Clear)
 The `security-reviewer` dispatches four sub-scanners in parallel — `secret-scanner`,

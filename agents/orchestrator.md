@@ -315,8 +315,12 @@ Before treating the review chain's approval as final, run an adversarial pass on
 - **Spawn**: `devils-advocate` with the spec + developer documentation (and the review-chain verdicts).
 - It argues the plan is wrong — weakest/most-volatile requirement, untestable acceptance criterion,
   hidden dependency, missing requirement, unjustified scope, the step most likely to fail.
-- **Gate**: a **CONFIRMED** verdict lets the Story Planner proceed; an **UPHELD** verdict (any
-  Critical/High/Medium) routes back to the **spec-doc-writer** and the spec gate stays open.
+- It also returns a **premortem** and a **merits-and-costs balance sheet** — record both with the gate
+  evidence, so the plan's accepted trade-offs are legible when the work is reviewed later.
+- **Gate**: a **CONFIRMED** verdict lets the Story Planner proceed; so does **CONFIRMED-WITH-COSTS**,
+  whose named costs you write to `CONTINUITY.md` (each with its accepting role and revisit trigger)
+  before proceeding. An **UPHELD** verdict (any Critical/High/Medium) routes back to the
+  **spec-doc-writer** and the spec gate stays open.
 - **Profile**: standard and enterprise only — `devils-advocate` isn't installed in **lean**, where the
   spec-doc-writer's own self-critique (its RARV cycle) is the safeguard. Skip with a noted reason in lean.
 
@@ -483,7 +487,7 @@ For full-stack work or features with significant scope, **spawn multiple testers
   - All defects have clear classification (API / UI / integration)
   - All defects have reproduction steps
 - **Blind review**: the three senior testers assess **independently** — none sees another's findings — and each returns PASS/FAIL with severity-classified findings. Any Critical/High/Medium → gate FAILs.
-- **Devil's Advocate (anti-sycophancy)**: if all three return a **unanimous PASS**, **spawn `devils-advocate`** before the gate may pass. It assumes the work is guilty and hunts for what everyone missed. VERIFIED requires its CONFIRMED verdict; an UPHELD verdict re-opens the Defect Loop. See `.claude/rules/quality-gates.md`.
+- **Devil's Advocate (anti-sycophancy)**: if all three return a **unanimous PASS**, **spawn `devils-advocate`** before the gate may pass. It assumes the work is guilty and hunts for what everyone missed. VERIFIED requires a CONFIRMED or CONFIRMED-WITH-COSTS verdict (record the named costs in `CONTINUITY.md`); an UPHELD verdict re-opens the Defect Loop. See `.claude/rules/quality-gates.md`.
 - **Gate**: `VERIFIED` from merge-reviewer (plus CONFIRMED from `devils-advocate` when the senior testers were unanimous).
 - On FAIL from any tester or senior tester → enter **Defect Loop**.
 
@@ -827,7 +831,7 @@ silently, and never marked PASS. Every stage that *is* active is mandatory.
 14. **Verify outputs exist.** Check that expected files are created before marking a stage complete.
 15. **Prefer parallel over sequential.** If two stages have no data dependency, run them in parallel.
 16. **Persist working memory.** Read/write `.claude/CONTINUITY.md` every turn and at every stage transition; recover from it after compaction. Mirror gate-precise state into `.claude/state/pipeline-snapshot.json` and resume from it by *reloading* (re-enter after `last_gate_passed`), never by re-running passed gates or re-applying committed edits.
-17. **Anti-sycophancy.** In standard+, the plan is critiqued by `devils-advocate` before approval is final (Stage PC); and a unanimous PASS at the test-coverage gate is not VERIFIED until `devils-advocate` returns CONFIRMED.
+17. **Anti-sycophancy.** In standard+, the plan is critiqued by `devils-advocate` before approval is final (Stage PC); and a unanimous PASS at the test-coverage gate is not VERIFIED until `devils-advocate` returns CONFIRMED or CONFIRMED-WITH-COSTS. Every verdict carries a premortem and a merits-and-costs balance sheet; record accepted costs in `CONTINUITY.md`.
 18. **Operability gates.** For deployable/observable changes, run DevOps (Pipeline Green) and Observability (Observability Ready) before the PR Raiser.
 19. **Name the skills in every spawn.** Each worker prompt states which skill(s) to load for its stage (Skill Routing table); never assume a worker will find them itself.
 20. **Disjoint boundaries in every parallel spawn.** Every parallel worker prompt names its exact file boundary; concurrent boundaries never overlap.
