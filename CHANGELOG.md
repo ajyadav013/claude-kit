@@ -4,6 +4,53 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.75.0] — 2026-07-31
+
+**The Devil's Advocate learns to weigh, not only to prosecute — a premortem, a merits-and-costs
+balance sheet, and a third verdict that records an accepted trade-off instead of swallowing it.**
+The agent already gated the two moments where consensus is most dangerous (the plan before EM
+approval, and any gate reached by *unanimous* PASS). What it could not do was say "this approach is
+sound, and here is what it costs" — its output was findings plus a binary verdict, so a known
+trade-off either became a blocking finding or vanished into a clean `CONFIRMED`.
+
+### Changed
+
+- **`agents/devils-advocate.md`** gains two steps and one verdict:
+  - **Premortem** — findings attack the artifact *as written*; the premortem attacks it *as it will be
+    operated*. "Assume this shipped and failed — the likeliest cause, and the earliest signal that
+    would have caught it." At the plan gate this is the highest-value moment to run one, since nothing
+    has been built yet.
+  - **Balance sheet** — merits alongside costs. A critique listing only defects cannot be weighed
+    against doing nothing, and leaves no record of *why* a downside was accepted.
+  - **`CONFIRMED-WITH-COSTS`** — passes the gate while naming a durable cost, each with an accepting
+    role and a concrete revisit trigger, recorded in `CONTINUITY.md`.
+- **`rules/quality-gates.md`** · **`rules/mandatory-workflow.md`** (§1e.5, §3b.5) ·
+  **`agents/orchestrator.md`** (Stage PC, test-coverage gate) — verdict vocabulary and gate criteria
+  updated in step; a gate now clears on `CONFIRMED` *or* `CONFIRMED-WITH-COSTS`.
+
+### Guarded against
+
+- **Gate erosion.** A third "pass, but…" verdict is exactly the kind of state that quietly becomes the
+  default, so `CONFIRMED-WITH-COSTS` is deliberately *more* expensive to produce than a plain
+  `CONFIRMED`: it can never carry a Critical/High/Medium (anything blocking is still `UPHELD`), and a
+  cost that cannot name an owner and a revisit trigger is declared a hedge and dropped.
+- **A loophole found by dogfooding this change.** Reviewing the diff under the kit's own discipline:
+  rule 2 read *"you must do real work before CONFIRMED"* — pinned to that literal token, leaving the
+  new verdict outside the anti-sycophancy requirement and rubber-stampable with zero probes. Now
+  *"before any confirming verdict."* Precisely the class of miss the agent exists to catch.
+
+### Not adopted (deliberately)
+
+- **A separate `critic-reviewer` agent.** It would duplicate `devils-advocate` (reuse-first, golden
+  rule #8) and drag in a catalog entry, a docs row, count updates and test changes. Extending the
+  existing agent changed no counts at all.
+- **Per-story adversarial critique** (a pass on each story's chosen approach between breakdown and
+  implementation). It closes a real gap — story-level *approach* decisions are reviewed for
+  correctness but never adversarially — at the cost of one opus spawn per story. Deferred, not
+  rejected; revisit if approach-level mistakes are observed slipping past the two existing gates.
+- **A risk-gated variant of the above** (fire only for `risk-classifier` medium+ or one-way-door
+  stories). The cheaper shape of the same idea, held back with it.
+
 ## [0.74.0] — 2026-07-28
 
 **The kit learns to build AI products, not just to be one — 63 attributed digests from a 72-item
