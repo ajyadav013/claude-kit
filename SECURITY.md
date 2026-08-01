@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-claude-kit is pre-1.0. Only the latest released version (currently **0.75.0**) receives security fixes.
+claude-kit is pre-1.0. Only the latest released version (currently **0.76.0**) receives security fixes.
 
 ## Reporting a vulnerability
 
@@ -29,11 +29,22 @@ application code, and the behavior of third-party MCP servers the kit can wire u
 
 ## Learning capture (data handling)
 
-Learning capture is **on by default**: a background Claude job reads your session transcript and
-changed files to record durable learnings under `.claude/agent-memory/` (a committed store). It skips
-secret-bearing files (`.env`, `*.pem`/`*.key`, `credentials.*`) and redacts secret-shaped values
-(private keys, `AKIA…`, `sk_live_…`, Slack/GitHub tokens) before anything reaches the job, and the job
-is instructed never to record secrets or personal data. These are **best-effort** filters, not a
-guarantee — transcripts can still hold sensitive context, so review new `agent-memory/` entries before
-committing. Disable with `CLAUDE_KIT_NO_AUTOCAPTURE=1`; bound each run with
-`CLAUDE_KIT_CAPTURE_MAX_LINES` / `CLAUDE_KIT_CAPTURE_MAX_BYTES`.
+Learning capture is **opt-in** (0.76.0): a background Claude job reads your session transcript and
+changed files to record durable learnings under `.claude/agent-memory/` (a committed store) — so it
+runs **only** when you explicitly choose a capture mode at `claude-kit init` (the "Learning capture"
+question) or set `capture_mode` in a config file. Every non-interactive path stays off: the plugin
+channel and the no-pip starter ship no capture hooks, and `--defaults` installs none. The recall
+half of the loop (reading your own `agent-memory/MEMORY.md` into context) has no such exposure and
+stays on.
+
+When enabled, the job skips secret-bearing files (`.env`, `*.pem`/`*.key`, `credentials.*`) and
+redacts secret-shaped values (private keys, `AKIA…`, `sk_live_…`, Slack/GitHub tokens) before
+anything reaches it, and it is instructed never to record secrets or personal data. These are
+**best-effort** filters, not a guarantee — transcripts can still hold sensitive context, so review
+new `agent-memory/` entries before committing. Disable at any time with
+`CLAUDE_KIT_NO_AUTOCAPTURE=1` (or remove the capture entries from `.claude/settings.json`); bound
+each run with `CLAUDE_KIT_CAPTURE_MAX_LINES` / `CLAUDE_KIT_CAPTURE_MAX_BYTES`.
+
+Audit what an installed config actually accesses with **`claude-kit privacy-report`** — one line
+per installed hook (what it reads, what it writes, whether it spawns a background job), plus
+whether capture is on and how to turn it off.

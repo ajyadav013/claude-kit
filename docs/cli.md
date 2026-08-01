@@ -14,8 +14,9 @@ exports the kit's configuration. Install: `pip install claude-code-kit` (see
 | `diff [path]` | Preview what an `upgrade` would change (no writes) |
 | `export [path] -t cursor\|agents\|copilot [--force] [--dry-run] [--json]` | Project the config into Cursor (`.cursor/`), a root `AGENTS.md`, or GitHub Copilot (`.github/copilot-instructions.md`) for editors that aren't Claude Code |
 | `upgrade [path] [--force]` | Refresh kit/overlay files; protect your edits; prune orphans |
-| `pipeline validate · status · close-gate · abort` | Inspect/mutate the `/sdlc` state files (gate/lane/evidence coherence); **does not run** the pipeline |
+| `pipeline validate · status · close-gate · skip-gate · abort` | Inspect/mutate the `/sdlc` state files; **does not run** the pipeline. `close-gate` appends to the gate ledger (evidence sha256 + UTC timestamp) and refuses out-of-order or findings-blocked closes; `skip-gate --reason` records a conditional gate that doesn't apply; `validate` re-hashes **every** ledger entry; `--strict` fails closed when the install snapshot is missing (CI) |
 | `list-options` | List available frontend/backend/database/profile/MCP options |
+| `privacy-report [path] [--json]` | One line per installed hook: what it reads/writes/spawns; flags non-kit hook commands; states whether background learning capture is on and how to disable it |
 | `status [path]` | Show what's installed, the selection, and working memory |
 | `tickets [ID] [--path DIR] [--graph\|--graph-git] [--html] [--watch N] [--json]` | Live ticket board with tokens / model / agent / elapsed per ticket; `--graph` for the dependency graph, `--graph-git` for the commit graph, `--html` for a browser Kanban board, an `ID` for the detail view |
 | `version` | Print the version |

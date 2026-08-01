@@ -22,7 +22,7 @@ Makes all agents, skills, commands, and hooks available inside Claude Code:
 
 ```text
 /plugin marketplace add ajyadav013/claude-kit
-/plugin install claude-kit
+/plugin install claude-kit@claude-kit        # qualified name: the claude-kit plugin from the claude-kit marketplace
 ```
 
 Then, inside any project you want the pipeline to manage:

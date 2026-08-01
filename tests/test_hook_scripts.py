@@ -735,3 +735,15 @@ def test_capture_ticket_telemetry_refreshes_the_board_only_when_it_exists(
             break
         time.sleep(0.1)
     assert "--html" in calls.read_text()
+
+
+def test_every_hook_declares_data_access():
+    """privacy-report renders each hook's data_access note — a hook without one is a consent gap."""
+    from claude_kit.hooks import HOOK_REGISTRY, PLUGIN_ONLY_HOOKS
+
+    for hid, spec in {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}.items():
+        note = spec.get("data_access")
+        assert isinstance(note, str) and note.strip(), (
+            f"hook {hid!r} has no data_access note — privacy-report would render a blank "
+            "for it; describe what it reads/writes/spawns in HOOK_REGISTRY"
+        )

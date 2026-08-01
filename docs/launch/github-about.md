@@ -9,7 +9,7 @@ Internal checklist for setting the GitHub repository "About" sidebar (descriptio
 Ready-to-paste candidates (kept within a self-imposed 120-character budget):
 
 1. **Recommended:**  
-   `Stack-agnostic SDLC config scaffolder for Claude Code. Quality gates, 28 agents, no Docker. MIT. pip install.` (109 chars)
+   `Evidence-gated SDLC for Claude Code — gates close only on cited evidence. Stack-agnostic config, no Docker. MIT.` (113 chars)
 
 2. **Alternative (simpler):**  
    `Autonomous SDLC pipeline for Claude Code. Spec→review→build→test→ship. Stack-agnostic config, no app code.` (106 chars)

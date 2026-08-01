@@ -2,19 +2,37 @@
 
 # claude-kit
 
+### Evidence-gated SDLC for Claude Code
+
 **Turn Claude Code into a disciplined engineering team: one command — `/sdlc <task>` — runs your
 request through spec → review → code → test → security → PR, with a quality gate between every
 phase.**
 
-The differentiator is trust: **no gate passes without real, cited command output**, so a green
-result means the checks actually ran. It installs as **configuration only** — no runtime, no
-application code, no Docker.
+The differentiator is trust: **every gate verdict must cite real command output, and the
+deterministic state layer refuses to close a gate out of order or with unresolved
+Critical/High/Medium findings.** It installs as **configuration, not a runtime** — no application
+code in your repo and no daemon: Claude Code configuration, local hooks, and an optional CLI.
+
+</div>
+
+**Proof over pitch:** in the captured run in [`examples/real-run/`](examples/real-run/), a unanimous
+review PASS triggered the adversarial `devils-advocate` — it caught a Medium bug every reviewer had
+missed, and the gate refused to advance until the fix landed. The run is checked in verbatim: state
+file, agent verdicts, diff, asciicast.
+
+```text
+/plugin marketplace add ajyadav013/claude-kit
+/plugin install claude-kit@claude-kit
+/claude-kit:sdlc Add a /health endpoint that returns the build version
+```
 
 <!-- DEMO PLACEHOLDER — a 60–90s terminal capture of a gated `/sdlc` run belongs here once recorded.
      Shot list, timing, and which real assets to show: docs/launch/demo-script.md.
      The recording replays the genuine run already in examples/real-run/ (the devils-advocate catching a
      Medium bug a unanimous review missed, and the gate refusing to advance until it was fixed).
      Until the GIF exists, that folder IS the evidence — linked from "How it works" and "The pipeline" below. -->
+
+<div align="center">
 
 [![PyPI](https://img.shields.io/pypi/v/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/claude-code-kit.svg)](https://pypi.org/project/claude-code-kit/)
@@ -56,16 +74,13 @@ The fastest path to a gated run — **no CLI install, no `init`, no restart:**
 
 ```text
 /plugin marketplace add ajyadav013/claude-kit
-/plugin install claude-kit
+/plugin install claude-kit@claude-kit        # qualified name: the claude-kit plugin from the claude-kit marketplace
 /claude-kit:sdlc Add a /health endpoint that returns the build version
 ```
 
 That's the whole loop in three lines: the standard pipeline runs immediately — spec → review →
-build → test, gate by gate — with every verdict backed by real output.
-
-**Proof it works:** [`examples/real-run/`](examples/real-run/) is a genuine captured run where the
-`devils-advocate` caught a Medium bug a unanimous review missed, and the gate refused to advance
-until it was fixed.
+build → test, gate by gate — with every verdict backed by real output. (The proof run lives in
+[`examples/real-run/`](examples/real-run/) — see the top of this page.)
 
 When you want the pipeline tuned to *your* repo — your stack, commands, rigor profile, and the
 safety hooks — run `init`:
@@ -340,7 +355,7 @@ Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md).
 |---|---|
 | [`docs/install.md`](docs/install.md) | Every install detail: prerequisites, Windows, plugin updates, all `init` questions, `init.yaml`, what lands on disk |
 | [`docs/cli.md`](docs/cli.md) | Full CLI command reference, safe-upgrade mechanics, troubleshooting |
-| [`docs/agents.md`](docs/agents.md) | How to drive the agents + the full 28-agent roster and per-run cost |
+| [`docs/agents.md`](docs/agents.md) | How to drive the agents + the full 29-agent roster and per-run cost |
 | [`docs/architecture.md`](docs/architecture.md) | Diagrams: distribution, catalog resolution, the state machine — and how to extend via the catalog |
 | [`docs/influences.md`](docs/influences.md) | The reuse-first adoption history: what we learned, shipped, and deliberately skipped |
 | [`docs/autonomous-operation.md`](docs/autonomous-operation.md) | Unattended runs: permission modes × autonomy levels, headless mode, the bounded loop script, CI-trigger design |
@@ -358,10 +373,12 @@ Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md).
 Issues and PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). To dogfood a local checkout:
 
 ```bash
-# As a plugin:  /plugin marketplace add .   then   /plugin install claude-kit
+# As a plugin:  /plugin marketplace add .   then   /plugin install claude-kit@claude-kit
 # As the CLI:   pip install -e '.[dev]'   then   claude-kit init /tmp/demo --defaults   &&   pytest
 ```
 
 ## License
 
 [MIT](LICENSE) © Arjunsingh Yadav
+
+claude-kit is an independent open-source project — not affiliated with or endorsed by Anthropic.

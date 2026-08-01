@@ -35,7 +35,9 @@ class Selection:
         capture_mode: Agent-side learning-capture trigger (``"off"``/``"session-end"``/
             ``"session-end-catchup"``/``"per-task"``; see ``catalog/capture.yaml``). Controls how
             often / when the background capture job fires (the token-cost knob); recall stays
-            profile-driven. Defaults to ``session-end-catchup``.
+            profile-driven. Defaults to ``off`` — the capture job reads session transcript
+            content, so every non-interactive path is opt-in; only an explicit choice (the
+            interactive ``init`` question, a config file, or this field) turns it on.
         mcp: Selected MCP server ids (empty means no ``.mcp.json`` is written).
         scope: Usage scope (``"individual"``/``"team"``/``"organization"``). Only ``organization``
             installs the org capability layer (packs, persona agents, org rules, autonomy hooks).
@@ -57,7 +59,7 @@ class Selection:
     backend_framework: str
     database: str
     profile: str
-    capture_mode: str = "session-end-catchup"
+    capture_mode: str = "off"
     mcp: list[str] = field(default_factory=list)
     scope: str = "team"
     teams: list[str] = field(default_factory=list)

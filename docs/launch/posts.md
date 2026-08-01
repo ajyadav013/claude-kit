@@ -1,5 +1,9 @@
 # Launch Announcement Drafts
 
+> **Historical snapshot.** These drafts were written for an earlier release and are kept for
+> reference — component counts and claims reflect the kit at that time. The README carries the
+> current numbers (enforced by `scripts/check_docs_consistency.py`).
+
 ## Show HN
 
 ### Title

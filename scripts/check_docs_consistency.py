@@ -123,7 +123,9 @@ def _actuals() -> dict[str, int]:
 # found". Subset counts elsewhere ("8 agent-operation rules") are deliberately NOT anchored.
 _ANCHORS: list[tuple[str, str, str]] = [
     ("agents", "README.md", r"\*\*(\d+)\*\* tiered agents"),
+    ("agents", "README.md", r"the full (\d+)-agent roster"),
     ("agents", "docs/agents.md", r"(\d+) specialized roles"),
+    ("agents", "docs/agentic-patterns.md", r"(\d+) agents; subagents"),
     ("rules", "README.md", r"\*\*(\d+)\*\* stack-agnostic core rules"),
     # The headline skill number is the FULL catalog (core + collection); the breakdown pins each part.
     ("skills", "README.md", r"\*\*(\d+)\*\* context-activated skills"),

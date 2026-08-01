@@ -15,9 +15,13 @@
 
 version: 1
 
-# Used by `--defaults`, the plugin install, and shown as the recommended pick. The interactive prompt
-# overrides this to `off` for the lean profile (lean is intentionally minimal).
-default: session-end-catchup
+# CONSENT GATE (0.76.0): background capture reads session transcript content, so it is opt-in —
+# `default` (used by every NON-interactive path: `--defaults`, config files without the key) is
+# `off`. The interactive `init` prompt asks explicitly and preselects `recommended` (off for the
+# lean profile — lean is intentionally minimal). The plugin channel and the no-pip starter ship no
+# capture hooks at all (see PLUGIN_HOOK_IDS / STARTER_HOOK_IDS in src/claude_kit/hooks.py).
+default: "off"
+recommended: session-end-catchup
 
 modes:
   "off":

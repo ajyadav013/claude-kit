@@ -1,7 +1,7 @@
 # claude-kit
 
-> A Cookiecutter-style scaffolder that installs a stack-agnostic, autonomous-SDLC **configuration**
-> for Claude Code — no application code, no Docker. It lays down `CLAUDE.md` + `.claude/` (engineering
+> An evidence-gated SDLC for Claude Code — a scaffolder that installs a stack-agnostic, autonomous-SDLC
+> **configuration**; no application code, no Docker. It lays down `CLAUDE.md` + `.claude/` (engineering
 > rules, the chosen profile's agents/skills, hooks, artifact templates) plus an optional `.mcp.json`,
 > then `/sdlc` drives spec → review → build → test → security → ship through **owned quality gates**.
 
@@ -12,7 +12,7 @@ data-driven `catalog/` (stacks · profiles · MCP · org) — extend by editing 
 
 ## Install
 
-- **Plugin (recommended):** `/plugin marketplace add ajyadav013/claude-kit` → `/plugin install claude-kit`
+- **Plugin (recommended):** `/plugin marketplace add ajyadav013/claude-kit` → `/plugin install claude-kit@claude-kit`
   → `/claude-kit:sdlc <task>` runs the standard gated pipeline immediately (no CLI, no restart).
 - **Tune to your repo:** `pip install claude-code-kit` (or `pipx install claude-code-kit`), then
   `claude-kit init` resolves your stack/profile/MCP and wires your exact build/test/lint commands.

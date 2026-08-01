@@ -23,9 +23,9 @@ they are already embodied in its rules, agents, skills, and the orchestration mo
 | 4 | Reflection | `rules/rarv-cycle.md` (Reflect); `agents/devils-advocate.md`; `skills/doubt-driven-development`; blind review in `rules/quality-gates.md` | covered (strong) |
 | 5 | Tool Use | each agent's `tools:` frontmatter; MCP integration; design principles in **`rules/tool-design.md`** (new) | covered (rule added) |
 | 6 | Planning | `agents/spec-doc-writer`, `story-planner`, `technical-architect`; `skills/spec-driven-development`, `planning-and-task-breakdown`, `scope`, `sprint` | covered (strong) |
-| 7 | Multi-Agent Collaboration | 28 agents; subagents + Agent-Teams worked example in orchestration-patterns | covered (strong) |
+| 7 | Multi-Agent Collaboration | 29 agents; subagents + Agent-Teams worked example in orchestration-patterns | covered (strong) |
 | 8 | Memory Management | `rules/continuity.md` (working) + `rules/agent-memory.md` (durable, now with the **working/episodic/semantic/procedural** taxonomy); `skills/remember`, `consolidate-learnings`, `context-engineering` | covered (taxonomy added) |
-| 9 | Learning & Adaptation | `rules/agent-memory.md`; `skills/remember`; the `load-learnings` SessionStart hook; **auto-capture** — the configurable `capture-learnings` hook (a non-blocking background job over Claude's own work, fired per the init-time `capture_mode`: SessionEnd · +SessionStart catch-up for abrupt closes · per-task Stop) | covered |
+| 9 | Learning & Adaptation | `rules/agent-memory.md`; `skills/remember`; the `load-learnings` SessionStart hook; **auto-capture** — the **opt-in** `capture-learnings` hook (a non-blocking background job over Claude's own work, fired per the init-time `capture_mode`, default off: SessionEnd · +SessionStart catch-up for abrupt closes · per-task Stop) | covered |
 | 10 | Model Context Protocol (MCP) | `catalog/mcp.yaml` → `.mcp.json`; `skills/browser-testing-with-devtools`; design guidance in `rules/tool-design.md` | covered (strong) |
 | 11 | Goal Setting & Monitoring | **`rules/goal-setting-and-monitoring.md`** (new) + spec acceptance criteria + `acceptance-reviewer` + quality-gates process signals | **rule added** |
 | 12 | Exception Handling & Recovery | **`rules/agent-resilience.md`** (new) + gate retry budgets + `skills/debugging-and-error-recovery` (product bugs) | **rule added** |
