@@ -157,6 +157,12 @@ def _resolve_profile(
             out[key] = list(avail.get(key, base[key]))
         elif val is None:
             out[key] = list(base[key])
+        elif key == "gates":
+            # Gates are the one ORDERED list (the snapshot's gates: is execution-ordered and
+            # close-gate enforces that order). A profile's own gates: line declares the full
+            # execution order (profiles.yaml convention); inherited gates only fill gaps, so
+            # inherit-union order can never scramble the sequence the docs advertise.
+            out[key] = _dedup(list(val) + list(base[key]))
         else:
             out[key] = _dedup(list(base[key]) + list(val))
     return out
@@ -442,15 +448,19 @@ def capture_mode_options(payload_root: str | Path) -> dict[str, Any]:
     """Return the learning-capture modes for the prompt layer (from ``catalog/capture.yaml``).
 
     Returns:
-        ``{"modes": [{"id", "label"}, ...], "default": <mode id>}``.
+        ``{"modes": [{"id", "label"}, ...], "default": <mode id>, "recommended": <mode id>}`` —
+        ``default`` is what every non-interactive path gets (``off``: background capture is
+        consent-gated), ``recommended`` is what the interactive prompt preselects.
     """
     cfg = _load(Path(payload_root), "capture.yaml")
     modes = cfg.get("modes", {})
+    default = cfg.get("default", "off")
     return {
         "modes": [
             {"id": mid, "label": m.get("label", mid)} for mid, m in modes.items()
         ],
-        "default": cfg.get("default", "session-end-catchup"),
+        "default": default,
+        "recommended": cfg.get("recommended", default),
     }
 
 
@@ -472,7 +482,7 @@ def defaults(payload_root: str | Path) -> Selection:
         backend_framework=be_fw_default,
         database=stacks["database"]["default"],
         profile=profiles.get("default", "standard"),
-        capture_mode=capture.get("default", "session-end-catchup"),
+        capture_mode=capture.get("default", "off"),
         mcp=[],
     )
 

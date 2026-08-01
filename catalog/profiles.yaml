@@ -5,6 +5,12 @@
 # another profile (this profile's lists are unioned with the inherited ones). The special value
 # `all` means "every available item discovered in the payload" (agents/, skills/, hooks/).
 #
+# ORDER CONVENTION for `gates:` — gates are the one list where order is data: the resolved list
+# lands execution-ordered in stack-catalog.snapshot.yaml and `claude-kit pipeline close-gate`
+# enforces it. A profile that inherits MUST therefore declare its FULL gate list in execution
+# order (standard and enterprise below do); the resolver keeps the profile's own order and lets
+# inherited gates only fill gaps.
+#
 # Agent and skill names must match files in agents/ and skills/. Hook ids map to entries in the
 # hook registry in scaffold.py (script-backed hooks copy their .sh; inline/prompt hooks don't).
 

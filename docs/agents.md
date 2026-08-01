@@ -4,7 +4,7 @@ claude-kit installs a team of focused agents plus an **orchestrator** that runs 
 software-delivery pipeline with a quality gate between phases. This guide shows how to drive them.
 
 > Prerequisite: the agents load when claude-kit is active in a project — installed as a plugin
-> (`/plugin install claude-kit`) or scaffolded with `claude-kit init`. Which agents are present
+> (`/plugin install claude-kit@claude-kit`) or scaffolded with `claude-kit init`. Which agents are present
 > depends on the **profile** you chose at init (`lean ⊊ standard ⊊ enterprise`). After installing
 > into a project, **restart Claude Code** so the agents, skills, and hooks load.
 >

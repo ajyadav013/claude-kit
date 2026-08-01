@@ -22,7 +22,8 @@ exactly: OK"` runs, 2026-07-07; total input = `input + cache_creation + cache_re
 | Same project, `.claude/rules/` removed | 66,728 |
 
 **Attribution: `.claude/rules/` = 97,031 tokens (93% of the kit's 103,916-token injection).
-Everything else the kit installs — CLAUDE.md, 42 skills, 28 agents, hooks, settings — totals
+Everything else the kit installs — CLAUDE.md, 42 skills, 28 agents, hooks, settings (component
+counts as of the 2026-07-07 measurement; a historical snapshot, not the live roster) — totals
 6,885 tokens.** The lean design works everywhere except the one directory the original design
 assumed was inert, on-demand reference material. `CLAUDE.md`'s "live on-demand in
 `.claude/rules/`" sentence is false under real semantics.

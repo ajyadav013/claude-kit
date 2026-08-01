@@ -59,7 +59,7 @@ locally, and how to release.
 
 ```bash
 # Plugin (dogfood this checkout):
-#   in Claude Code:  /plugin marketplace add .   then   /plugin install claude-kit
+#   in Claude Code:  /plugin marketplace add .   then   /plugin install claude-kit@claude-kit
 
 # CLI:
 pip install -e '.[dev]'
@@ -107,6 +107,9 @@ a specific stack — `pytest` enforces the no-Docker invariant on a scaffolded p
 4. CI auto-publishes to PyPI on merge to `main` when the version is new (`.github/workflows/publish.yml`,
    OIDC trusted publishing). Manual `python3 -m twine upload dist/*` is the fallback.
 5. Tag the release and push so plugin users get the update.
+6. Publish the context-cost report for the release: run `claude plugin details claude-kit@claude-kit`
+   in Claude Code and paste the token/context figures into the release notes, so users can see what
+   the plugin costs their context window before installing.
 
 ## License
 

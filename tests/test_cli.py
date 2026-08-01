@@ -115,12 +115,17 @@ def test_init_capture_mode_config_and_default(tmp_path):
     assert 'capture-learnings.sh" stop' in ev["Stop"]
     assert "capture-learnings.sh" not in ev["SessionEnd"]
 
-    # --defaults: the recommended catch-up default (SessionEnd end + SessionStart catchup).
+    # --defaults: capture is OFF (consent gate, 0.76.0) — no capture hook on any event. Only an
+    # explicit choice (interactive init or a config file, as above) wires the background job.
     dflt = tmp_path / "dflt"
     assert runner.invoke(app, ["init", str(dflt), "--defaults"]).exit_code == 0
     ev = events(dflt)
-    assert "catchup" in ev["SessionStart"]
-    assert "capture-learnings.sh" in ev["SessionEnd"]
+    assert "capture-learnings.sh" not in ev["SessionStart"]
+    assert "capture-learnings.sh" not in ev["SessionEnd"]
+    assert "capture-learnings.sh" not in ev["Stop"]
+    assert (
+        "load-learnings.sh" in ev["SessionStart"]
+    )  # recall stays on — only capture is gated
 
 
 def test_existing_claude_abort_changes_nothing(tmp_path, payload):
@@ -588,3 +593,35 @@ def test_tickets_html_refresh_zero_produces_a_static_page(tmp_path):
     assert result.exit_code == 0, result.stdout
     html = (tmp_path / board_html.BOARD_REL).read_text(encoding="utf-8")
     assert 'http-equiv="refresh"' not in html
+
+
+def test_privacy_report_default_install_capture_off(tmp_path):
+    """privacy-report on a --defaults install: capture OFF, recall listed, exit 0."""
+    target = tmp_path / "proj"
+    assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
+    result = runner.invoke(app, ["privacy-report", str(target)])
+    assert result.exit_code == 0, result.stdout
+    assert "background learning capture: OFF" in result.stdout
+    assert "load-learnings" in result.stdout  # recall stays on and is disclosed
+
+
+def test_privacy_report_flags_enabled_capture(tmp_path):
+    """A config-file install that opts into capture shows capture: ON with the disclosure."""
+    cfg = tmp_path / "init.yaml"
+    cfg.write_text("capture_mode: session-end-catchup\n", encoding="utf-8")
+    target = tmp_path / "proj"
+    assert (
+        runner.invoke(app, ["init", str(target), "--config", str(cfg)]).exit_code == 0
+    )
+    result = runner.invoke(app, ["privacy-report", str(target)])
+    assert result.exit_code == 0, result.stdout
+    assert "background learning capture: ON" in result.stdout
+    assert "transcript" in result.stdout  # the disclosure names what is read
+
+
+def test_privacy_report_without_settings_shows_plugin_roster(tmp_path):
+    """No settings.json → describe the static plugin channel; plugin ships no capture."""
+    result = runner.invoke(app, ["privacy-report", str(tmp_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "plugin channel" in result.stdout
+    assert "plugin ships no capture hooks" in result.stdout

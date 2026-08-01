@@ -34,13 +34,25 @@ Schema (keep it small and truthful — omit a field rather than guess it):
   "task": "<one-line description of the run>",
   "profile": "lean | standard | enterprise",
   "scope": "individual | team | organization",
-  "mode": "A | B | C | D",
+  "mode": "A | B | C | D | E",
   "stage": "<current PIPELINE stage label>",
   "lanes": { "<lane>": "not-started | in-progress | passed | failed" },
   "last_gate_passed": "<gate token, e.g. code-review>",
   "open_findings": { "critical": 0, "high": 0, "medium": 0 },
   "gate_evidence": { "<gate token>": "<path to the evidence artifact>" },
   "gate_overrides": { "<gate token>": "<why a blocking gate was force-closed>" },
+  "gate_history": [
+    {
+      "gate": "<gate token>",
+      "status": "passed | skipped | overridden",
+      "evidence_path": "<path, null for skipped>",
+      "evidence_sha256": "<sha256 of the evidence file at close time>",
+      "verification": "agent | mechanical | human | override",
+      "recorded_at": "<UTC ISO timestamp>",
+      "override": "<reason when force-closed, else null>",
+      "reason": "<why a skipped gate does not apply (skipped entries only)>"
+    }
+  ],
   "git": { "branch": "<branch>", "sha": "<HEAD sha>", "worktrees": { "<lane>": "<path>" } },
   "pr": { "number": "<n>", "url": "<url>", "state": "<open|merged|closed>", "base": "<base>", "head": "<head>" },
   "next": "<the immediate next action>"
@@ -67,6 +79,15 @@ checks adapted, in the kit's own terms, from the MIT-licensed
 © 2026 Philip Borenstein.)
 
 A gate is PASS only when zero **critical/high/medium** findings remain open (low/cosmetic may pass with notes). `gate_evidence` records the artifact backing each passed gate; `gate_overrides` is written **only** when a gate is deliberately force-closed despite open blocking findings, so a reviewer (or `claude-kit pipeline validate`) can surface and re-examine it.
+
+`gate_history` is the **append-only ledger** behind those mirrors: gates close **in the installed
+order** (the `gates:` list in `stack-catalog.snapshot.yaml` is execution-ordered; the first record
+may anchor anywhere so a run can be adopted mid-flight), a conditional gate that doesn't apply is
+recorded `skipped` with a reason (`claude-kit pipeline skip-gate`), and each closed entry carries
+the evidence file's **sha256** — `validate` re-hashes every entry, so evidence cannot silently
+change after its gate closed. `verification` records *how* the evidence was checked: `agent`
+(a reviewer agent cited it), `mechanical` / `human` (reserved for parsed evidence and explicit
+human sign-off), `override` (force-closed). Old snapshots without `gate_history` stay valid.
 
 **Resume by reloading, not by re-running.** On resume, read the snapshot as *context* to decide where to continue — then continue from there. Do **not** re-run setup that already ran, re-apply edits already committed, or re-open a gate already PASSed. Re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes. The snapshot records what was *true when written*, so the verify-before-trust check still applies (`.claude/rules/agent-memory.md`): if a "passed" gate's artifact is gone, treat it as not passed. If the snapshot is absent or unparseable, fall back to the freeform CONTINUITY state (back-compatible) and proceed.
 

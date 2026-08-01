@@ -4,6 +4,77 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.76.0] — 2026-08-01
+
+**The Trust Release — enforcement catches up with the promise.** The kit has always *claimed* that
+no gate passes without evidence; this release makes the deterministic state layer actually refuse
+the ways that claim could be quietly violated: gates closed out of order, evidence files swapped
+after the fact, snapshots corrupted mid-write, Mode E runs rejected by the very validator meant to
+protect them, and a learning-capture job that ran before anyone consented to it.
+
+### Added
+
+- **Gate ledger** (`claude-kit pipeline`): every `close-gate` now appends an entry to an append-only
+  `gate_history` in the pipeline snapshot — gate, status (`passed` / `skipped` / `overridden`),
+  evidence path **and its sha256**, a `verification` level (`agent` today; `mechanical` / `human`
+  reserved for the parser ladder in #74), and a UTC timestamp. `validate` re-hashes **every** ledger
+  entry, so tampering with an already-cited evidence file turns the run red.
+- **Gate-order enforcement.** `close-gate` derives the expected next gate from the profile's ordered
+  gate list and refuses out-of-order or already-recorded closes; `--force --override-reason` records
+  an honest `overridden` entry instead of a silent pass. The first recorded gate anchors anywhere in
+  the sequence, so adopting the ledger mid-run works.
+- **`pipeline skip-gate <gate> --reason`** — the honest path for conditional gates (e.g.
+  `contract-clear` on a stack with no API surface): recorded as `skipped` with the reason, never as
+  a fake pass.
+- **`--strict` for `pipeline validate` / `close-gate`** — a missing or unreadable install snapshot
+  fails closed instead of warning (for CI); the default stays lenient for back-compat.
+- **`claude-kit privacy-report`** — one line per installed hook: what it reads, what it writes,
+  whether it spawns a background job, whether learning capture is on, and how to turn it off.
+  Non-kit hook commands found in `settings.json` are flagged for the user's own review.
+- **Mode E** (`"mode": "E"`) is now accepted by the pipeline validator — it shipped in the
+  orchestrator in 0.58 but `pipeline.py` still rejected it. A drift-guard test now parses the mode
+  line out of `rules/continuity.md` and asserts it equals `pipeline.MODES`, so the two can't
+  diverge again.
+
+### Changed
+
+- **Learning capture is now opt-in** on every non-interactive path: the plugin manifest, the no-pip
+  starter `settings.json`, and `init --defaults` all install **no capture hooks**; `capture_mode`
+  defaults to `off`. The interactive `init` question *is* the consent — it still recommends
+  `session-end-catchup`. Recall (`load-learnings`, reading your own committed `agent-memory/`) is
+  unaffected and stays on. Documented in `SECURITY.md`.
+- **Snapshot writes are atomic and locked** — temp file + `os.replace` under an `O_EXCL` lockfile,
+  so a crash mid-`close-gate` can no longer leave a torn state file.
+- **Gates now resolve in execution order.** Fixed a real resolver bug the new order enforcement
+  uncovered: child profiles' gate lists were being union-merged behind the parent's, contradicting
+  the documented "execution-ordered" contract. `catalog/profiles.yaml` now documents the ordering
+  convention and the resolver preserves the child's declared order.
+- **Truth-in-advertising pass across every advertised surface.** The README headline now claims
+  exactly what ships ("every gate verdict must cite real command output, and the deterministic
+  state layer refuses to close a gate out of order or with unresolved findings"); "configuration
+  only" is spelled out (no app code in your repo, no daemon); the category line is now
+  **"Evidence-gated SDLC for Claude Code"** (plugin `displayName`: **Claude Kit SDLC**) across
+  plugin/marketplace manifests, PyPI metadata, `llms.txt`, and the CLI docstrings — the
+  `cookiecutter` search keywords stay. README hero restructured: proof (`examples/real-run/`)
+  before pitch, qualified install (`/plugin install claude-kit@claude-kit`), non-affiliation note
+  in the footer.
+- **Count drift fixed and pinned**: "28-agent roster" → 29 (README, `docs/agentic-patterns.md`),
+  both now anchored in `scripts/check_docs_consistency.py`; `docs/rules-context-budget.md`'s
+  numbers are annotated as the 2026-07-07 measurement snapshot; `docs/launch/posts.md` gains a
+  historical-snapshot banner.
+
+### Not adopted (deliberately)
+
+- **Splitting the plugin into core/standard/enterprise packages.** Profiles already gate what a
+  given install receives; a package split would break the one-source-of-truth layout for a
+  distribution problem no user has reported. Revisit with adoption data.
+- **A config-file source of truth for pipeline modes.** A drift-guard test asserting
+  `rules/continuity.md` ≡ `pipeline.MODES` is cheaper than a third artifact both would then have to
+  agree with.
+- **Mechanical evidence parsing in this release** (JUnit/coverage/SARIF verdicts refusing a close).
+  Deliberately sequenced as the next release so this one stays reviewable; the ledger's
+  `verification` enum already reserves `mechanical` / `human` for it (issue #74).
+
 ## [0.75.0] — 2026-07-31
 
 **The Devil's Advocate learns to weigh, not only to prosecute — a premortem, a merits-and-costs

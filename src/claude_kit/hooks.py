@@ -13,6 +13,8 @@ work in a scaffolded project (the plugin variant uses ``${CLAUDE_PLUGIN_ROOT}``)
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 # --- inline guard commands (no script file needed) -------------------------------------------------
@@ -109,108 +111,140 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "matcher": "",
         "entry": _script_entry("load-continuity.sh"),
         "script": "load-continuity.sh",
+        "data_access": "reads .claude/CONTINUITY.md (seeded from the template when missing) into "
+        "session context; local only, no background job",
     },
     "load-learnings": {
         "event": "SessionStart",
         "matcher": "",
         "entry": _script_entry("load-learnings.sh"),
         "script": "load-learnings.sh",
+        "data_access": "reads .claude/agent-memory/MEMORY.md (the learnings index) into session "
+        "context; local only, no background job",
     },
     "load-autonomy": {
         "event": "SessionStart",
         "matcher": "",
         "entry": _script_entry("load-autonomy.sh"),
         "script": "load-autonomy.sh",
+        "data_access": "reads the installed autonomy-level config into session context; local only",
     },
     "guard-rm-rf": {
         "event": "PreToolUse",
         "matcher": "Bash",
         "entry": {"type": "command", "command": _RM_RF_GUARD},
         "script": None,
+        "data_access": "inspects the Bash command JSON on stdin to block rm -rf; reads no files, "
+        "writes nothing",
     },
     "guard-push-main": {
         "event": "PreToolUse",
         "matcher": "Bash",
         "entry": _script_entry("guard-push-main.sh"),
         "script": "guard-push-main.sh",
+        "data_access": "inspects the Bash command JSON on stdin to block pushes targeting "
+        "main/master; reads no files",
     },
     "guard-destructive-git": {
         "event": "PreToolUse",
         "matcher": "Bash",
         "entry": _script_entry("guard-destructive-git.sh"),
         "script": "guard-destructive-git.sh",
+        "data_access": "inspects the Bash command JSON on stdin to block git reset --hard / "
+        "clean -f / worktree-wide discards; reads no files",
     },
     "protect-secrets": {
         "event": "PreToolUse",
         "matcher": "Read",
         "entry": {"type": "command", "command": _SECRETS_GUARD},
         "script": None,
+        "data_access": "inspects the Read file *path* to block secrets files (.env, keys, "
+        "credentials); never reads file contents",
     },
     "guard-commit-secrets": {
         "event": "PreToolUse",
         "matcher": "Bash",
         "entry": _script_entry("guard-secrets.sh"),
         "script": "guard-secrets.sh",
+        "data_access": "inspects Bash commit commands and staged file names to block committing "
+        "secret-looking files",
     },
     "warn-shared-modules": {
         "event": "PreToolUse",
         "matcher": "Edit|Write",
         "entry": _script_entry("warn-shared-modules.sh"),
         "script": "warn-shared-modules.sh",
+        "data_access": "inspects the edited file path for shared/project-wide config; advisory "
+        "warning only, never blocks",
     },
     "warn-llm-io": {
         "event": "PreToolUse",
         "matcher": "Edit|Write",
         "entry": _script_entry("warn-llm-io.sh"),
         "script": "warn-llm-io.sh",
+        "data_access": "inspects the edit's path and proposed content for LLM-SDK/prompt patterns; "
+        "advisory warning only",
     },
     "warn-sensitive-files": {
         "event": "PreToolUse",
         "matcher": "Edit|Write",
         "entry": _script_entry("warn-sensitive-files.sh"),
         "script": "warn-sensitive-files.sh",
+        "data_access": "inspects the edited file path for security-sensitive surfaces (auth, "
+        "payments, migrations, infra); advisory only",
     },
     "warn-large-edits": {
         "event": "PreToolUse",
         "matcher": "Edit|Write",
         "entry": _script_entry("warn-large-edits.sh"),
         "script": "warn-large-edits.sh",
+        "data_access": "counts changed lines in the proposed edit; advisory only",
     },
     "validate-frontmatter": {
         "event": "PreToolUse",
         "matcher": "Write",
         "entry": _script_entry("validate-frontmatter.sh"),
         "script": "validate-frontmatter.sh",
+        "data_access": "parses the YAML frontmatter of a written agent/skill file; blocks only "
+        "malformed frontmatter",
     },
     "validate-settings": {
         "event": "PreToolUse",
         "matcher": "Write",
         "entry": _script_entry("validate-settings.sh"),
         "script": "validate-settings.sh",
+        "data_access": "parses a written settings.json for JSON validity; blocks only invalid JSON",
     },
     "warn-missing-tests": {
         "event": "PostToolUse",
         "matcher": "Edit|Write",
         "entry": _script_entry("warn-missing-tests.sh"),
         "script": "warn-missing-tests.sh",
+        "data_access": "checks for a convention-named test file next to the edited source; "
+        "advisory only",
     },
     "audit-log": {
         "event": "PostToolUse",
         "matcher": "",
         "entry": _script_entry("audit-log.sh"),
         "script": "audit-log.sh",
+        "data_access": "appends timestamp|tool|target lines to .claude/state/audit.log; local "
+        "only, never leaves the machine",
     },
     "lint-fix": {
         "event": "Stop",
         "matcher": "",
         "entry": _script_entry("lint-fix.sh"),
         "script": "lint-fix.sh",
+        "data_access": "runs the project's own linter/formatter on the working tree; best-effort, "
+        "never blocks",
     },
     "type-check": {
         "event": "Stop",
         "matcher": "",
         "entry": _script_entry("type-check.sh"),
         "script": "type-check.sh",
+        "data_access": "runs the project's own type checker; best-effort, never blocks",
     },
     # --- learning capture: one script, three triggers, chosen by capture_mode (catalog/capture.yaml).
     # Never put these in a profile's hooks: list or rely on the `all` token — catalog._apply_capture_mode
@@ -225,6 +259,10 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "script": "capture-learnings.sh",
         "arg": "end",
         "timeout": 30,
+        "data_access": "SPAWNS A DETACHED BACKGROUND `claude` JOB on clean session exit that "
+        "reads the session transcript and changed files to distill learnings into "
+        ".claude/agent-memory/ — session content reaches your model provider; opt-in at init "
+        "(capture_mode), off unless you chose it",
     },
     "capture-learnings-catchup": {
         "event": "SessionStart",
@@ -232,6 +270,8 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("capture-learnings.sh", "catchup"),
         "script": "capture-learnings.sh",
         "arg": "catchup",
+        "data_access": "same background capture job as capture-learnings, fired on next launch "
+        "for sessions that ended abruptly; opt-in at init (capture_mode)",
     },
     "capture-learnings-stop": {
         "event": "Stop",
@@ -239,6 +279,8 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("capture-learnings.sh", "stop"),
         "script": "capture-learnings.sh",
         "arg": "stop",
+        "data_access": "same background capture job as capture-learnings, fired after each "
+        "file-editing task (highest token cost); opt-in at init (capture_mode)",
     },
     # Keeps ticket token/model/timing figures in the repo after the session transcript they were
     # derived from is gone. Self-throttling and detached, so the per-turn cost is ~nothing.
@@ -248,6 +290,8 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("capture-ticket-telemetry.sh"),
         "script": "capture-ticket-telemetry.sh",
         "arg": "",
+        "data_access": "spawns a detached local job reading transcript *metadata only* (tokens, "
+        "model, agent, branch — never message content) into docs/project/tickets/; no LLM call",
     },
 }
 
@@ -261,6 +305,8 @@ PLUGIN_ONLY_HOOKS: dict[str, dict[str, Any]] = {
         "matcher": "Bash",
         "script": "guard-kubectl-delete.sh",
         "arg": "",
+        "data_access": "inspects the Bash command JSON on stdin to block kubectl delete; reads "
+        "no files",
         "reason": (
             "Blocks destructive `kubectl delete` from the agent's Bash tool. Plugin-only by design: "
             "intentionally not added to the CLI scaffold registry / profiles, so `claude-kit init` "
@@ -292,8 +338,11 @@ PLUGIN_HOOK_IDS: frozenset[str] = frozenset(
         "validate-settings",
         "lint-fix",
         "type-check",
-        "capture-learnings",
-        "capture-learnings-catchup",
+        # The capture-learnings hooks are DELIBERATELY absent (0.76.0): they spawn a background
+        # `claude` job that reads session transcript content, and the plugin channel has no init
+        # question — background capture is consent-gated, so only an explicit `capture_mode`
+        # choice at `claude-kit init` (or a hand-edit of settings.json) enables it. Recall
+        # (load-learnings) stays on: reading your own learnings file needs no consent.
     }
 )
 
@@ -308,8 +357,8 @@ STARTER_HOOK_IDS: frozenset[str] = frozenset(
         "warn-shared-modules",
         "lint-fix",
         "type-check",
-        "capture-learnings",
-        "capture-learnings-catchup",
+        # capture-learnings hooks deliberately absent — same consent gate as PLUGIN_HOOK_IDS above:
+        # the no-pip starter is copied without an init question, so background capture stays off.
     }
 )
 
@@ -452,3 +501,111 @@ def generate_plugin_hooks_json() -> dict[str, Any]:
             (po["event"], po["matcher"], _plugin_entry(po["script"], po.get("arg", "")))
         )
     return {"hooks": _hooks_block(specs)}
+
+
+def _hook_id_for_command(command: str) -> str | None:
+    """Map an installed settings.json hook command back to its registry id.
+
+    An exact entry-command match wins (it disambiguates the three capture triggers that share one
+    script); the fallback matches on script basename + dispatch argument, which also tolerates the
+    plugin channel's ``${CLAUDE_PLUGIN_ROOT}`` paths.
+    """
+    for hid, spec in HOOK_REGISTRY.items():
+        if spec["entry"].get("command") == command:
+            return hid
+    for hid, spec in {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}.items():
+        script = spec.get("script")
+        if script and script in command:
+            arg = spec.get("arg", "")
+            if not arg or command.rstrip().endswith(f" {arg}"):
+                return hid
+    return None
+
+
+def privacy_report(target: str | Path = ".") -> tuple[bool, list[str]]:
+    """Report every installed hook's data access — the informed-consent view of a config.
+
+    Reads the target's ``.claude/settings.json`` (the scaffolded channel) and prints, per hook:
+    its registry id, event, and the ``data_access`` note from :data:`HOOK_REGISTRY` — what it
+    reads, what it writes, and whether it spawns a background job or sends session content to the
+    model provider. Hook commands the registry doesn't recognise are listed for the user's own
+    review, never explained away. Without a settings.json it describes the static plugin roster
+    (:data:`PLUGIN_HOOK_IDS` + :data:`PLUGIN_ONLY_HOOKS`) instead — the set any project using the
+    plugin channel gets.
+    """
+    combined = {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}
+
+    def line(hid: str, event: str) -> str:
+        access = (
+            combined.get(hid, {}).get("data_access") or "(no data-access note recorded)"
+        )
+        return f"{hid:<26} {event:<12} {access}"
+
+    msgs: list[str] = []
+    settings = Path(target).expanduser().resolve() / ".claude" / "settings.json"
+    if not settings.is_file():
+        msgs.append(
+            "no .claude/settings.json here — showing the plugin channel's static hook set "
+            "(hooks/hooks.json)"
+        )
+        msgs.append("")
+        for hid in HOOK_REGISTRY:
+            if hid in PLUGIN_HOOK_IDS:
+                msgs.append(line(hid, HOOK_REGISTRY[hid]["event"]))
+        for hid, spec in PLUGIN_ONLY_HOOKS.items():
+            msgs.append(line(hid, spec["event"]))
+        msgs.append("")
+        msgs.append(
+            "background learning capture: OFF — the plugin ships no capture hooks "
+            "(consent-gated); enable it by scaffolding with `claude-kit init` and choosing a "
+            "Learning capture mode"
+        )
+        return True, msgs
+
+    try:
+        data = json.loads(settings.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return False, [f"FAIL  {settings} is not valid JSON: {exc}"]
+
+    installed: list[tuple[str, str]] = []
+    unknown: list[tuple[str, str]] = []
+    hooks_block = data.get("hooks") if isinstance(data, dict) else None
+    for event, blocks in (hooks_block or {}).items():
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            entries = block.get("hooks", []) if isinstance(block, dict) else []
+            for entry in entries:
+                cmd = entry.get("command", "") if isinstance(entry, dict) else ""
+                matched = _hook_id_for_command(cmd)
+                if matched:
+                    installed.append((event, matched))
+                else:
+                    unknown.append((event, cmd))
+
+    msgs.append(f"privacy report — {settings}")
+    msgs.append("")
+    for event, hid in installed:
+        msgs.append(line(hid, event))
+    for event, cmd in unknown:
+        msgs.append(
+            f"{'(not a claude-kit hook)':<26} {event:<12} {cmd[:90]} — not from this kit; "
+            "review it yourself"
+        )
+
+    capture_on = sorted(
+        {hid for _e, hid in installed if hid.startswith("capture-learnings")}
+    )
+    msgs.append("")
+    if capture_on:
+        msgs.append(
+            f"background learning capture: ON ({', '.join(capture_on)}) — a detached `claude` "
+            "job reads session transcript content and changed files; disable by removing those "
+            "entries from .claude/settings.json, or re-run `claude-kit init` and choose 'Off'"
+        )
+    else:
+        msgs.append(
+            "background learning capture: OFF — only the local recall hook reads your learnings "
+            "file; enable capture at `claude-kit init` (Learning capture question)"
+        )
+    return True, msgs

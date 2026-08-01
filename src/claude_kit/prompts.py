@@ -171,10 +171,12 @@ def interactive(payload_root: str | Path) -> Selection:
     db = _choose_one("Database", opts["database"], dflt.database)
     profile = _choose_one("SDLC profile", opts["profiles"], dflt.profile)
 
-    # Learning-capture mode (the token-cost knob). Lean defaults to off (intentionally minimal);
-    # every other profile defaults to the catalog recommendation (session-end + catch-up).
+    # Learning-capture mode (the token-cost knob). This explicit question IS the consent gate for
+    # the background capture job (it reads session transcript content) — every non-interactive
+    # path stays `off` (capture.yaml `default`). The interactive preselection is the catalog's
+    # `recommended` pick; lean preselects off (intentionally minimal).
     cap = catalog.capture_mode_options(payload_root)
-    capture_default = "off" if profile == "lean" else cap["default"]
+    capture_default = "off" if profile == "lean" else cap["recommended"]
     capture_mode = _choose_one("Learning capture", cap["modes"], capture_default)
 
     mcp = _choose_many("Optional MCP integrations", opts["mcp"])

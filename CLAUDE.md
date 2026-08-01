@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Developing claude-kit
 
-This repository **is** claude-kit — a Cookiecutter-style scaffolder that installs a stack-agnostic,
-autonomous-SDLC **configuration** (no application code, no Docker) into a Claude Code project. It is
+This repository **is** claude-kit — an evidence-gated SDLC for Claude Code: a scaffolder that
+installs a stack-agnostic, autonomous-SDLC **configuration** (no application code, no Docker) into
+a Claude Code project. It is
 distributed two ways from one source of truth:
 
 1. **As a Claude Code plugin** — components are auto-discovered from the repo root.
@@ -122,7 +123,7 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
 
 ## Dogfooding / local testing
 
-- **Plugin:** `claude` → `/plugin marketplace add .` → `/plugin install claude-kit` (loads the
+- **Plugin:** `claude` → `/plugin marketplace add .` → `/plugin install claude-kit@claude-kit` (loads the
   agents/skills/commands/hooks from this checkout).
 - **CLI:** `pip install -e '.[dev]'` then `claude-kit init /tmp/demo --defaults` (or interactive),
   `claude-kit validate /tmp/demo`, `claude-kit diff /tmp/demo`, and inspect the result.

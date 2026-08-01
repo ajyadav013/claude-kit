@@ -225,12 +225,15 @@ def test_capture_mode_swaps_hooks(payload):
 
 
 def test_capture_mode_options_and_default(payload):
-    """capture_mode_options surfaces the catalog modes for the prompt, with the recommended default."""
+    """The consent gate (0.76.0): every NON-interactive path gets capture OFF; the interactive
+    prompt preselects the separate `recommended` pick. A regression back to on-by-default is a
+    consent bug, not a convenience — keep these pins."""
     opts = catalog.capture_mode_options(payload)
     ids = {m["id"] for m in opts["modes"]}
     assert ids == {"off", "session-end", "session-end-catchup", "per-task"}
-    assert opts["default"] == "session-end-catchup"
-    assert catalog.defaults(payload).capture_mode == "session-end-catchup"
+    assert opts["default"] == "off"
+    assert opts["recommended"] == "session-end-catchup"
+    assert catalog.defaults(payload).capture_mode == "off"
 
 
 def test_every_profile_includes_sdlc_entrypoint(payload):

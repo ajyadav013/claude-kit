@@ -1,7 +1,7 @@
 """Command-line interface for claude-kit (``claude-kit`` · aliases ``ckit`` / ``claude-sdlc``).
 
-A Cookiecutter-style scaffolder for a Claude Code **configuration** (no application code, no Docker):
-``init`` asks ordered questions and lays down ``CLAUDE.md`` + ``.claude/`` (rules, the profile's
+An evidence-gated SDLC for Claude Code, installed as **configuration** (no application code, no
+Docker): ``init`` asks ordered questions and lays down ``CLAUDE.md`` + ``.claude/`` (rules, the profile's
 agents/skills, hooks, artifact templates, config) + an optional ``.mcp.json`` and a README. Lifecycle
 commands — ``validate``, ``doctor``, ``diff``, ``upgrade``, ``list-options``, ``status`` — manage it.
 """
@@ -22,6 +22,7 @@ from claude_kit import (
     __version__,
     board_html,
     catalog,
+    hooks,
     pipeline,
     prompts,
     report,
@@ -804,15 +805,40 @@ def research_import_sources(
     raise typer.Exit(2)  # not a successful no-op — signal "unimplemented" to scripts/CI
 
 
+@app.command("privacy-report")
+def privacy_report(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit a machine-readable JSON report instead of text"
+    ),
+) -> None:
+    """Show what every installed hook reads, writes, or spawns — the informed-consent view.
+
+    Lists each hook in .claude/settings.json with its data access (transcript reads, background
+    jobs, LLM calls, local-only guards), flags hook commands that didn't come from this kit, and
+    states whether background learning capture is on and how to turn it off.
+    """
+    _emit_report(*hooks.privacy_report(path), as_json=json_out)
+
+
 @pipeline_app.command("validate")
 def pipeline_validate(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
     json_out: bool = typer.Option(
         False, "--json", help="emit a machine-readable JSON report instead of text"
     ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="fail (instead of warn) when the install snapshot is missing/unreadable — for CI",
+    ),
 ) -> None:
-    """Check the pipeline snapshot's shape and gate/lane coherence (no writes)."""
-    _emit_report(*pipeline.validate(path), as_json=json_out)
+    """Check the pipeline snapshot's shape, gate/lane coherence, and the gate ledger (no writes).
+
+    Every gate_history entry is re-verified: evidence file present, sha256 unchanged since the
+    gate closed, and entries in the installed gate order.
+    """
+    _emit_report(*pipeline.validate(path, strict=strict), as_json=json_out)
 
 
 @pipeline_app.command("status")
@@ -843,19 +869,54 @@ def pipeline_close_gate(
     override_reason: Optional[str] = typer.Option(
         None,
         "--override-reason",
-        help="justification recorded when --force bypasses open blocking findings",
+        help="justification recorded when --force bypasses blocking findings or gate order",
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="fail (instead of warn) when the install snapshot is missing/unreadable — for CI",
     ),
 ) -> None:
-    """Record a quality gate as passed, with an evidence file, in the pipeline snapshot.
+    """Record a quality gate as passed, with an evidence file, in the pipeline gate ledger.
 
-    Refuses to pass a gate while critical/high/medium findings are open unless --force is given with
-    an --override-reason (recorded for human review).
+    Appends to gate_history with the evidence file's sha256 and a UTC timestamp. Refuses to pass a
+    gate while critical/high/medium findings are open, and refuses to pass a gate out of the
+    installed order (skip a non-applicable gate explicitly with skip-gate), unless --force is given
+    with an --override-reason (the entry is then recorded as overridden, for human review).
     """
     _print_report(
         *pipeline.close_gate(
-            path, gate, evidence, force=force, override_reason=override_reason
+            path,
+            gate,
+            evidence,
+            force=force,
+            override_reason=override_reason,
+            strict=strict,
         )
     )
+
+
+@pipeline_app.command("skip-gate")
+def pipeline_skip_gate(
+    gate: str = typer.Argument(
+        ..., help="gate token to record as deliberately skipped (e.g. contract-clear)"
+    ),
+    reason: str = typer.Option(
+        ..., "--reason", help="why this conditional gate does not apply to the run"
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="fail (instead of warn) when the install snapshot is missing/unreadable — for CI",
+    ),
+) -> None:
+    """Record a conditional gate as deliberately skipped (with a reason) in the gate ledger.
+
+    A skipped gate keeps the ledger's order intact without claiming a pass — use it when a
+    profile-defined gate genuinely does not apply to this run (e.g. no API contract changed).
+    """
+    _print_report(*pipeline.skip_gate(path, gate, reason, strict=strict))
 
 
 @pipeline_app.command("abort")
