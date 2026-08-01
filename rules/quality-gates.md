@@ -71,6 +71,8 @@ A gate result is a claim about reality, so it must be grounded in reality. A PAS
 
 A fabricated, assumed, or partial-output-based verdict is an **auto-Critical** finding (§1): it defeats every downstream gate that trusts it. This is the gate-level form of the RARV rule "Verify means run it, not imagine it" (`.claude/rules/rarv-cycle.md`).
 
+**Record the verdict in the deterministic ledger.** Where the `claude-kit` CLI is on PATH (`command -v claude-kit`), a passed gate is recorded with `claude-kit pipeline close-gate <gate> --evidence <evidence-file>` — and a conditional gate that provably does not apply with `claude-kit pipeline skip-gate <gate> --reason '<why>'` — never by hand-editing `gate_history`. The CLI refuses out-of-order closes and open Critical/High/Medium findings, resolves the evidence path against the project root, stores its sha256, and `claude-kit pipeline validate` re-verifies every entry later. Only when the CLI is absent (plugin-only install), append the `gate_history` entry yourself per the schema in `.claude/rules/continuity.md` and keep the cited evidence file in the repo so a later `validate` can still check it.
+
 **Self-check before recording any verdict:** can I point to the captured command output or the `file:line` finding behind this PASS/FAIL? If not, it is a TODO, not a verdict — leave the gate closed.
 
 ---

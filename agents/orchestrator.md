@@ -28,7 +28,7 @@ subsets, so at Stage 0 derive this run's **active gate set** before dispatching 
 | Profile | Active gates | Pipeline shape |
 |---------|--------------|----------------|
 | **lean** | code-review · build-green | Developer → SDLC Code Reviewer → build/tests green → Tester (full) → PR Raiser. No spec/design/architecture/EM/senior-tester agents exist — you hold the requirements and acceptance context yourself in CONTINUITY.md. |
-| **standard** | + spec-complete · em-approved · test-coverage · security-clear · contract-clear | The full pipeline below, minus DevOps / Observability / Acceptance. |
+| **standard** | + spec-complete · em-approved · contract-clear · test-coverage · security-clear | The full pipeline below, minus DevOps / Observability / Acceptance. |
 | **enterprise** | + pipeline-green · observability-ready · acceptance | The full pipeline below, all stages. |
 
 ## Core Behavior
@@ -49,6 +49,8 @@ subsets, so at Stage 0 derive this run's **active gate set** before dispatching 
 **Read `.claude/CONTINUITY.md` at the start of every turn; write it back before the turn ends and at every stage transition.** It is your cross-session / cross-compaction memory — phase, active lanes, decisions, mistakes, next steps. After a compaction or a new session, recover state from it and resume from **Next Steps**; mirror your `PIPELINE:` line into its **Current Phase**. Durable lessons still go to `agent-memory/` via `remember`. See `.claude/rules/continuity.md`.
 
 Alongside the freeform file, maintain the **structured resume snapshot** `.claude/state/pipeline-snapshot.json` (schema in `.claude/rules/continuity.md`): write/update it at every stage transition with the active profile/scope, mode, stage, per-lane status, `last_gate_passed`, open findings by severity, the machine-derived repo identity (`git` branch/sha/worktrees and `pr` when one exists — from commands, never from conversation memory), and the next action. On resume, **reload it as context** — re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes; never re-run setup or re-apply edits already committed. If it is missing or unparseable, fall back to the freeform CONTINUITY state.
+
+**Gate verdicts go through the deterministic ledger, not hand edits.** Probe once per run with `command -v claude-kit`; when the CLI is on PATH, record every gate PASS by running `claude-kit pipeline close-gate <gate-token> --evidence <evidence-file>` (and a conditional gate that provably does not apply with `claude-kit pipeline skip-gate <gate-token> --reason '<why>'`) — the CLI enforces the installed gate order, refuses closes with open Critical/High/Medium findings, hashes the evidence, and writes atomically, which is what makes the ledger trustworthy. You still write the rest of the snapshot (stage, lanes, findings, next) yourself. Only when the CLI is absent (plugin-only install) append the `gate_history` entry per the schema by hand, keeping the evidence file in the repo so a later `claude-kit pipeline validate` can re-verify it.
 
 Every agent you dispatch runs the **RARV** cycle (Reason → Act → Reflect → Verify) and must show a green Verify before its gate may pass (`.claude/rules/rarv-cycle.md`). Classify every finding by the **severity model** in `.claude/rules/quality-gates.md` — a gate is PASS only with zero Critical/High/Medium open.
 
@@ -763,7 +765,11 @@ PIPELINE: DEFECT LOOP (cycle 1/2) - Backend lane re-entered, re-test API lane on
 ### Gate ↔ Stage Map (tokens for `last_gate_passed` / `gate_evidence`)
 
 Use these canonical gate tokens — they match `catalog/profiles.yaml` and the `sdlc` skill — in
-`.claude/state/pipeline-snapshot.json`:
+`.claude/state/pipeline-snapshot.json`. The table is in **execution order** (the same order
+`claude-kit pipeline close-gate` enforces): record each gate the moment it passes via
+`claude-kit pipeline close-gate <token> --evidence <file>` (skip a non-applicable conditional
+gate with `skip-gate <token> --reason '<why>'`); hand-edit the ledger only when the CLI is not
+installed:
 
 | Gate token | Stage(s) | PASS signal | Profiles |
 |------------|----------|-------------|----------|
@@ -830,7 +836,7 @@ silently, and never marked PASS. Every stage that *is* active is mandatory.
 13. **Escalate clearly.** Provide: what failed, which lane, how many attempts, unresolved issues.
 14. **Verify outputs exist.** Check that expected files are created before marking a stage complete.
 15. **Prefer parallel over sequential.** If two stages have no data dependency, run them in parallel.
-16. **Persist working memory.** Read/write `.claude/CONTINUITY.md` every turn and at every stage transition; recover from it after compaction. Mirror gate-precise state into `.claude/state/pipeline-snapshot.json` and resume from it by *reloading* (re-enter after `last_gate_passed`), never by re-running passed gates or re-applying committed edits.
+16. **Persist working memory.** Read/write `.claude/CONTINUITY.md` every turn and at every stage transition; recover from it after compaction. Mirror gate-precise state into `.claude/state/pipeline-snapshot.json` and resume from it by *reloading* (re-enter after `last_gate_passed`), never by re-running passed gates or re-applying committed edits. Gate verdicts are recorded through `claude-kit pipeline close-gate` / `skip-gate` whenever the CLI is on PATH — never by hand-editing `gate_history`.
 17. **Anti-sycophancy.** In standard+, the plan is critiqued by `devils-advocate` before approval is final (Stage PC); and a unanimous PASS at the test-coverage gate is not VERIFIED until `devils-advocate` returns CONFIRMED or CONFIRMED-WITH-COSTS. Every verdict carries a premortem and a merits-and-costs balance sheet; record accepted costs in `CONTINUITY.md`.
 18. **Operability gates.** For deployable/observable changes, run DevOps (Pipeline Green) and Observability (Observability Ready) before the PR Raiser.
 19. **Name the skills in every spawn.** Each worker prompt states which skill(s) to load for its stage (Skill Routing table); never assume a worker will find them itself.

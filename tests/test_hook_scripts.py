@@ -747,3 +747,32 @@ def test_every_hook_declares_data_access():
             f"hook {hid!r} has no data_access note — privacy-report would render a blank "
             "for it; describe what it reads/writes/spawns in HOOK_REGISTRY"
         )
+
+
+def test_hook_matcher_rejects_lookalike_commands():
+    """The privacy-report matcher requires an exact script basename token — a lookalike file
+    (`.sh.bak`, a directory named after the script) must not inherit a kit hook's identity."""
+    from claude_kit.hooks import _hook_id_for_command
+
+    assert _hook_id_for_command("bash /tmp/hooks/load-learnings.sh.bak") is None
+    assert _hook_id_for_command("bash /tmp/load-learnings.sh-evil/run.sh") is None
+    assert _hook_id_for_command("bash /tmp/evil-load-learnings.sh.disabled") is None
+
+
+def test_hook_matcher_maps_plugin_root_paths_and_args():
+    """${CLAUDE_PLUGIN_ROOT} paths still map (their basename IS the registry script), and the
+    trigger arg disambiguates the three capture hooks that share one script."""
+    from claude_kit.hooks import _hook_id_for_command
+
+    assert (
+        _hook_id_for_command(
+            'bash "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-learnings.sh"'
+        )
+        == "load-learnings"
+    )
+    assert (
+        _hook_id_for_command(
+            'bash "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/capture-learnings.sh" catchup'
+        )
+        == "capture-learnings-catchup"
+    )

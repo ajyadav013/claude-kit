@@ -106,7 +106,9 @@ profiles:
     # contract-clear self-skips when the stack exposes no API contract surface, so it is inert for
     # non-API projects on standard while enforcing backward-compatibility for API-exposing backends
     # (e.g. FastAPI). Promoted from enterprise-only per brief #2 P0-1 — see CHANGELOG 0.13.0.
-    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, contract-clear]
+    # Position: contract-clear closes at MR2 (the merge-reviewer join, right after the build-green
+    # lanes and BEFORE the test/security stages) — see the Gate ↔ Stage map in agents/orchestrator.md.
+    gates: [spec-complete, em-approved, code-review, build-green, contract-clear, test-coverage, security-clear]
     # NOTE: the agent-side capture hooks (capture-learnings / -catchup / -stop) are deliberately NOT
     # listed here — they are installed by the init-time `capture_mode` choice via catalog/capture.yaml
     # (see catalog._apply_capture_mode), not by profile membership. load-learnings (recall) stays.
@@ -124,5 +126,5 @@ profiles:
       - incident-responder
       - risk-classifier
     skills: all
-    gates: [spec-complete, em-approved, code-review, build-green, test-coverage, security-clear, contract-clear, pipeline-green, observability-ready, acceptance]
+    gates: [spec-complete, em-approved, code-review, build-green, contract-clear, test-coverage, security-clear, pipeline-green, observability-ready, acceptance]
     hooks: all

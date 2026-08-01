@@ -185,7 +185,7 @@ flowchart TD
 | Profile | Gates that run |
 |---|---|
 | **lean** | code-review · build-green |
-| **standard** | spec-complete · em-approved · code-review · build-green · test-coverage · security-clear · contract-clear\* |
+| **standard** | spec-complete · em-approved · code-review · build-green · contract-clear\* · test-coverage · security-clear |
 | **enterprise** | standard + pipeline-green · observability-ready · acceptance |
 
 \* `contract-clear` (API breaking-change diff) self-skips when the stack exposes no API surface.

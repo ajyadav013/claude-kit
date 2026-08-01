@@ -42,7 +42,7 @@ The kit's central data flow is **Selection → catalog.resolve() → ResolvedPla
 
 | Module | Role |
 |--------|------|
-| `cli.py` | Typer app — all CLI commands (`init`, `validate`, `doctor`, `diff`, `export`, `upgrade`, `pipeline`, `list-options`, `status`). Experimental/planned commands are hidden unless `CLAUDE_KIT_EXPERIMENTAL=1`. |
+| `cli.py` | Typer app — all CLI commands (`init`, `validate`, `doctor`, `diff`, `export`, `upgrade`, `pipeline`, `list-options`, `status`, `privacy-report`). Experimental/planned commands are hidden unless `CLAUDE_KIT_EXPERIMENTAL=1`. |
 | `models.py` | Dataclass contracts: `Selection`, `ResolvedPlan`, `OrgPlan`, `InitOptions`, `FileRecord`, `UpgradeJournal`. The typed seam between prompts → resolver → installer → upgrader. |
 | `catalog.py` | The resolver — converts a `Selection` into a `ResolvedPlan` by reading the catalog YAML files. Must stay branch-free. |
 | `prompts.py` | Interactive `init` question flow (stack, profile, MCP, org scope, …). |
@@ -52,7 +52,7 @@ The kit's central data flow is **Selection → catalog.resolve() → ResolvedPla
 | `upgrader.py` | Safe, edit-preserving upgrade: checksum comparison, transactional journal, sidecar fallback for user-edited files. |
 | `validator.py` | Structural validation of an installed config (`validate` + `--strict` mode). |
 | `schemas.py` | JSON Schema definitions for catalog integrity checks (`validate --strict`). |
-| `pipeline.py` | Deterministic `/sdlc` state-file ops (validate, status, close-gate, abort) — inspects the state files, does **not** run the pipeline. |
+| `pipeline.py` | Deterministic `/sdlc` state-file ops (validate, status, close-gate, skip-gate, abort) — owns the append-only `gate_history` ledger (order enforcement, evidence sha256, atomic locked writes); inspects/records state, does **not** run the pipeline. |
 | `export.py` | Projection into Cursor / AGENTS.md / Copilot formats. |
 | `detect.py` | Stack detection from a target repo (heuristic-based; non-blocking). |
 | `report.py` | Human-readable reporting for `doctor` and `status` commands. |

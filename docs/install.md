@@ -78,10 +78,12 @@ config — nothing else:
 5. **SDLC profile** (`lean` · `standard` · `enterprise`)
 6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Chrome DevTools · Docs/MS Learn · Azure · Wassette · Sentry · Grafana · Repowise · the Google security suite — full list: `claude-kit list-options`) — a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
-7. **Learning capture** (`session-end-catchup` default · `session-end` · `per-task` · `off`) — how often
-   the background learnings job runs. *Privacy note:* it reads your session transcript + changed files
-   to write `.claude/agent-memory/` entries (secret-bearing files skipped, secret-shaped values
-   redacted); opt out anytime with `CLAUDE_KIT_NO_AUTOCAPTURE=1`
+7. **Learning capture** (`off` default · `session-end-catchup` recommended · `session-end` ·
+   `per-task`) — **opt-in**: capture stays off unless you pick a mode here (non-interactive installs —
+   `--defaults`, the plugin, piped stdin — are always off). *Privacy note:* when enabled it reads your
+   session transcript + changed files to write `.claude/agent-memory/` entries (secret-bearing files
+   skipped, secret-shaped values redacted); disable anytime with `CLAUDE_KIT_NO_AUTOCAPTURE=1` and
+   audit with `claude-kit privacy-report`
 8. **Usage scope** (`individual` · `team` · `organization`) — organization scope asks four follow-ups:
    teams, autonomy level, review strictness, and org capability packs
 
@@ -95,7 +97,7 @@ backend:  { language: python, framework: fastapi }
 database: postgres
 profile:  standard                     # lean · standard · enterprise
 mcp:      [github]                     # [] = none; ids from `claude-kit list-options`
-capture_mode: session-end-catchup      # off · session-end · session-end-catchup · per-task
+capture_mode: "off"                    # "off" (default) · session-end · session-end-catchup · per-task — quote off
 scope:    team                         # individual · team · organization (org adds org: {teams, autonomy, review_strictness, packs})
 ```
 

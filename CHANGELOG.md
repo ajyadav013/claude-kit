@@ -63,6 +63,42 @@ protect them, and a learning-capture job that ran before anyone consented to it.
   numbers are annotated as the 2026-07-07 measurement snapshot; `docs/launch/posts.md` gains a
   historical-snapshot banner.
 
+### Fixed (adversarial review of this release, pre-merge)
+
+A 6-lens adversarial review of the release branch (37 findings, every one reproduced live before
+being accepted) hardened the new surfaces before they shipped:
+
+- **Ledger integrity:** a `--force` re-record no longer poisons later `validate` runs (an
+  `overridden` entry is exempt from the monotonic-order check — it is the *documented* exception,
+  not tampering); the resume position is anchored at the **max** of all recorded gates so a forced
+  backfill can never rewind it; the snapshot lock now covers the whole read-modify-write (two
+  concurrent closes: one wins, one gets a clean refusal instead of silently overwriting), with a
+  60 s stale-lock steal so a crashed run can't wedge the pipeline; `close-gate` / `skip-gate`
+  refuse to record onto an **aborted** run; a skip records `verification: "agent"` (running the
+  CLI is not human attestation — `human` stays reserved for #74's explicit sign-off).
+- **Evidence portability:** evidence paths are resolved against the **project root** (never the
+  caller's CWD) and stored project-relative, so a different checkout location or a CI runner can
+  still re-hash the ledger; `validate` warns (not fails) on history entries from a different
+  profile's gate set.
+- **Gate order corrected:** `contract-clear` closes at the merge-review join (MR2) — **before**
+  test-coverage and security-clear, matching the orchestrator's Gate ↔ Stage map; the profile gate
+  lists and the ordered-resolution tests now pin the execution order exactly.
+- **Consent edges:** a non-TTY `init` (piped stdin / EOF) can never self-answer the capture
+  question into "on"; `capture_mode: on`/`true` in a config file is a hard error naming the real
+  modes (YAML 1.1 parses bare `on` as a boolean — a silent no-op before); `upgrade` prints a
+  notice when it preserves a pre-0.76 install's enabled capture; `privacy-report` matches hook
+  commands by exact basename (a look-alike script can no longer spoof an "OK" line).
+- **Wiring:** the orchestrator, the `/sdlc` skill, `rules/quality-gates.md` §2.5, and
+  `rules/continuity.md` now instruct agents to record verdicts **through the CLI ledger** when
+  `claude-kit` is on PATH — the enforcement layer is reachable from the pipeline that needs it,
+  not just from a human at a terminal.
+
+**Migration note (pre-0.76 installs):** upgrades never change your recorded `capture_mode` — a
+mode chosen (or defaulted) before 0.76.0 stays active and the upgrade says so; audit with
+`claude-kit privacy-report`, disable via `CLAUDE_KIT_NO_AUTOCAPTURE=1` or re-init. Existing
+pipeline snapshots without `gate_history` remain valid; the ledger starts recording from the next
+`close-gate`, anchoring wherever the run currently stands.
+
 ### Not adopted (deliberately)
 
 - **Splitting the plugin into core/standard/enterprise packages.** Profiles already gate what a

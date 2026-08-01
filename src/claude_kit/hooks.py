@@ -14,6 +14,7 @@ work in a scaffolded project (the plugin variant uses ``${CLAUDE_PLUGIN_ROOT}``)
 from __future__ import annotations
 
 import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -507,17 +508,24 @@ def _hook_id_for_command(command: str) -> str | None:
     """Map an installed settings.json hook command back to its registry id.
 
     An exact entry-command match wins (it disambiguates the three capture triggers that share one
-    script); the fallback matches on script basename + dispatch argument, which also tolerates the
-    plugin channel's ``${CLAUDE_PLUGIN_ROOT}`` paths.
+    script). The fallback requires an exact script **basename token** — never a substring — so a
+    lookalike command (``.../load-learnings.sh.bak``, ``.../capture-learnings.sh-evil/x.sh``)
+    is NOT claimed as a kit hook and privacy-report lists it for the user's own review. Plugin
+    ``${CLAUDE_PLUGIN_ROOT}`` paths still match: their basename is the registry script name.
     """
     for hid, spec in HOOK_REGISTRY.items():
         if spec["entry"].get("command") == command:
             return hid
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+    basenames = {Path(tok).name for tok in tokens}
     for hid, spec in {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}.items():
         script = spec.get("script")
-        if script and script in command:
+        if script and script in basenames:
             arg = spec.get("arg", "")
-            if not arg or command.rstrip().endswith(f" {arg}"):
+            if not arg or (tokens and tokens[-1] == arg):
                 return hid
     return None
 
@@ -556,7 +564,7 @@ def privacy_report(target: str | Path = ".") -> tuple[bool, list[str]]:
             msgs.append(line(hid, spec["event"]))
         msgs.append("")
         msgs.append(
-            "background learning capture: OFF — the plugin ships no capture hooks "
+            "OK    background learning capture: OFF — the plugin ships no capture hooks "
             "(consent-gated); enable it by scaffolding with `claude-kit init` and choosing a "
             "Learning capture mode"
         )
@@ -597,15 +605,18 @@ def privacy_report(target: str | Path = ".") -> tuple[bool, list[str]]:
         {hid for _e, hid in installed if hid.startswith("capture-learnings")}
     )
     msgs.append("")
+    # OK/WARN prefixes make the ON/OFF state machine-readable via `--json` (Report levels),
+    # not just a substring in prose.
     if capture_on:
         msgs.append(
-            f"background learning capture: ON ({', '.join(capture_on)}) — a detached `claude` "
-            "job reads session transcript content and changed files; disable by removing those "
-            "entries from .claude/settings.json, or re-run `claude-kit init` and choose 'Off'"
+            f"WARN  background learning capture: ON ({', '.join(capture_on)}) — a detached "
+            "`claude` job reads session transcript content and changed files; disable by "
+            "removing those entries from .claude/settings.json, or re-run `claude-kit init` "
+            "and choose 'Off'"
         )
     else:
         msgs.append(
-            "background learning capture: OFF — only the local recall hook reads your learnings "
-            "file; enable capture at `claude-kit init` (Learning capture question)"
+            "OK    background learning capture: OFF — only the local recall hook reads your "
+            "learnings file; enable capture at `claude-kit init` (Learning capture question)"
         )
     return True, msgs

@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
+import time
+from pathlib import Path
 
 from claude_kit import pipeline
 from tests._helpers import install
@@ -347,8 +351,9 @@ def test_modes_drift_guard_against_continuity_rule(payload):
 
 
 # --- Gate ledger: order enforcement -----------------------------------------------------------
-# Standard-profile order: spec-complete, em-approved, code-review, build-green, test-coverage,
-# security-clear, contract-clear. _coherent() anchors at code-review → next is build-green.
+# Standard-profile execution order: spec-complete, em-approved, code-review, build-green,
+# contract-clear (MR2), test-coverage, security-clear (pinned in test_catalog.py's
+# test_gates_resolve_in_execution_order). _coherent() anchors at code-review → next is build-green.
 
 
 def _read_snap(target):
@@ -451,10 +456,11 @@ def test_skip_gate_records_and_advances_position(tmp_path, payload):
     assert ok, "\n".join(msgs)
     entry = _read_snap(tmp_path)["gate_history"][-1]
     assert entry["status"] == "skipped" and entry["evidence_path"] is None
-    # the skip advanced the position: test-coverage is now the legal next gate
+    assert entry["verification"] == "agent"  # a skip is NOT a human attestation
+    # the skip advanced the position: contract-clear (MR2) is now the legal next gate
     evidence = tmp_path / "e.txt"
     evidence.write_text("x", encoding="utf-8")
-    ok, msgs = pipeline.close_gate(tmp_path, "test-coverage", evidence)
+    ok, msgs = pipeline.close_gate(tmp_path, "contract-clear", evidence)
     assert ok, "\n".join(msgs)
 
 
@@ -564,3 +570,190 @@ def test_stale_lock_fails_cleanly(tmp_path, payload, monkeypatch):
     assert not ok
     assert any("could not lock" in m for m in msgs)
     assert _read_snap(tmp_path)["last_gate_passed"] == "code-review"  # nothing written
+
+
+# --- adversarial-review regressions (0.76.0 pre-merge hardening) ----------------------------
+
+
+def test_force_rerecord_keeps_validate_ok(tmp_path, payload):
+    """A sanctioned --force re-record is `overridden`, and validate treats it as reviewable —
+    never as order tampering that poisons every later validate of the run."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())
+    ev = tmp_path / "e.txt"
+    ev.write_text("x", encoding="utf-8")
+    assert pipeline.close_gate(tmp_path, "build-green", ev)[0]
+    ok, msgs = pipeline.close_gate(
+        tmp_path,
+        "build-green",
+        ev,
+        force=True,
+        override_reason="re-ran the build after a flaky failure",
+    )
+    assert ok, "\n".join(msgs)
+    ok, msgs = pipeline.validate(tmp_path)
+    assert ok, "\n".join(msgs)  # WARNs surface the override; the run stays coherent
+    assert any("force-closed" in m for m in msgs)
+
+
+def test_force_rerecord_without_reason_fails_on_order_path(tmp_path, payload):
+    """--force without --override-reason is refused on the order path too (not only findings)."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())
+    ev = tmp_path / "e.txt"
+    ev.write_text("x", encoding="utf-8")
+    assert pipeline.close_gate(tmp_path, "build-green", ev)[0]
+    ok, msgs = pipeline.close_gate(tmp_path, "build-green", ev, force=True)
+    assert not ok
+    assert any("--override-reason" in m for m in msgs)
+
+
+def test_position_never_rewinds_after_forced_backfill(tmp_path, payload):
+    """A forced backfill of an earlier gate must not rewind the run: the resume anchor stays,
+    and the next legal gate is still derived from the FURTHEST recorded position."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())  # position: code-review
+    ev = tmp_path / "e.txt"
+    ev.write_text("x", encoding="utf-8")
+    assert pipeline.close_gate(tmp_path, "build-green", ev)[0]
+    ok, msgs = pipeline.close_gate(
+        tmp_path,
+        "spec-complete",
+        ev,
+        force=True,
+        override_reason="backfilling the spec record for audit completeness",
+    )
+    assert ok, "\n".join(msgs)
+    assert _read_snap(tmp_path)["last_gate_passed"] == "build-green"
+    assert any("never moves backwards" in m for m in msgs)
+    # Next legal gate is contract-clear (after build-green) — NOT em-approved (after the backfill).
+    ok, msgs = pipeline.close_gate(tmp_path, "test-coverage", ev)
+    assert not ok and any("contract-clear" in m for m in msgs)
+    assert pipeline.close_gate(tmp_path, "contract-clear", ev)[0]
+
+
+def test_close_and_skip_refuse_on_aborted_run(tmp_path, payload):
+    """Abort is terminal for the ledger — no gate may be recorded onto an aborted run."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())
+    assert pipeline.abort(tmp_path)[0]
+    ev = tmp_path / "e.txt"
+    ev.write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.close_gate(tmp_path, "build-green", ev)
+    assert not ok and any("aborted" in m for m in msgs)
+    ok, msgs = pipeline.skip_gate(tmp_path, "build-green", "does not apply")
+    assert not ok and any("aborted" in m for m in msgs)
+
+
+def test_relative_evidence_resolves_against_project_root_not_cwd(
+    tmp_path, payload, monkeypatch
+):
+    """A relative --evidence path means project-relative — the caller's CWD is irrelevant,
+    and the stored path stays project-relative so the ledger is portable."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())
+    (tmp_path / "artifacts").mkdir()
+    (tmp_path / "artifacts" / "build.log").write_text("ok", encoding="utf-8")
+    elsewhere = tmp_path / "unrelated-cwd"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    ok, msgs = pipeline.close_gate(tmp_path, "build-green", "artifacts/build.log")
+    assert ok, "\n".join(msgs)
+    entry = _read_snap(tmp_path)["gate_history"][-1]
+    assert entry["evidence_path"] == "artifacts/build.log"
+    ok, msgs = pipeline.validate(tmp_path)  # still from the foreign CWD
+    assert ok, "\n".join(msgs)
+
+
+def test_ledger_survives_relocated_checkout(tmp_path, payload):
+    """CI clones land at a different absolute path — a project-relative ledger still verifies."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    install(payload, proj)
+    _write_snapshot(proj, **_coherent())
+    (proj / "cov.txt").write_text("100%", encoding="utf-8")
+    assert pipeline.close_gate(proj, "build-green", proj / "cov.txt")[0]
+    moved = tmp_path / "renamed-checkout"
+    proj.rename(moved)
+    ok, msgs = pipeline.validate(moved)
+    assert ok, "\n".join(msgs)
+
+
+def test_evidence_outside_project_recorded_absolute_with_warning(tmp_path, payload):
+    """Out-of-tree evidence still closes the gate, but the non-portability is said out loud."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-evidence.txt"
+    outside.write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.close_gate(tmp_path, "build-green", outside)
+    assert ok, "\n".join(msgs)
+    assert any("outside the project" in m for m in msgs)
+    entry = _read_snap(tmp_path)["gate_history"][-1]
+    assert Path(entry["evidence_path"]).is_absolute()
+
+
+def test_concurrent_closes_one_wins_one_refused(tmp_path, payload):
+    """The lock spans the whole read-modify-write: two racers on the same gate cannot both
+    win, and the loser gets a clean refusal instead of silently overwriting the winner."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())
+    ev = tmp_path / "e.txt"
+    ev.write_text("x", encoding="utf-8")
+    results = []
+    barrier = threading.Barrier(2)
+
+    def racer():
+        barrier.wait()
+        results.append(pipeline.close_gate(tmp_path, "build-green", ev))
+
+    threads = [threading.Thread(target=racer) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    wins = [msgs for ok, msgs in results if ok]
+    losses = [msgs for ok, msgs in results if not ok]
+    assert len(wins) == 1 and len(losses) == 1, results
+    assert any("recorded or superseded" in m for m in losses[0])
+    assert (
+        len(_read_snap(tmp_path)["gate_history"]) == 1
+    )  # no lost update, no double entry
+
+
+def test_validate_warns_on_foreign_profile_history_entry(tmp_path, payload):
+    """A history gate from another profile's set is reviewable drift, not corruption — the
+    snapshot may have been recorded before a profile change."""
+    install(payload, tmp_path)  # standard: pipeline-green is enterprise-only
+    snap = _coherent()
+    snap["gate_history"] = [
+        {
+            "gate": "pipeline-green",
+            "status": "passed",
+            "evidence_path": "e.txt",
+            "evidence_sha256": None,
+            "verification": "agent",
+            "recorded_at": "2026-08-01T00:00:00+00:00",
+            "override": None,
+        }
+    ]
+    _write_snapshot(tmp_path, **snap)
+    (tmp_path / "e.txt").write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.validate(tmp_path)
+    assert ok, "\n".join(msgs)
+    assert any("not a gate of the installed profile" in m for m in msgs)
+
+
+def test_stale_lock_is_reclaimed_with_warning(tmp_path, payload):
+    """A lock left by a crashed writer (old mtime) is stolen with a WARN, not a dead pipeline."""
+    install(payload, tmp_path)
+    _write_snapshot(tmp_path, **_coherent())
+    lock = tmp_path / ".claude" / "state" / "pipeline-snapshot.json.lock"
+    lock.write_text("99999", encoding="utf-8")
+    old = time.time() - 120  # well past _LOCK_STALE_S
+    os.utime(lock, (old, old))
+    ev = tmp_path / "e.txt"
+    ev.write_text("x", encoding="utf-8")
+    ok, msgs = pipeline.close_gate(tmp_path, "build-green", ev)
+    assert ok, "\n".join(msgs)
+    assert any("stale snapshot lock" in m for m in msgs)
+    assert not lock.exists()

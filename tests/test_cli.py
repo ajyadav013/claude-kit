@@ -625,3 +625,176 @@ def test_privacy_report_without_settings_shows_plugin_roster(tmp_path):
     assert result.exit_code == 0, result.stdout
     assert "plugin channel" in result.stdout
     assert "plugin ships no capture hooks" in result.stdout
+
+
+def test_pipeline_skip_gate_cli_records_agent_entry(tmp_path):
+    """skip-gate end-to-end: exit 0, and the entry is skipped + verification=agent (a skip is
+    recorded by whoever ran the CLI — not a human attestation)."""
+    import json
+
+    target = tmp_path / "proj"
+    assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
+    result = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "skip-gate",
+            "contract-clear",
+            str(target),
+            "--reason",
+            "no API surface changed in this run",
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "recorded skipped" in result.stdout
+    snap = json.loads(
+        (target / ".claude" / "state" / "pipeline-snapshot.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    entry = snap["gate_history"][-1]
+    assert entry["status"] == "skipped"
+    assert entry["verification"] == "agent"
+    assert entry["reason"] == "no API surface changed in this run"
+
+
+def test_pipeline_skip_gate_cli_requires_reason(tmp_path):
+    """--reason is a required option: Typer refuses the call before any state is touched."""
+    target = tmp_path / "proj"
+    assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
+    result = runner.invoke(
+        app, ["pipeline", "skip-gate", "contract-clear", str(target)]
+    )
+    assert result.exit_code != 0
+    assert not (target / ".claude" / "state" / "pipeline-snapshot.json").is_file()
+
+
+def test_pipeline_validate_strict_cli_fails_closed(tmp_path):
+    """--strict turns a missing install snapshot into exit 1 (CI posture); default stays 0."""
+    assert runner.invoke(app, ["pipeline", "validate", str(tmp_path)]).exit_code == 0
+    result = runner.invoke(app, ["pipeline", "validate", str(tmp_path), "--strict"])
+    assert result.exit_code == 1
+    assert "no install snapshot" in result.stdout
+
+
+def test_pipeline_close_gate_cli_out_of_order_then_forced(tmp_path):
+    """Out-of-order close exits 1 with the refusal; --force --override-reason threads through
+    the CLI and records an honest `overridden` entry."""
+    import json
+
+    target = tmp_path / "proj"
+    assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
+    state = target / ".claude" / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "pipeline-snapshot.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "task": "cli order test",
+                "profile": "standard",
+                "scope": "team",
+                "stage": "build",
+                "last_gate_passed": "spec-complete",
+            }
+        ),
+        encoding="utf-8",
+    )
+    ev = target / "review.txt"
+    ev.write_text("APPROVED", encoding="utf-8")
+    refused = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "close-gate",
+            "security-clear",
+            str(target),
+            "--evidence",
+            str(ev),
+        ],
+    )
+    assert refused.exit_code == 1
+    assert "out of order" in refused.stdout
+    forced = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "close-gate",
+            "security-clear",
+            str(target),
+            "--evidence",
+            str(ev),
+            "--force",
+            "--override-reason",
+            "hotfix: security reviewed out-of-band",
+        ],
+    )
+    assert forced.exit_code == 0, forced.stdout
+    assert "overridden" in forced.stdout
+    snap = json.loads((state / "pipeline-snapshot.json").read_text(encoding="utf-8"))
+    entry = snap["gate_history"][-1]
+    assert entry["status"] == "overridden"
+    assert entry["override"] == "hotfix: security reviewed out-of-band"
+
+
+def test_privacy_report_json_capture_levels(tmp_path):
+    """--json: the capture state is a parseable level (ok when off, warn when on), so CI can
+    gate on it without scraping prose."""
+    import json
+
+    def capture_level(target):
+        result = runner.invoke(app, ["privacy-report", str(target), "--json"])
+        assert result.exit_code == 0, result.stdout
+        doc = json.loads(result.stdout)
+        lines = [
+            m for m in doc["messages"] if "background learning capture" in m["text"]
+        ]
+        assert len(lines) == 1
+        return lines[0]["level"]
+
+    off_target = tmp_path / "off"
+    assert runner.invoke(app, ["init", str(off_target), "--defaults"]).exit_code == 0
+    assert capture_level(off_target) == "ok"
+
+    cfg = tmp_path / "init.yaml"
+    cfg.write_text("capture_mode: session-end\n", encoding="utf-8")
+    on_target = tmp_path / "on"
+    assert (
+        runner.invoke(app, ["init", str(on_target), "--config", str(cfg)]).exit_code
+        == 0
+    )
+    assert capture_level(on_target) == "warn"
+
+
+def test_privacy_report_lookalike_command_listed_for_review(tmp_path):
+    """A near-miss command (load-learnings.sh.bak) must NOT be claimed as a kit hook — it is
+    listed for the user's own review instead of inheriting the kit's data-access note."""
+    import json
+
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "bash /tmp/load-learnings.sh.bak",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["privacy-report", str(tmp_path)])
+    assert result.exit_code == 0, result.stdout
+    assert "not from this kit" in result.stdout
+    assert (
+        "learnings index" not in result.stdout
+    )  # the real hook's note was NOT attached

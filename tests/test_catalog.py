@@ -64,6 +64,42 @@ def test_contract_clear_gate_in_standard_and_enterprise_not_lean(payload):
     assert "contract-clear" not in lean.gates
 
 
+def test_gates_resolve_in_execution_order(payload):
+    """Gate ORDER is load-bearing: `claude-kit pipeline close-gate` enforces the resolved list as
+    execution order, so pin the exact sequences (a set-equal reorder must fail this test). The
+    order mirrors the orchestrator's Gate ↔ Stage map — contract-clear closes at MR2, before the
+    test/security stages."""
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    std = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    ent = catalog.resolve(payload, make_selection(payload, profile="enterprise"))
+    assert lean.gates == ["code-review", "build-green"]
+    assert std.gates == [
+        "spec-complete",
+        "em-approved",
+        "code-review",
+        "build-green",
+        "contract-clear",
+        "test-coverage",
+        "security-clear",
+    ]
+    assert ent.gates == std.gates + [
+        "pipeline-green",
+        "observability-ready",
+        "acceptance",
+    ]
+
+
+def test_resolver_keeps_child_gate_order_and_gap_fills_inherited(payload):
+    """A child profile's declared gate order wins outright; gates only the parent declares are
+    appended after (gap-fill), never interleaved ahead of the child's own order."""
+    std = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    # Standard inherits lean (code-review, build-green) yet neither leads the resolved list —
+    # the child's declared execution order wins.
+    assert std.gates[:2] == ["spec-complete", "em-approved"]
+    assert set(lean.gates) < set(std.gates)
+
+
 def test_sentry_mcp_is_opt_in_and_resolves(payload):
     """sentry (error-monitoring MCP for the incident-responder/observability roles) is opt-in only."""
     # Not installed unless explicitly selected.

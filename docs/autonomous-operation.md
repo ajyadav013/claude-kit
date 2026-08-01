@@ -63,9 +63,12 @@ The naive autonomous loop — `while :; do claude -p "keep going"; done` — fai
 between iterations, and no exit condition. The kit already ships both halves:
 
 - **Memory:** `.claude/CONTINUITY.md` + the structured snapshot
-  `.claude/state/pipeline-snapshot.json` (`last_gate_passed`, `lanes`, `next`). The resume contract
-  is *reload, don't re-run* (`.claude/rules/continuity.md`): re-enter at the first gate after
-  `last_gate_passed`, never re-apply committed work.
+  `.claude/state/pipeline-snapshot.json` (`last_gate_passed`, `lanes`, `next`, and the append-only
+  `gate_history` ledger — every passed/skipped gate with its evidence path + sha256). The resume
+  contract is *reload, don't re-run* (`.claude/rules/continuity.md`): re-enter at the first gate
+  after `last_gate_passed`, never re-apply committed work — and run `claude-kit pipeline validate`
+  first, which re-hashes every ledger entry, so a resumed loop never builds on tampered or
+  out-of-order state.
 - **Exit condition:** the installed profile's gate tokens. Done = the profile's *final* gate is
   green (read your gate list from `.claude/config/stack-catalog.snapshot.yaml`; the orchestrator's
   Gate ↔ Stage Map defines the token order).
@@ -163,7 +166,7 @@ script, or you.
 
 The kit ships **no CI workflow template** — a GitHub-/GitLab-specific YAML would be its first
 CI-vendor artifact, and the boilerplate is the cheap part. What is durable is the security posture.
-When you wire `/sdlc` (headless `-p`, or the §3 loop runner) to CI, hold these five lines. The
+When you wire `/sdlc` (headless `-p`, or the §3 loop runner) to CI, hold these six lines. The
 pattern is proven in the wild — GitHub spec-kit's label-driven `bug-assess` → `bug-fix` →
 `bug-test` stages (0.12.4, built on GitHub Agentic Workflows) embody the same contract:
 
@@ -184,6 +187,12 @@ pattern is proven in the wild — GitHub spec-kit's label-driven `bug-assess` �
 5. **Bound it like §3.** `--max-budget-usd` per run; a minimal token (contents + pull-requests
    write on a branch, nothing else); branch protection on the mainline so even a compromised run
    can't land unreviewed; the loop brakes if the stage iterates.
+6. **Verify gate state mechanically between stages.** Run `claude-kit pipeline validate --strict`
+   before a stage consumes its predecessor's snapshot: it re-hashes every `gate_history` entry and
+   fails on out-of-order, tampered, or missing evidence, and `--strict` turns a missing install
+   snapshot from WARN into FAIL — the right posture in CI, where an absent config means a broken
+   checkout, not a minimal install. A stage that trusts an unvalidated snapshot inherits whatever
+   the previous run (or an injected commit) wrote into it.
 
 ## Related
 

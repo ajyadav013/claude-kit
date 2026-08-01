@@ -226,3 +226,30 @@ def test_merge_install_reports_merge_not_upgrade(tmp_path, payload):
     assert ok
     assert any("merge complete" in m for m in msgs)
     assert not any("upgrade complete" in m for m in msgs)
+
+
+def test_upgrade_warns_when_recorded_capture_is_on(tmp_path, payload):
+    """An install that consented to capture keeps it across upgrades — but the upgrade says so
+    (pre-0.76 --defaults installs recorded capture nobody explicitly chose)."""
+    install(payload, tmp_path, capture_mode="session-end")
+    _age_install(tmp_path, ".claude/rules/testing.md", "OLD KIT CONTENT\n")
+    ok, messages = upgrader.upgrade(tmp_path)
+    assert ok
+    assert any("background learning capture is ON" in m for m in messages)
+    assert any("privacy-report" in m for m in messages)
+
+
+def test_upgrade_stays_silent_when_capture_off(tmp_path, payload):
+    """No capture recorded -> no notice, and the upgrade must not resurrect capture hooks."""
+    import json
+
+    install(payload, tmp_path)  # 0.76.0 default: off
+    _age_install(tmp_path, ".claude/rules/testing.md", "OLD KIT CONTENT\n")
+    ok, messages = upgrader.upgrade(tmp_path)
+    assert ok
+    assert not any("background learning capture is ON" in m for m in messages)
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8")
+    )
+    blob = json.dumps(settings)
+    assert "capture-learnings" not in blob

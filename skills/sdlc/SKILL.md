@@ -56,7 +56,7 @@ Run **only** the gates present in the snapshot's `gates:` list. The three profil
 | Profile | Gates that run |
 |---|---|
 | **lean** | code-review · build-green |
-| **standard** | spec-complete · em-approved · code-review · build-green · test-coverage · security-clear · contract-clear |
+| **standard** | spec-complete · em-approved · code-review · build-green · contract-clear · test-coverage · security-clear |
 | **enterprise** | standard + pipeline-green · observability-ready · acceptance |
 
 Never run a gate (or spawn its agent) that isn't in the active set — that's what makes lean fast and
@@ -80,9 +80,15 @@ and the stack selection. Instruct it to:
    substrate".)
 2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
    survives compaction — update it at every phase transition), and mirror the gate-precise state into
-   the structured snapshot `.claude/state/pipeline-snapshot.json`. On resume, reload the snapshot as
-   *context* and re-enter at the first gate *after* `last_gate_passed` — re-running only un-passed or
-   defect-affected lanes, never re-running setup or re-applying committed edits.
+   the structured snapshot `.claude/state/pipeline-snapshot.json`. Gate verdicts go through the
+   deterministic ledger: when the `claude-kit` CLI is on PATH (`command -v claude-kit`), record each
+   passed gate with `claude-kit pipeline close-gate <gate> --evidence <evidence-file>` and each
+   non-applicable conditional gate with `claude-kit pipeline skip-gate <gate> --reason '<why>'` —
+   the CLI enforces gate order, refuses blocking findings, and hashes the evidence; hand-write the
+   `gate_history` entry (schema: `.claude/rules/continuity.md`) only when the CLI is absent. On
+   resume, reload the snapshot as *context* and re-enter at the first gate *after*
+   `last_gate_passed` — re-running only un-passed or defect-affected lanes, never re-running setup
+   or re-applying committed edits.
 3. **Route skills and models explicitly — and announce fan-out before spawning it.** Every agent
    the orchestrator spawns is told which skill(s) to load for its stage (the orchestrator's Skill
    Routing table; only skills actually installed under `.claude/skills/`) and runs on the model
