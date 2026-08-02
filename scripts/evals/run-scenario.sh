@@ -45,11 +45,14 @@ RULES_MODE="full"
 # question "does the pipeline record gates?" cannot be answered under the default. A run using this
 # is recorded with `deviation` set and MUST NOT be used to judge permission-boundary behaviour.
 PERMISSION_MODE="acceptEdits"
+# Co-ablation: suppress the kit's own hooks so a rule file is the sole carrier of its instruction.
+NO_HOOKS=0
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--scenario) SCENARIO="${2:?}"; shift 2 ;;
 	--permission-mode) PERMISSION_MODE="${2:?}"; shift 2 ;;
+	--no-hooks) NO_HOOKS=1; shift ;;
 	--fixture) FIXTURE="${2:?}"; shift 2 ;;
 	--oracle) ORACLE="${2:?}"; shift 2 ;;
 	--prompt-file) PROMPT_FILE="${2:?}"; shift 2 ;;
@@ -278,10 +281,22 @@ cat >"$CFG/settings.json" <<'JSON'
 }
 JSON
 
+# --no-hooks is the CO-ABLATION lever (E-019). Rules are not the only carrier of their own
+# instructions: load-continuity.sh injects "write back before the turn ends" at SessionStart, so
+# withdrawing continuity.md changes nothing and a rule-only ablation reports "no measurable effect"
+# for load-bearing and redundant rules alike. Suppressing the hooks makes the rule file the sole
+# source of the instruction, which is the only configuration in which a difference between arms can
+# be attributed to the rule. A deviation, and recorded as one.
+SESSION_EXTRA=()
+if [ "$NO_HOOKS" = "1" ]; then
+	SESSION_EXTRA+=(--settings '{"disableAllHooks":true}')
+fi
+
 set +e
 ( cd "$WORK" && PATH="$EVID/bin:$PATH" CLAUDE_CONFIG_DIR="$CFG" claude -p "$PROMPT" \
 	--max-turns "$MAX_TURNS" \
 	--output-format stream-json --verbose \
+	${SESSION_EXTRA+"${SESSION_EXTRA[@]}"} \
 	--permission-mode "$PERMISSION_MODE" ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr"
 SESSION_RC=$?
 set -e
@@ -439,9 +454,9 @@ LAST_ORACLE="$(ls -dt "$RUN_DIR"/raw/docker/*-"$SCENARIO-$ARM-oracle" | head -1)
 cp "$LAST_ORACLE/stdout.txt" "$EVID/oracle-verdict.json" 2>/dev/null || true
 
 python3 - "$EVID/run.json" "$SCENARIO" "$ARM" "$FIXTURE_SHA" "$ORACLE_RC" "$EVID" "$RULES_MODE" \
-	"$FIXTURE" "$ORACLE" "$HOLDOUT" "$SERVICE" "$SCAFFOLD_SHA" "$PERMISSION_MODE" <<'PY'
+	"$FIXTURE" "$ORACLE" "$HOLDOUT" "$SERVICE" "$SCAFFOLD_SHA" "$PERMISSION_MODE" "$NO_HOOKS" <<'PY'
 import json, sys
-out, scenario, arm, fx, rc, evid, rules_mode, fixture, oracle, holdout, service, scaffold, perm = sys.argv[1:14]
+out, scenario, arm, fx, rc, evid, rules_mode, fixture, oracle, holdout, service, scaffold, perm, nohooks = sys.argv[1:15]
 json.dump({
     "scenario": scenario, "arm": arm, "fixture": fixture,
     "fixture_baseline_sha": fx, "scaffold_sha": scaffold,
@@ -472,6 +487,13 @@ json.dump({
         "gate ledger unreachable because close-gate requires a pre-existing evidence file. This "
         "arm answers ONLY 'does the pipeline record gates when nothing blocks it'. It MUST NOT be "
         "used to judge permission-boundary behaviour (spec measure 11) or safe-stop behaviour."
+    ),
+    "hooks_disabled": nohooks == "1",
+    "hook_deviation": None if nohooks != "1" else (
+        "child session ran with --settings disableAllHooks — NOT the shipped default. This is the "
+        "co-ablation arm for E-019: rules are not the only carrier of their own instructions, so a "
+        "rule can only be credited when the hooks that repeat its content are suppressed and the "
+        "rule file is the sole source."
     ),
     "evidence_dir": evid,
 }, open(out, "w"), indent=2)

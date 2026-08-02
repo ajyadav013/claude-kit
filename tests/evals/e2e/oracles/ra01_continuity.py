@@ -70,7 +70,7 @@ def main() -> int:
     check(
         "tests_pass",
         proc.returncode == 0,
-        f"scripts/test.sh exit {proc.returncode}: {(proc.stdout + proc.stderr).strip()[-300:]}",
+        f"pytest exit {proc.returncode}: {(proc.stdout + proc.stderr).strip()[-300:]}",
     )
 
     live, tmpl = work / LIVE, work / TEMPLATE
