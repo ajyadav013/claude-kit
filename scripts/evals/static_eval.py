@@ -1150,61 +1150,122 @@ def check_mcp_entry(comp, payload):
     return findings
 
 
-_CLI_MENTION = re.compile(r"claude-kit\s+([a-z][a-z0-9-]{2,})")
-_PATH_MENTION = re.compile(r"`([a-zA-Z0-9_./-]+\.(?:md|py|sh|ya?ml|json|toml))`")
+_CLI_ALIASES = r"(?:claude-kit|ckit|claude-sdlc)"
+#: A command CLAIM is a mention at command position: the start of a code line, optionally behind a
+#: shell prompt. ``[ \t]`` rather than ``\s`` so a match can never span a newline and stitch the
+#: tail of one line onto the head of the next.
+_CLI_INVOCATION = re.compile(
+    rf"^[ \t]*(?:[$>][ \t]+)?{_CLI_ALIASES}[ \t]+([a-z][a-z0-9-]{{2,}})", re.MULTILINE
+)
+#: A trailing ``#`` comment inside a fence is prose that happens to sit in a code block.
+_SHELL_COMMENT = re.compile(r"(?<!\S)#[^\n]*")
 _CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE = re.compile(r"`([^`\n]+)`")
 
+#: Documents whose job is to record the past, exempt from ``cli_claims`` only.
+#:
+#: "Does this command still exist?" is the wrong question to ask a changelog. ``claude-kit new``
+#: appears in CHANGELOG.md under ``### Removed`` (0.5.0) and ``### Added`` (0.2.0), and both
+#: entries are correct *because* the command is gone — rewriting either would falsify the record.
+#: Every other doc check still applies to these files. Mirrors the comment-justified ``ALLOWLIST``
+#: idiom in ``scripts/check_cross_references.py``.
+HISTORICAL_DOCS = frozenset({"CHANGELOG.md"})
+
 
 def cli_commands(payload: Path) -> set[str]:
-    """Subcommand names registered on the Typer app, read from the source rather than --help."""
+    """The names a reader may legally type directly after ``claude-kit``.
+
+    That is the ROOT namespace: every top-level command plus the name of every ``add_typer``
+    group. A group's own subcommands (``pipeline close-gate``) are deliberately excluded, because
+    they are *not* valid at the root — a doc showing ``claude-kit close-gate`` should be reported.
+
+    Attribution is by the decorator's OBJECT, not merely its attribute. ``@app.command()`` and
+    ``@pipeline_app.command()`` are both ``.command``; treating them alike hid the group names
+    (three docs were told ``claude-kit pipeline`` does not exist, at cli.py:73 it does) while
+    promoting that group's subcommands into the root set, where they masked the inverse error.
+    """
     try:
         tree = ast.parse(
             (payload / "src" / "claude_kit" / "cli.py").read_text(encoding="utf-8")
         )
     except (OSError, SyntaxError):
         return set()
-    names = set()
+
+    def literal_name(call: ast.Call | None) -> str | None:
+        if call is None:
+            return None
+        explicit = next(
+            (
+                kw.value.value
+                for kw in call.keywords
+                if kw.arg == "name" and isinstance(kw.value, ast.Constant)
+            ),
+            None,
+        )
+        positional = (
+            call.args[0].value
+            if call.args and isinstance(call.args[0], ast.Constant)
+            else None
+        )
+        return explicit or positional
+
+    groups: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_typer"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+        ):
+            group = literal_name(node)
+            if group:
+                groups[node.args[0].id] = group
+
+    names = set(groups.values())
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for dec in node.decorator_list:
-            if not isinstance(dec, ast.Call):
+            # A bare `@app.command` (no parentheses) is an Attribute, not a Call.
+            call = dec if isinstance(dec, ast.Call) else None
+            func = call.func if call else dec
+            # `callback` registers the app's own options, never a subcommand; reading it as one
+            # is what put the artefact `-root` (from `def _root`) into the command namespace.
+            if not isinstance(func, ast.Attribute) or func.attr != "command":
                 continue
-            func = dec.func
-            if isinstance(func, ast.Attribute) and func.attr in ("command", "callback"):
-                explicit = next(
-                    (
-                        kw.value.value
-                        for kw in dec.keywords
-                        if kw.arg == "name" and isinstance(kw.value, ast.Constant)
-                    ),
-                    None,
-                )
-                positional = (
-                    dec.args[0].value
-                    if dec.args and isinstance(dec.args[0], ast.Constant)
-                    else None
-                )
-                names.add(explicit or positional or node.name.replace("_", "-"))
+            if not isinstance(func.value, ast.Name) or func.value.id in groups:
+                continue
+            names.add(literal_name(call) or node.name.replace("_", "-"))
     return names
 
 
 def documented_invocations(text: str) -> set[str]:
-    """`claude-kit <word>` appearing as CODE — a fenced block or inline backticks.
+    """Names shown at COMMAND POSITION in code — a fenced line, or an inline span.
 
-    Restricting to code is what makes this falsifiable without drowning in prose: "the claude-kit
-    configuration" is a sentence, `claude-kit doctor` is a claim that a subcommand exists.
+    Position is what separates a claim from a mention. ``claude-kit doctor`` starting a code line
+    tells the reader to type it; the same words inside a mermaid node label
+    (``subgraph SRC["claude-kit repo — single source of truth"]``) or a trailing comment
+    (``# … the claude-kit plugin from the claude-kit marketplace``) do not. Matching anywhere in a
+    fence reported those two lines as three nonexistent subcommands.
     """
-    snippets = _CODE_FENCE.findall(text) + _INLINE.findall(text)
     found = set()
-    for snip in snippets:
-        found |= set(_CLI_MENTION.findall(snip))
+    for snip in _CODE_FENCE.findall(text) + _INLINE.findall(text):
+        found |= set(_CLI_INVOCATION.findall(_SHELL_COMMENT.sub("", snip)))
     return found
 
 
 def check_doc(comp, payload, commands):
-    """A document describing executable behaviour must not describe behaviour that is gone."""
+    """A document describing executable behaviour must not describe behaviour that is gone.
+
+    Dangling ``.claude/{rules,skills,agents}/…`` references are NOT checked here. The product
+    already ships ``scripts/check_cross_references.py`` for exactly that question, and the
+    validation suite runs it every time. This file's own attempt resolved mentions against the
+    repo root alone and so reported the installed-project layout that golden rule #2 *mandates*
+    — ``.claude/rules/quality-gates.md`` — as a dead link, along with stack overlays, export
+    targets, and files the product creates at run time: 45 flagged paths, 0 real defects. The
+    shipped checker resolves core ∪ stack ∪ org and is the authority.
+    """
     findings = []
 
     def add(sev, check, detail):
@@ -1221,30 +1282,16 @@ def check_doc(comp, payload, commands):
         ]
     text = path.read_text(encoding="utf-8", errors="ignore")
 
-    ghosts = sorted(documented_invocations(text) - commands)
-    if ghosts:
-        add(
-            "high",
-            "cli_claims",
-            f"shows `claude-kit {', '.join(ghosts)}` as a command, but the CLI registers no such "
-            "subcommand — a reader following this document gets an error",
-        )
-
-    missing = sorted(
-        {
-            m
-            for m in _PATH_MENTION.findall(text)
-            if "/" in m
-            and not (payload / m).exists()
-            and not m.startswith(("your-", "path/"))
-        }
-    )
-    if missing:
-        add(
-            "medium",
-            "path_claims",
-            f"names {len(missing)} repository path(s) that do not exist: {', '.join(missing[:6])}",
-        )
+    if comp["path"] not in HISTORICAL_DOCS:
+        ghosts = sorted(documented_invocations(text) - commands)
+        if ghosts:
+            add(
+                "high",
+                "cli_claims",
+                f"shows `claude-kit {', '.join(ghosts)}` at command position, but the CLI "
+                "registers no such root subcommand — a reader following this document gets an "
+                "error",
+            )
     return findings
 
 

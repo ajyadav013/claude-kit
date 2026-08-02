@@ -1078,11 +1078,6 @@ def test_prose_mentioning_the_tool_name_is_not_read_as_a_command(tmp_path):
     assert "cli_claims" not in _checks(static_eval.check_doc(comp, tmp_path, {"init"}))
 
 
-def test_a_document_naming_a_missing_repository_path_is_flagged(tmp_path):
-    comp = _doc(tmp_path, "See `src/claude_kit/nope.py` for details.\n")
-    assert "path_claims" in _checks(static_eval.check_doc(comp, tmp_path, set()))
-
-
 def test_a_clean_document_produces_no_findings(tmp_path):
     comp = _doc(tmp_path, "Run `claude-kit doctor`. See `docs/d.md`.\n")
     assert static_eval.check_doc(comp, tmp_path, {"doctor"}) == []
@@ -1091,6 +1086,155 @@ def test_a_clean_document_produces_no_findings(tmp_path):
 def test_cli_commands_reads_the_real_registrations(payload):
     cmds = static_eval.cli_commands(payload)
     assert {"init", "validate", "doctor", "upgrade", "export"} <= cmds, sorted(cmds)
+
+
+# --- the installed-project layout is not a dead link ---------------------------------------------
+
+
+def test_the_installed_project_layout_is_not_reported_as_a_dead_path(tmp_path):
+    """Golden rule #2 *requires* the `.claude/rules/…` form; flagging it was 45-for-45 wrong.
+
+    The kit's docs name where a file lands in a USER's project, not where it sits in this repo.
+    Resolving those mentions against the repo root turned the mandated convention — plus stack
+    overlays, export targets, and files the product writes at run time — into "dead links".
+    """
+    comp = _doc(
+        tmp_path,
+        "See `.claude/rules/quality-gates.md`, `.claude/config/init-options.json`, "
+        "`.cursor/mcp.json` and `.github/copilot-instructions.md`.\n",
+    )
+    assert static_eval.check_doc(comp, tmp_path, set()) == []
+
+
+def test_the_shipped_cross_reference_checker_still_catches_a_dangling_rule_reference(
+    payload, tmp_path
+):
+    """Proof the removed check was a duplicate: the authority it defers to genuinely fires.
+
+    Deleting a check is only safe if the coverage moved rather than vanished, so this runs the
+    product's own gardener — which the validation suite also runs — against a planted offender,
+    and against a resolvable reference to prove it is not simply flagging everything.
+    """
+    root = tmp_path / "repo"
+    spec = importlib.util.spec_from_file_location(
+        "check_cross_references", payload / "scripts" / "check_cross_references.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    # A hermetic tree, so the shared payload is never written to (it is mounted read-only in the
+    # container) and the control cannot pass or fail on unrelated repo state.
+    (root / "rules").mkdir(parents=True)
+    (root / "rules" / "quality-gates.md").write_text("# real\n", encoding="utf-8")
+    (root / "docs").mkdir(parents=True)
+    (root / "docs" / "good.md").write_text(
+        "See `.claude/rules/quality-gates.md`.\n", encoding="utf-8"
+    )
+    assert mod.find_offenders(root) == [], "quiet on a resolvable reference"
+
+    (root / "docs" / "bad.md").write_text(
+        "See `.claude/rules/no-such-rule.md`.\n", encoding="utf-8"
+    )
+    assert ("docs/bad.md", "rule", "no-such-rule.md") in mod.find_offenders(root)
+
+
+# --- negative controls: what counts as a command claim -------------------------------------------
+
+
+def test_a_command_group_registered_with_add_typer_is_a_real_command(payload):
+    """`app.add_typer(pipeline_app, name="pipeline")` registers `claude-kit pipeline`.
+
+    Reading only `@app.command()` reported three correct documents as describing a command that
+    does not exist.
+    """
+    assert "pipeline" in static_eval.cli_commands(payload)
+
+
+def test_a_group_subcommand_is_not_valid_at_the_root(payload, tmp_path):
+    """`close-gate` lives under `pipeline`; promoting it to the root masked the inverse error."""
+    cmds = static_eval.cli_commands(payload)
+    assert "close-gate" not in cmds
+    comp = _doc(tmp_path, "```bash\nclaude-kit close-gate code-review\n```\n")
+    assert "cli_claims" in _checks(static_eval.check_doc(comp, tmp_path, cmds))
+
+
+def test_a_callback_is_not_a_command(payload):
+    """`@app.callback()` on `def _root` registers options, not a subcommand named `-root`."""
+    assert not [c for c in static_eval.cli_commands(payload) if c.startswith("-")]
+
+
+def test_a_diagram_label_is_not_a_command_claim(tmp_path):
+    comp = _doc(
+        tmp_path,
+        '```mermaid\nflowchart LR\n    subgraph SRC["claude-kit repo — one source"]\n    end\n```\n',
+    )
+    assert "cli_claims" not in _checks(static_eval.check_doc(comp, tmp_path, {"init"}))
+
+
+def test_prose_inside_a_trailing_comment_is_not_a_command_claim(tmp_path):
+    comp = _doc(
+        tmp_path,
+        "```text\n/plugin install claude-kit@claude-kit   "
+        "# the claude-kit plugin from the claude-kit marketplace\n```\n",
+    )
+    assert "cli_claims" not in _checks(static_eval.check_doc(comp, tmp_path, {"init"}))
+
+
+def test_a_command_claim_cannot_be_stitched_across_a_newline(tmp_path):
+    """`\\s+` let the tail of a comment line bind to the command starting the next one."""
+    comp = _doc(
+        tmp_path,
+        "```bash\n# the pip name is claude-code-kit, not claude-kit\n\nclaude-kit init\n```\n",
+    )
+    assert "cli_claims" not in _checks(static_eval.check_doc(comp, tmp_path, {"init"}))
+
+
+def test_a_real_invocation_behind_a_shell_prompt_is_still_a_claim(tmp_path):
+    """Narrowing to command position must not become a way to never fire."""
+    comp = _doc(tmp_path, "```console\n$ claude-kit teleport\n```\n")
+    assert "cli_claims" in _checks(static_eval.check_doc(comp, tmp_path, {"init"}))
+
+
+def test_only_the_changelog_is_exempt_from_cli_claims(tmp_path):
+    """The historical-record exemption must be one file wide, proven with an identical payload."""
+    assert static_eval.HISTORICAL_DOCS == frozenset({"CHANGELOG.md"})
+    body = "The `claude-kit new` generator is **removed**.\n"
+
+    (tmp_path / "CHANGELOG.md").write_text(body, encoding="utf-8")
+    changelog = {"id": "doc:CHANGELOG", "type": "doc", "path": "CHANGELOG.md"}
+    assert static_eval.check_doc(changelog, tmp_path, {"init"}) == []
+
+    assert "cli_claims" in _checks(
+        static_eval.check_doc(_doc(tmp_path, body), tmp_path, {"init"})
+    )
+
+
+def test_no_shipped_document_claims_a_command_that_does_not_exist(payload):
+    """Real-corpus sweep: the state a synthetic control cannot pin.
+
+    Non-vacuous by construction — it asserts the corpus is populated and that some document really
+    does show an invocation, so the sweep cannot pass by finding nothing to look at.
+    """
+    commands = static_eval.cli_commands(payload)
+    docs = [payload / "README.md", payload / "CONTRIBUTING.md", payload / "SECURITY.md"]
+    docs += sorted((payload / "docs").glob("*.md"))
+    assert len(docs) > 15
+
+    seen, offenders = set(), {}
+    for path in docs:
+        if not path.is_file():
+            continue
+        rel = str(path.relative_to(payload))
+        text = path.read_text(encoding="utf-8")
+        found = static_eval.documented_invocations(text)
+        seen |= found
+        if rel not in static_eval.HISTORICAL_DOCS and found - commands:
+            offenders[rel] = sorted(found - commands)
+    assert seen & commands, (
+        "no document showed a real invocation — the sweep saw nothing"
+    )
+    assert not offenders, offenders
 
 
 # --- negative controls: skill trigger quality ----------------------------------------------------
