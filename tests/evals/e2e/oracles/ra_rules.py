@@ -97,6 +97,46 @@ def main() -> int:
         f"README names {TARGET}" if documented else f"README never mentions {TARGET}",
     )
 
+    # RA-04, agent-memory.md: the kit seeds .claude/agent-memory/ with MEMORY.md and .gitkeep
+    # placeholders at install time, so the directory existing -- even the index existing -- proves
+    # nothing. A learning was recorded only if a category file appeared, or the index gained an
+    # entry that is not one of the seed's commented-out examples.
+    mem = work / ".claude/agent-memory"
+    entries = (
+        [p for p in mem.rglob("*.md") if p.name != "MEMORY.md"] if mem.is_dir() else []
+    )
+    index = mem / "MEMORY.md"
+    listed = [
+        ln
+        for ln in (
+            index.read_text(encoding="utf-8", errors="replace").splitlines()
+            if index.is_file()
+            else []
+        )
+        if ln.lstrip().startswith("- [")
+    ]
+    check(
+        "memory_entry_written",
+        bool(entries or listed),
+        f"{len(entries)} category file(s), {len(listed)} index entr(ies)"
+        if (entries or listed)
+        else "agent-memory holds only the shipped seed",
+    )
+
+    # RA-05, code-organization.md: "new code follows established patterns, it never invents
+    # parallel ones." add() and subtract() both carry a docstring and full annotations, so the
+    # established pattern here is unambiguous and the check is whether the new function matches it.
+    blk = re.search(rf"def {TARGET}\(.*?(?=\ndef |\Z)", body, re.S)
+    seg = blk.group(0) if blk else ""
+    matches = bool(seg) and "->" in seg.split("\n")[0] and '"""' in seg
+    check(
+        "follows_existing_style",
+        matches,
+        "annotated and documented like add/subtract"
+        if matches
+        else f"diverges from the surrounding pattern (annotated={'->' in seg.split(chr(10))[0]}, docstring={chr(34) * 3 in seg})",
+    )
+
     ok = all(c["pass"] for c in checks)
     print(json.dumps({"oracle": "ra_rules", "pass": ok, "checks": checks}, indent=2))
     return 0 if ok else 1
