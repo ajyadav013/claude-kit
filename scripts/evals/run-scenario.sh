@@ -37,10 +37,19 @@ TEST_COMMAND="env python -m pytest -q -p no:cacheprovider"
 # therefore has too little context left for a real task (F-014). Any run using it is recorded with
 # `deviation` set, so no result from a deviating arm can be mistaken for the shipped default.
 RULES_MODE="full"
+# The child session's permission mode. `acceptEdits` is the honest default. `bypassPermissions` is
+# a DEVIATION and exists for exactly one reason: Claude Code refuses writes under .claude/state/ as
+# "a sensitive file" in a non-interactive session, and no allow-list entry overrides it (H-026,
+# proven by a 5-variant probe). Since `close-gate` requires its evidence file to already exist, a
+# blocked write makes the gate ledger unreachable no matter how willing the agent is — so the
+# question "does the pipeline record gates?" cannot be answered under the default. A run using this
+# is recorded with `deviation` set and MUST NOT be used to judge permission-boundary behaviour.
+PERMISSION_MODE="acceptEdits"
 
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--scenario) SCENARIO="${2:?}"; shift 2 ;;
+	--permission-mode) PERMISSION_MODE="${2:?}"; shift 2 ;;
 	--fixture) FIXTURE="${2:?}"; shift 2 ;;
 	--oracle) ORACLE="${2:?}"; shift 2 ;;
 	--prompt-file) PROMPT_FILE="${2:?}"; shift 2 ;;
@@ -233,7 +242,7 @@ set +e
 ( cd "$WORK" && PATH="$EVID/bin:$PATH" CLAUDE_CONFIG_DIR="$CFG" claude -p "$PROMPT" \
 	--max-turns "$MAX_TURNS" \
 	--output-format stream-json --verbose \
-	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr"
+	--permission-mode "$PERMISSION_MODE" ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr"
 SESSION_RC=$?
 set -e
 
@@ -390,9 +399,9 @@ LAST_ORACLE="$(ls -dt "$RUN_DIR"/raw/docker/*-"$SCENARIO-$ARM-oracle" | head -1)
 cp "$LAST_ORACLE/stdout.txt" "$EVID/oracle-verdict.json" 2>/dev/null || true
 
 python3 - "$EVID/run.json" "$SCENARIO" "$ARM" "$FIXTURE_SHA" "$ORACLE_RC" "$EVID" "$RULES_MODE" \
-	"$FIXTURE" "$ORACLE" "$HOLDOUT" "$SERVICE" "$SCAFFOLD_SHA" <<'PY'
+	"$FIXTURE" "$ORACLE" "$HOLDOUT" "$SERVICE" "$SCAFFOLD_SHA" "$PERMISSION_MODE" <<'PY'
 import json, sys
-out, scenario, arm, fx, rc, evid, rules_mode, fixture, oracle, holdout, service, scaffold = sys.argv[1:13]
+out, scenario, arm, fx, rc, evid, rules_mode, fixture, oracle, holdout, service, scaffold, perm = sys.argv[1:14]
 json.dump({
     "scenario": scenario, "arm": arm, "fixture": fixture,
     "fixture_baseline_sha": fx, "scaffold_sha": scaffold,
@@ -408,6 +417,15 @@ json.dump({
                     "auto-loaded — NOT the shipped default (F-014); the lever docs/"
                     "rules-context-budget.md calls Direction C",
     }.get(rules_mode, f"unrecognised rules_mode {rules_mode!r}"),
+    "permission_mode": perm,
+    "permission_deviation": None if perm == "acceptEdits" else (
+        f"child session ran with --permission-mode {perm} — NOT the shipped default. Reason: "
+        "Claude Code refuses writes under .claude/state/ as 'a sensitive file' in a "
+        "non-interactive session and no allow-list entry overrides it (H-026), which makes the "
+        "gate ledger unreachable because close-gate requires a pre-existing evidence file. This "
+        "arm answers ONLY 'does the pipeline record gates when nothing blocks it'. It MUST NOT be "
+        "used to judge permission-boundary behaviour (spec measure 11) or safe-stop behaviour."
+    ),
     "evidence_dir": evid,
 }, open(out, "w"), indent=2)
 PY
