@@ -16,9 +16,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
 
-# git: `python -m build` and provenance checks expect it present; ca-certificates for PyPI.
+# The suite skips whole families of tests when a tool is absent, so a missing binary silently
+# shrinks coverage instead of failing: without `jq`, 129 hook-guard tests skip and measured line
+# coverage was 88.89%. git/bash/ruff/jsonschema are likewise probed by skipif guards.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates jq bash \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python -m venv "$VIRTUAL_ENV" \
@@ -57,6 +59,8 @@ WORKDIR /repo
 # only; linting and type checking stay on the 3.12 stage, which is what CI lints with.
 
 FROM python:3.9-slim AS python39-eval
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq bash \
+    && apt-get clean && find /var/lib/apt/lists -type f -delete
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
     HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
@@ -68,6 +72,8 @@ RUN python -m venv "$VIRTUAL_ENV" && pip install --upgrade pip \
 WORKDIR /repo
 
 FROM python:3.13-slim AS python313-eval
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq bash \
+    && apt-get clean && find /var/lib/apt/lists -type f -delete
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
     HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
