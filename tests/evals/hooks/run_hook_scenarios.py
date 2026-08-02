@@ -22,6 +22,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 
 ADVISORY_MARKER = "hookSpecificOutput"
 
@@ -73,6 +74,38 @@ def build_stdin(sc):
     return payload
 
 
+def build_fixture(sc, idx):
+    """Materialise a scratch project for hooks that read the filesystem, not just stdin.
+
+    The loaders, audit-log, warn-missing-tests and guard-secrets all resolve CLAUDE_PROJECT_DIR and
+    read or write real files, so a stdin-only harness can never fire them. Each scenario gets its
+    own directory: a shared one would let an earlier scenario's audit.log or git index decide a
+    later scenario's verdict.
+    """
+    fx = sc.get("fixture")
+    if not fx:
+        return None, {}
+    root = pathlib.Path(tempfile.mkdtemp(prefix=f"hookfx{idx}-"))
+    for rel, content in (fx.get("files") or {}).items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    if fx.get("git"):
+        env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "eval",
+            "GIT_AUTHOR_EMAIL": "eval@local",
+            "GIT_COMMITTER_NAME": "eval",
+            "GIT_COMMITTER_EMAIL": "eval@local",
+        }
+        for cmd in (["git", "init", "-q"], ["git", "add", "-A"]):
+            subprocess.run(cmd, cwd=root, capture_output=True, env=env, timeout=60)
+    envv = {
+        k: v.replace("@@FIXTURE@@", str(root)) for k, v in (fx.get("env") or {}).items()
+    }
+    return root, envv
+
+
 def main():
     if not pathlib.Path("/.dockerenv").is_file():
         print("refusing to run outside Docker (no /.dockerenv)", file=sys.stderr)
@@ -85,22 +118,40 @@ def main():
     spec = json.loads((here / "hook-scenarios.json").read_text())
 
     results, per_script = [], {}
-    for sc in spec["scenarios"]:
+    for idx, sc in enumerate(spec["scenarios"]):
         script = repo / "hooks/scripts" / sc["script"]
+        fx_root, fx_env = build_fixture(sc, idx)
         payload = json.dumps(build_stdin(sc))
+        if fx_root:
+            # warn-missing-tests walks the real tree looking for a sibling test, so the path it is
+            # handed has to point INTO the fixture, not at a made-up /proj prefix.
+            payload = payload.replace("@@FIXTURE@@", str(fx_root))
         p = subprocess.run(
-            ["bash", str(script)],
+            ["bash", str(script), *(sc.get("argv") or [])],
             input=payload,
             capture_output=True,
             text=True,
             timeout=60,
+            cwd=str(fx_root) if fx_root else None,
+            env={**os.environ, **fx_env} if fx_env else None,
         )
         bad = grade(sc["expect"], p.returncode, p.stdout, p.stderr)
+        # Side-effect hooks (audit-log) prove themselves on disk, not on stdout.
+        fc = sc["expect"].get("file_contains")
+        if fc:
+            target = (fx_root or pathlib.Path(".")) / fc["path"]
+            if not target.is_file():
+                bad.append(f"expected file {fc['path']} was not created")
+            elif fc["substring"] not in target.read_text(
+                encoding="utf-8", errors="replace"
+            ):
+                bad.append(f"{fc['path']} missing {fc['substring']!r}")
         ok = not bad
         # An advisory that fires must emit the JSON envelope Claude Code actually reads; a bare
-        # message on stdout would be silently discarded in production.
-        if ok and sc["kind"] == "fire" and sc["expect"].get("exit") == 0:
-            if ADVISORY_MARKER not in p.stdout:
+        # message on stdout would be silently discarded in production. Side-effect hooks are
+        # exempt: they are required to keep stdout clean, which is the opposite obligation.
+        if ok and sc["kind"] == "fire" and sc["expect"].get("exit") == 0 and not fc:
+            if ADVISORY_MARKER not in p.stdout and not sc.get("emits_plain_context"):
                 ok, bad = (
                     False,
                     [f"advisory fired without a {ADVISORY_MARKER} envelope"],
