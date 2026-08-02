@@ -26,6 +26,7 @@ Every finding carries the component id, the file, and enough detail to act on. N
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import sys
@@ -148,6 +149,32 @@ def reachable_sets(payload: Path) -> dict[str, set[str]]:
     return out
 
 
+def hook_reach_set(payload: Path) -> tuple[set[str], set[str]]:
+    """Every hook id that some channel installs, and every script some entry references.
+
+    PLUGIN_ONLY_HOOKS run from the auto-discovered ``hooks/hooks.json`` and are deliberately absent
+    from every profile (CONTRIBUTING.md: each carries a ``reason``). Omitting them reported
+    ``guard-kubectl-delete`` as unreachable when it is reachable by design — a false positive, and
+    a false finding costs more than a missed one because it teaches the reader to discount the
+    ledger.
+    """
+    from claude_kit import hooks as hooks_mod
+
+    ids = (
+        set(reachable_sets(payload)["hooks"])
+        | set(hooks_mod.PLUGIN_HOOK_IDS)
+        | set(hooks_mod.STARTER_HOOK_IDS)
+        | set(hooks_mod.PLUGIN_ONLY_HOOKS)
+    )
+    scripts = {
+        str(spec.get("script"))
+        for spec in list(hooks_mod.HOOK_REGISTRY.values())
+        + list(hooks_mod.PLUGIN_ONLY_HOOKS.values())
+        if spec.get("script")
+    }
+    return ids, scripts
+
+
 def check_prose_component(
     comp: dict[str, Any],
     payload: Path,
@@ -248,6 +275,189 @@ def check_prose_component(
     return findings
 
 
+PROSE_TYPES = frozenset(
+    {
+        "agent",
+        "overlay-agent",
+        "org-agent",
+        "skill",
+        "org-skill",
+        "rule",
+        "org-rule",
+        "overlay-rule",
+    }
+)
+
+
+def check_hook(comp, payload, hook_reach):
+    """A registry entry must name a real event, a real executable script, and its data access."""
+    from claude_kit import validator
+
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    hid = comp["id"].split(":", 1)[1]
+    from claude_kit import hooks as hooks_mod
+
+    spec = hooks_mod.HOOK_REGISTRY.get(hid) or hooks_mod.PLUGIN_ONLY_HOOKS.get(hid)
+    if spec is None:
+        add(
+            "high",
+            "hook_registered",
+            f"{hid!r} is not in HOOK_REGISTRY or PLUGIN_ONLY_HOOKS",
+        )
+        return findings
+    event = spec.get("event")
+    if event not in validator.KNOWN_EVENTS:
+        add(
+            "high",
+            "hook_event",
+            f"event {event!r} is not a Claude Code event — it will never fire",
+        )
+    script = spec.get("script")
+    if script:
+        sp = payload / "hooks" / "scripts" / script
+        if not sp.is_file():
+            add(
+                "critical",
+                "hook_script_exists",
+                f"registry points at a missing script: {script}",
+            )
+        elif not (sp.stat().st_mode & 0o111):
+            # Both channels invoke `bash "<path>"`, so the guard still fires today; the cost is
+            # direct invocation failing and the payload being internally inconsistent.
+            add(
+                "low",
+                "hook_script_executable",
+                f"hooks/scripts/{script} is not executable in the shipped payload; the hook "
+                "still fires (both channels run `bash <script>`) but the file cannot be run "
+                "directly and is inconsistent with every sibling script",
+            )
+    if not str(spec.get("data_access", "")).strip():
+        add(
+            "medium",
+            "hook_data_access",
+            "no data_access note — `claude-kit privacy-report` derives its informed-consent "
+            "output from this field, so the hook would be listed without saying what it reads",
+        )
+    if hid not in hook_reach:
+        add(
+            "low",
+            "reachability",
+            "no profile, plugin, or starter set installs this hook",
+        )
+    return findings
+
+
+def check_hook_script(comp, payload, registered_scripts):
+    """A hook script must be executable, self-identifying, and degrade when a tool is absent."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    path = payload / comp["path"]
+    if not path.is_file():
+        add("critical", "exists", f"declared path is absent: {comp['path']}")
+        return findings
+    text = path.read_text(encoding="utf-8")
+    if not (path.stat().st_mode & 0o111):
+        add(
+            "low",
+            "executable",
+            "not executable in the shipped payload — invoked via `bash <script>` so it still "
+            "runs, but direct invocation fails and scaffold.py chmods 0o755 on install, so the "
+            "repo and the installed copy disagree",
+        )
+    if not text.startswith("#!"):
+        add("medium", "shebang", "no shebang line")
+    # Golden rule #4: a hook degrades to a no-op when a tool is missing, never a hard failure.
+    if re.search(r"\bjq\b", text) and not re.search(
+        r"command -v jq|which jq|has_jq", text
+    ):
+        add(
+            "high",
+            "tool_degradation",
+            "uses jq without probing for it — on a machine without jq this hook fails "
+            "instead of degrading to a no-op (golden rule #4)",
+        )
+    if path.name not in registered_scripts:
+        add("low", "orphan", "no HOOK_REGISTRY entry references this script")
+    return findings
+
+
+def function_span(path, qualname):
+    """Return ``(first_line, last_line)`` of a top-level function, or None."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == qualname
+        ):
+            return node.lineno, (node.end_lineno or node.lineno)
+    return None
+
+
+def check_callable(comp, payload, coverage):
+    """A high-risk CLI command / pipeline op must exist, be documented, and be fully covered."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    rel, _, qual = comp["path"].partition("::")
+    path = payload / rel
+    if not path.is_file():
+        add("critical", "exists", f"declared module is absent: {rel}")
+        return findings
+    span = function_span(path, qual)
+    if span is None:
+        add("high", "symbol_exists", f"{qual!r} is not a top-level function in {rel}")
+        return findings
+    first, last = span
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        node = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == qual
+        )
+        if not ast.get_docstring(node):
+            add(
+                "medium",
+                "documented",
+                f"{qual!r} has no docstring — `--help` shows nothing",
+            )
+    except (OSError, SyntaxError, StopIteration):
+        pass
+
+    fileinfo = (coverage.get("files") or {}).get(rel)
+    if fileinfo is None:
+        add(
+            "low",
+            "coverage_data",
+            f"no coverage record for {rel}; cannot verify exercise",
+        )
+        return findings
+    uncovered = sorted(
+        n for n in fileinfo.get("missing_lines", []) if first <= n <= last
+    )
+    if uncovered:
+        add(
+            "high",
+            "coverage",
+            f"{qual!r} has {len(uncovered)} uncovered line(s) at {rel}:"
+            f"{','.join(str(n) for n in uncovered[:12])} — a high-risk entry point with "
+            "unexercised behaviour",
+        )
+    return findings
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -255,6 +465,9 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument(
         "--ids", required=True, help="comma-separated component ids, or @file"
+    )
+    ap.add_argument(
+        "--coverage", help="coverage.json used for the callable-coverage check"
     )
     args = ap.parse_args()
 
@@ -281,10 +494,31 @@ def main() -> int:
     for stack_rules in (payload / "templates" / "stacks").glob("*/*/rules"):
         rule_files |= {p.name for p in stack_rules.glob("*.md")}
 
+    coverage = {}
+    if args.coverage:
+        coverage = json.loads(Path(args.coverage).read_text(encoding="utf-8"))
+    hook_reach, registered_scripts = hook_reach_set(payload)
+
     records = []
     for cid in ids:
         comp = by_id[cid]
-        findings = check_prose_component(comp, payload, reach, rule_files, tiers)
+        ctype = comp["type"]
+        if ctype in PROSE_TYPES:
+            findings = check_prose_component(comp, payload, reach, rule_files, tiers)
+        elif ctype == "hook":
+            findings = check_hook(comp, payload, hook_reach)
+        elif ctype == "hook-script":
+            findings = check_hook_script(comp, payload, registered_scripts)
+        elif ctype in ("cli-command", "pipeline-op"):
+            findings = check_callable(comp, payload, coverage)
+        else:
+            findings = [
+                {
+                    "severity": "low",
+                    "check": "unsupported_type",
+                    "detail": f"no static checks implemented for type {ctype!r} yet",
+                }
+            ]
         worst = "none"
         for sev in ("critical", "high", "medium", "low"):
             if any(f["severity"] == sev for f in findings):

@@ -776,3 +776,30 @@ def test_hook_matcher_maps_plugin_root_paths_and_args():
         )
         == "capture-learnings-catchup"
     )
+
+
+def test_every_hook_script_is_executable(payload: Path) -> None:
+    """Every shipped hook script must carry the executable bit, not just most of them.
+
+    `guard-push-main.sh` shipped as 100644 while its 18 siblings were 100755. Both hook channels
+    invoke `bash "<path>"`, so the guard still fired and nothing failed — which is exactly why the
+    drift survived. The costs are real but quiet: the file cannot be run directly, and
+    `scaffold.py` chmods 0o755 on install, so the repo and the installed copy disagree.
+    """
+    scripts = sorted((payload / "hooks" / "scripts").glob("*.sh"))
+    assert scripts, "hook script glob looks broken"
+    non_exec = [p.name for p in scripts if not (p.stat().st_mode & 0o111)]
+    assert not non_exec, (
+        f"hook scripts missing the executable bit: {', '.join(non_exec)}"
+    )
+
+
+def test_installed_hook_scripts_are_executable(tmp_path: Path, payload: Path) -> None:
+    """The scaffolded copy must be executable regardless of the payload's mode."""
+    from tests._helpers import install
+
+    install(payload, tmp_path)
+    installed = sorted((tmp_path / ".claude" / "hooks").glob("*.sh"))
+    assert installed, "no hook scripts were installed"
+    non_exec = [p.name for p in installed if not (p.stat().st_mode & 0o111)]
+    assert not non_exec, f"installed hook scripts not executable: {', '.join(non_exec)}"
