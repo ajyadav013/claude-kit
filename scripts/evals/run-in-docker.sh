@@ -39,7 +39,8 @@ ROOT="$(repo_root)"
 RUN_DIR="${EVAL_RUN_DIR:-$ROOT/.claude/state/full-self-evaluation}"
 RUN_ID="${EVAL_RUN_ID:-$( [ -f "$RUN_DIR/run-id.txt" ] && cat "$RUN_DIR/run-id.txt" || echo unknown )}"
 COMPOSE_FILE="${EVAL_COMPOSE_FILE:-$ROOT/docker-compose.evals.yml}"
-COMPOSE_PROJECT="claude-kit-eval-${RUN_ID}"
+# Compose rejects a project name containing uppercase, and run ids carry an ISO-8601 stamp.
+COMPOSE_PROJECT="claude-kit-eval-$(printf '%s' "$RUN_ID" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_-' '-')"
 
 IMAGE=""
 SERVICE=""
@@ -87,8 +88,18 @@ TIMEOUT_MARKER="$EV_DIR/.timed-out"
 
 # The assertion that makes a result admissible: if this file is absent we are not in a container,
 # so the command must never run. "$@" is re-quoted so the payload survives the sh -c hop intact.
+#
+# `pipefail` is requested because a pipeline reports only its LAST command's status: piping a test
+# run into `tail` turns a failing suite into exit 0, which is a fabricated pass. Not every /bin/sh
+# supports the option (dash does not), so it is best-effort and a pipe in the payload is flagged in
+# the evidence for review.
 INNER_CMD="$(printf '%q ' "$@")"
-WRAPPED="if [ ! -f /.dockerenv ]; then echo 'FATAL: /.dockerenv absent — not inside Docker' >&2; exit ${DOCKERENV_FAILURE}; fi; ${INNER_CMD}"
+WRAPPED="if [ ! -f /.dockerenv ]; then echo 'FATAL: /.dockerenv absent — not inside Docker' >&2; exit ${DOCKERENV_FAILURE}; fi; (set -o pipefail) 2>/dev/null && set -o pipefail; ${INNER_CMD}"
+
+pipe_risk=false
+case " $* " in
+*"|"*) pipe_risk=true ;;
+esac
 
 docker_args=(
 	--name "$CONTAINER_NAME"
@@ -140,11 +151,21 @@ if [ -n "$IMAGE" ]; then
 else
 	[ -f "$COMPOSE_FILE" ] || die "compose file not found: $COMPOSE_FILE"
 	compose_args=(--project-name "$COMPOSE_PROJECT" --file "$COMPOSE_FILE")
+	run_env=()
+	for kv in ${ENVS+"${ENVS[@]}"}; do
+		run_env+=(--env "$kv")
+	done
+	for mnt in ${MOUNTS+"${MOUNTS[@]}"}; do
+		run_env+=(--volume "$mnt")
+	done
 	watchdog &
 	wd=$!
+	# --entrypoint sh is explicit: the runner services declare `entrypoint: ["sh","-c"]` for
+	# interactive use, which would otherwise swallow the wrapped command as $0.
 	docker compose "${compose_args[@]}" run --name "$CONTAINER_NAME" --no-TTY --rm=false \
-		--workdir "$WORKDIR" --user "$USER_SPEC" \
-		"$SERVICE" sh -c "$WRAPPED" >"$EV_DIR/stdout.txt" 2>"$EV_DIR/stderr.txt" || rc=$?
+		--workdir "$WORKDIR" --user "$USER_SPEC" --entrypoint sh \
+		${run_env+"${run_env[@]}"} \
+		"$SERVICE" -c "$WRAPPED" >"$EV_DIR/stdout.txt" 2>"$EV_DIR/stderr.txt" || rc=$?
 	kill "$wd" 2>/dev/null || true
 	wait "$wd" 2>/dev/null || true
 fi
@@ -186,6 +207,7 @@ fi
 	printf '  "timeout_seconds": %s,\n' "$TIMEOUT"
 	printf '  "timed_out": %s,\n' "$timed_out"
 	printf '  "dockerenv_verified": %s,\n' "$dockerenv_verified"
+	printf '  "pipe_in_payload": %s,\n' "$pipe_risk"
 	printf '  "network": "%s",\n' "$NETWORK"
 	printf '  "exit_code": %s\n' "$rc"
 	printf '}\n'

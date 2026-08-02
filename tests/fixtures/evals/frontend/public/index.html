@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claude Kit eval fixture</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Task board</h1>
+    </header>
+    <main>
+      <section aria-labelledby="filter-heading">
+        <h2 id="filter-heading">Filter</h2>
+        <label for="status">Status</label>
+        <select id="status" name="status">
+          <option value="">All</option>
+          <option value="todo">To do</option>
+          <option value="in-progress">In progress</option>
+          <option value="done">Done</option>
+        </select>
+        <button id="reload" type="button">Reload</button>
+      </section>
+      <section aria-labelledby="items-heading">
+        <h2 id="items-heading">Items</h2>
+        <p id="status-line" role="status">Loading…</p>
+        <ul id="items"></ul>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

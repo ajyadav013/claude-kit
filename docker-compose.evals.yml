@@ -1,0 +1,242 @@
+# Evaluation harness — NOT part of the plugin payload, the wheel, or any generated project.
+#
+# Every service exists so the self-evaluation program can run project toolchains, databases and
+# fixtures inside containers instead of on the host. Bring it up with the run-scoped project name
+# so all resources are attributable and removable:
+#
+#   docker compose -p claude-kit-eval-<run-id> -f docker-compose.evals.yml up -d postgres mongo api frontend
+#   docker compose -p claude-kit-eval-<run-id> -f docker-compose.evals.yml down -v --remove-orphans
+#
+# Safety posture: no privileged containers, no Docker socket, no host networking, no host root
+# mount. The repository is mounted read-only into the language runners; only the run's state
+# directory is writable. Fixture ports are published on 127.0.0.1 exclusively.
+
+x-common: &common
+  init: true
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+  labels:
+    ck-eval-run: "${EVAL_RUN_ID:-unknown}"
+
+x-runner: &runner
+  <<: *common
+  working_dir: /repo
+  user: "${EVAL_UID:-1000}:${EVAL_GID:-1000}"
+  volumes:
+    - type: bind
+      source: .
+      target: /repo
+      read_only: true
+    - type: bind
+      source: ./.claude/state/full-self-evaluation
+      target: /out
+  environment:
+    HOME: /tmp
+    XDG_CACHE_HOME: /tmp/.cache
+  networks: [eval-internal]
+  mem_limit: 4g
+  pids_limit: 512
+
+services:
+  # --- language runners (one-shot: `docker compose run <svc> <cmd>`) ----------------------------
+  python:
+    <<: *runner
+    image: claude-kit-eval-python:cke-20260801
+    environment:
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/.cache
+      RUFF_CACHE_DIR: /tmp/ruff
+      MYPY_CACHE_DIR: /tmp/mypy
+      PYTHONDONTWRITEBYTECODE: "1"
+      # CI does `pip install -e .`; the repo is mounted read-only here, so the src layout is put on
+      # the path directly. Same import surface, no write to the checkout.
+      PYTHONPATH: /repo/src
+    entrypoint: ["sh", "-c"]
+    command: ["python --version"]
+
+  python39:
+    <<: *runner
+    image: claude-kit-eval-python39:cke-20260801
+    environment:
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/.cache
+      PYTHONPATH: /repo/src
+    entrypoint: ["sh", "-c"]
+    command: ["python --version"]
+
+  python313:
+    <<: *runner
+    image: claude-kit-eval-python313:cke-20260801
+    environment:
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/.cache
+      PYTHONPATH: /repo/src
+    entrypoint: ["sh", "-c"]
+    command: ["python --version"]
+
+  node:
+    <<: *runner
+    image: node:22.11-alpine
+    entrypoint: ["sh", "-c"]
+    command: ["node --version"]
+
+  go:
+    <<: *runner
+    image: golang:1.23-alpine
+    environment:
+      HOME: /tmp
+      GOCACHE: /tmp/.gocache
+      GOMODCACHE: /tmp/.gomodcache
+      GOFLAGS: -mod=mod
+    entrypoint: ["sh", "-c"]
+    command: ["go version"]
+
+  # --- databases -------------------------------------------------------------------------------
+  # No named volumes: fixture data is disposable, and not creating volumes is the surest way not
+  # to leak them. Data directories live in the container's own writable layer.
+  postgres:
+    <<: *common
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_USER: evaluser
+      POSTGRES_PASSWORD: evalfixture
+      POSTGRES_DB: evaldb
+      PGDATA: /tmp/pgdata
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+    networks: [eval-internal]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evaluser -d evaldb"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  mongo:
+    <<: *common
+    image: mongo:7.0
+    environment:
+      MONGO_INITDB_DATABASE: evaldb
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETGID", "SETUID"]
+    networks: [eval-internal]
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ping:1}).ok' | grep -q 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # --- browser-reachable fixtures ----------------------------------------------------------------
+  api:
+    <<: *common
+    image: node:22.11-alpine
+    working_dir: /app
+    user: "node"
+    read_only: true
+    volumes:
+      - type: bind
+        source: ./tests/fixtures/evals/api
+        target: /app
+        read_only: true
+    command: ["node", "/app/server.js"]
+    environment:
+      PORT: "8081"
+    networks: [eval-internal, eval-browser]
+    mem_limit: 512m
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8081/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    <<: *common
+    # Unprivileged nginx: runs as non-root on 8080, so the container needs no capabilities at all.
+    # The standard nginx image chowns its cache at startup and cannot start under `cap_drop: ALL`.
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    # Directory mounts, not single-file mounts: a bind-mounted file is pinned to its inode, so an
+    # in-place edit on the host makes the container see a truncated or stale config.
+    volumes:
+      - type: bind
+        source: ./tests/fixtures/evals/frontend/public
+        target: /usr/share/nginx/html
+        read_only: true
+      - type: bind
+        source: ./tests/fixtures/evals/frontend/conf
+        target: /etc/nginx/conf.d
+        read_only: true
+    ports:
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [eval-browser]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # --- authorized pentest target + tooling, both cut off from every other network ----------------
+  vuln:
+    <<: *common
+    image: node:22.11-alpine
+    working_dir: /app
+    user: "node"
+    read_only: true
+    volumes:
+      - type: bind
+        source: ./tests/fixtures/evals/vuln
+        target: /app
+        read_only: true
+    command: ["node", "/app/server.js"]
+    environment:
+      PORT: "8082"
+    networks: [pentest-isolated]
+    mem_limit: 256m
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8082/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  pentest:
+    <<: *common
+    image: claude-kit-eval-pentest:cke-20260801
+    user: "${EVAL_UID:-1000}:${EVAL_GID:-1000}"
+    working_dir: /out
+    volumes:
+      - type: bind
+        source: ./.claude/state/full-self-evaluation
+        target: /out
+    entrypoint: ["sh", "-c"]
+    command: ["echo 'pentest toolbox ready'"]
+    networks: [pentest-isolated]
+    mem_limit: 512m
+    pids_limit: 256
+
+networks:
+  # No egress: language runners, databases and the API talk to each other and nothing else.
+  eval-internal:
+    internal: true
+    labels:
+      ck-eval-run: "${EVAL_RUN_ID:-unknown}"
+  # Reachable from the host loopback so Chrome DevTools MCP can inspect the frontend fixture.
+  eval-browser:
+    labels:
+      ck-eval-run: "${EVAL_RUN_ID:-unknown}"
+  # Pentest tools and their target share this network and have no route anywhere else.
+  pentest-isolated:
+    internal: true
+    labels:
+      ck-eval-run: "${EVAL_RUN_ID:-unknown}"

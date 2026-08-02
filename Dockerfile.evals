@@ -26,6 +26,8 @@ RUN python -m venv "$VIRTUAL_ENV" \
 
 # Runtime deps + the `dev` extra from pyproject.toml, plus coverage tooling the evaluation gate
 # needs (line AND branch coverage). Pinned to majors that match the project's declared floors.
+# hatchling is present so `python -m build --no-isolation` works on a network-less container: the
+# default isolated build would try to download the backend from PyPI mid-run.
 RUN pip install \
     "typer>=0.12" \
     "jinja2>=3.1" \
@@ -35,6 +37,7 @@ RUN pip install \
     "pytest-cov>=5.0" \
     "coverage[toml]>=7.5" \
     "build>=1.2" \
+    "hatchling>=1.25" \
     "twine>=5.0" \
     "ruff>=0.6" \
     "mypy>=1.10" \
@@ -46,3 +49,42 @@ ENV HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
 RUN mkdir -p /repo /out /tmp/.cache && chmod 0777 /out /tmp/.cache
 
 WORKDIR /repo
+
+
+# --- declared-floor and declared-ceiling interpreters (finding F-001) -------------------------------
+# pyproject declares requires-python >=3.9 and CI runs the 3.9-3.13 matrix, so validating on 3.12
+# alone cannot see a version-specific regression at either end. These stages carry the test runner
+# only; linting and type checking stay on the 3.12 stage, which is what CI lints with.
+
+FROM python:3.9-slim AS python39-eval
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
+    HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
+RUN python -m venv "$VIRTUAL_ENV" && pip install --upgrade pip \
+    && pip install "typer>=0.12" "jinja2>=3.1" "pyyaml>=6.0" "jsonschema>=4.0" \
+       "pytest>=8.0" "pytest-cov>=5.0" "coverage[toml]>=7.5" \
+    && chmod -R a+rX "$VIRTUAL_ENV" \
+    && mkdir -p /repo /out /tmp/.cache && chmod 0777 /out /tmp/.cache
+WORKDIR /repo
+
+FROM python:3.13-slim AS python313-eval
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
+    HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
+RUN python -m venv "$VIRTUAL_ENV" && pip install --upgrade pip \
+    && pip install "typer>=0.12" "jinja2>=3.1" "pyyaml>=6.0" "jsonschema>=4.0" \
+       "pytest>=8.0" "pytest-cov>=5.0" "coverage[toml]>=7.5" \
+    && chmod -R a+rX "$VIRTUAL_ENV" \
+    && mkdir -p /repo /out /tmp/.cache && chmod 0777 /out /tmp/.cache
+WORKDIR /repo
+
+
+# --- pentest toolbox ------------------------------------------------------------------------------
+# Runs only on the `pentest-isolated` network, which is declared `internal: true`, so these tools
+# have no route to the internet, the host, or the LAN — they can reach the vulnerable fixture and
+# nothing else. Deliberately minimal: HTTP probing and port discovery against one owned target.
+
+FROM alpine:3.20 AS pentest-tools
+RUN apk add --no-cache curl nmap nmap-scripts jq bind-tools \
+    && mkdir -p /out && chmod 0777 /out
+WORKDIR /out
