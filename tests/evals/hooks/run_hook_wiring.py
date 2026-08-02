@@ -28,15 +28,28 @@ import tempfile
 
 sys.path.insert(0, "/repo/src")
 
-from claude_kit import catalog, scaffold  # noqa: E402
+from claude_kit import catalog, scaffold, upgrader  # noqa: E402
 from claude_kit.hooks import (  # noqa: E402
     HOOK_REGISTRY,
     PLUGIN_HOOK_IDS,
     PLUGIN_ONLY_HOOKS,
+    STARTER_HOOK_IDS,
 )
 
 REPO = pathlib.Path("/repo")
 PROFILES = ["lean", "standard", "enterprise"]
+# (profile, capture_mode, upgrade_after). Capture is opt-in and off by default, so the three
+# capture-learnings entries are wired by no default profile; the upgraded arm re-checks a config
+# after upgrade() has rewritten settings.json.
+VARIANTS = [
+    ("standard", "session-end", False),
+    ("standard", "session-end-catchup", False),
+    ("enterprise", "session-end-catchup", False),
+    ("enterprise", "per-task", False),
+    ("standard", "per-task", False),
+    ("standard", None, True),
+    ("enterprise", None, True),
+]
 MUTATE = "--mutate" in sys.argv
 
 
@@ -150,23 +163,43 @@ INLINE_CASES = {
 }
 
 
-def check_profile(profile):
+def check_profile(profile, capture_mode=None, upgrade_after=False):
+    """Verify one installed configuration.
+
+    `capture_mode` selects a capture trigger. Capture is opt-in and off by default, so the three
+    capture-learnings registry entries are wired by NO default profile -- without this axis they can
+    only ever be evaluated as "never installed anywhere", which says nothing about whether choosing
+    the mode works.
+
+    `upgrade_after` re-checks the same install after `upgrader.upgrade()` has run over it. That is a
+    genuinely different configuration, not a re-score: an upgrade rewrites settings.json, and a hook
+    silently dropped on upgrade would leave every fresh-install check green.
+    """
+    label = profile + (f"+{capture_mode}" if capture_mode else "")
+    label += "+upgraded" if upgrade_after else ""
     findings, checked = [], 0
     sel = catalog.defaults(REPO)
     sel.profile = profile
+    if capture_mode:
+        sel.capture_mode = capture_mode
     plan = catalog.resolve(REPO, sel)
-    target = pathlib.Path(tempfile.mkdtemp(prefix=f"wire-{profile}-"))
+    target = pathlib.Path(tempfile.mkdtemp(prefix=f"wire-{label}-"))
     scaffold.install_sdlc(REPO, target, plan)
+    if upgrade_after:
+        ok, msgs = upgrader.upgrade(target)
+        if not ok:
+            findings.append(f"{label}: upgrade failed: {msgs[:3]}")
 
+    profile = label
     settings_path = target / ".claude/settings.json"
     if not settings_path.is_file():
-        return [f"{profile}: no .claude/settings.json installed"], 0, {}, {}
+        return [f"{profile}: no .claude/settings.json installed"], 0, {}, {}, {}
     settings = json.loads(settings_path.read_text())
     if MUTATE:
         settings = mutate(settings, plan)
 
     planned = set(plan.hooks)
-    wired, inline = {}, {}
+    wired, inline, absent = {}, {}, {}
     for hid in sorted(planned):
         spec = HOOK_REGISTRY.get(hid)
         if not spec:
@@ -242,6 +275,11 @@ def check_profile(profile):
             findings.append(
                 f"{profile}/{hid}: plugin-only hook leaked into the scaffolded install"
             )
+        else:
+            # Verified absence is a real verification of this component, not a skipped check: the
+            # plugin manifest can only ever offer it one surface, and "stays out of the scaffold"
+            # is half of what it promises.
+            absent[hid] = True
 
     # Negative half: anything the plan excluded must not have been wired anyway.
     for hid, spec in HOOK_REGISTRY.items():
@@ -255,7 +293,7 @@ def check_profile(profile):
                 f"{profile}/{hid}: NOT in the resolved plan yet wired anyway (profile gating leak)"
             )
         checked += 1
-    return findings, checked, wired, inline
+    return findings, checked, wired, inline, absent
 
 
 def check_plugin_manifest():
@@ -295,6 +333,48 @@ def check_plugin_manifest():
         ).returncode:
             findings.append(f"plugin/{hid}: inline command fails `bash -n`")
         wired[hid] = True
+    return findings, wired
+
+
+def check_starter():
+    """templates/settings.json -- the no-pip fallback that scripts/init.sh copies verbatim.
+
+    It is generated from STARTER_HOOK_IDS, so it is a real third install surface with its own
+    (smaller) roster. Both halves are checked: every starter hook wired, and nothing outside the
+    set present -- the consent gate that keeps the capture hooks out of a channel with no init
+    question is only meaningful if something enforces the absence.
+    """
+    findings, wired = [], {}
+    settings = json.loads((REPO / "templates/settings.json").read_text())
+    if MUTATE:
+        # The repo is mounted read-only, so the starter is mutated in memory: drop one hook the
+        # starter is supposed to ship. Without this the starter surface could never go red.
+        victim = HOOK_REGISTRY[sorted(STARTER_HOOK_IDS)[0]]
+        for block in (settings.get("hooks") or {}).get(victim["event"], []):
+            block["hooks"] = [
+                h
+                for h in block.get("hooks") or []
+                if not wires(victim, h.get("command", ""))
+            ]
+    for hid in sorted(STARTER_HOOK_IDS):
+        spec = HOOK_REGISTRY.get(hid)
+        if not spec:
+            findings.append(f"starter/{hid}: not in HOOK_REGISTRY")
+            continue
+        if not any(
+            wires(spec, c) for _, c in installed_commands(settings, spec["event"])
+        ):
+            findings.append(f"starter/{hid}: not wired to {spec['event']}")
+            continue
+        wired[hid] = True
+    for hid, spec in HOOK_REGISTRY.items():
+        script = spec.get("script")
+        if hid in STARTER_HOOK_IDS or not script:
+            continue
+        if any(script in c for _, c in installed_commands(settings, spec["event"])):
+            findings.append(
+                f"starter/{hid}: shipped in the starter but not in STARTER_HOOK_IDS"
+            )
     return findings, wired
 
 
@@ -340,13 +420,16 @@ def main():
 
     all_findings, checked, wired_any = [], 0, set()
     per_profile = {}
-    for p in PROFILES:
-        f, c, w, inl = check_profile(p)
-        per_profile[p] = {
+    arms = [(p, None, False) for p in PROFILES] + VARIANTS
+    for p, cap, upg in arms:
+        f, c, w, inl, absent = check_profile(p, capture_mode=cap, upgrade_after=upg)
+        key = p + (f"+{cap}" if cap else "") + ("+upgraded" if upg else "")
+        per_profile[key] = {
             "findings": f,
             "checks": c,
             "wired": sorted(w),
             "inline_exec": inl,
+            "plugin_only_absent": sorted(absent),
         }
         all_findings += f
         checked += c
@@ -356,17 +439,25 @@ def main():
     all_findings += pf
     wired_any |= set(pw)
 
+    sf, sw = check_starter()
+    all_findings += sf
+    wired_any |= set(sw)
+
     out = {
         "selftest": "passed — installed_commands() discriminates wired from unwired",
         "mutated": MUTATE,
         "dockerenv_verified": True,
         "profiles": per_profile,
         "plugin_manifest": {"findings": pf, "wired": sorted(pw)},
-        "checks_performed": checked + len(PLUGIN_HOOK_IDS),
+        "starter": {"findings": sf, "wired": sorted(sw)},
+        "checks_performed": checked + len(PLUGIN_HOOK_IDS) + len(STARTER_HOOK_IDS),
         "registry_total": len(HOOK_REGISTRY),
         # Emitted so the host-side coverage derivation can map a registry entry to its script
         # without importing product code on the control plane.
-        "script_of": {h: s.get("script") for h, s in sorted(HOOK_REGISTRY.items())},
+        "script_of": {
+            h: s.get("script")
+            for h, s in sorted({**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}.items())
+        },
         "hooks_wired_somewhere": sorted(wired_any),
         "hooks_wired_count": len(wired_any),
         "findings": all_findings,
