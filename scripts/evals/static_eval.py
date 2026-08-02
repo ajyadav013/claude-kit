@@ -953,6 +953,211 @@ def check_repo_script(comp, payload, corpus):
     return findings
 
 
+def _entry_comment_block(payload: Path, name: str, sid: str) -> str:
+    """Raw comment lines belonging to one catalog entry — safe_load drops comments."""
+    text = (payload / "catalog" / name).read_text(encoding="utf-8")
+    lines = text.splitlines()
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.strip().startswith(f"{sid}:")), None
+    )
+    if start is None:
+        return ""
+    out = []
+    for ln in lines[start + 1 :]:
+        if ln and not ln.startswith((" ", "\t")):
+            break
+        if len(ln) - len(ln.lstrip()) <= 2 and ln.strip().endswith(":") and out:
+            break
+        out.append(ln)
+    return "\n".join(out)
+
+
+_SECRETISH_NAME = re.compile(
+    r"TOKEN|SECRET|PASSWORD|CREDENTIAL|_KEY\\b|APIKEY|API_KEY", re.I
+)
+_SECRETISH_VALUE = re.compile(
+    r"^(gh[pousr]_|sk-|xox[baprs]-|AKIA|eyJ)|^[A-Za-z0-9/+=_-]{24,}$"
+)
+
+
+def check_mcp_entry(comp, payload):
+    """An MCP fragment must be labelled, typed, version-pinned, credential-free, and risk-noted.
+
+    Every rule here is one the catalog's own header states, so the check enforces the file's
+    stated contract rather than an opinion imported from outside it.
+    """
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    doc = _yaml(payload, "mcp.yaml")
+    sid = comp["id"].split(":", 1)[1]
+    entry = (doc.get("servers") or {}).get(sid)
+    if entry is None:
+        add("high", "entry_exists", f"no servers.{sid} in catalog/mcp.yaml")
+        return findings
+    if not str(entry.get("label", "")).strip():
+        add("medium", "label", "no label — the init prompt would show a blank choice")
+
+    config = entry.get("config") or {}
+    kind = config.get("type")
+    if kind not in ("stdio", "http", "sse"):
+        add("high", "transport", f"config.type {kind!r} is not a known MCP transport")
+    if kind == "stdio":
+        if not config.get("command"):
+            add("high", "command", "a stdio server with no command cannot start")
+        args = [str(a) for a in config.get("args") or []]
+        if config.get("command") == "npx":
+            pkgs = [a for a in args if "@" in a and not a.startswith("-")]
+            if not pkgs:
+                add("high", "pinned", "npx invocation names no versioned package")
+            for a in pkgs:
+                if a.endswith("@latest") or a.count("@") == (
+                    1 if a.startswith("@") else 0
+                ):
+                    add(
+                        "high",
+                        "pinned",
+                        f"{a!r} is not pinned to an exact version; the catalog header requires a "
+                        "pinned version so a fresh upstream release cannot silently change what "
+                        "runs on a user's machine",
+                    )
+    elif kind in ("http", "sse") and not config.get("url"):
+        add("high", "url", f"a {kind} server with no url cannot connect")
+
+    for key, value in (config.get("env") or {}).items():
+        text = str(value)
+        if text.startswith("${") and text.endswith("}"):
+            continue
+        # A literal is not automatically a secret: the catalog ships restrictive-by-default
+        # switches (READ_OPERATIONS_ONLY: "true") whose whole point is to be a fixed value, not
+        # something the user must supply. Flagging those would train the reader to ignore the
+        # check that actually matters.
+        if _SECRETISH_NAME.search(key) or _SECRETISH_VALUE.match(text):
+            add(
+                "critical",
+                "no_credentials",
+                f"env {key} carries a literal {text[:8]!r}… rather than a ${{ENV}} placeholder — "
+                "the catalog guarantees no credentials are ever generated into a user's .mcp.json",
+            )
+        elif text.lower() not in ("true", "false", "0", "1") and not text.isdigit():
+            add(
+                "low",
+                "literal_env",
+                f"env {key} is the literal {text!r}; harmless if it is a mode switch, but a "
+                "non-boolean literal in a fragment is worth a second look",
+            )
+
+    if "toxic-flow legs:" not in _entry_comment_block(payload, "mcp.yaml", sid):
+        add(
+            "medium",
+            "toxic_flow_note",
+            "no `toxic-flow legs:` note — the header requires every entry to declare which of "
+            "{untrusted-content, private-data, destructive, egress} it introduces, and the "
+            "fail-closed sandbox rule is keyed to that combination",
+        )
+    return findings
+
+
+_CLI_MENTION = re.compile(r"claude-kit\s+([a-z][a-z0-9-]{2,})")
+_PATH_MENTION = re.compile(r"`([a-zA-Z0-9_./-]+\.(?:md|py|sh|ya?ml|json|toml))`")
+_CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE = re.compile(r"`([^`\n]+)`")
+
+
+def cli_commands(payload: Path) -> set[str]:
+    """Subcommand names registered on the Typer app, read from the source rather than --help."""
+    try:
+        tree = ast.parse(
+            (payload / "src" / "claude_kit" / "cli.py").read_text(encoding="utf-8")
+        )
+    except (OSError, SyntaxError):
+        return set()
+    names = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            if not isinstance(dec, ast.Call):
+                continue
+            func = dec.func
+            if isinstance(func, ast.Attribute) and func.attr in ("command", "callback"):
+                explicit = next(
+                    (
+                        kw.value.value
+                        for kw in dec.keywords
+                        if kw.arg == "name" and isinstance(kw.value, ast.Constant)
+                    ),
+                    None,
+                )
+                positional = (
+                    dec.args[0].value
+                    if dec.args and isinstance(dec.args[0], ast.Constant)
+                    else None
+                )
+                names.add(explicit or positional or node.name.replace("_", "-"))
+    return names
+
+
+def documented_invocations(text: str) -> set[str]:
+    """`claude-kit <word>` appearing as CODE — a fenced block or inline backticks.
+
+    Restricting to code is what makes this falsifiable without drowning in prose: "the claude-kit
+    configuration" is a sentence, `claude-kit doctor` is a claim that a subcommand exists.
+    """
+    snippets = _CODE_FENCE.findall(text) + _INLINE.findall(text)
+    found = set()
+    for snip in snippets:
+        found |= set(_CLI_MENTION.findall(snip))
+    return found
+
+
+def check_doc(comp, payload, commands):
+    """A document describing executable behaviour must not describe behaviour that is gone."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    path = payload / comp["path"]
+    if not path.is_file():
+        return [
+            {
+                "severity": "critical",
+                "check": "exists",
+                "detail": f"absent: {comp['path']}",
+            }
+        ]
+    text = path.read_text(encoding="utf-8", errors="ignore")
+
+    ghosts = sorted(documented_invocations(text) - commands)
+    if ghosts:
+        add(
+            "high",
+            "cli_claims",
+            f"shows `claude-kit {', '.join(ghosts)}` as a command, but the CLI registers no such "
+            "subcommand — a reader following this document gets an error",
+        )
+
+    missing = sorted(
+        {
+            m
+            for m in _PATH_MENTION.findall(text)
+            if "/" in m
+            and not (payload / m).exists()
+            and not m.startswith(("your-", "path/"))
+        }
+    )
+    if missing:
+        add(
+            "medium",
+            "path_claims",
+            f"names {len(missing)} repository path(s) that do not exist: {', '.join(missing[:6])}",
+        )
+    return findings
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -999,6 +1204,7 @@ def main() -> int:
     prose = prose_index(payload)
     conflicts = gate_order_conflicts(payload)
     corpus = invocation_corpus(payload)
+    commands = cli_commands(payload)
 
     records = []
     for cid in ids:
@@ -1029,6 +1235,10 @@ def main() -> int:
             findings = check_schema(comp, payload)
         elif ctype == "repo-validation-script":
             findings = check_repo_script(comp, payload, corpus)
+        elif ctype == "mcp-entry":
+            findings = check_mcp_entry(comp, payload)
+        elif ctype == "doc":
+            findings = check_doc(comp, payload, commands)
         elif ctype.startswith("workflow-") or ctype in (
             "resolver",
             "rendering",

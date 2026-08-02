@@ -879,3 +879,168 @@ def test_every_shipped_justification_still_matches_its_source_line(payload):
         lines = (payload / rel).read_text(encoding="utf-8").splitlines()
         assert lines[origin - 1].strip() == j["origin_line_text"].strip(), key
         assert j.get("reason") and j.get("proof"), f"{key} carries no proof"
+
+
+# --- negative controls: MCP fragments and behavioural documentation ------------------------------
+
+
+_MCP = """version: 1
+servers:
+  good:
+    label: Good
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@scope/pkg@1.2.3"]
+      env: {TOKEN: "${TOKEN}"}
+  floating:
+    label: Floating
+    config: {type: stdio, command: npx, args: ["-y", "@scope/pkg@latest"]}
+  leaky:
+    label: Leaky
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@scope/pkg@1.0.0"]
+      env: {TOKEN: "ghp_realsecret"}
+  badtype:
+    label: Bad
+    config: {type: carrier-pigeon}
+  nourl:
+    label: NoUrl
+    config: {type: http}
+"""
+
+
+def _mcp_comp(sid):
+    return {
+        "id": f"mcp:{sid}",
+        "type": "mcp-entry",
+        "path": f"catalog/mcp.yaml::servers.{sid}",
+    }
+
+
+def _write_mcp(tmp_path, body=_MCP, notes=True):
+    d = tmp_path / "catalog"
+    d.mkdir(parents=True, exist_ok=True)
+    if notes:
+        body = body.replace(
+            "    label: Good",
+            "    label: Good\n    # toxic-flow legs: egress · private-data",
+        )
+    (d / "mcp.yaml").write_text(body, encoding="utf-8")
+
+
+def test_an_unpinned_npx_package_is_flagged(tmp_path):
+    """The catalog header forbids @latest: a fresh upstream release must not silently change what
+    runs on a user's machine."""
+    _write_mcp(tmp_path)
+    assert "pinned" in _checks(
+        static_eval.check_mcp_entry(_mcp_comp("floating"), tmp_path)
+    )
+
+
+def test_a_literal_credential_in_an_mcp_fragment_is_critical(tmp_path):
+    _write_mcp(tmp_path)
+    findings = static_eval.check_mcp_entry(_mcp_comp("leaky"), tmp_path)
+    assert [f["severity"] for f in findings if f["check"] == "no_credentials"] == [
+        "critical"
+    ]
+
+
+def test_a_restrictive_mode_switch_is_not_mistaken_for_a_credential(tmp_path):
+    """READ_OPERATIONS_ONLY: "true" is the catalog's restrictive-by-default posture, not a secret.
+    Flagging it would train the reader to ignore the check that actually matters."""
+    body = (
+        _MCP
+        + """  switched:
+    label: Switched
+    config:
+      type: stdio
+      command: npx
+      args: ["-y", "@scope/pkg@1.0.0"]
+      env: {READ_OPERATIONS_ONLY: "true", REQUIRE_MUTATION_CONSENT: "true"}
+"""
+    )
+    _write_mcp(tmp_path, body)
+    findings = static_eval.check_mcp_entry(_mcp_comp("switched"), tmp_path)
+    assert "no_credentials" not in _checks(findings)
+
+
+def test_an_unknown_transport_is_flagged(tmp_path):
+    _write_mcp(tmp_path)
+    assert "transport" in _checks(
+        static_eval.check_mcp_entry(_mcp_comp("badtype"), tmp_path)
+    )
+
+
+def test_an_http_server_without_a_url_is_flagged(tmp_path):
+    _write_mcp(tmp_path)
+    assert "url" in _checks(static_eval.check_mcp_entry(_mcp_comp("nourl"), tmp_path))
+
+
+def test_a_missing_toxic_flow_note_is_flagged(tmp_path):
+    _write_mcp(tmp_path, notes=False)
+    assert "toxic_flow_note" in _checks(
+        static_eval.check_mcp_entry(_mcp_comp("good"), tmp_path)
+    )
+
+
+def test_an_absent_mcp_entry_is_flagged(tmp_path):
+    _write_mcp(tmp_path)
+    assert _checks(static_eval.check_mcp_entry(_mcp_comp("ghost"), tmp_path)) == {
+        "entry_exists"
+    }
+
+
+def test_a_clean_mcp_entry_produces_no_findings(tmp_path):
+    _write_mcp(tmp_path)
+    assert static_eval.check_mcp_entry(_mcp_comp("good"), tmp_path) == []
+
+
+def test_every_shipped_mcp_entry_is_version_pinned_and_credential_free(payload):
+    """The two invariants with real user consequences, asserted against the shipped catalog."""
+    import yaml
+
+    doc = yaml.safe_load((payload / "catalog" / "mcp.yaml").read_text(encoding="utf-8"))
+    for sid in doc["servers"]:
+        findings = static_eval.check_mcp_entry(_mcp_comp(sid), payload)
+        blocking = [f for f in findings if f["check"] in ("pinned", "no_credentials")]
+        assert not blocking, f"{sid}: {blocking}"
+
+
+def _doc(tmp_path, body):
+    (tmp_path / "docs").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "docs" / "d.md").write_text(body, encoding="utf-8")
+    return {"id": "doc:d", "type": "doc", "path": "docs/d.md"}
+
+
+def test_a_document_showing_a_nonexistent_subcommand_is_flagged(tmp_path):
+    comp = _doc(tmp_path, "Run `claude-kit teleport` to finish.\n")
+    assert "cli_claims" in _checks(
+        static_eval.check_doc(comp, tmp_path, {"init", "doctor"})
+    )
+
+
+def test_prose_mentioning_the_tool_name_is_not_read_as_a_command(tmp_path):
+    """Restricting to code is what keeps this check usable; every doc says 'claude-kit' in prose."""
+    comp = _doc(
+        tmp_path,
+        "The claude-kit configuration lives in .claude/, and claude-kit rules.\n",
+    )
+    assert "cli_claims" not in _checks(static_eval.check_doc(comp, tmp_path, {"init"}))
+
+
+def test_a_document_naming_a_missing_repository_path_is_flagged(tmp_path):
+    comp = _doc(tmp_path, "See `src/claude_kit/nope.py` for details.\n")
+    assert "path_claims" in _checks(static_eval.check_doc(comp, tmp_path, set()))
+
+
+def test_a_clean_document_produces_no_findings(tmp_path):
+    comp = _doc(tmp_path, "Run `claude-kit doctor`. See `docs/d.md`.\n")
+    assert static_eval.check_doc(comp, tmp_path, {"doctor"}) == []
+
+
+def test_cli_commands_reads_the_real_registrations(payload):
+    cmds = static_eval.cli_commands(payload)
+    assert {"init", "validate", "doctor", "upgrade", "export"} <= cmds, sorted(cmds)
