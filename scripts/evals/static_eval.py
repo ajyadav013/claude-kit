@@ -520,8 +520,22 @@ def function_span(path, qualname):
     return None
 
 
+def coverage_severity(comp):
+    """An uncovered path is as serious as the component it hides in.
+
+    check_callable used to pin every coverage gap at "high" and check_module used to pin every
+    one at "medium", neither consulting the risk the manifest already assigns. The two schemes
+    produced an inverted ordering: `version`, a one-line echo, outranked `upgrader`, the only
+    component that can destroy a user's edits. Severity now tracks the declared risk, which
+    raises the destructive paths and lowers the trivial ones.
+    """
+    return {"high": "high", "medium": "medium", "low": "low"}.get(
+        comp.get("risk"), "medium"
+    )
+
+
 def check_callable(comp, payload, coverage):
-    """A high-risk CLI command / pipeline op must exist, be documented, and be fully covered."""
+    """A CLI command / pipeline op must exist, be documented, and be fully covered."""
     findings = []
 
     def add(sev, check, detail):
@@ -566,11 +580,11 @@ def check_callable(comp, payload, coverage):
     )
     if uncovered:
         add(
-            "high",
+            coverage_severity(comp),
             "coverage",
             f"{qual!r} has {len(uncovered)} uncovered line(s) at {rel}:"
-            f"{','.join(str(n) for n in uncovered[:12])} — a high-risk entry point with "
-            "unexercised behaviour",
+            f"{','.join(str(n) for n in uncovered[:12])} — a {comp.get('risk', 'medium')}-risk "
+            "entry point with unexercised behaviour",
         )
     return findings
 
@@ -905,7 +919,7 @@ def check_module(comp, payload, coverage):
     pct = 100.0 * (summary.get("covered_lines") or 0) / stmts if stmts else 100.0
     if pct < 95.0:
         add(
-            "medium",
+            coverage_severity(comp),
             "coverage",
             f"{rel} line coverage is {pct:.2f}%, under the 95% floor",
         )
@@ -942,7 +956,7 @@ def check_module(comp, payload, coverage):
         )
     if unjustified:
         add(
-            "medium",
+            coverage_severity(comp),
             "branch_coverage",
             f"{len(unjustified)} untaken branch(es) in {rel} with no recorded analysis: "
             + ", ".join(f"{a}->{b}" for a, b in unjustified[:8]),
