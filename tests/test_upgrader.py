@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from claude_kit import catalog, upgrader
 from tests._helpers import install, make_selection
 
@@ -253,3 +255,86 @@ def test_upgrade_stays_silent_when_capture_off(tmp_path, payload):
     )
     blob = json.dumps(settings)
     assert "capture-learnings" not in blob
+
+
+# --- the decisions the upgrader makes when the target is not in the shape it recorded -----------
+#
+# These are the paths that rewrite or delete a user's files, so an untaken branch here is not a
+# coverage statistic — it is an unexercised way to lose work.
+
+
+def test_corrupt_init_options_is_distinguished_from_a_missing_one(tmp_path, payload):
+    """Both refuse the upgrade, but the operator needs different remedies for each."""
+    install(payload, tmp_path)
+    cfg = tmp_path / ".claude" / "config" / "init-options.json"
+    cfg.write_text("{not json", encoding="utf-8")
+    ok, messages = upgrader.upgrade(tmp_path)
+    assert not ok
+    assert any("unreadable (invalid JSON)" in m for m in messages), messages
+
+    cfg.unlink()
+    ok, messages = upgrader.upgrade(tmp_path)
+    assert not ok
+    assert any("predates upgrade tracking" in m for m in messages), messages
+    assert not any("invalid JSON" in m for m in messages)
+
+
+def test_orphan_the_user_already_deleted_is_not_planned_for_removal(tmp_path, payload):
+    """A recorded file that is gone from disk must produce no `remove` action.
+
+    Reaching this needs a record the current plan no longer ships AND no file on disk — so the
+    manifest is given a stale record directly. Deleting a still-planned file instead leaves it in
+    the reference, the loop `continue`s one line earlier, and the assertion passes without ever
+    touching the branch it claims to cover.
+    """
+    install(payload, tmp_path)
+    cfg = tmp_path / ".claude" / "config" / "init-options.json"
+    doc = json.loads(cfg.read_text(encoding="utf-8"))
+    stale = ".claude/rules/retired-in-an-older-kit.md"
+    template = next(r for r in doc["files"] if r["path"].startswith(".claude/rules/"))
+    doc["files"].append({**template, "path": stale})
+    cfg.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    assert not (tmp_path / stale).exists()
+
+    cmp_ = upgrader._compare(payload, tmp_path)
+    assert not isinstance(cmp_, str), f"_compare refused the fixture: {cmp_}"
+    try:
+        removals = [a.rel for a in cmp_.actions if a.kind == "remove"]
+        assert stale not in removals, "planned to remove a file that is already absent"
+        # The same record WITH a file on disk must be planned for removal, or the assertion above
+        # would hold for the wrong reason.
+        (tmp_path / stale).write_text("left over\n", encoding="utf-8")
+        cmp2 = upgrader._compare(payload, tmp_path)
+        assert not isinstance(cmp2, str)
+        try:
+            assert stale in [a.rel for a in cmp2.actions if a.kind == "remove"]
+        finally:
+            upgrader._cleanup(cmp2.ref_root)
+    finally:
+        upgrader._cleanup(cmp_.ref_root)
+
+
+def test_upgrade_of_an_install_with_no_pending_actions_reports_up_to_date(
+    tmp_path, payload
+):
+    """The action loop must tolerate an empty plan rather than assuming at least one entry."""
+    install(payload, tmp_path)
+    ok, first = upgrader.upgrade(tmp_path)
+    assert ok, first
+    ok, second = upgrader.upgrade(tmp_path)
+    assert ok
+    assert any("up to date" in m for m in second), second
+
+
+def test_explain_error_covers_every_compare_failure_code(tmp_path):
+    """Each code must produce its own actionable remedy, and none may fall through silently."""
+    seen = {}
+    for code in ("not-installed", "corrupt-options", "no-options"):
+        ok, msgs = upgrader._explain_error(code, tmp_path)
+        assert not ok
+        assert len(msgs) == 1 and msgs[0].startswith("FAIL")
+        seen[code] = msgs[0]
+    assert len({*seen.values()}) == 3, f"two codes share a message: {seen}"
+    assert "claude-kit init" in seen["not-installed"]
+    assert "invalid JSON" in seen["corrupt-options"]
+    assert "predates upgrade tracking" in seen["no-options"]

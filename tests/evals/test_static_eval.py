@@ -410,3 +410,279 @@ def test_uncovered_lines_outside_the_callable_are_ignored(tmp_path):
     comp = _module(tmp_path, src)
     cov = {"files": {"src/m.py": {"missing_lines": [7]}}}
     assert static_eval.check_callable(comp, tmp_path, cov) == []
+
+
+# --- negative controls: the catalog-derived check families ---------------------------------------
+#
+# Batch 3 evaluated 30 components and returned one finding. That is only good news if each check
+# can fail; otherwise it is a false CLEAN over 29 components.
+
+
+def _catalog(tmp_path: Path, name: str, text: str) -> Path:
+    d = tmp_path / "catalog"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(text, encoding="utf-8")
+    return d / name
+
+
+def test_capture_mode_absent_from_the_catalog_is_flagged(tmp_path):
+    _catalog(
+        tmp_path,
+        "capture.yaml",
+        "version: 1\ndefault: 'off'\nmodes:\n  'off': {label: x}\n",
+    )
+    comp = {
+        "id": "capture-mode:ghost",
+        "type": "capture-mode",
+        "path": "catalog/capture.yaml",
+    }
+    assert _checks(static_eval.check_capture_mode(comp, tmp_path, set())) == {
+        "mode_exists"
+    }
+
+
+def test_capture_mode_naming_an_unknown_hook_is_flagged(tmp_path):
+    _catalog(
+        tmp_path,
+        "capture.yaml",
+        "version: 1\ndefault: 'off'\nmodes:\n  m: {label: L, hooks: [no-such-hook]}\n",
+    )
+    comp = {
+        "id": "capture-mode:m",
+        "type": "capture-mode",
+        "path": "catalog/capture.yaml",
+    }
+    assert "hook_exists" in _checks(
+        static_eval.check_capture_mode(comp, tmp_path, {"real"})
+    )
+
+
+def test_a_default_capture_mode_that_installs_hooks_is_a_consent_regression(tmp_path):
+    """0.76.0 made background capture opt-in; a default that installs hooks silently undoes it."""
+    _catalog(
+        tmp_path,
+        "capture.yaml",
+        "version: 1\ndefault: m\nmodes:\n  m: {label: L, hooks: [capture-learnings]}\n",
+    )
+    comp = {
+        "id": "capture-mode:m",
+        "type": "capture-mode",
+        "path": "catalog/capture.yaml",
+    }
+    findings = static_eval.check_capture_mode(comp, tmp_path, {"capture-learnings"})
+    assert "consent_default" in _checks(findings)
+
+
+def test_a_clean_capture_mode_produces_no_findings(tmp_path):
+    _catalog(
+        tmp_path,
+        "capture.yaml",
+        "version: 1\ndefault: 'off'\nmodes:\n  m: {label: L, hooks: [real]}\n",
+    )
+    comp = {
+        "id": "capture-mode:m",
+        "type": "capture-mode",
+        "path": "catalog/capture.yaml",
+    }
+    assert static_eval.check_capture_mode(comp, tmp_path, {"real"}) == []
+
+
+def test_unparseable_catalog_file_is_critical(tmp_path):
+    _catalog(tmp_path, "x.yaml", "a: [1,\n  b: {\n")
+    comp = {"id": "catalog-file:x", "type": "catalog-file", "path": "catalog/x.yaml"}
+    assert _checks(static_eval.check_catalog_file(comp, tmp_path)) == {"parses"}
+
+
+def test_unversioned_catalog_file_is_flagged(tmp_path):
+    _catalog(tmp_path, "x.yaml", "stacks: {}\n")
+    comp = {"id": "catalog-file:x", "type": "catalog-file", "path": "catalog/x.yaml"}
+    assert "versioned" in _checks(static_eval.check_catalog_file(comp, tmp_path))
+
+
+def test_a_clean_catalog_file_produces_no_findings(tmp_path):
+    _catalog(tmp_path, "x.yaml", "version: 1\nstacks: {}\n")
+    comp = {"id": "catalog-file:x", "type": "catalog-file", "path": "catalog/x.yaml"}
+    assert static_eval.check_catalog_file(comp, tmp_path) == []
+
+
+_ORG = """version: 1
+teams:
+  - {id: security, label: Security}
+autonomy:
+  levels:
+    good: {label: G, policy: "may edit", hooks: [real]}
+    nohook: {label: N, policy: "may edit", hooks: [ghost-hook]}
+    nopolicy: {label: N, policy: "  ", hooks: []}
+    nolabel: {policy: "may edit", hooks: []}
+packs:
+  - {id: good-pack, label: P, teams: [security]}
+  - {id: bad-pack, label: P, teams: [not-a-team]}
+"""
+
+
+def _org_comp(dotted, ctype="autonomy-level"):
+    return {"id": f"x:{dotted}", "type": ctype, "path": f"catalog/org.yaml::{dotted}"}
+
+
+def test_org_entry_absent_at_its_declared_path_is_flagged(tmp_path):
+    _catalog(tmp_path, "org.yaml", _ORG)
+    findings = static_eval.check_org_entry(
+        _org_comp("autonomy.levels.ghost"), tmp_path, {"real"}
+    )
+    assert _checks(findings) == {"entry_exists"}
+
+
+def test_org_entry_naming_an_unknown_hook_is_flagged(tmp_path):
+    _catalog(tmp_path, "org.yaml", _ORG)
+    findings = static_eval.check_org_entry(
+        _org_comp("autonomy.levels.nohook"), tmp_path, {"real"}
+    )
+    assert "hook_exists" in _checks(findings)
+
+
+def test_an_autonomy_level_with_a_blank_policy_is_flagged(tmp_path):
+    """The policy string is rendered into CLAUDE.md; blank means the project states no boundary."""
+    _catalog(tmp_path, "org.yaml", _ORG)
+    findings = static_eval.check_org_entry(
+        _org_comp("autonomy.levels.nopolicy"), tmp_path, {"real"}
+    )
+    assert "policy" in _checks(findings)
+
+
+def test_an_unlabelled_org_entry_is_flagged(tmp_path):
+    _catalog(tmp_path, "org.yaml", _ORG)
+    findings = static_eval.check_org_entry(
+        _org_comp("autonomy.levels.nolabel"), tmp_path, {"real"}
+    )
+    assert "label" in _checks(findings)
+
+
+def test_a_pack_referencing_an_undeclared_team_is_flagged(tmp_path):
+    _catalog(tmp_path, "org.yaml", _ORG)
+    findings = static_eval.check_org_entry(
+        _org_comp("packs.bad-pack", "org-capability"), tmp_path, {"real"}
+    )
+    assert "team_exists" in _checks(findings)
+
+
+def test_a_clean_org_entry_produces_no_findings(tmp_path):
+    _catalog(tmp_path, "org.yaml", _ORG)
+    assert (
+        static_eval.check_org_entry(
+            _org_comp("autonomy.levels.good"), tmp_path, {"real"}
+        )
+        == []
+    )
+    assert (
+        static_eval.check_org_entry(
+            _org_comp("packs.good-pack", "org-capability"), tmp_path, set()
+        )
+        == []
+    )
+
+
+def _schema(tmp_path, body: str):
+    d = tmp_path / "schemas"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "s.schema.json").write_text(body, encoding="utf-8")
+    (tmp_path / "src").mkdir(exist_ok=True)
+    return {"id": "schema:s", "type": "schema", "path": "schemas/s.schema.json"}
+
+
+def test_unparseable_schema_is_critical(tmp_path):
+    comp = _schema(tmp_path, "{not json")
+    assert _checks(static_eval.check_schema(comp, tmp_path)) == {"parses"}
+
+
+def test_a_schema_no_source_file_references_is_flagged(tmp_path):
+    comp = _schema(tmp_path, '{"$schema": "x", "type": "object"}')
+    (tmp_path / "src" / "a.py").write_text("pass\n", encoding="utf-8")
+    assert "referenced" in _checks(static_eval.check_schema(comp, tmp_path))
+
+
+def test_a_schema_without_a_dialect_or_type_is_flagged(tmp_path):
+    comp = _schema(tmp_path, "{}")
+    (tmp_path / "src" / "a.py").write_text("s = 's.schema.json'\n", encoding="utf-8")
+    assert _checks(static_eval.check_schema(comp, tmp_path)) == {"dialect", "typed"}
+
+
+def test_a_clean_schema_produces_no_findings(tmp_path):
+    comp = _schema(tmp_path, '{"$schema": "x", "type": "object"}')
+    (tmp_path / "src" / "a.py").write_text("s = 's.schema.json'\n", encoding="utf-8")
+    assert static_eval.check_schema(comp, tmp_path) == []
+
+
+def _mod(tmp_path, body: str):
+    (tmp_path / "src").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "src" / "m.py").write_text(body, encoding="utf-8")
+    return {"id": "module:m", "type": "workflow-upgrade", "path": "src/m.py"}
+
+
+def _cov(**summary):
+    base = {
+        "num_statements": 10,
+        "covered_lines": 10,
+        "num_branches": 4,
+        "covered_branches": 4,
+    }
+    base.update(summary)
+    return {"files": {"src/m.py": {"summary": base}}}
+
+
+def test_a_module_under_the_coverage_floor_is_flagged(tmp_path):
+    comp = _mod(tmp_path, '"""Doc."""\n')
+    findings = static_eval.check_module(comp, tmp_path, _cov(covered_lines=9))
+    assert "coverage" in _checks(findings)
+
+
+def test_a_module_with_untaken_branches_is_flagged(tmp_path):
+    comp = _mod(tmp_path, '"""Doc."""\n')
+    findings = static_eval.check_module(comp, tmp_path, _cov(covered_branches=1))
+    assert "branch_coverage" in _checks(findings)
+    assert any("3 untaken" in f["detail"] for f in findings)
+
+
+def test_an_undocumented_module_is_flagged(tmp_path):
+    comp = _mod(tmp_path, "x = 1\n")
+    assert "documented" in _checks(static_eval.check_module(comp, tmp_path, _cov()))
+
+
+def test_a_clean_module_produces_no_findings(tmp_path):
+    comp = _mod(tmp_path, '"""Doc."""\n')
+    assert static_eval.check_module(comp, tmp_path, _cov()) == []
+
+
+def test_a_gate_no_profile_installs_is_flagged(tmp_path, payload):
+    comp = {
+        "id": "gate:invented-gate",
+        "type": "gate",
+        "path": "catalog/profiles.yaml::gates",
+    }
+    findings = static_eval.check_gate(comp, payload, "", [])
+    assert {"gate_installed", "gate_documented"} <= _checks(findings)
+
+
+def test_a_gate_ordered_inconsistently_across_profiles_is_flagged(tmp_path, payload):
+    comp = {
+        "id": "gate:code-review",
+        "type": "gate",
+        "path": "catalog/profiles.yaml::gates",
+    }
+    conflicts = ["lean and standard disagree on code-review vs build-green"]
+    findings = static_eval.check_gate(comp, payload, "code-review", conflicts)
+    assert "gate_order" in _checks(findings)
+
+
+def test_the_shipped_profiles_order_their_shared_gates_consistently(payload):
+    """close_gate derives the expected next gate from this order; a disagreement means the same
+    evidence closes in one profile and is rejected as out-of-order in another."""
+    assert static_eval.gate_order_conflicts(payload) == []
+
+
+def test_a_documented_installed_gate_produces_no_findings(payload):
+    comp = {
+        "id": "gate:code-review",
+        "type": "gate",
+        "path": "catalog/profiles.yaml::gates",
+    }
+    assert static_eval.check_gate(comp, payload, "code-review", []) == []

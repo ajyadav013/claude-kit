@@ -458,6 +458,316 @@ def check_callable(comp, payload, coverage):
     return findings
 
 
+def _yaml(payload: Path, name: str):
+    import yaml
+
+    return (
+        yaml.safe_load((payload / "catalog" / name).read_text(encoding="utf-8")) or {}
+    )
+
+
+def _dig(doc, dotted: str):
+    """Walk a dotted path through nested mappings and id-keyed lists; None if absent."""
+    cur = doc
+    for part in dotted.split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        elif isinstance(cur, list):
+            match = [e for e in cur if isinstance(e, dict) and e.get("id") == part]
+            if not match:
+                return None
+            cur = match[0]
+        else:
+            return None
+    return cur
+
+
+def gate_order_conflicts(payload: Path) -> list[str]:
+    """Pairs of gates two profiles order differently.
+
+    `pipeline.close_gate` derives the expected next gate from the ordered list in the install
+    snapshot, so a disagreement between profiles is not cosmetic: the same evidence closes in one
+    profile and is rejected as out-of-order in another.
+    """
+    from claude_kit import catalog
+
+    profiles = catalog._load(payload, "profiles.yaml")
+    avail = catalog.available(payload)
+    orders = {}
+    for name in profiles.get("profiles", {}):
+        gates = catalog._resolve_profile(profiles, name, avail).get("gates", [])
+        orders[name] = {g: i for i, g in enumerate(gates)}
+    conflicts = []
+    names = sorted(orders)
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            shared = set(orders[a]) & set(orders[b])
+            for g1 in sorted(shared):
+                for g2 in sorted(shared):
+                    if g1 < g2 and (orders[a][g1] < orders[a][g2]) != (
+                        orders[b][g1] < orders[b][g2]
+                    ):
+                        conflicts.append(f"{a} and {b} disagree on {g1} vs {g2}")
+    return sorted(set(conflicts))
+
+
+def check_gate(comp, payload, prose_index, conflicts):
+    """A gate must be installed by a profile, documented, and consistently ordered."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    from claude_kit import catalog
+
+    gid = comp["id"].split(":", 1)[1]
+    profiles = catalog._load(payload, "profiles.yaml")
+    avail = catalog.available(payload)
+    owners = [
+        n
+        for n in profiles.get("profiles", {})
+        if gid in catalog._resolve_profile(profiles, n, avail).get("gates", [])
+    ]
+    if not owners:
+        add(
+            "high",
+            "gate_installed",
+            f"no profile installs {gid!r}; it can never be closed",
+        )
+    if gid not in prose_index:
+        add(
+            "medium",
+            "gate_documented",
+            f"{gid!r} is named in no shipped rule or skill — an agent closing it has no written "
+            "statement of what evidence satisfies it",
+        )
+    mine = [c for c in conflicts if f" {gid} " in f" {c} "]
+    if mine:
+        add("high", "gate_order", "; ".join(mine))
+    return findings
+
+
+def check_capture_mode(comp, payload, hook_ids):
+    """A capture mode must exist, be labelled, and name only real hooks."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    doc = _yaml(payload, "capture.yaml")
+    mid = comp["id"].split(":", 1)[1]
+    mode = (doc.get("modes") or {}).get(mid)
+    if mode is None:
+        add(
+            "high",
+            "mode_exists",
+            f"{mid!r} is not a key under modes: in catalog/capture.yaml",
+        )
+        return findings
+    if not str(mode.get("label", "")).strip():
+        add("medium", "label", "no label — the init prompt would show a blank choice")
+    for h in mode.get("hooks") or []:
+        if h not in hook_ids:
+            add(
+                "high", "hook_exists", f"names hook {h!r}, which is in no hook registry"
+            )
+    if mid == doc.get("default") and (mode.get("hooks") or []):
+        add(
+            "high",
+            "consent_default",
+            "the non-interactive default installs background capture hooks; capture reads session "
+            "transcript content and was made opt-in in 0.76.0",
+        )
+    return findings
+
+
+def check_catalog_file(comp, payload):
+    """A catalog file must parse, be a mapping, and declare its version."""
+    import yaml
+
+    findings = []
+    path = payload / comp["path"]
+    if not path.is_file():
+        return [
+            {
+                "severity": "critical",
+                "check": "exists",
+                "detail": f"absent: {comp['path']}",
+            }
+        ]
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        return [
+            {
+                "severity": "critical",
+                "check": "parses",
+                "detail": f"invalid YAML: {exc}",
+            }
+        ]
+    if not isinstance(doc, dict):
+        return [
+            {
+                "severity": "high",
+                "check": "mapping",
+                "detail": "top level is not a mapping",
+            }
+        ]
+    if "version" not in doc:
+        findings.append(
+            {
+                "severity": "medium",
+                "check": "versioned",
+                "detail": "no `version:` key — the resolver cannot detect a breaking catalog change",
+            }
+        )
+    return findings
+
+
+def check_org_entry(comp, payload, hook_ids):
+    """An org catalog entry must exist at its declared path, be labelled, and resolve its refs."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    doc = _yaml(payload, "org.yaml")
+    _, _, dotted = comp["path"].partition("::")
+    entry = _dig(doc, dotted)
+    if entry is None:
+        add("high", "entry_exists", f"nothing at {dotted!r} in catalog/org.yaml")
+        return findings
+    if isinstance(entry, dict) and not str(entry.get("label", "")).strip():
+        add("medium", "label", "no label — the init prompt would show a blank choice")
+    if isinstance(entry, dict):
+        for h in entry.get("hooks") or []:
+            if h not in hook_ids:
+                add(
+                    "high",
+                    "hook_exists",
+                    f"names hook {h!r}, which is in no hook registry",
+                )
+        if "policy" in entry and not str(entry.get("policy", "")).strip():
+            add(
+                "high",
+                "policy",
+                "an autonomy level with an empty policy renders a blank operating posture into "
+                "CLAUDE.md, so the installed project states no boundary at all",
+            )
+        team_ids = {t.get("id") for t in doc.get("teams") or [] if isinstance(t, dict)}
+        for t in entry.get("teams") or []:
+            if t not in team_ids:
+                add(
+                    "high",
+                    "team_exists",
+                    f"references team {t!r}, which is not declared",
+                )
+    return findings
+
+
+def check_schema(comp, payload):
+    """A shipped JSON Schema must parse, declare its dialect and type, and be referenced."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    path = payload / comp["path"]
+    if not path.is_file():
+        return [
+            {
+                "severity": "critical",
+                "check": "exists",
+                "detail": f"absent: {comp['path']}",
+            }
+        ]
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [
+            {
+                "severity": "critical",
+                "check": "parses",
+                "detail": f"invalid JSON: {exc}",
+            }
+        ]
+    if "$schema" not in doc:
+        add("medium", "dialect", "no `$schema` — the validating dialect is implicit")
+    if "type" not in doc and "$ref" not in doc and "oneOf" not in doc:
+        add(
+            "medium",
+            "typed",
+            "declares no `type`, `$ref`, or `oneOf`; it constrains nothing",
+        )
+    name = path.name
+    referenced = any(
+        name in f.read_text(encoding="utf-8", errors="ignore")
+        for f in (payload / "src").rglob("*.py")
+    )
+    if not referenced:
+        add(
+            "high",
+            "referenced",
+            f"{name} is shipped but named nowhere in src/ — a schema nothing loads validates nothing",
+        )
+    return findings
+
+
+def check_module(comp, payload, coverage):
+    """A whole-module component must exist, be documented, and be covered."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    rel = comp["path"]
+    path = payload / rel
+    if not path.is_file():
+        return [{"severity": "critical", "check": "exists", "detail": f"absent: {rel}"}]
+    try:
+        if not ast.get_docstring(ast.parse(path.read_text(encoding="utf-8"))):
+            add("medium", "documented", "no module docstring")
+    except SyntaxError as exc:
+        return [
+            {
+                "severity": "critical",
+                "check": "parses",
+                "detail": f"syntax error: {exc}",
+            }
+        ]
+    info = (coverage.get("files") or {}).get(rel)
+    if info is None:
+        add(
+            "low",
+            "coverage_data",
+            f"no coverage record for {rel}; cannot verify exercise",
+        )
+        return findings
+    summary = info.get("summary") or {}
+    stmts = summary.get("num_statements") or 0
+    pct = 100.0 * (summary.get("covered_lines") or 0) / stmts if stmts else 100.0
+    if pct < 95.0:
+        add(
+            "medium",
+            "coverage",
+            f"{rel} line coverage is {pct:.2f}%, under the 95% floor",
+        )
+    branches = summary.get("num_branches") or 0
+    missing = branches - (summary.get("covered_branches") or 0)
+    if missing:
+        add("medium", "branch_coverage", f"{missing} untaken branch(es) in {rel}")
+    return findings
+
+
+def prose_index(payload: Path) -> str:
+    """Every shipped rule and skill body, concatenated — the corpus a gate must be named in."""
+    parts = []
+    for sub in ("rules", "skills"):
+        for f in (payload / sub).rglob("*.md"):
+            parts.append(f.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(parts)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -498,6 +808,11 @@ def main() -> int:
     if args.coverage:
         coverage = json.loads(Path(args.coverage).read_text(encoding="utf-8"))
     hook_reach, registered_scripts = hook_reach_set(payload)
+    from claude_kit import hooks as hooks_mod
+
+    hook_ids = set(hooks_mod.HOOK_REGISTRY) | set(hooks_mod.PLUGIN_ONLY_HOOKS)
+    prose = prose_index(payload)
+    conflicts = gate_order_conflicts(payload)
 
     records = []
     for cid in ids:
@@ -511,6 +826,30 @@ def main() -> int:
             findings = check_hook_script(comp, payload, registered_scripts)
         elif ctype in ("cli-command", "pipeline-op"):
             findings = check_callable(comp, payload, coverage)
+        elif ctype == "gate":
+            findings = check_gate(comp, payload, prose, conflicts)
+        elif ctype == "capture-mode":
+            findings = check_capture_mode(comp, payload, hook_ids)
+        elif ctype == "catalog-file":
+            findings = check_catalog_file(comp, payload)
+        elif ctype in (
+            "org-capability",
+            "autonomy-level",
+            "review-strictness",
+            "scope",
+        ):
+            findings = check_org_entry(comp, payload, hook_ids)
+        elif ctype == "schema":
+            findings = check_schema(comp, payload)
+        elif ctype.startswith("workflow-") or ctype in (
+            "resolver",
+            "rendering",
+            "detection",
+            "reporting",
+            "telemetry",
+            "hook-registry",
+        ):
+            findings = check_module(comp, payload, coverage)
         else:
             findings = [
                 {

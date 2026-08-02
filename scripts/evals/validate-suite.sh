@@ -144,6 +144,25 @@ run no_docker_in_generated_project sh -c '
          -o -name "docker-compose*.yaml" -o -name ".dockerignore" \) 2>/dev/null)
   if [ -n "$hits" ]; then echo "Docker artifacts found in the generated project:"; echo "$hits"; exit 1; fi
   echo "no Docker artifacts in the generated project (prose mentions are permitted by design)"'
+# The evidence ledger must be STRICT JSON. json.loads(strict=False) silently repairs raw control
+# characters at read time, which is how a malformed meta.json survived 62 entries unnoticed.
+if [ -d /out/raw/docker ]; then
+	run docker_evidence_strict_json python -c "
+import glob, json, sys
+bad = []
+for p in sorted(glob.glob('/out/raw/docker/*/meta.json')):
+    try:
+        m = json.loads(open(p, encoding='utf-8').read())
+    except json.JSONDecodeError as e:
+        bad.append(f'{p}: {e}'); continue
+    if not m.get('dockerenv_verified'):
+        bad.append(f'{p}: dockerenv_verified is not true')
+print(f'checked {len(glob.glob(\"/out/raw/docker/*/meta.json\"))} evidence records')
+[print('  ' + b) for b in bad]
+sys.exit(1 if bad else 0)
+"
+fi
+
 run manifests_valid python -c "
 import json,sys
 for p in ('.claude-plugin/plugin.json', '.claude-plugin/marketplace.json'):

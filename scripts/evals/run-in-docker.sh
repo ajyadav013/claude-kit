@@ -35,6 +35,34 @@ repo_root() {
 	git rev-parse --show-toplevel 2>/dev/null || pwd
 }
 
+# Emit $1 as a JSON string literal, quotes included.
+#
+# The previous sed version was line-oriented: a multi-line `sh -c` payload wrote literal newlines
+# inside the string, so meta.json only parsed with Python's json.loads(strict=False) and a
+# spec-compliant reader would reject the entry outright. An evidence ledger that a strict parser
+# drops is indistinguishable from an evidence ledger that was never written.
+json_string() {
+	printf '%s' "$1" | awk '
+		BEGIN {
+			for (i = 1; i < 32; i++) ord[sprintf("%c", i)] = i
+			printf "\""
+		}
+		{
+			if (NR > 1) printf "\\n"
+			n = length($0)
+			for (i = 1; i <= n; i++) {
+				c = substr($0, i, 1)
+				if (c == "\"") printf "\\\""
+				else if (c == "\\") printf "\\\\"
+				else if (c == "\t") printf "\\t"
+				else if (c in ord) printf "\\u%04x", ord[c]
+				else printf "%s", c
+			}
+		}
+		END { printf "\"" }
+	'
+}
+
 ROOT="$(repo_root)"
 RUN_DIR="${EVAL_RUN_DIR:-$ROOT/.claude/state/full-self-evaluation}"
 RUN_ID="${EVAL_RUN_ID:-$( [ -f "$RUN_DIR/run-id.txt" ] && cat "$RUN_DIR/run-id.txt" || echo unknown )}"
@@ -87,14 +115,19 @@ CONTAINER_NAME="ckeval-$(printf '%s' "$RUN_ID" | tr -cs 'a-zA-Z0-9' '-' | cut -c
 TIMEOUT_MARKER="$EV_DIR/.timed-out"
 
 # The assertion that makes a result admissible: if this file is absent we are not in a container,
-# so the command must never run. "$@" is re-quoted so the payload survives the sh -c hop intact.
+# so the command must never run.
 #
-# `pipefail` is requested because a pipeline reports only its LAST command's status: piping a test
-# run into `tail` turns a failing suite into exit 0, which is a fabricated pass. Not every /bin/sh
-# supports the option (dash does not), so it is best-effort and a pipe in the payload is flagged in
-# the evidence for review.
+# `pipefail` is requested but does NOT reach a payload of the form `sh -c '... | tail'` — the option
+# is not exported, so the nested shell starts without it. That was equally true of the earlier
+# string-splicing form; the real control against a pipeline reporting only its last command's status
+# is `pipe_in_payload` in the evidence record, plus validate-suite.sh never piping a check.
+# INNER_CMD is for the EVIDENCE RECORD ONLY. The payload itself is handed to the container as real
+# argv and re-executed with `exec "$@"`, so nothing is ever re-quoted: `printf %q` emits bash's
+# $'...' form for a payload containing a newline or tab, which POSIX /bin/sh (dash) cannot parse —
+# the container then exited 127, indistinguishable from "command not found". A wrapper that mangles
+# its payload and reports a plausible failure code is worse than one that refuses to run.
 INNER_CMD="$(printf '%q ' "$@")"
-WRAPPED="if [ ! -f /.dockerenv ]; then echo 'FATAL: /.dockerenv absent — not inside Docker' >&2; exit ${DOCKERENV_FAILURE}; fi; (set -o pipefail) 2>/dev/null && set -o pipefail; ${INNER_CMD}"
+WRAPPED="if [ ! -f /.dockerenv ]; then echo 'FATAL: /.dockerenv absent — not inside Docker' >&2; exit ${DOCKERENV_FAILURE}; fi; (set -o pipefail) 2>/dev/null && set -o pipefail; exec \"\$@\""
 
 pipe_risk=false
 case " $* " in
@@ -139,7 +172,7 @@ watchdog() {
 # --- run ------------------------------------------------------------------------------------------
 rc=0
 if [ -n "$IMAGE" ]; then
-	docker create "${docker_args[@]}" "$IMAGE" sh -c "$WRAPPED" >"$EV_DIR/create.txt" 2>&1 || {
+	docker create "${docker_args[@]}" "$IMAGE" sh -c "$WRAPPED" ck-eval "$@" >"$EV_DIR/create.txt" 2>&1 || {
 		cp "$EV_DIR/create.txt" "$EV_DIR/stderr.txt" 2>/dev/null || true
 		die "docker create failed — see $EV_DIR/create.txt"
 	}
@@ -165,7 +198,7 @@ else
 	docker compose "${compose_args[@]}" run --name "$CONTAINER_NAME" --no-TTY --rm=false \
 		--workdir "$WORKDIR" --user "$USER_SPEC" --entrypoint sh \
 		${run_env+"${run_env[@]}"} \
-		"$SERVICE" -c "$WRAPPED" >"$EV_DIR/stdout.txt" 2>"$EV_DIR/stderr.txt" || rc=$?
+		"$SERVICE" -c "$WRAPPED" ck-eval "$@" >"$EV_DIR/stdout.txt" 2>"$EV_DIR/stderr.txt" || rc=$?
 	kill "$wd" 2>/dev/null || true
 	wait "$wd" 2>/dev/null || true
 fi
@@ -199,7 +232,7 @@ fi
 	printf '  "label": "%s",\n' "$LABEL"
 	printf '  "mode": "%s",\n' "$([ -n "$IMAGE" ] && echo image || echo service)"
 	printf '  "target": "%s",\n' "${IMAGE:-$SERVICE}"
-	printf '  "command": %s,\n' "$(printf '%s' "$INNER_CMD" | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/ $/"/')"
+	printf '  "command": %s,\n' "$(json_string "$INNER_CMD")"
 	printf '  "container_id": "%s",\n' "$container_id"
 	printf '  "image_id": "%s",\n' "$image_id"
 	printf '  "started_at": "%s",\n' "$STARTED_AT"
