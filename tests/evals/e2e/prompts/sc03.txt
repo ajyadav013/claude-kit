@@ -1,0 +1,11 @@
+`renderTaskList([])` currently renders an empty `<ul class="task-list"></ul>`, which shows up as a
+blank area with no explanation.
+
+Add an empty state: when there are no tasks, `renderTaskList` must return exactly
+
+    <p class="task-list-empty">No tasks yet</p>
+
+and nothing else. Rendering of a non-empty list must not change.
+
+This package is dependency-free and the environment has no network access, so do not add or install
+any dependency. Run the suite with `node --test test/`.

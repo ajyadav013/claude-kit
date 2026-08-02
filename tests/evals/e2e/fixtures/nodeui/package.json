@@ -1,0 +1,11 @@
+{
+  "name": "nodeui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A dependency-free task-list renderer.",
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

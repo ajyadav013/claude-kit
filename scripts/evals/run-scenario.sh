@@ -23,6 +23,12 @@
 set -Eeuo pipefail
 
 SCENARIO="" FIXTURE="" ORACLE="" PROMPT_FILE="" ARM="baseline" MAX_TURNS=60
+# The container the ORACLE runs in. Fixtures are not all Python: a Node fixture is graded by a
+# JS oracle in the node image, which has no python (and no git — hence the manifest below).
+SERVICE="python"
+# Optional sealed-holdout directory under tests/evals/e2e/holdouts/. It is copied into the
+# workspace only AFTER the session ends; see the injection block.
+HOLDOUT=""
 # --rules-mode none strips .claude/rules after scaffolding. This is a DEVIATION from the shipped
 # product, not a configuration the product offers, and it exists for one reason: Claude Code
 # auto-loads .claude/rules/*.md in full at launch, the kit ships 446KB there, and a default install
@@ -39,6 +45,8 @@ while [ $# -gt 0 ]; do
 	--arm) ARM="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
 	--rules-mode) RULES_MODE="${2:?}"; shift 2 ;;
+	--service) SERVICE="${2:?}"; shift 2 ;;
+	--holdout) HOLDOUT="${2:?}"; shift 2 ;;
 	*) echo "run-scenario: unknown option $1" >&2; exit 2 ;;
 	esac
 done
@@ -60,22 +68,10 @@ mkdir -p "$EVID" "$WORK"
 
 echo "### materialise the fixture (a fresh git repo, so the oracle can diff the end state)"
 cp -a "$ROOT/tests/evals/e2e/fixtures/$FIXTURE/." "$WORK/"
-mkdir -p "$WORK/.scenario"
-cp "$ROOT/tests/evals/e2e/oracles/$ORACLE" "$WORK/.scenario/oracle.py"
 git -C "$WORK" init -q
 git -C "$WORK" add -A
 git -C "$WORK" -c user.email=eval@local -c user.name=eval commit -qm "fixture baseline"
 FIXTURE_SHA="$(git -C "$WORK" rev-parse --short HEAD)"
-
-echo "### baseline hashes (computed from the pristine fixture, never hardcoded in the oracle)"
-"$ROOT/scripts/evals/run-in-docker.sh" --service python --label "$SCENARIO-$ARM-hashes" \
-	--mount "$WORK:/work" --workdir /work --timeout 300 -- \
-	env python -c '
-import hashlib, json, pathlib
-out = {f: hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest()
-       for f in ("src/calc.py", "tests/test_calc.py", "pyproject.toml")}
-pathlib.Path(".scenario/baseline-hashes.json").write_text(json.dumps(out, indent=2))
-print("baseline hashes:", json.dumps(out, indent=2))'
 
 echo "### install the kit into the fixture (Docker — the host never runs project code)"
 "$ROOT/scripts/evals/run-in-docker.sh" --service python --label "$SCENARIO-$ARM-scaffold" \
@@ -85,7 +81,9 @@ echo "### install the kit into the fixture (Docker — the host never runs proje
 if [ "$RULES_MODE" = "none" ]; then
 	RULE_BYTES="$(cat "$WORK"/.claude/rules/*.md 2>/dev/null | wc -c | tr -d ' ')"
 	RULE_FILES="$(find "$WORK/.claude/rules" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
-	mv "$WORK/.claude/rules" "$WORK/.scenario/rules-withheld"
+	# Withheld rules go to the EVIDENCE directory, not into the workspace: nothing scenario-owned
+	# may exist inside the tree the performer works in until grading time.
+	mv "$WORK/.claude/rules" "$EVID/rules-withheld"
 	echo "### DEVIATION rules-mode=none: withheld $RULE_FILES rule files ($RULE_BYTES bytes)"
 fi
 
@@ -96,6 +94,24 @@ git -C "$WORK" add -A
 git -C "$WORK" -c user.email=eval@local -c user.name=eval commit -qm "kit scaffold installed"
 SCAFFOLD_SHA="$(git -C "$WORK" rev-parse --short HEAD)"
 echo "scaffold committed as $SCAFFOLD_SHA (fixture baseline was $FIXTURE_SHA)"
+
+echo "### pre-session manifest (path -> sha256 of every file the session could touch)"
+# Written OUTSIDE the workspace and injected only at grading time. It replaces `git diff` in the
+# oracles for two reasons: the node image ships no git, and a performer is free to commit its own
+# work — a hash manifest is indifferent to whether a change was committed.
+"$ROOT/scripts/evals/run-in-docker.sh" --service python --label "$SCENARIO-$ARM-manifest" \
+	--mount "$WORK:/work:ro" --mount "$EVID:/evid" --workdir /work --timeout 300 -- \
+	env python -c '
+import hashlib, json, pathlib
+root = pathlib.Path("/work")
+out = {}
+for p in sorted(root.rglob("*")):
+    rel = p.relative_to(root).as_posix()
+    if not p.is_file() or rel.startswith(".git/"):
+        continue
+    out[rel] = hashlib.sha256(p.read_bytes()).hexdigest()
+pathlib.Path("/evid/manifest.json").write_text(json.dumps(out, indent=2, sort_keys=True))
+print(f"manifest: {len(out)} files")'
 
 echo "### child Claude session (host control plane)"
 PROMPT="$(cat "$PROMPT_FILE")"
@@ -143,25 +159,54 @@ git -C "$WORK" diff --cached --stat >"$EVID/end-state.diffstat" 2>/dev/null || t
 git -C "$WORK" diff --cached >"$EVID/end-state.diff" 2>/dev/null || true
 cat "$EVID/end-state.diffstat"
 
-echo "### deterministic oracle (Docker)"
+echo "### inject the grader (AFTER the session — never before)"
+# The oracle used to be copied in before the child session started, which put the grading criteria
+# inside the performer's own workspace. Any run could have read `.scenario/oracle.py` and satisfied
+# the checks directly, and a sealed holdout would have been impossible: the spec forbids revealing
+# holdout expectations to a task performer. Everything the grader needs therefore lands here, after
+# the session has ended and after the end-state diff has been captured.
+mkdir -p "$WORK/.scenario"
+ORACLE_EXT="${ORACLE##*.}"
+cp "$ROOT/tests/evals/e2e/oracles/$ORACLE" "$WORK/.scenario/oracle.$ORACLE_EXT"
+cp -a "$ROOT/tests/evals/e2e/fixtures/$FIXTURE" "$WORK/.scenario/pristine"
+cp "$EVID/manifest.json" "$WORK/.scenario/manifest.json"
+# SC-01's oracle predates the manifest and reads baseline-hashes.json; the manifest is a superset.
+cp "$EVID/manifest.json" "$WORK/.scenario/baseline-hashes.json"
+printf '%s\n' "$SCAFFOLD_SHA" >"$WORK/.scenario/scaffold-sha.txt"
+if [ -n "$HOLDOUT" ]; then
+	cp -a "$ROOT/tests/evals/e2e/holdouts/$HOLDOUT" "$WORK/.scenario/holdout"
+	echo "sealed holdout injected: $(find "$WORK/.scenario/holdout" -type f | wc -l | tr -d ' ') file(s)"
+fi
+
+echo "### deterministic oracle (Docker, service=$SERVICE)"
+case "$ORACLE_EXT" in
+py) ORACLE_INTERP=python ;;
+js) ORACLE_INTERP=node ;;
+*) echo "run-scenario: no interpreter for .$ORACLE_EXT oracles" >&2; exit 2 ;;
+esac
 set +e
-"$ROOT/scripts/evals/run-in-docker.sh" --service python --label "$SCENARIO-$ARM-oracle" \
+"$ROOT/scripts/evals/run-in-docker.sh" --service "$SERVICE" --label "$SCENARIO-$ARM-oracle" \
 	--mount "$WORK:/work" --workdir /work --timeout 600 -- \
-	env python /work/.scenario/oracle.py /work
+	env "$ORACLE_INTERP" "/work/.scenario/oracle.$ORACLE_EXT" /work
 ORACLE_RC=$?
 set -e
 
 LAST_ORACLE="$(ls -dt "$RUN_DIR"/raw/docker/*-"$SCENARIO-$ARM-oracle" | head -1)"
 cp "$LAST_ORACLE/stdout.txt" "$EVID/oracle-verdict.json" 2>/dev/null || true
 
-python3 - "$EVID/run.json" "$SCENARIO" "$ARM" "$FIXTURE_SHA" "$ORACLE_RC" "$EVID" "$RULES_MODE" <<'PY'
+python3 - "$EVID/run.json" "$SCENARIO" "$ARM" "$FIXTURE_SHA" "$ORACLE_RC" "$EVID" "$RULES_MODE" \
+	"$FIXTURE" "$ORACLE" "$HOLDOUT" "$SERVICE" "$SCAFFOLD_SHA" <<'PY'
 import json, sys
-out, scenario, arm, fx, rc, evid = sys.argv[1:7]
+out, scenario, arm, fx, rc, evid, rules_mode, fixture, oracle, holdout, service, scaffold = sys.argv[1:13]
 json.dump({
-    "scenario": scenario, "arm": arm, "fixture_baseline_sha": fx,
+    "scenario": scenario, "arm": arm, "fixture": fixture,
+    "fixture_baseline_sha": fx, "scaffold_sha": scaffold,
+    "oracle": oracle, "oracle_service": service,
+    "sealed_holdout": holdout or None,
+    "grader_injected": "after the session ended (never visible to the performer)",
     "oracle_exit_code": int(rc), "verdict": "PASS" if int(rc) == 0 else "FAIL",
-    "rules_mode": sys.argv[7],
-    "deviation": None if sys.argv[7] == "full" else
+    "rules_mode": rules_mode,
+    "deviation": None if rules_mode == "full" else
         ".claude/rules withheld after scaffold — NOT the shipped default (see F-014)",
     "evidence_dir": evid,
 }, open(out, "w"), indent=2)

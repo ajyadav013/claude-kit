@@ -1,0 +1,10 @@
+Warehouse ops filed a bug: an item whose stock sits exactly on its reorder threshold is never
+flagged for restocking, so it silently runs out. The reorder policy in README.md says an item needs
+restocking once stock has fallen **to** the threshold or below it.
+
+`tests/test_inventory.py::test_at_threshold_needs_restock` reproduces it and currently fails.
+
+Fix the bug in the source so the code matches the documented policy.
+
+Do not modify the tests — the reproducer is the acceptance criterion, and the rest of the suite
+must keep passing.
