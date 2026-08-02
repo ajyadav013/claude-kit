@@ -275,6 +275,53 @@ def check_prose_component(
     return findings
 
 
+# A skill is selected by its description alone, so the description has to be actionable. The first
+# pass at this check demanded an explicit "use when…" and flagged five shipped skills; two of those
+# state a temporal trigger in other words ("BEFORE tests are written", "before and during
+# implementation") and three open with an imperative naming the action ("Write unit tests for…"),
+# which is a perfectly good selection signal. So the check now fires only on the shape that is
+# genuinely unselectable: a description that opens as a NOUN PHRASE about a topic and states no
+# condition anywhere. Narrow on purpose — an over-eager finding here would flag most of the
+# catalogue and teach the reader to skip the whole report.
+_TRIGGER = re.compile(
+    r"\buse (this |it )?(skill )?(when|for|to|after|before)\b"
+    r"|\bwhen (you|the|a|an|working|starting|asked|building|reviewing|debugging|writing)\b"
+    r"|\b(before|during|after|prior to)\s+\w+"
+    r"|\btriggers? (on|when)\b"
+    r"|\bapplies (when|to)\b"
+    r"|\bfor (any|every|all)\b",
+    re.I,
+)
+_TOPIC_OPENER = re.compile(
+    r"^(guidance|notes?|reference|information|documentation|docs|overview|background|about|"
+    r"a collection|collection|helpers?|utilities|tips|patterns for|thoughts)\b",
+    re.I,
+)
+
+
+def check_skill_trigger(comp, payload):
+    """A skill's description must be actionable, not a topic label."""
+    if comp["type"] not in ("skill", "org-skill"):
+        return []
+    data, err = frontmatter(payload / comp["path"])
+    if err:
+        return []  # already reported by the frontmatter check; do not double-count
+    desc = str(data.get("description") or "").strip()  # an empty key yields None
+    if not desc:
+        return []  # likewise
+    if _TRIGGER.search(desc) or not _TOPIC_OPENER.match(desc):
+        return []
+    return [
+        {
+            "severity": "medium",
+            "check": "trigger",
+            "detail": "the description opens as a topic label and states no condition for use; "
+            "selection is driven by this text alone, so the model has to guess when it applies: "
+            f"{desc[:110]!r}",
+        }
+    ]
+
+
 PROSE_TYPES = frozenset(
     {
         "agent",
@@ -1212,6 +1259,7 @@ def main() -> int:
         ctype = comp["type"]
         if ctype in PROSE_TYPES:
             findings = check_prose_component(comp, payload, reach, rule_files, tiers)
+            findings += check_skill_trigger(comp, payload)
         elif ctype == "hook":
             findings = check_hook(comp, payload, hook_reach)
         elif ctype == "hook-script":

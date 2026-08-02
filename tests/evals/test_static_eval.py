@@ -1044,3 +1044,62 @@ def test_a_clean_document_produces_no_findings(tmp_path):
 def test_cli_commands_reads_the_real_registrations(payload):
     cmds = static_eval.cli_commands(payload)
     assert {"init", "validate", "doctor", "upgrade", "export"} <= cmds, sorted(cmds)
+
+
+# --- negative controls: skill trigger quality ----------------------------------------------------
+
+
+def _skill(tmp_path: Path, name: str, description: str, ctype: str = "skill"):
+    d = tmp_path / "skills" / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
+    return {"id": f"{ctype}:{name}", "type": ctype, "path": f"skills/{name}/SKILL.md"}
+
+
+def test_a_topic_only_skill_description_is_flagged(tmp_path):
+    """A noun-phrase topic label with no condition — the one shape that is truly unselectable."""
+    comp = _skill(tmp_path, "s", "Guidance about database indexing strategies.")
+    assert "trigger" in _checks(static_eval.check_skill_trigger(comp, tmp_path))
+
+
+def test_an_imperative_description_is_not_flagged(tmp_path):
+    """ "Write unit tests for X" names the action; demanding "use when" would flag most of the
+    shipped catalogue and teach the reader to skip the report."""
+    comp = _skill(tmp_path, "s", "Write unit tests for frontend components and hooks.")
+    assert static_eval.check_skill_trigger(comp, tmp_path) == []
+
+
+def test_a_temporal_trigger_phrased_without_use_when_is_not_flagged(tmp_path):
+    comp = _skill(
+        tmp_path, "s", "Review a proposed test plan BEFORE tests are written."
+    )
+    assert static_eval.check_skill_trigger(comp, tmp_path) == []
+
+
+def test_a_description_with_a_use_when_trigger_is_not_flagged(tmp_path):
+    comp = _skill(
+        tmp_path, "s", "Use when a query is slow and you suspect a missing index."
+    )
+    assert static_eval.check_skill_trigger(comp, tmp_path) == []
+
+
+def test_a_description_with_a_when_you_trigger_is_not_flagged(tmp_path):
+    comp = _skill(
+        tmp_path, "s", "Index strategy help, when you are tuning a slow query."
+    )
+    assert static_eval.check_skill_trigger(comp, tmp_path) == []
+
+
+def test_the_trigger_check_ignores_non_skills(tmp_path):
+    """Agents are dispatched by name and tier, not selected from a picker by description."""
+    comp = _agent(tmp_path, "a", "name: a\ndescription: Reviews code.\ntier: review")
+    assert static_eval.check_skill_trigger(comp, tmp_path) == []
+
+
+def test_the_trigger_check_does_not_double_report_a_broken_description(tmp_path):
+    """A missing description is the frontmatter check's finding; reporting it twice inflates it."""
+    comp = _skill(tmp_path, "s", "")
+    assert static_eval.check_skill_trigger(comp, tmp_path) == []
