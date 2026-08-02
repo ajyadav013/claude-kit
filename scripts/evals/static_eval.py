@@ -299,6 +299,36 @@ _TOPIC_OPENER = re.compile(
 )
 
 
+# Spawning subagents is a fan-out capability, not a convenience. A specialist or review agent
+# holding `Agent` can start work nobody is coordinating and nobody is gating — the orchestrator
+# stops being the single point of control the pipeline's design depends on. Only the tiers whose
+# job IS coordination may hold it.
+COORDINATING_TIERS = frozenset({"orchestrator", "stage-lead"})
+
+
+def check_agent_fanout(comp, payload):
+    """Only a coordinating tier may hold the subagent-spawning tool."""
+    if comp["type"] not in ("agent", "overlay-agent", "org-agent"):
+        return []
+    data, err = frontmatter(payload / comp["path"])
+    if err:
+        return []  # the frontmatter check owns this
+    if "Agent" not in tool_list(data.get("tools")):
+        return []
+    tier = str(data.get("tier") or "").strip()
+    if tier in COORDINATING_TIERS:
+        return []
+    return [
+        {
+            "severity": "high",
+            "check": "fanout_authority",
+            "detail": f"tier {tier!r} holds the `Agent` tool, so it can spawn subagents while "
+            "sitting outside the coordination layer; work would start that the orchestrator did "
+            "not schedule and no gate is watching",
+        }
+    ]
+
+
 def check_skill_trigger(comp, payload):
     """A skill's description must be actionable, not a topic label."""
     if comp["type"] not in ("skill", "org-skill"):
@@ -1273,6 +1303,7 @@ def main() -> int:
         if ctype in PROSE_TYPES:
             findings = check_prose_component(comp, payload, reach, rule_files, tiers)
             findings += check_skill_trigger(comp, payload)
+            findings += check_agent_fanout(comp, payload)
         elif ctype == "hook":
             findings = check_hook(comp, payload, hook_reach)
         elif ctype == "hook-script":

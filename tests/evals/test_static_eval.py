@@ -1150,3 +1150,73 @@ def test_the_trigger_check_does_not_double_report_a_broken_description(tmp_path)
     """A missing description is the frontmatter check's finding; reporting it twice inflates it."""
     comp = _skill(tmp_path, "s", "")
     assert static_eval.check_skill_trigger(comp, tmp_path) == []
+
+
+# --- negative controls: subagent fan-out authority -----------------------------------------------
+
+
+def test_a_specialist_holding_the_agent_tool_is_flagged(tmp_path):
+    comp = _agent(
+        tmp_path,
+        "a",
+        "name: a\ndescription: Writes code.\ntools: Agent, Read\ntier: specialist",
+    )
+    findings = static_eval.check_agent_fanout(comp, tmp_path)
+    assert [f["severity"] for f in findings if f["check"] == "fanout_authority"] == [
+        "high"
+    ]
+
+
+def test_a_review_agent_holding_the_agent_tool_is_flagged(tmp_path):
+    comp = _agent(
+        tmp_path,
+        "a",
+        "name: a\ndescription: Reviews.\ntools: Agent, Read\ntier: review",
+    )
+    assert "fanout_authority" in _checks(static_eval.check_agent_fanout(comp, tmp_path))
+
+
+def test_a_stage_lead_may_hold_the_agent_tool(tmp_path):
+    """security-reviewer dispatches four sub-scanners in parallel; that IS its job."""
+    comp = _agent(
+        tmp_path,
+        "a",
+        "name: a\ndescription: Coordinates scanners.\ntools: Agent\ntier: stage-lead",
+    )
+    assert static_eval.check_agent_fanout(comp, tmp_path) == []
+
+
+def test_an_orchestrator_may_hold_the_agent_tool(tmp_path):
+    comp = _agent(
+        tmp_path,
+        "a",
+        "name: a\ndescription: Delegates.\ntools: Agent\ntier: orchestrator",
+    )
+    assert static_eval.check_agent_fanout(comp, tmp_path) == []
+
+
+def test_an_agent_without_the_agent_tool_is_never_flagged(tmp_path):
+    comp = _agent(
+        tmp_path,
+        "a",
+        "name: a\ndescription: Writes code.\ntools: Read, Edit\ntier: specialist",
+    )
+    assert static_eval.check_agent_fanout(comp, tmp_path) == []
+
+
+def test_the_check_ignores_skills(tmp_path):
+    comp = _skill(tmp_path, "s", "Use when spawning things.")
+    assert static_eval.check_agent_fanout(comp, tmp_path) == []
+
+
+def test_every_shipped_agent_that_can_spawn_is_a_coordinating_tier(payload):
+    """Asserted against the real roster: only orchestrator and security-reviewer hold `Agent`."""
+    holders = []
+    for f in sorted((payload / "agents").glob("*.md")):
+        data, err = static_eval.frontmatter(f)
+        if err or "Agent" not in static_eval.tool_list(data.get("tools")):
+            continue
+        holders.append(f.stem)
+        comp = {"id": f"agent:{f.stem}", "type": "agent", "path": f"agents/{f.stem}.md"}
+        assert static_eval.check_agent_fanout(comp, payload) == [], f.stem
+    assert holders, "no agent holds the Agent tool — the check would be vacuous"
