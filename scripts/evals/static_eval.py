@@ -1431,6 +1431,21 @@ def main() -> int:
         elif ctype == "doc":
             findings = check_doc(comp, payload, commands)
             ran = ["doc"]
+        elif ctype in ("live-stack", "planned-stack"):
+            findings = check_stack(comp, payload)
+            ran = ["stack"]
+        elif ctype in ("template", "template-artifact"):
+            findings = check_template(comp, payload)
+            ran = ["template"]
+        elif ctype == "slash-command":
+            findings = check_slash_command(comp, payload)
+            ran = ["slash_command"]
+        elif ctype == "profile":
+            findings = check_profile(comp, payload)
+            ran = ["profile"]
+        elif ctype == "manifest":
+            findings = check_manifest(comp, payload)
+            ran = ["manifest"]
         elif ctype.startswith("workflow-") or ctype in (
             "resolver",
             "rendering",
@@ -1438,6 +1453,9 @@ def main() -> int:
             "reporting",
             "telemetry",
             "hook-registry",
+            "exporter",
+            "contracts",
+            "ticketing",
         ):
             findings = check_module(comp, payload, coverage)
             ran = ["module"]
@@ -1479,6 +1497,357 @@ def main() -> int:
         for f in r["findings"]:
             print(f"  [{f['severity']:<8}] {r['id']:<40} {f['check']}: {f['detail']}")
     return 0
+
+
+# --------------------------------------------------------------------------------------------
+# Types that previously fell through to the unsupported-type branch (E-025).
+# --------------------------------------------------------------------------------------------
+# 47 of the manifest's components had no checker at all and were being handed a record that
+# advertised nine checks. These handlers exist so those components can be marked evaluated
+# honestly, and each one asserts a contract the component ADVERTISES that nothing else verifies --
+# not a restatement of what CI already pins.
+
+#: Host paths that must never reach shipped payload. A template carrying one of these was rendered
+#: on somebody's laptop and committed; it breaks on every other machine and leaks a username.
+LOCAL_PATH_RE = re.compile(
+    r"(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|[A-Z]:\\\\Users)"
+)
+
+#: Golden rule #1: the payload is stack-agnostic and container-optional. A stack OVERLAY may name
+#: its own framework, but never application code or Docker.
+FORBIDDEN_IN_OVERLAY = re.compile(
+    r"\b(dockerfile|docker-compose|docker\s+run|docker\s+build)\b", re.I
+)
+
+
+def check_stack(comp, payload):
+    """A stack entry, and whether the catalog's story matches what ships.
+
+    The interesting failure is DRIFT between three places that must agree: the entry's `status:`,
+    the component type the manifest assigned it, and whether overlay content actually exists on
+    disk. A `planned` stack that ships an overlay is reachable-but-unsupported; a `live` stack whose
+    overlay is missing resolves to nothing at install time. Neither is visible from any single file.
+    """
+    findings = []
+    rel, _, dotted = comp["path"].partition("::")
+    try:
+        doc = _yaml(payload, Path(rel).name)
+    except Exception as exc:
+        return [
+            {
+                "severity": "high",
+                "check": "stack_catalog_readable",
+                "detail": f"{rel}: {exc}",
+            }
+        ]
+
+    entry = _dig(doc, dotted)
+    if entry is None:
+        return [
+            {
+                "severity": "high",
+                "check": "stack_entry_exists",
+                "detail": f"{dotted} is not present in {rel}",
+            }
+        ]
+
+    status = (entry or {}).get("status", "live")
+    expected = "planned-stack" if status == "planned" else "live-stack"
+    if comp["type"] != expected:
+        findings.append(
+            {
+                "severity": "high",
+                "check": "stack_status_matches_type",
+                "detail": f"catalog says status={status!r} but the component is typed "
+                f"{comp['type']!r}; one of the two is stale",
+            }
+        )
+
+    overlay = entry.get("overlay") or entry.get("dir")
+    odir = (payload / "templates" / "stacks" / overlay) if overlay else None
+    if status == "planned":
+        if odir and odir.is_dir() and any(odir.rglob("*")):
+            findings.append(
+                {
+                    "severity": "medium",
+                    "check": "planned_ships_no_overlay",
+                    "detail": f"status=planned but {odir.relative_to(payload)} ships content; "
+                    "a planned stack must not be installable",
+                }
+            )
+    elif overlay:
+        if not (odir and odir.is_dir()):
+            findings.append(
+                {
+                    "severity": "high",
+                    "check": "live_overlay_exists",
+                    "detail": f"status=live but overlay dir templates/stacks/{overlay} is missing",
+                }
+            )
+        else:
+            for f in sorted(odir.rglob("*.md")):
+                text = f.read_text(encoding="utf-8", errors="replace")
+                if FORBIDDEN_IN_OVERLAY.search(text):
+                    findings.append(
+                        {
+                            "severity": "medium",
+                            "check": "overlay_no_containers",
+                            "detail": f"{f.relative_to(payload)} names Docker; the kit is "
+                            "container-optional (CLAUDE.md golden rule 1)",
+                        }
+                    )
+                if LOCAL_PATH_RE.search(text):
+                    findings.append(
+                        {
+                            "severity": "high",
+                            "check": "overlay_no_local_paths",
+                            "detail": f"{f.relative_to(payload)} contains a host path",
+                        }
+                    )
+    return findings
+
+
+def check_template(comp, payload):
+    """A shipped template: it must exist, render, and carry nothing machine-specific.
+
+    Templates are the one payload class that is executed by a renderer rather than read by a model,
+    so a syntax error is a hard install failure rather than a quality issue -- and it is invisible
+    to every prose check in this file.
+    """
+    findings = []
+    p = payload / comp["path"]
+    if not p.is_file():
+        return [
+            {
+                "severity": "high",
+                "check": "template_exists",
+                "detail": f"{comp['path']} is missing",
+            }
+        ]
+    text = p.read_text(encoding="utf-8", errors="replace")
+    if not text.strip():
+        findings.append(
+            {
+                "severity": "high",
+                "check": "template_nonempty",
+                "detail": "file is empty",
+            }
+        )
+
+    if "{{" in text or "{%" in text:
+        try:
+            import jinja2
+
+            jinja2.Environment(undefined=jinja2.StrictUndefined).parse(text)
+        except Exception as exc:
+            findings.append(
+                {
+                    "severity": "critical",
+                    "check": "template_parses",
+                    "detail": f"Jinja syntax error -- this template cannot render: {exc}",
+                }
+            )
+    m = LOCAL_PATH_RE.search(text)
+    if m:
+        findings.append(
+            {
+                "severity": "high",
+                "check": "template_no_local_paths",
+                "detail": f"contains host path {m.group(0)!r}",
+            }
+        )
+    return findings
+
+
+def check_slash_command(comp, payload):
+    """A slash command, and whether the thing it delegates to exists.
+
+    A command whose target skill was renamed still loads, still appears in the menu, and fails only
+    when a user runs it.
+    """
+    findings = []
+    p = payload / comp["path"]
+    if not p.is_file():
+        return [
+            {
+                "severity": "high",
+                "check": "command_exists",
+                "detail": f"{comp['path']} is missing",
+            }
+        ]
+    text = p.read_text(encoding="utf-8", errors="replace")
+    fm, err = frontmatter(p)
+    if err:
+        findings.append(
+            {"severity": "high", "check": "command_frontmatter", "detail": err}
+        )
+    elif not str(fm.get("description", "")).strip():
+        findings.append(
+            {
+                "severity": "medium",
+                "check": "command_description",
+                "detail": "no description: -- the command is unlisted in the menu",
+            }
+        )
+
+    skills = {
+        d.name for d in (payload / "skills").glob("*") if (d / "SKILL.md").is_file()
+    }
+    for named in set(
+        re.findall(r"`?/(?:claude-kit:)?([a-z][a-z0-9-]{2,})`?\s+skill", text)
+    ) | set(re.findall(r"the\s+`([a-z][a-z0-9-]{2,})`\s+skill", text)):
+        if named not in skills:
+            findings.append(
+                {
+                    "severity": "high",
+                    "check": "command_target_exists",
+                    "detail": f"delegates to skill {named!r}, which does not exist under skills/",
+                }
+            )
+    return findings
+
+
+def check_profile(comp, payload):
+    """A profile, and the subset invariant the README sells.
+
+    Two things about the catalog's actual shape make the naive version of this check wrong, and the
+    first draft got both of them wrong:
+
+      `inherit:`     a child profile declares only its ADDITIONS. standard inherits lean, enterprise
+                     inherits standard. Comparing the literal lists therefore reports every parent
+                     entry as "missing from the child" -- the first run produced four such findings
+                     against a catalog that is entirely correct. The invariant is about EFFECTIVE
+                     sets, so the chain has to be resolved first.
+      `skills: all`  a sentinel string, not a list. Iterating it yields the characters 'a', 'l', 'l'
+                     and reports three nonexistent skills.
+
+    Both were false positives from a checker written before its subject was read properly, which is
+    why a new checker's first findings are hypotheses rather than defects.
+    """
+    findings = []
+    rel, _, dotted = comp["path"].partition("::")
+    doc = _yaml(payload, Path(rel).name)
+    entry = _dig(doc, dotted)
+    if entry is None:
+        return [
+            {
+                "severity": "high",
+                "check": "profile_exists",
+                "detail": f"{dotted} absent from {rel}",
+            }
+        ]
+
+    profiles = doc.get("profiles") or {}
+    agents = {p.stem for p in (payload / "agents").glob("*.md")}
+    skills = {
+        d.name for d in (payload / "skills").glob("*") if (d / "SKILL.md").is_file()
+    }
+
+    def effective(pname, key, seen=None):
+        """Parent entries plus this profile's additions; `all` means the whole universe."""
+        seen = seen or set()
+        if pname in seen or pname not in profiles:
+            return set()
+        seen.add(pname)
+        node = profiles[pname] or {}
+        val = node.get(key)
+        if isinstance(val, str):
+            return (agents if key == "agents" else skills) if val == "all" else {val}
+        own = set(val or [])
+        parent = node.get("inherit")
+        return own | (effective(parent, key, seen) if parent else set())
+
+    name = dotted.rsplit(".", 1)[-1]
+    for key, universe in (("agents", agents), ("skills", skills)):
+        val = entry.get(key)
+        declared = [] if isinstance(val, str) else list(val or [])
+        for named in declared:
+            if isinstance(named, str) and named not in universe:
+                findings.append(
+                    {
+                        "severity": "high",
+                        "check": f"profile_{key}_exist",
+                        "detail": f"names {key[:-1]} {named!r}, which is not shipped",
+                    }
+                )
+
+    order = ["lean", "standard", "enterprise"]
+    if name in order and order.index(name) + 1 < len(order):
+        child = order[order.index(name) + 1]
+        for key in ("agents", "skills"):
+            missing = effective(name, key) - effective(child, key)
+            if missing:
+                findings.append(
+                    {
+                        "severity": "medium",
+                        "check": "profile_subset",
+                        "detail": f"effective {name}.{key} has {sorted(missing)} not in effective "
+                        f"{child}.{key}; the documented lean/standard/enterprise chain is broken",
+                    }
+                )
+    return findings
+
+
+def check_manifest(comp, payload):
+    """plugin.json / marketplace.json: parseable, complete, and in version lockstep.
+
+    CLAUDE.md golden rule 6 requires five files to carry the same version. check_docs_consistency.py
+    enforces that in CI; what it cannot see is a manifest that stopped being valid JSON, because a
+    broken manifest means the plugin silently does not load at all.
+    """
+    findings = []
+    p = payload / comp["path"]
+    if not p.is_file():
+        return [
+            {
+                "severity": "high",
+                "check": "manifest_exists",
+                "detail": f"{comp['path']} is missing",
+            }
+        ]
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return [
+            {
+                "severity": "critical",
+                "check": "manifest_parses",
+                "detail": f"invalid JSON -- the plugin will not load: {exc}",
+            }
+        ]
+
+    entries = doc.get("plugins") if isinstance(doc.get("plugins"), list) else [doc]
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        for key in ("name", "description"):
+            if not str(e.get(key, "")).strip():
+                findings.append(
+                    {
+                        "severity": "medium",
+                        "check": "manifest_fields",
+                        "detail": f"entry {e.get('name', '?')!r} has no {key}",
+                    }
+                )
+    versions = {
+        str(e.get("version"))
+        for e in entries
+        if isinstance(e, dict) and e.get("version")
+    }
+    init = payload / "src/claude_kit/__init__.py"
+    if versions and init.is_file():
+        m = re.search(
+            r'__version__\s*=\s*["\']([^"\']+)', init.read_text(encoding="utf-8")
+        )
+        if m and m.group(1) not in versions:
+            findings.append(
+                {
+                    "severity": "high",
+                    "check": "manifest_version_parity",
+                    "detail": f"manifest {sorted(versions)} != __init__ {m.group(1)!r}",
+                }
+            )
+    return findings
 
 
 if __name__ == "__main__":
