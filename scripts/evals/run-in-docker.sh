@@ -69,6 +69,11 @@ RUN_ID="${EVAL_RUN_ID:-$( [ -f "$RUN_DIR/run-id.txt" ] && cat "$RUN_DIR/run-id.t
 COMPOSE_FILE="${EVAL_COMPOSE_FILE:-$ROOT/docker-compose.evals.yml}"
 # Compose rejects a project name containing uppercase, and run ids carry an ISO-8601 stamp.
 COMPOSE_PROJECT="claude-kit-eval-$(printf '%s' "$RUN_ID" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_-' '-')"
+# EXPORT, not merely assign: docker-compose.evals.yml interpolates `${EVAL_RUN_ID:-unknown}` into
+# every service's `ck-eval-run` label, and compose reads it from the ENVIRONMENT. Left unexported,
+# every compose container was labelled the literal string "unknown", so a leak query by run id
+# matched nothing and the ownership label could not identify what this run created.
+export EVAL_RUN_ID="$RUN_ID"
 
 IMAGE=""
 SERVICE=""

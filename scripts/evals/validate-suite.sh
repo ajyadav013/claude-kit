@@ -69,7 +69,9 @@ run coverage python -m pytest -q -p no:cacheprovider \
 run ruff_check ruff check src scripts tests skills
 run ruff_format ruff format --check src scripts tests
 run mypy mypy
-run shellcheck sh -c 'shellcheck -S warning hooks/scripts/*.sh scripts/*.sh $(ls templates/scripts/*.sh 2>/dev/null)'
+# scripts/evals/*.sh was outside this glob, so the evaluation harness's own shell — including the
+# wrapper every result depends on — was the only shell in the repo nobody linted.
+run shellcheck sh -c 'shellcheck -S warning hooks/scripts/*.sh scripts/*.sh scripts/evals/*.sh $(ls templates/scripts/*.sh 2>/dev/null)'
 
 # --- repository drift and consistency guards --------------------------------------------------------
 for s in gen_hooks.py check_docs_consistency.py check_skill_descriptions.py check_mcp_pins.py \
