@@ -124,6 +124,46 @@ if [ "$RULES_MODE" = "ondemand" ]; then
 	echo "### DEVIATION rules-mode=ondemand: added paths: frontmatter to $scoped rule files (still readable at .claude/rules/)"
 fi
 
+# --- rule ablation --------------------------------------------------------------------------------
+# `only:<rule>` and `ablate:<rule>` are the two arms of a single-rule ablation, and they differ in
+# exactly one thing: whether <rule> is present.
+#
+#   only:<rule>    every OTHER rule gets the never-matching paths: frontmatter, so <rule> is the one
+#                  file auto-loaded at launch.
+#   ablate:<rule>  identical scoping, but <rule> is REMOVED from the workspace entirely.
+#
+# Isolating the variable this way also sidesteps F-014: one rule in context is affordable, whereas a
+# full-rules control arm fails for context reasons and the failure cannot be attributed to the rule.
+# Both arms are DEVIATIONS from the shipped default and are recorded as such.
+case "$RULES_MODE" in
+only:* | ablate:*)
+	ABL_RULE="${RULES_MODE#*:}"
+	ABL_TARGET="$WORK/.claude/rules/$ABL_RULE.md"
+	if [ ! -f "$ABL_TARGET" ]; then
+		echo "### FATAL rules-mode=$RULES_MODE: no such rule $ABL_RULE.md" >&2
+		exit 2
+	fi
+	scoped=0
+	for rf in "$WORK"/.claude/rules/*.md; do
+		[ -f "$rf" ] || continue
+		[ "$rf" = "$ABL_TARGET" ] && continue
+		head -n1 "$rf" | grep -q '^---$' && continue
+		{
+			printf -- '---\npaths:\n  - "**/__ck_eval_never_matches__/**"\n---\n\n'
+			cat "$rf"
+		} >"$rf.scoped" && mv "$rf.scoped" "$rf"
+		scoped=$((scoped + 1))
+	done
+	if [ "${RULES_MODE%%:*}" = "ablate" ]; then
+		mkdir -p "$EVID/rules-withheld"
+		mv "$ABL_TARGET" "$EVID/rules-withheld/"
+		echo "### DEVIATION rules-mode=$RULES_MODE: scoped $scoped rules, WITHHELD $ABL_RULE.md"
+	else
+		echo "### DEVIATION rules-mode=$RULES_MODE: scoped $scoped rules, $ABL_RULE.md left auto-loading"
+	fi
+	;;
+esac
+
 echo "### project test command (delegates into Docker)"
 # The execution-plane rule forbids the host from running project tests, but a pipeline that cannot
 # run tests cannot pass a test gate — which is exactly what happened in the first /sdlc arm
@@ -416,7 +456,14 @@ json.dump({
         "ondemand": "paths: frontmatter added to .claude/rules/*.md so they are readable but not "
                     "auto-loaded — NOT the shipped default (F-014); the lever docs/"
                     "rules-context-budget.md calls Direction C",
-    }.get(rules_mode, f"unrecognised rules_mode {rules_mode!r}"),
+    }.get(rules_mode, (
+        f"single-rule ablation arm ({rules_mode}): every OTHER rule carries the never-matching "
+        "paths: frontmatter so exactly one rule is auto-loaded, and the `ablate:` arm removes that "
+        "rule outright. NOT the shipped default; the two arms differ in one variable by design, "
+        "which is also what keeps the control arm inside the context budget (F-014)."
+    ) if rules_mode.split(":")[0] in ("only", "ablate")
+      else f"unrecognised rules_mode {rules_mode!r}"),
+    "ablated_rule": rules_mode.split(":", 1)[1] if ":" in rules_mode else None,
     "permission_mode": perm,
     "permission_deviation": None if perm == "acceptEdits" else (
         f"child session ran with --permission-mode {perm} — NOT the shipped default. Reason: "
