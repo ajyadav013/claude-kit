@@ -686,3 +686,94 @@ def test_a_documented_installed_gate_produces_no_findings(payload):
         "path": "catalog/profiles.yaml::gates",
     }
     assert static_eval.check_gate(comp, payload, "code-review", []) == []
+
+
+# --- negative controls: repo validation scripts --------------------------------------------------
+
+
+def _repo_script(tmp_path: Path, name: str, body: str):
+    d = tmp_path / "scripts"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(body, encoding="utf-8")
+    return {
+        "id": f"repo-script:{name}",
+        "type": "repo-validation-script",
+        "path": f"scripts/{name}",
+    }
+
+
+def test_a_guard_that_cannot_report_failure_is_flagged(tmp_path):
+    """The defect this program exists to catch: a checker that is green on a broken payload."""
+    comp = _repo_script(
+        tmp_path, "c.py", '"""Guard."""\nimport sys\n\nprint("ok")\nsys.exit(0)\n'
+    )
+    findings = static_eval.check_repo_script(comp, tmp_path, "c.py")
+    assert "can_fail" in _checks(findings)
+
+
+def test_a_guard_with_a_nonzero_exit_is_not_flagged(tmp_path):
+    comp = _repo_script(
+        tmp_path, "c.py", '"""Guard."""\nimport sys\n\nsys.exit(1 if bad else 0)\n'
+    )
+    assert "can_fail" not in _checks(
+        static_eval.check_repo_script(comp, tmp_path, "c.py")
+    )
+
+
+def test_a_guard_that_raises_is_not_flagged(tmp_path):
+    comp = _repo_script(
+        tmp_path, "c.py", '"""Guard."""\nif bad:\n    raise SystemExit("drift")\n'
+    )
+    assert "can_fail" not in _checks(
+        static_eval.check_repo_script(comp, tmp_path, "c.py")
+    )
+
+
+def test_an_unreferenced_script_is_flagged_but_only_as_low(tmp_path):
+    """Unreferenced is a real signal, but it does not distinguish a dead guard from a dead
+    operator tool, so it must not carry the severity of a guard that silently never fires."""
+    comp = _repo_script(tmp_path, "c.py", '"""Guard."""\nimport sys\n\nsys.exit(2)\n')
+    findings = static_eval.check_repo_script(comp, tmp_path, "other.py")
+    assert [f["severity"] for f in findings if f["check"] == "referenced"] == ["low"]
+
+
+def test_a_script_referenced_only_from_shipped_docs_counts_as_referenced(tmp_path):
+    """An operator tool is invoked by the document that tells you to run it."""
+    comp = _repo_script(tmp_path, "c.py", '"""Tool."""\nimport sys\n\nsys.exit(2)\n')
+    corpus = "Run `scripts/c.py` to bundle a run."
+    assert "referenced" not in _checks(
+        static_eval.check_repo_script(comp, tmp_path, corpus)
+    )
+
+
+def test_the_corpus_excludes_the_changelog(payload):
+    """A changelog entry records that a script existed; it is not an instruction to run it.
+    Including it would silence the dead-script case the check exists to surface."""
+    corpus = static_eval.invocation_corpus(payload)
+    changelog = (payload / "CHANGELOG.md").read_text(encoding="utf-8")
+    marker = next(
+        line for line in changelog.splitlines() if "backfill-releases" in line
+    )
+    assert marker not in corpus
+
+
+def test_an_undocumented_script_is_flagged(tmp_path):
+    comp = _repo_script(tmp_path, "c.py", "import sys\n\nsys.exit(2)\n")
+    assert "documented" in _checks(
+        static_eval.check_repo_script(comp, tmp_path, "c.py")
+    )
+
+
+def test_a_shell_script_without_a_shebang_is_flagged(tmp_path):
+    comp = _repo_script(tmp_path, "c.sh", "echo hi\n")
+    assert "shebang" in _checks(static_eval.check_repo_script(comp, tmp_path, "c.sh"))
+
+
+def test_a_clean_repo_script_produces_no_findings(tmp_path):
+    comp = _repo_script(tmp_path, "c.py", '"""Guard."""\nimport sys\n\nsys.exit(3)\n')
+    assert static_eval.check_repo_script(comp, tmp_path, "run c.py here") == []
+
+
+def test_the_invocation_corpus_sees_the_shipped_ci_workflows(payload):
+    corpus = static_eval.invocation_corpus(payload)
+    assert "gen_hooks.py" in corpus, "corpus missed a script CI demonstrably runs"

@@ -768,6 +768,110 @@ def prose_index(payload: Path) -> str:
     return "\n".join(parts)
 
 
+def invocation_corpus(payload: Path) -> str:
+    """Everything that tells someone — CI or a human — to run a repo script.
+
+    Prose counts: an operator tool is "invoked" by the doc that instructs you to run it, so
+    docs/ and examples/ belong here. CHANGELOG.md deliberately does NOT: it records that a script
+    once existed, which is not an instruction to run it, and including it would silence exactly
+    the dead-script case this check exists to surface.
+    """
+    parts = []
+    for rel in (".github/workflows", "scripts/evals", "docs", "examples", "skills"):
+        d = payload / rel
+        if d.is_dir():
+            for f in sorted(d.rglob("*")):
+                if f.is_file() and f.suffix in (
+                    ".md",
+                    ".yml",
+                    ".yaml",
+                    ".sh",
+                    ".py",
+                    ".toml",
+                ):
+                    parts.append(f.read_text(encoding="utf-8", errors="ignore"))
+    for rel in (
+        "CONTRIBUTING.md",
+        "CLAUDE.md",
+        "README.md",
+        "Makefile",
+        "pyproject.toml",
+    ):
+        f = payload / rel
+        if f.is_file():
+            parts.append(f.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(parts)
+
+
+def check_repo_script(comp, payload, corpus):
+    """A repository validation script must exist, be documented, be invoked, and be able to fail."""
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    rel = comp["path"]
+    path = payload / rel
+    if not path.is_file():
+        return [{"severity": "critical", "check": "exists", "detail": f"absent: {rel}"}]
+    text = path.read_text(encoding="utf-8", errors="ignore")
+
+    if path.suffix == ".py":
+        try:
+            tree = ast.parse(text)
+        except SyntaxError as exc:
+            return [
+                {
+                    "severity": "critical",
+                    "check": "parses",
+                    "detail": f"syntax error: {exc}",
+                }
+            ]
+        if not ast.get_docstring(tree):
+            add(
+                "medium",
+                "documented",
+                "no module docstring — nothing states what drift it guards",
+            )
+        # The defect this whole program exists to catch: a checker that cannot report failure.
+        # `sys.exit(0)` unconditionally, or no non-zero exit at all, is a guard that always passes.
+        exits = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "exit"
+        ]
+        nonzero = any(
+            not (
+                a.args
+                and isinstance(a.args[0], ast.Constant)
+                and a.args[0].value in (0, None)
+            )
+            for a in exits
+        )
+        raises = any(isinstance(n, ast.Raise) for n in ast.walk(tree))
+        if not nonzero and not raises:
+            add(
+                "high",
+                "can_fail",
+                "no non-zero exit and no raise — this guard reports success on a broken payload, "
+                "which is worse than not having it: CI stays green and the drift ships",
+            )
+    elif not text.startswith("#!"):
+        add("medium", "shebang", "no shebang line")
+
+    if path.name not in corpus:
+        add(
+            "low",
+            "referenced",
+            f"{path.name} is named in no CI workflow, eval suite, or shipped document — nothing "
+            "in the repository tells anyone to run it. For a drift guard that means it never "
+            "fires; for a one-shot operator tool it means the script has outlived its purpose",
+        )
+    return findings
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -813,6 +917,7 @@ def main() -> int:
     hook_ids = set(hooks_mod.HOOK_REGISTRY) | set(hooks_mod.PLUGIN_ONLY_HOOKS)
     prose = prose_index(payload)
     conflicts = gate_order_conflicts(payload)
+    corpus = invocation_corpus(payload)
 
     records = []
     for cid in ids:
@@ -841,6 +946,8 @@ def main() -> int:
             findings = check_org_entry(comp, payload, hook_ids)
         elif ctype == "schema":
             findings = check_schema(comp, payload)
+        elif ctype == "repo-validation-script":
+            findings = check_repo_script(comp, payload, corpus)
         elif ctype.startswith("workflow-") or ctype in (
             "resolver",
             "rendering",
