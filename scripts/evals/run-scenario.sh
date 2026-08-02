@@ -23,6 +23,12 @@
 set -Eeuo pipefail
 
 SCENARIO="" FIXTURE="" ORACLE="" PROMPT_FILE="" ARM="baseline" MAX_TURNS=60
+# --rules-mode none strips .claude/rules after scaffolding. This is a DEVIATION from the shipped
+# product, not a configuration the product offers, and it exists for one reason: Claude Code
+# auto-loads .claude/rules/*.md in full at launch, the kit ships 446KB there, and a default install
+# therefore has too little context left for a real task (F-014). Any run using it is recorded with
+# `deviation` set, so no result from a deviating arm can be mistaken for the shipped default.
+RULES_MODE="full"
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -32,6 +38,7 @@ while [ $# -gt 0 ]; do
 	--prompt-file) PROMPT_FILE="${2:?}"; shift 2 ;;
 	--arm) ARM="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
+	--rules-mode) RULES_MODE="${2:?}"; shift 2 ;;
 	*) echo "run-scenario: unknown option $1" >&2; exit 2 ;;
 	esac
 done
@@ -43,7 +50,12 @@ ROOT="$(git rev-parse --show-toplevel)"
 RUN_DIR="$ROOT/.claude/state/full-self-evaluation"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVID="$RUN_DIR/raw/task-runs/$SCENARIO/$ARM-$STAMP"
-WORK="$RUN_DIR/scenario-work/$SCENARIO-$ARM-$STAMP"
+# The scenario workspace must live OUTSIDE the repo's own .claude/ tree. Sited under
+# .claude/state/... the child session's edits were denied by path-based permission rules and the
+# run looked like a pipeline failure when the agent had in fact produced the correct edit and was
+# simply refused permission to write it. Evidence still lands in the repo; only the scratch
+# workspace moves.
+WORK="${EVAL_SCENARIO_WORKDIR:-${TMPDIR:-/tmp}/ck-eval-scenarios}/$SCENARIO-$ARM-$STAMP"
 mkdir -p "$EVID" "$WORK"
 
 echo "### materialise the fixture (a fresh git repo, so the oracle can diff the end state)"
@@ -69,6 +81,13 @@ echo "### install the kit into the fixture (Docker — the host never runs proje
 "$ROOT/scripts/evals/run-in-docker.sh" --service python --label "$SCENARIO-$ARM-scaffold" \
 	--mount "$WORK:/work" --workdir /repo --timeout 600 -- \
 	env PYTHONPATH=/repo/src python -m claude_kit.cli init /work --defaults
+
+if [ "$RULES_MODE" = "none" ]; then
+	RULE_BYTES="$(cat "$WORK"/.claude/rules/*.md 2>/dev/null | wc -c | tr -d ' ')"
+	RULE_FILES="$(find "$WORK/.claude/rules" -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+	mv "$WORK/.claude/rules" "$WORK/.scenario/rules-withheld"
+	echo "### DEVIATION rules-mode=none: withheld $RULE_FILES rule files ($RULE_BYTES bytes)"
+fi
 
 # Commit the scaffold BEFORE the session, so the end-state diff and the oracle's stray-artifact
 # check see the session's work alone. Without this the installed kit (203 files) is indistinguishable
@@ -135,12 +154,15 @@ set -e
 LAST_ORACLE="$(ls -dt "$RUN_DIR"/raw/docker/*-"$SCENARIO-$ARM-oracle" | head -1)"
 cp "$LAST_ORACLE/stdout.txt" "$EVID/oracle-verdict.json" 2>/dev/null || true
 
-python3 - "$EVID/run.json" "$SCENARIO" "$ARM" "$FIXTURE_SHA" "$ORACLE_RC" "$EVID" <<'PY'
+python3 - "$EVID/run.json" "$SCENARIO" "$ARM" "$FIXTURE_SHA" "$ORACLE_RC" "$EVID" "$RULES_MODE" <<'PY'
 import json, sys
 out, scenario, arm, fx, rc, evid = sys.argv[1:7]
 json.dump({
     "scenario": scenario, "arm": arm, "fixture_baseline_sha": fx,
     "oracle_exit_code": int(rc), "verdict": "PASS" if int(rc) == 0 else "FAIL",
+    "rules_mode": sys.argv[7],
+    "deviation": None if sys.argv[7] == "full" else
+        ".claude/rules withheld after scaffold — NOT the shipped default (see F-014)",
     "evidence_dir": evid,
 }, open(out, "w"), indent=2)
 PY
