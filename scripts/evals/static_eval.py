@@ -1387,22 +1387,30 @@ def main() -> int:
     for cid in ids:
         comp = by_id[cid]
         ctype = comp["type"]
+        ran: list[str] = []
         if ctype in PROSE_TYPES:
             findings = check_prose_component(comp, payload, reach, rule_files, tiers)
             findings += check_skill_trigger(comp, payload)
             findings += check_agent_fanout(comp, payload)
+            ran = ["prose_component", "skill_trigger", "agent_fanout"]
         elif ctype == "hook":
             findings = check_hook(comp, payload, hook_reach)
+            ran = ["hook"]
         elif ctype == "hook-script":
             findings = check_hook_script(comp, payload, registered_scripts)
+            ran = ["hook_script"]
         elif ctype in ("cli-command", "pipeline-op"):
             findings = check_callable(comp, payload, coverage)
+            ran = ["callable"]
         elif ctype == "gate":
             findings = check_gate(comp, payload, prose, conflicts)
+            ran = ["gate"]
         elif ctype == "capture-mode":
             findings = check_capture_mode(comp, payload, hook_ids)
+            ran = ["capture_mode"]
         elif ctype == "catalog-file":
             findings = check_catalog_file(comp, payload)
+            ran = ["catalog_file"]
         elif ctype in (
             "org-capability",
             "autonomy-level",
@@ -1410,14 +1418,19 @@ def main() -> int:
             "scope",
         ):
             findings = check_org_entry(comp, payload, hook_ids)
+            ran = ["org_entry"]
         elif ctype == "schema":
             findings = check_schema(comp, payload)
+            ran = ["schema"]
         elif ctype == "repo-validation-script":
             findings = check_repo_script(comp, payload, corpus)
+            ran = ["repo_script"]
         elif ctype == "mcp-entry":
             findings = check_mcp_entry(comp, payload)
+            ran = ["mcp_entry"]
         elif ctype == "doc":
             findings = check_doc(comp, payload, commands)
+            ran = ["doc"]
         elif ctype.startswith("workflow-") or ctype in (
             "resolver",
             "rendering",
@@ -1427,6 +1440,7 @@ def main() -> int:
             "hook-registry",
         ):
             findings = check_module(comp, payload, coverage)
+            ran = ["module"]
         else:
             findings = [
                 {
@@ -1435,6 +1449,7 @@ def main() -> int:
                     "detail": f"no static checks implemented for type {ctype!r} yet",
                 }
             ]
+            ran = []
         worst = "none"
         for sev in ("critical", "high", "medium", "low"):
             if any(f["severity"] == sev for f in findings):
@@ -1446,17 +1461,8 @@ def main() -> int:
                 "type": comp["type"],
                 "path": comp["path"],
                 "risk": comp["risk"],
-                "checks_run": [
-                    "exists",
-                    "frontmatter",
-                    "name_matches_path",
-                    "description",
-                    "tier",
-                    "tools_known",
-                    "role_vs_tools",
-                    "reachability",
-                    "rule_ref",
-                ],
+                "checks_run": ran,
+                "statically_evaluated": bool(ran),
                 "findings": findings,
                 "worst_severity": worst,
                 "disposition": "NO_CHANGE_REQUIRED" if not findings else "FINDINGS",
