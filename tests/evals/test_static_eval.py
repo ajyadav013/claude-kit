@@ -292,6 +292,104 @@ def test_a_clean_registry_entry_produces_no_findings(tmp_path, monkeypatch):
     assert static_eval.check_hook(_hook_comp("h"), tmp_path, {"h"}) == []
 
 
+# --- negative controls: the consent note must match what the hook actually does ------------------
+#
+# The suite already asserted every hook HAS a data_access note. Nothing asserted it was TRUE, and
+# validate-frontmatter's said "blocks only malformed frontmatter" while the script always exits 0.
+
+
+def test_a_hook_that_can_block_but_does_not_say_so_is_flagged(tmp_path, monkeypatch):
+    _script(
+        tmp_path, "h.sh", '#!/usr/bin/env sh\nif [ -n "$X" ]; then exit 2; fi\nexit 0\n'
+    )
+    reg = {
+        "h": {
+            "event": "PreToolUse",
+            "script": "h.sh",
+            "data_access": "inspects the edited path; advisory only",
+        }
+    }
+    _hook_module(monkeypatch, reg)
+    assert "undeclared_blocker" in _checks(
+        static_eval.check_hook(_hook_comp("h"), tmp_path, {"h"})
+    )
+
+
+def test_a_hook_claiming_to_block_that_never_exits_non_zero_is_flagged(
+    tmp_path, monkeypatch
+):
+    """The real defect: a consent note promising enforcement the script cannot deliver."""
+    _script(tmp_path, "h.sh", "#!/usr/bin/env sh\necho warn >&2\nexit 0\n")
+    reg = {
+        "h": {
+            "event": "PreToolUse",
+            "script": "h.sh",
+            "data_access": "parses the file; blocks only malformed input",
+        }
+    }
+    _hook_module(monkeypatch, reg)
+    assert "blocking_claim_unbacked" in _checks(
+        static_eval.check_hook(_hook_comp("h"), tmp_path, {"h"})
+    )
+
+
+def test_never_blocks_is_not_read_as_a_blocking_claim(tmp_path, monkeypatch):
+    """Three shipped notes end 'never blocks'; keyword matching alone inverts all three."""
+    _script(tmp_path, "h.sh", "#!/usr/bin/env sh\nexit 0\n")
+    reg = {
+        "h": {
+            "event": "Stop",
+            "script": "h.sh",
+            "data_access": "runs the project's own linter; best-effort, never blocks",
+        }
+    }
+    _hook_module(monkeypatch, reg)
+    assert static_eval.check_hook(_hook_comp("h"), tmp_path, {"h"}) == []
+
+
+def test_an_inline_guard_exiting_mid_line_still_counts_as_blocking(
+    tmp_path, monkeypatch
+):
+    """`if …; then …; exit 2; fi` is ONE line — anchoring to line start hides the real guards."""
+    reg = {
+        "h": {
+            "event": "PreToolUse",
+            "entry": {
+                "type": "command",
+                "command": 'CMD=$(jq -r .x); if [ -n "$CMD" ]; then echo no >&2; exit 2; fi',
+            },
+            "data_access": "inspects the Bash command to block rm -rf; reads no files",
+        }
+    }
+    _hook_module(monkeypatch, reg)
+    assert static_eval.check_hook(_hook_comp("h"), tmp_path, {"h"}) == []
+
+
+def test_every_shipped_hooks_consent_note_matches_its_behaviour(payload):
+    """Real-roster sweep, non-vacuous: both populations must be present to compare.
+
+    A note is only meaningful if some hooks really do block and others really do not; asserting
+    both groups are non-empty stops this passing on an empty or single-sided registry.
+    """
+    from claude_kit import hooks as hooks_mod
+
+    registry = {**hooks_mod.HOOK_REGISTRY, **hooks_mod.PLUGIN_ONLY_HOOKS}
+    blockers, advisories, offenders = [], [], {}
+    for hid, spec in registry.items():
+        body = static_eval.hook_body(spec, payload)
+        (blockers if static_eval._NONZERO_EXIT.search(body) else advisories).append(hid)
+        bad = [
+            f["check"]
+            for f in static_eval.check_hook(_hook_comp(hid), payload, {hid})
+            if f["check"] in ("undeclared_blocker", "blocking_claim_unbacked")
+        ]
+        if bad:
+            offenders[hid] = bad
+    assert len(blockers) >= 3, blockers
+    assert len(advisories) >= 3, advisories
+    assert not offenders, offenders
+
+
 def test_a_plugin_only_hook_is_registered_and_reachable(tmp_path, payload, monkeypatch):
     """PLUGIN_ONLY_HOOKS are absent from every profile by design — not orphans.
 

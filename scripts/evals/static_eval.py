@@ -366,6 +366,25 @@ PROSE_TYPES = frozenset(
 )
 
 
+#: A non-zero exit anywhere — `if …; then …; exit 2; fi` is one line in the inline guards, so
+#: anchoring to the start of a line hides every blocker that is not on its own statement line.
+_NONZERO_EXIT = re.compile(r"(?:^|[;&|(\s])exit[ \t]+[1-9][0-9]*")
+#: A `data_access` note claims blocking. The lookbehinds matter: three notes end "never blocks",
+#: and reading that as a blocking claim inverts the verdict on correct advisory hooks.
+_BLOCK_CLAIM = re.compile(
+    r"(?<!never )(?<!not )(?<!nor )\b(?:block|deny|refus|reject)", re.IGNORECASE
+)
+
+
+def hook_body(spec, payload: Path) -> str:
+    """The shell a hook actually runs — a script file, or the inline `entry.command`."""
+    script = spec.get("script")
+    if script:
+        sp = payload / "hooks" / "scripts" / script
+        return sp.read_text(encoding="utf-8") if sp.is_file() else ""
+    return str((spec.get("entry") or {}).get("command", "") or "")
+
+
 def check_hook(comp, payload, hook_reach):
     """A registry entry must name a real event, a real executable script, and its data access."""
     from claude_kit import validator
@@ -412,13 +431,34 @@ def check_hook(comp, payload, hook_reach):
                 "still fires (both channels run `bash <script>`) but the file cannot be run "
                 "directly and is inconsistent with every sibling script",
             )
-    if not str(spec.get("data_access", "")).strip():
+    access = str(spec.get("data_access", "")).strip()
+    if not access:
         add(
             "medium",
             "hook_data_access",
             "no data_access note — `claude-kit privacy-report` derives its informed-consent "
             "output from this field, so the hook would be listed without saying what it reads",
         )
+    else:
+        # The suite already asserts every hook HAS a consent note. Nothing asserted it was TRUE,
+        # so a note could describe behaviour the script does not have — in either direction.
+        can_block = bool(_NONZERO_EXIT.search(hook_body(spec, payload)))
+        claims_block = bool(_BLOCK_CLAIM.search(access))
+        if can_block and not claims_block:
+            add(
+                "high",
+                "undeclared_blocker",
+                "exits non-zero — it can refuse the user's tool call — but its data_access note "
+                f"does not say so: {access!r}. privacy-report would present a gate as an "
+                "observer.",
+            )
+        elif claims_block and not can_block:
+            add(
+                "medium",
+                "blocking_claim_unbacked",
+                f"data_access claims it blocks ({access!r}) but no path exits non-zero, so it "
+                "cannot. Either the guard is toothless or the consent note overstates it.",
+            )
     if hid not in hook_reach:
         add(
             "low",

@@ -206,8 +206,10 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "matcher": "Write",
         "entry": _script_entry("validate-frontmatter.sh"),
         "script": "validate-frontmatter.sh",
-        "data_access": "parses the YAML frontmatter of a written agent/skill file; blocks only "
-        "malformed frontmatter",
+        # Its sibling validate-settings does block (exit 2); this one deliberately does not, and
+        # said otherwise in the note privacy-report shows the user.
+        "data_access": "parses the YAML frontmatter of a written agent/skill file; advisory "
+        "only, never blocks — warnings return as additionalContext",
     },
     "validate-settings": {
         "event": "PreToolUse",
