@@ -338,3 +338,89 @@ def test_explain_error_covers_every_compare_failure_code(tmp_path):
     assert "claude-kit init" in seen["not-installed"]
     assert "invalid JSON" in seen["corrupt-options"]
     assert "predates upgrade tracking" in seen["no-options"]
+
+
+def test_two_orphans_are_both_removed(tmp_path, payload):
+    """The remove branch must hand control back to the loop, not fall out after the first file.
+
+    A single orphan cannot show this: the loop ends either way. Two are needed for the back-edge
+    to be exercised at all.
+    """
+    install(payload, tmp_path)
+    cfg = tmp_path / ".claude" / "config" / "init-options.json"
+    doc = json.loads(cfg.read_text(encoding="utf-8"))
+    template = next(r for r in doc["files"] if r["path"].startswith(".claude/rules/"))
+    stale = [".claude/rules/retired-a.md", ".claude/rules/retired-b.md"]
+    for rel in stale:
+        doc["files"].append({**template, "path": rel})
+        (tmp_path / rel).write_text("left over\n", encoding="utf-8")
+    cfg.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+
+    ok, messages = upgrader.upgrade(tmp_path)
+    assert ok, messages
+    for rel in stale:
+        assert not (tmp_path / rel).exists(), f"{rel} survived the upgrade"
+        assert any(rel in m and "orphan removed" in m for m in messages), messages
+
+
+def test_apply_tolerates_a_reference_missing_a_config_file(tmp_path, payload):
+    """`_apply` copies the reference's config verbatim; a reference lacking one must not crash.
+
+    Driven through `_apply` directly because `_compare` always renders a complete reference — the
+    guard exists for a truncated or partially-written tree, which the public path cannot produce.
+    """
+    install(payload, tmp_path)
+    cmp_ = upgrader._compare(payload, tmp_path)
+    assert not isinstance(cmp_, str), cmp_
+    try:
+        (cmp_.ref_root / ".claude" / "config" / "stack-catalog.snapshot.yaml").unlink()
+        victim = ".claude/rules/quality-gates.md"
+        (tmp_path / victim).write_text("edited away\n", encoding="utf-8")
+        cmp_.actions.append(
+            upgrader._Action(victim, "update", "kit", user_modified=True)
+        )
+
+        ok, messages = upgrader._apply(cmp_, force=False)
+        assert ok, messages
+        # The surviving config file is still adopted, and the absent one is simply not copied.
+        assert (tmp_path / ".claude" / "config" / "init-options.json").is_file()
+        assert (tmp_path / victim).read_text(encoding="utf-8") != "edited away\n"
+    finally:
+        upgrader._cleanup(cmp_.ref_root)
+
+
+def test_update_actions_never_carry_a_user_modified_user_editable_file(
+    tmp_path, payload
+):
+    """The invariant that lets `_apply`'s update branch skip the sidecar decision entirely.
+
+    `_diff_actions` classifies a user-modified user-editable file as "keep", so the sidecar path
+    lives there alone. `_apply` previously duplicated it under "update", where it was unreachable.
+    If the classifier ever starts emitting "update" for that case, this fails — and the sidecar
+    handling has to be reinstated rather than silently lost.
+    """
+    install(payload, tmp_path)
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.write_text(
+        claude_md.read_text(encoding="utf-8") + "\nmine\n", encoding="utf-8"
+    )
+    _age_install(tmp_path, ".claude/rules/quality-gates.md", "aged\n")
+
+    cmp_ = upgrader._compare(payload, tmp_path)
+    assert not isinstance(cmp_, str), cmp_
+    try:
+        offenders = [
+            a
+            for a in cmp_.actions
+            if a.kind == "update" and a.owner == "user-editable" and a.user_modified
+        ]
+        assert not offenders, (
+            f"classifier emitted update for a protected file: {offenders}"
+        )
+        # And the case genuinely occurs in this fixture — otherwise the assertion is vacuous.
+        assert any(
+            a.kind == "keep" and a.owner == "user-editable" and a.user_modified
+            for a in cmp_.actions
+        ), "fixture produced no user-modified user-editable file to classify"
+    finally:
+        upgrader._cleanup(cmp_.ref_root)

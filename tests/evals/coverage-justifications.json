@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "_comment": "Branches that no input can reach, so no honest test covers them. Each entry must carry a proof, not an opinion. `origin_line_text` is re-matched against the current source: if the file shifts, the justification goes stale and is reported rather than silently applied to a different branch. A justification for a branch that has since become covered is also reported, so this file cannot quietly become a dumping ground. This is not a coverage exclusion — the arcs still count against the totals; the file only records that they have been analysed.",
+  "justifications": [
+    {
+      "file": "src/claude_kit/upgrader.py",
+      "arc": "349->350",
+      "origin_line_text": "if not live.is_file():",
+      "reason": "TOCTOU guard in _backup. Every caller (upgrade, merge_install) re-runs _compare immediately before _apply, and an action is only planned for a file that exists, so the live file is present whenever _backup runs. The guard exists for a file deleted by another process between the two steps, which no in-process test can stage without stubbing the filesystem.",
+      "proof": "raw/docker/20260802T051345Z-upgrader-tests — a test that unlinked the file before calling upgrade() passed without reaching the guard, because upgrade() re-compares. It was deleted rather than kept as a vacuous control."
+    },
+    {
+      "file": "src/claude_kit/upgrader.py",
+      "arc": "398->361",
+      "origin_line_text": "elif act.kind == \"remove\":",
+      "reason": "Fallthrough of the action-kind chain. _diff_actions is the only producer of _Action and emits exactly add | update | keep | remove, so the final elif is never false. Reaching it would require an _Action carrying a kind outside its documented enum.",
+      "proof": "src/claude_kit/upgrader.py:_diff_actions — the three append sites cover the four kinds exhaustively."
+    }
+  ]
+}

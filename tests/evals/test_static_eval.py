@@ -8,6 +8,7 @@ check therefore gets a synthetic component built to violate exactly it, and must
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -637,9 +638,20 @@ def test_a_module_under_the_coverage_floor_is_flagged(tmp_path):
 
 def test_a_module_with_untaken_branches_is_flagged(tmp_path):
     comp = _mod(tmp_path, '"""Doc."""\n')
-    findings = static_eval.check_module(comp, tmp_path, _cov(covered_branches=1))
+    cov = _cov(covered_branches=1)
+    cov["files"]["src/m.py"]["missing_branches"] = [[1, 2], [1, 3], [1, 4]]
+    findings = static_eval.check_module(comp, tmp_path, cov)
     assert "branch_coverage" in _checks(findings)
     assert any("3 untaken" in f["detail"] for f in findings)
+
+
+def test_a_branch_shortfall_without_an_arc_list_is_a_data_failure_not_a_pass(tmp_path):
+    """Missing coverage DATA must never read as a clean verdict."""
+    comp = _mod(tmp_path, '"""Doc."""\n')
+    findings = static_eval.check_module(comp, tmp_path, _cov(covered_branches=1))
+    assert [f["severity"] for f in findings if f["check"] == "coverage_data"] == [
+        "high"
+    ]
 
 
 def test_an_undocumented_module_is_flagged(tmp_path):
@@ -777,3 +789,93 @@ def test_a_clean_repo_script_produces_no_findings(tmp_path):
 def test_the_invocation_corpus_sees_the_shipped_ci_workflows(payload):
     corpus = static_eval.invocation_corpus(payload)
     assert "gen_hooks.py" in corpus, "corpus missed a script CI demonstrably runs"
+
+
+# --- negative controls: the coverage-justification mechanism -------------------------------------
+#
+# This mechanism decides which untaken branches stop blocking. If it cannot itself fail, it is a
+# blanket exclusion wearing a justification's clothes.
+
+
+_J = {"src/m.py::10->12": {"origin_line_text": "if rare:", "reason": "r", "proof": "p"}}
+
+
+def test_an_unjustified_arc_is_reported():
+    lines = ["x"] * 12
+    lines[9] = "if rare:"
+    un, ana, stale = static_eval.classify_arcs("src/m.py", [(3, 4)], lines, _J)
+    assert un == [(3, 4)] and not ana and not stale
+
+
+def test_a_justified_arc_is_honoured_only_while_its_line_matches():
+    lines = ["x"] * 12
+    lines[9] = "if rare:"
+    un, ana, stale = static_eval.classify_arcs("src/m.py", [(10, 12)], lines, _J)
+    assert ana == [(10, 12)] and not un and not stale
+
+
+def test_a_shifted_line_makes_the_justification_stale_not_silently_reusable():
+    """The failure this guards: the file moves, and one analysis starts excusing a new branch."""
+    lines = ["x"] * 12
+    lines[9] = "if something_completely_different:"
+    un, ana, stale = static_eval.classify_arcs("src/m.py", [(10, 12)], lines, _J)
+    assert not ana and not un
+    assert stale and stale[0][0] == "src/m.py::10->12"
+
+
+def test_a_justification_for_a_now_covered_arc_is_reported_as_orphaned():
+    assert static_eval.orphan_justifications("src/m.py", [(3, 4)], _J) == [
+        "src/m.py::10->12"
+    ]
+    assert static_eval.orphan_justifications("src/m.py", [(10, 12)], _J) == []
+
+
+def test_check_module_reports_unjustified_arcs_as_medium(tmp_path):
+    comp = _mod(tmp_path, '"""Doc."""\nif x:\n    pass\n')
+    cov = _cov(covered_branches=3)
+    cov["files"]["src/m.py"]["missing_branches"] = [[2, 3]]
+    findings = static_eval.check_module(comp, tmp_path, cov)
+    assert [f["severity"] for f in findings if f["check"] == "branch_coverage"] == [
+        "medium"
+    ]
+
+
+def test_check_module_downgrades_an_arc_with_a_matching_justification(tmp_path):
+    comp = _mod(tmp_path, '"""Doc."""\nif x:\n    pass\n')
+    (tmp_path / "tests" / "evals").mkdir(parents=True)
+    (tmp_path / "tests" / "evals" / "coverage-justifications.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "justifications": [
+                    {
+                        "file": "src/m.py",
+                        "arc": "2->3",
+                        "origin_line_text": "if x:",
+                        "reason": "r",
+                        "proof": "p",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cov = _cov(covered_branches=3)
+    cov["files"]["src/m.py"]["missing_branches"] = [[2, 3]]
+    findings = static_eval.check_module(comp, tmp_path, cov)
+    assert "branch_coverage" not in _checks(findings)
+    assert [
+        f["severity"] for f in findings if f["check"] == "analysed_unreachable"
+    ] == ["cosmetic"]
+
+
+def test_every_shipped_justification_still_matches_its_source_line(payload):
+    """A justification that has drifted off its line excuses whatever now sits there."""
+    justified = static_eval.load_justifications(payload)
+    assert justified, "the shipped justification file is empty or unreadable"
+    for key, j in justified.items():
+        rel, _, arc = key.partition("::")
+        origin = int(arc.split("->")[0])
+        lines = (payload / rel).read_text(encoding="utf-8").splitlines()
+        assert lines[origin - 1].strip() == j["origin_line_text"].strip(), key
+        assert j.get("reason") and j.get("proof"), f"{key} carries no proof"

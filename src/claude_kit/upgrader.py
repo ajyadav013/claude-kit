@@ -364,20 +364,13 @@ def _apply(
             _copy_ref(act.rel)
             msgs.append(f"  + {act.rel}")
         elif act.kind == "update":
+            # A user-modified user-editable file is classified "keep", never "update"
+            # (_diff_actions), so the sidecar decision belongs to that branch alone. The invariant
+            # is pinned by test_update_actions_never_carry_a_user_modified_user_editable_file.
             if act.user_modified:
                 _backup(act.rel)
-            if act.owner == "user-editable" and act.user_modified and not force:
-                # Protect: keep the user's file, drop the kit's copy beside it.
-                shutil.copy2(
-                    ref_root / act.rel, live.with_name(live.name + _SIDECAR_SUFFIX)
-                )
-                sidecars_written += 1
-                msgs.append(
-                    f"  ~ {act.rel} (kept; kit's version -> {live.name}{_SIDECAR_SUFFIX})"
-                )
-            else:
-                _copy_ref(act.rel)
-                msgs.append(f"  ✓ {act.rel}")
+            _copy_ref(act.rel)
+            msgs.append(f"  ✓ {act.rel}")
         elif act.kind == "keep":
             if force:
                 # --force: the documented contract is "overwrite user-modified user-editable

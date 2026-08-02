@@ -713,6 +713,46 @@ def check_schema(comp, payload):
     return findings
 
 
+JUSTIFICATIONS = "tests/evals/coverage-justifications.json"
+
+
+def load_justifications(payload: Path) -> dict[str, dict]:
+    """Analysed-unreachable branches, keyed ``file::arc``. Missing file means none are claimed."""
+    f = payload / JUSTIFICATIONS
+    if not f.is_file():
+        return {}
+    doc = json.loads(f.read_text(encoding="utf-8"))
+    return {f"{j['file']}::{j['arc']}": j for j in doc.get("justifications", [])}
+
+
+def classify_arcs(rel, arcs, source_lines, justified):
+    """Split a file's untaken arcs into (unjustified, analysed, stale).
+
+    A justification is honoured only if the line it was written against still reads the same. If
+    the file shifted, the entry now points at a different branch and must be re-earned — silently
+    applying it would let one analysis excuse an arbitrary future branch.
+    """
+    unjustified, analysed, stale = [], [], []
+    for a, b in arcs:
+        key = f"{rel}::{a}->{b}"
+        j = justified.get(key)
+        if j is None:
+            unjustified.append((a, b))
+            continue
+        actual = source_lines[a - 1].strip() if 0 < a <= len(source_lines) else ""
+        if actual != j.get("origin_line_text", "").strip():
+            stale.append((key, j.get("origin_line_text", ""), actual))
+        else:
+            analysed.append((a, b))
+    return unjustified, analysed, stale
+
+
+def orphan_justifications(rel, arcs, justified):
+    """Justifications for branches that are now covered — they must be deleted, not left to rot."""
+    live = {f"{rel}::{a}->{b}" for a, b in arcs}
+    return [k for k in justified if k.startswith(f"{rel}::") and k not in live]
+
+
 def check_module(comp, payload, coverage):
     """A whole-module component must exist, be documented, and be covered."""
     findings = []
@@ -752,10 +792,51 @@ def check_module(comp, payload, coverage):
             "coverage",
             f"{rel} line coverage is {pct:.2f}%, under the 95% floor",
         )
-    branches = summary.get("num_branches") or 0
-    missing = branches - (summary.get("covered_branches") or 0)
-    if missing:
-        add("medium", "branch_coverage", f"{missing} untaken branch(es) in {rel}")
+    justified = load_justifications(payload)
+    arcs = [tuple(a) for a in info.get("missing_branches") or []]
+    shortfall = (summary.get("num_branches") or 0) - (
+        summary.get("covered_branches") or 0
+    )
+    if shortfall and not arcs:
+        # Without the arc list there is nothing to justify or report, so a silent pass here would
+        # turn missing coverage DATA into a clean verdict.
+        add(
+            "high",
+            "coverage_data",
+            f"{rel} reports {shortfall} untaken branch(es) but no missing_branches list; the "
+            "coverage report cannot be used to verify this module",
+        )
+        return findings
+    lines = path.read_text(encoding="utf-8").splitlines()
+    unjustified, analysed, stale = classify_arcs(rel, arcs, lines, justified)
+    for key, expected, actual in stale:
+        add(
+            "high",
+            "stale_justification",
+            f"{key} was justified against {expected!r} but that line now reads {actual!r} — the "
+            "analysis no longer describes this branch and must be re-earned",
+        )
+    for key in orphan_justifications(rel, arcs, justified):
+        add(
+            "medium",
+            "orphan_justification",
+            f"{key} is justified as unreachable but is now covered; delete the entry so the file "
+            "does not accumulate excuses that no longer apply",
+        )
+    if unjustified:
+        add(
+            "medium",
+            "branch_coverage",
+            f"{len(unjustified)} untaken branch(es) in {rel} with no recorded analysis: "
+            + ", ".join(f"{a}->{b}" for a, b in unjustified[:8]),
+        )
+    if analysed:
+        add(
+            "cosmetic",
+            "analysed_unreachable",
+            f"{len(analysed)} untaken branch(es) in {rel} recorded as unreachable in "
+            f"{JUSTIFICATIONS}; they still count against the coverage totals",
+        )
     return findings
 
 
