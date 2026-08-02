@@ -23,6 +23,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import time
 
 ADVISORY_MARKER = "hookSpecificOutput"
 
@@ -60,6 +61,49 @@ def selftest():
     if grade({"exit": 0, "stdout_empty": True}, 0, "", ""):
         print("SELFTEST FAILED: grade() rejected a correct result", file=sys.stderr)
         return False
+
+    # The background-job assertions need the same proof. A wait_for that silently passes on a file
+    # that never appears would turn every detached-hook scenario into a no-op.
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        missing = {"wait_for": {"path": "never.txt", "substring": "x", "timeout_s": 1}}
+        if not check_async(missing, root):
+            print(
+                "SELFTEST FAILED: wait_for accepted a file that never appeared",
+                file=sys.stderr,
+            )
+            return False
+        (root / "there.txt").write_text("SHIMWROTE")
+        if check_async(
+            {
+                "wait_for": {
+                    "path": "there.txt",
+                    "substring": "SHIMWROTE",
+                    "timeout_s": 1,
+                }
+            },
+            root,
+        ):
+            print(
+                "SELFTEST FAILED: wait_for rejected a file that was there",
+                file=sys.stderr,
+            )
+            return False
+        if not check_async(
+            {
+                "file_absent": {
+                    "path": "there.txt",
+                    "substring": "SHIMWROTE",
+                    "settle_s": 0,
+                }
+            },
+            root,
+        ):
+            print(
+                "SELFTEST FAILED: file_absent accepted a file that was written",
+                file=sys.stderr,
+            )
+            return False
     return True
 
 
@@ -110,7 +154,60 @@ def build_fixture(sc, idx):
     envv = {
         k: v.replace("@@FIXTURE@@", str(root)) for k, v in (fx.get("env") or {}).items()
     }
+
+    # PATH shims. capture-learnings and capture-ticket-telemetry both guard on `command -v <tool>`
+    # and then shell out to it from a detached background job. Letting the real tools run would mean
+    # spawning a live `claude` session per scenario, so the DEPENDENCY is replaced by a recording
+    # double -- the hook under test is untouched, and what we assert is the decision it made and the
+    # argv it built.
+    if fx.get("bin"):
+        bindir = root / ".bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        for name, body in fx["bin"].items():
+            p = bindir / name
+            p.write_text(body.replace("@@FIXTURE@@", str(root)), encoding="utf-8")
+            p.chmod(0o755)
+        envv["PATH"] = f"{bindir}:{os.environ.get('PATH', '')}"
     return root, envv
+
+
+def check_async(exp, root):
+    """Assertions about work a hook pushed into a detached background job.
+
+    `wait_for` polls, because the hook returns before its child has done anything. `file_absent`
+    sleeps first and then asserts nothing appeared -- without the settle time it would pass simply
+    by looking too early, which is the no-fire equivalent of not running the test at all.
+    """
+    bad = []
+    wf = exp.get("wait_for")
+    if wf:
+        target = root / wf["path"]
+        deadline = time.monotonic() + wf.get("timeout_s", 20)
+        seen = ""
+        while time.monotonic() < deadline:
+            if target.is_file():
+                seen = target.read_text(encoding="utf-8", errors="replace")
+                if wf["substring"] in seen:
+                    break
+            time.sleep(0.2)
+        else:
+            bad.append(
+                f"{wf['path']} never contained {wf['substring']!r} "
+                f"(exists={target.is_file()}, got {seen.strip()[:160]!r})"
+            )
+    fa = exp.get("file_absent")
+    if fa:
+        time.sleep(fa.get("settle_s", 3))
+        target = root / fa["path"]
+        if target.is_file() and (
+            fa.get("substring") is None
+            or fa["substring"] in target.read_text(encoding="utf-8", errors="replace")
+        ):
+            what = (
+                f"gained {fa['substring']!r}" if fa.get("substring") else "was created"
+            )
+            bad.append(f"{fa['path']} {what} when the hook should have stayed idle")
+    return bad
 
 
 def main():
@@ -153,11 +250,21 @@ def main():
                 encoding="utf-8", errors="replace"
             ):
                 bad.append(f"{fc['path']} missing {fc['substring']!r}")
+        if fx_root:
+            bad += check_async(sc["expect"], fx_root)
         ok = not bad
         # An advisory that fires must emit the JSON envelope Claude Code actually reads; a bare
         # message on stdout would be silently discarded in production. Side-effect hooks are
-        # exempt: they are required to keep stdout clean, which is the opposite obligation.
-        if ok and sc["kind"] == "fire" and sc["expect"].get("exit") == 0 and not fc:
+        # exempt: they are required to keep stdout clean, which is the opposite obligation. That
+        # covers both kinds of side effect -- a file written inline (file_contains) and one written
+        # by a detached background job (wait_for).
+        side_effect = bool(fc) or bool(sc["expect"].get("wait_for"))
+        if (
+            ok
+            and sc["kind"] == "fire"
+            and sc["expect"].get("exit") == 0
+            and not side_effect
+        ):
             if ADVISORY_MARKER not in p.stdout and not sc.get("emits_plain_context"):
                 ok, bad = (
                     False,

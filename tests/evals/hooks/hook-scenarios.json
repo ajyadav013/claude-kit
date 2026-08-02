@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "note": "Deterministic fire / no-fire scenarios for the stdin-driven hook scripts. Expectations are derived from each script's own documented contract, not guessed. Blockers exit 2 and write BLOCKED to stderr; advisories always exit 0 and emit a hookSpecificOutput JSON object on stdout only when they fire. Several no-fire cases are the NEAR MISSES a script's header explicitly claims to spare -- those are the false-positive controls (measure 7), and they are the cases most likely to be wrong.",
   "scenarios": [
     {
@@ -893,6 +893,193 @@
       "expect": {
         "exit": 0,
         "stdout_empty": true
+      }
+    },
+    {
+      "id": "capture-learnings/fire-end-spawns-detached-capture",
+      "script": "capture-learnings.sh",
+      "kind": "fire",
+      "argv": [
+        "end"
+      ],
+      "note": "`claude` is replaced by a recording shim -- running the real one would spawn a live model call per scenario.",
+      "stdin": {
+        "transcript_path": "@@FIXTURE@@/sess-fire.jsonl",
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> @@FIXTURE@@/shim-claude.txt\n"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n",
+          "sess-fire.jsonl": "{\"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"Edit\", \"input\": {\"file_path\": \"/proj/src/app.py\"}}]}}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "wait_for": {
+          "path": "shim-claude.txt",
+          "substring": "--permission-mode bypassPermissions",
+          "timeout_s": 30
+        }
+      }
+    },
+    {
+      "id": "capture-learnings/nofire-only-sensitive-edits",
+      "script": "capture-learnings.sh",
+      "kind": "nofire",
+      "argv": [
+        "end"
+      ],
+      "note": "A turn that touched only .env must not hand that path to a background agent writing into a COMMITTED store.",
+      "stdin": {
+        "transcript_path": "@@FIXTURE@@/sess-secret.jsonl",
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> @@FIXTURE@@/shim-claude.txt\n"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n",
+          "sess-secret.jsonl": "{\"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"Edit\", \"input\": {\"file_path\": \"/proj/.env\"}}]}}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": "shim-claude.txt",
+          "settle_s": 5
+        }
+      }
+    },
+    {
+      "id": "capture-learnings/nofire-chat-only-session",
+      "script": "capture-learnings.sh",
+      "kind": "nofire",
+      "argv": [
+        "end"
+      ],
+      "note": "No file edits, nothing to learn from -- a chat-only turn must cost nothing.",
+      "stdin": {
+        "transcript_path": "@@FIXTURE@@/sess-chat.jsonl",
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> @@FIXTURE@@/shim-claude.txt\n"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n",
+          "sess-chat.jsonl": "{\"message\": {\"content\": [{\"type\": \"text\", \"text\": \"just talking\"}]}}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": "shim-claude.txt",
+          "settle_s": 5
+        }
+      }
+    },
+    {
+      "id": "capture-ticket-telemetry/fire-writes-snapshot",
+      "script": "capture-ticket-telemetry.sh",
+      "kind": "fire",
+      "stdin": {
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude-kit": "#!/bin/sh\ncase \"$*\" in\n  *--json*) echo '{\"SHIMWROTE\": true, \"tickets\": []}' ;;\n  *--html*) : ;;\nesac\nexit 0\n"
+        },
+        "files": {
+          "docs/project/tickets/T-1.md": "# T-1\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "wait_for": {
+          "path": ".claude/state/ticket-telemetry.json",
+          "substring": "SHIMWROTE",
+          "timeout_s": 30
+        }
+      }
+    },
+    {
+      "id": "capture-ticket-telemetry/nofire-no-ticket-store",
+      "script": "capture-ticket-telemetry.sh",
+      "kind": "nofire",
+      "note": "No docs/project/tickets means nothing to attribute telemetry to.",
+      "stdin": {
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude-kit": "#!/bin/sh\ncase \"$*\" in\n  *--json*) echo '{\"SHIMWROTE\": true, \"tickets\": []}' ;;\n  *--html*) : ;;\nesac\nexit 0\n"
+        },
+        "files": {
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": ".claude/state/ticket-telemetry.json",
+          "settle_s": 5
+        }
+      }
+    },
+    {
+      "id": "capture-ticket-telemetry/nofire-throttled-by-fresh-snapshot",
+      "script": "capture-ticket-telemetry.sh",
+      "kind": "nofire",
+      "note": "A snapshot younger than the interval must be left alone -- the throttle is what stops a burst of short turns re-scanning every transcript.",
+      "stdin": {
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@",
+          "CLAUDE_KIT_TELEMETRY_INTERVAL": "600"
+        },
+        "bin": {
+          "claude-kit": "#!/bin/sh\ncase \"$*\" in\n  *--json*) echo '{\"SHIMWROTE\": true, \"tickets\": []}' ;;\n  *--html*) : ;;\nesac\nexit 0\n"
+        },
+        "files": {
+          "docs/project/tickets/T-1.md": "# T-1\n",
+          ".claude/state/ticket-telemetry.json": "{\"ORIGINAL\": true}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": ".claude/state/ticket-telemetry.json",
+          "substring": "SHIMWROTE",
+          "settle_s": 5
+        }
       }
     }
   ]
