@@ -362,3 +362,37 @@ def test_config_capture_mode_bare_off_means_off(tmp_path, payload):
     cfg = _write(tmp_path, "capture_mode: off\n")
     sel = prompts.from_config(cfg, payload)
     assert sel.capture_mode == "off"
+
+
+# --- --config parsing: a malformed config must fail loudly, never resolve to a guess -------------
+
+
+def test_as_list_rejects_a_list_with_non_string_members():
+    with pytest.raises(ValueError, match="must be a list of strings"):
+        prompts._as_str_list(["github", 7], "mcp")
+
+
+def test_as_list_rejects_a_value_that_is_neither_string_nor_list():
+    with pytest.raises(ValueError, match="string or list of strings"):
+        prompts._as_str_list({"github": True}, "mcp")
+
+
+def test_as_list_accepts_none_a_bare_string_and_a_list():
+    assert prompts._as_str_list(None, "mcp") == []
+    assert prompts._as_str_list("github", "mcp") == ["github"]
+    assert prompts._as_str_list(["github", "context7"], "mcp") == ["github", "context7"]
+
+
+def test_config_that_is_not_a_mapping_is_rejected(tmp_path, payload):
+    cfg = tmp_path / "ckit.yaml"
+    cfg.write_text("- just\n- a list\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="did not parse to a mapping"):
+        prompts.from_config(cfg, payload)
+
+
+def test_config_with_a_non_mapping_org_block_falls_back_to_defaults(tmp_path, payload):
+    """`org:` written as a scalar is treated as absent rather than crashing the whole init."""
+    cfg = tmp_path / "ckit.yaml"
+    cfg.write_text("org: organization\n", encoding="utf-8")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.scope == catalog.defaults(payload).scope

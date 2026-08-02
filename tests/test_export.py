@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -300,3 +301,61 @@ def test_exported_documents_never_point_at_rules_above(tmp_path, payload):
     for rel in ("AGENTS.md", ".cursor/rules/000-project.mdc"):
         text = (tmp_path / rel).read_text(encoding="utf-8")
         assert "pipeline rules above" not in text, rel
+
+
+# --- Rule-parsing helpers: malformed or minimal rules degrade, they never raise ------------------
+
+
+def test_split_frontmatter_treats_a_malformed_block_as_body_text():
+    """An unterminated or non-mapping block is prose, not an error — export must still emit it."""
+    unterminated = "---\npaths: ['**/*.py']\nstill going\n"
+    assert exporter._split_frontmatter(unterminated) == ({}, unterminated)
+
+    scalar_meta = "---\njust a string\n---\n# Title\n"
+    meta, body = exporter._split_frontmatter(scalar_meta)
+    assert meta == {} and body == scalar_meta
+
+    no_block = "# Title\n\nbody\n"
+    assert exporter._split_frontmatter(no_block) == ({}, no_block)
+
+
+def test_split_frontmatter_returns_the_mapping_and_the_body_without_it():
+    meta, body = exporter._split_frontmatter(
+        "---\npaths: ['**/*.py']\n---\n\n# Title\n"
+    )
+    assert meta == {"paths": ["**/*.py"]}
+    assert body.startswith("# Title")
+
+
+def test_rule_title_falls_back_to_a_humanized_filename():
+    assert (
+        exporter._rule_title("## not an h1\n\nbody\n", "quality-gates.md")
+        == "Quality gates"
+    )
+    assert exporter._rule_title("", "code-review.md") == "Code review"
+    assert exporter._rule_title("preamble\n\n# Real Title\n", "x.md") == "Real Title"
+
+
+def test_rule_lead_skips_structure_and_returns_the_first_sentence():
+    text = "# Title\n\n> a quote\n- a bullet\n\nThe **lead** sentence. And more.\n"
+    assert exporter._rule_lead(text) == "The lead sentence"
+
+
+def test_rule_lead_is_empty_when_there_is_no_prose_after_the_heading():
+    assert exporter._rule_lead("no heading at all\nmore text\n") == ""
+    assert exporter._rule_lead("# Title\n\n- only\n- bullets\n") == ""
+
+
+def test_overlay_lane_is_none_for_a_file_no_stack_owns(payload):
+    assert (
+        exporter._overlay_lane(
+            "not-a-real-overlay.md", {"frontend": "frontend/react"}, payload
+        )
+        is None
+    )
+
+
+def test_export_rejects_an_unknown_target(tmp_path, payload):
+    plan = catalog.resolve(payload, make_selection(payload))
+    with pytest.raises(ValueError, match="unknown export target"):
+        exporter.export_targets(payload, tmp_path, plan, ["notepad"])

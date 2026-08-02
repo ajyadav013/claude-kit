@@ -152,3 +152,30 @@ def test_untitled_ticket_does_not_render_blank(tmp_path):
     (directory / "x.md").write_text("- **Status:** OPEN\n", encoding="utf-8")
     html = board_html.render_html(tickets.load_store(tmp_path), generated_at=FIXED)
     assert "(untitled)" in html
+
+
+def test_card_renders_sparse_telemetry_without_empty_fragments(tmp_path):
+    """Telemetry with no model, no cache and no agents must degrade to just the token count."""
+    write_store(tmp_path, [("PROJ-1", "t", "OPEN")], branch="feat/x")
+    store = tickets.load_store(tmp_path)
+    tickets.attach_telemetry(
+        store,
+        {"feat/x": telemetry.Telemetry(requests=1, output_tokens=900)},
+    )
+    html = board_html.render_html(store, generated_at=FIXED)
+    assert "900 tok" in html
+    assert "cache" not in html
+    assert "<span></span>" not in html
+
+
+def test_card_lists_short_commit_shas(tmp_path):
+    write_store(tmp_path, [("PROJ-1", "t", "DONE")], branch="feat/x")
+    index = {
+        "prefix": "PROJ",
+        "tickets": {"PROJ-1": {"commits": ["0123456789abcdef", "fedcba9876543210"]}},
+    }
+    write_store(tmp_path, [("PROJ-1", "t", "DONE")], index=index, branch="feat/x")
+    store = tickets.load_store(tmp_path)
+    html = board_html.render_html(store, generated_at=FIXED)
+    assert "0123456, fedcba9" in html
+    assert "0123456789abcdef" not in html
