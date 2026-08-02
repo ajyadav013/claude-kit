@@ -16,6 +16,7 @@
 #   --env <K=V>           environment variable, repeatable
 #   --workdir <path>      working directory inside the container (default: /repo)
 #   --user <uid[:gid]>    run as a non-root UID (default: the invoking host user)
+#   --echo                replay the command's stdout/stderr to the caller (for shims)
 #
 # Exit code: the container's own exit code. 97 means the /.dockerenv assertion failed, 124 a
 # timeout, 125 a wrapper/Docker-level error before the command ever ran.
@@ -84,6 +85,7 @@ WORKDIR="/repo"
 USER_SPEC="$(id -u):$(id -g)"
 MOUNTS=()
 ENVS=()
+ECHO_OUTPUT=0
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -96,6 +98,7 @@ while [ $# -gt 0 ]; do
 	--user) USER_SPEC="${2:?--user needs a value}"; shift 2 ;;
 	--mount) MOUNTS+=("${2:?--mount needs a value}"); shift 2 ;;
 	--env) ENVS+=("${2:?--env needs a value}"); shift 2 ;;
+	--echo) ECHO_OUTPUT=1; shift ;;
 	--) shift; break ;;
 	*) die "unknown option: $1" ;;
 	esac
@@ -253,5 +256,16 @@ fi
 
 cleanup
 
-printf 'run-in-docker: exit=%s dockerenv=%s evidence=%s\n' "$rc" "$dockerenv_verified" "$EV_DIR" >&2
+# --echo replays the command's own streams to the caller. Without it the wrapper captures stdout to
+# an evidence file and the caller sees nothing but a diagnostic line — which is fine for the
+# evaluation's own commands, and actively misleading when the wrapper is standing in for a tool a
+# child session is using. A scenario run inspected `claude-kit pipeline validate`, got no output,
+# concluded "this is an eval shim, not the real CLI" and skipped recording gates entirely. A stand-in
+# that does not behave like the thing it stands in for produces findings about itself.
+if [ "$ECHO_OUTPUT" -eq 1 ]; then
+	cat "$EV_DIR/stdout.txt" 2>/dev/null || true
+	cat "$EV_DIR/stderr.txt" >&2 2>/dev/null || true
+else
+	printf 'run-in-docker: exit=%s dockerenv=%s evidence=%s\n' "$rc" "$dockerenv_verified" "$EV_DIR" >&2
+fi
 exit "$rc"

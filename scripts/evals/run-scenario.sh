@@ -29,6 +29,8 @@ SERVICE="python"
 # Optional sealed-holdout directory under tests/evals/e2e/holdouts/. It is copied into the
 # workspace only AFTER the session ends; see the injection block.
 HOLDOUT=""
+# The suite command scripts/test.sh runs INSIDE the container, per fixture toolchain.
+TEST_COMMAND="env python -m pytest -q -p no:cacheprovider"
 # --rules-mode none strips .claude/rules after scaffolding. This is a DEVIATION from the shipped
 # product, not a configuration the product offers, and it exists for one reason: Claude Code
 # auto-loads .claude/rules/*.md in full at launch, the kit ships 446KB there, and a default install
@@ -47,6 +49,7 @@ while [ $# -gt 0 ]; do
 	--rules-mode) RULES_MODE="${2:?}"; shift 2 ;;
 	--service) SERVICE="${2:?}"; shift 2 ;;
 	--holdout) HOLDOUT="${2:?}"; shift 2 ;;
+	--test-command) TEST_COMMAND="${2:?}"; shift 2 ;;
 	*) echo "run-scenario: unknown option $1" >&2; exit 2 ;;
 	esac
 done
@@ -56,6 +59,7 @@ done
 
 ROOT="$(git rev-parse --show-toplevel)"
 RUN_DIR="$ROOT/.claude/state/full-self-evaluation"
+RUN_ID="${EVAL_RUN_ID:-$( [ -f "$RUN_DIR/run-id.txt" ] && cat "$RUN_DIR/run-id.txt" || echo unknown )}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVID="$RUN_DIR/raw/task-runs/$SCENARIO/$ARM-$STAMP"
 # The scenario workspace must live OUTSIDE the repo's own .claude/ tree. Sited under
@@ -111,6 +115,59 @@ if [ "$RULES_MODE" = "ondemand" ]; then
 	echo "### DEVIATION rules-mode=ondemand: added paths: frontmatter to $scoped rule files (still readable at .claude/rules/)"
 fi
 
+echo "### project test command (delegates into Docker)"
+# The execution-plane rule forbids the host from running project tests, but a pipeline that cannot
+# run tests cannot pass a test gate — which is exactly what happened in the first /sdlc arm
+# (build-green UNVERIFIED, ten refused pytest calls). Giving the fixture a real test command that
+# shells into the run's Docker wrapper resolves the conflict instead of choosing a side: the child
+# runs the project's tests, and the tests run in a container, with the usual evidence record.
+#
+# This is harness-provided project tooling, not grading criteria — it is committed with the scaffold
+# and appears in the manifest, so it is never mistaken for something the session created.
+mkdir -p "$WORK/scripts"
+cat >"$WORK/scripts/test.sh" <<EOF
+#!/usr/bin/env sh
+# The project's test command. Runs the suite inside a container; never on the host.
+#
+# The three EVAL_* exports are load-bearing: run-in-docker.sh derives its repo root from
+# \`git rev-parse --show-toplevel\`, and this script is invoked with the SCENARIO WORKSPACE as cwd —
+# itself a git repo. Without them the wrapper looked for docker-compose.evals.yml inside the
+# workspace, died "compose file not found", and the pipeline concluded it had no way to run tests.
+export EVAL_COMPOSE_FILE="$ROOT/docker-compose.evals.yml"
+export EVAL_RUN_DIR="$RUN_DIR"
+export EVAL_RUN_ID="$RUN_ID"
+exec "$ROOT/scripts/evals/run-in-docker.sh" --echo --service "$SERVICE" \\
+	--label "$SCENARIO-$ARM-projtest" --mount "$WORK:/work" --workdir /work --timeout 600 -- \\
+	$TEST_COMMAND
+EOF
+chmod +x "$WORK/scripts/test.sh"
+
+# A claude-kit CLI for the child, pinned to the REPO's version. The host happens to carry 0.54.0 on
+# PATH, which predates the gate ledger entirely — letting the pipeline find that binary would
+# guarantee a false negative about ledger recording. The shim lives outside the workspace so it is
+# never mistaken for a project artifact.
+mkdir -p "$EVID/bin"
+cat >"$EVID/bin/claude-kit" <<EOF
+#!/usr/bin/env sh
+export EVAL_COMPOSE_FILE="$ROOT/docker-compose.evals.yml"
+export EVAL_RUN_DIR="$RUN_DIR"
+export EVAL_RUN_ID="$RUN_ID"
+exec "$ROOT/scripts/evals/run-in-docker.sh" --echo --service python \\
+	--label "$SCENARIO-$ARM-ckit" --mount "$WORK:/work" --workdir /work --timeout 600 -- \\
+	env PYTHONPATH=/repo/src python -m claude_kit.cli "\$@"
+EOF
+chmod +x "$EVID/bin/claude-kit"
+cp "$EVID/bin/claude-kit" "$EVID/bin/ckit"
+# Fill in the scaffolded CLAUDE.md's command section the way a real user would after `init`.
+cat >>"$WORK/CLAUDE.md" <<'EOF'
+
+## Project commands
+
+- **Test:** `bash scripts/test.sh` — this is the ONLY way to run the suite in this project. It
+  executes the tests inside a container. Do not invoke the test runner directly; a direct
+  invocation is not permitted here and will be refused.
+EOF
+
 # Commit the scaffold BEFORE the session, so the end-state diff and the oracle's stray-artifact
 # check see the session's work alone. Without this the installed kit (203 files) is indistinguishable
 # from something the run created, and every scenario reports stray artifacts.
@@ -137,17 +194,96 @@ for p in sorted(root.rglob("*")):
 pathlib.Path("/evid/manifest.json").write_text(json.dumps(out, indent=2, sort_keys=True))
 print(f"manifest: {len(out)} files")'
 
-echo "### child Claude session (host control plane)"
+echo "### child Claude session (host control plane, isolated config)"
 PROMPT="$(cat "$PROMPT_FILE")"
 cp "$PROMPT_FILE" "$EVID/prompt.txt"
+
+# ISOLATED CONFIG. `claude -p` otherwise loads the OPERATOR's ~/.claude, including PreToolUse guard
+# hooks that deny any Bash line starting python/pip/npm/docker. Every scenario before this one was
+# therefore measured through the operator's permission posture rather than the kit's — up to 28
+# denials in a single run, with roughly ten pytest invocations refused across the session, the
+# developer agent and the reviewer (E-006).
+#
+# The allow-list is deliberately narrow rather than "Bash". The program forbids the host from
+# running project tests, so the child may not invoke pytest directly; it gets `scripts/test.sh`,
+# which delegates into the Docker wrapper. That keeps both statements true at once: the pipeline
+# ran the tests, and the tests ran in a container.
+CFG="$EVID/claude-config"
+mkdir -p "$CFG"
+cat >"$CFG/settings.json" <<'JSON'
+{
+  "permissions": {
+    "allow": [
+      "Read", "Write", "Edit", "Glob", "Grep",
+      "Agent", "Skill", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate",
+      "Bash(bash scripts/test.sh)", "Bash(sh scripts/test.sh)", "Bash(./scripts/test.sh)",
+      "Bash(claude-kit:*)", "Bash(ckit:*)",
+      "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)",
+      "Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
+      "Bash(find:*)", "Bash(grep:*)", "Bash(rg:*)", "Bash(sed:*)", "Bash(awk:*)",
+      "Bash(mkdir:*)", "Bash(cp:*)", "Bash(mv:*)", "Bash(echo:*)", "Bash(printf:*)",
+      "Bash(command:*)", "Bash(which:*)", "Bash(pwd)", "Bash(date:*)"
+    ],
+    "deny": []
+  }
+}
+JSON
+
 set +e
-( cd "$WORK" && claude -p "$PROMPT" \
+( cd "$WORK" && PATH="$EVID/bin:$PATH" CLAUDE_CONFIG_DIR="$CFG" claude -p "$PROMPT" \
 	--max-turns "$MAX_TURNS" \
-	--output-format json \
-	--permission-mode acceptEdits ) >"$EVID/session.json" 2>"$EVID/session.stderr"
+	--output-format stream-json --verbose \
+	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr"
 SESSION_RC=$?
 set -e
-echo "child session exit=$SESSION_RC ($(wc -c <"$EVID/session.json" | tr -d ' ') bytes of result)"
+
+# The stream carries every tool_use; the single `result` event at the end is what the old
+# --output-format json produced, so downstream metrics keep working unchanged.
+python3 - "$EVID/session.jsonl" "$EVID/session.json" "$EVID/tool-use.json" <<'PY'
+import collections, json, sys
+
+stream, result_out, tools_out = sys.argv[1], sys.argv[2], sys.argv[3]
+events = []
+for line in open(stream, encoding="utf-8"):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        events.append(json.loads(line))
+    except json.JSONDecodeError:
+        pass
+
+result = next((e for e in reversed(events) if e.get("type") == "result"), {})
+json.dump(result, open(result_out, "w"), indent=2)
+
+counts = collections.Counter()
+skills, agents, bash, denied_like = [], [], [], []
+for e in events:
+    msg = e.get("message") or {}
+    for block in msg.get("content") or []:
+        if not isinstance(block, dict) or block.get("type") != "tool_use":
+            continue
+        name = block.get("name", "?")
+        counts[name] += 1
+        inp = block.get("input") or {}
+        if name == "Skill":
+            skills.append(inp.get("skill") or inp.get("name"))
+        elif name in ("Agent", "Task"):
+            agents.append(inp.get("subagent_type") or inp.get("description"))
+        elif name == "Bash":
+            bash.append(str(inp.get("command", ""))[:200])
+
+json.dump({
+    "tool_calls": dict(counts.most_common()),
+    "skills_invoked": skills,
+    "agents_spawned": agents,
+    "bash_commands": bash,
+    "stream_events": len(events),
+}, open(tools_out, "w"), indent=2)
+print(json.dumps({"tool_calls": dict(counts.most_common()),
+                  "skills_invoked": skills, "agents_spawned": agents}, indent=2))
+PY
+echo "child session exit=$SESSION_RC ($(wc -l <"$EVID/session.jsonl" | tr -d ' ') stream events)"
 
 echo "### metrics"
 python3 - "$EVID/session.json" "$EVID/metrics.json" "$SCENARIO" "$ARM" "$SESSION_RC" <<'PY'
