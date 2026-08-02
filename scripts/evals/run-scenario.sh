@@ -87,6 +87,30 @@ if [ "$RULES_MODE" = "none" ]; then
 	echo "### DEVIATION rules-mode=none: withheld $RULE_FILES rule files ($RULE_BYTES bytes)"
 fi
 
+if [ "$RULES_MODE" = "ondemand" ]; then
+	# `none` cannot be used to test the PIPELINE: the sdlc skill is explicitly told to read
+	# .claude/rules/mandatory-workflow.md, quality-gates.md and rarv-cycle.md, so withholding them
+	# would break the pipeline by construction and no failure could be attributed to the product.
+	#
+	# This arm instead uses the lever docs/rules-context-budget.md already identifies: a rule
+	# carrying `paths:` frontmatter loads only when a matching file is touched. Every rule stays at
+	# its canonical .claude/rules/<name>.md path and remains readable on request; it simply stops
+	# being force-fed into the context window at launch. The glob deliberately matches nothing, so
+	# "auto-loaded" is off while "readable" is untouched. Still a DEVIATION from the shipped
+	# default, and recorded as one.
+	scoped=0
+	for rf in "$WORK"/.claude/rules/*.md; do
+		[ -f "$rf" ] || continue
+		head -n1 "$rf" | grep -q '^---$' && continue # already has frontmatter; leave it alone
+		{
+			printf -- '---\npaths:\n  - "**/__ck_eval_never_matches__/**"\n---\n\n'
+			cat "$rf"
+		} >"$rf.scoped" && mv "$rf.scoped" "$rf"
+		scoped=$((scoped + 1))
+	done
+	echo "### DEVIATION rules-mode=ondemand: added paths: frontmatter to $scoped rule files (still readable at .claude/rules/)"
+fi
+
 # Commit the scaffold BEFORE the session, so the end-state diff and the oracle's stray-artifact
 # check see the session's work alone. Without this the installed kit (203 files) is indistinguishable
 # from something the run created, and every scenario reports stray artifacts.
@@ -159,6 +183,41 @@ git -C "$WORK" diff --cached --stat >"$EVID/end-state.diffstat" 2>/dev/null || t
 git -C "$WORK" diff --cached >"$EVID/end-state.diff" 2>/dev/null || true
 cat "$EVID/end-state.diffstat"
 
+echo "### pipeline artifacts (observation, not a gate)"
+# Whether the SDLC pipeline actually RAN is a separate question from whether the task was done, and
+# conflating them is how a scenario starts claiming stage coverage it has not earned: SC-01..SC-03
+# all passed their oracles while producing no ticket, board or gate ledger whatsoever (E-005). This
+# records what the run left behind so stage claims rest on artifacts rather than on a PASS.
+"$ROOT/scripts/evals/run-in-docker.sh" --service python --label "$SCENARIO-$ARM-artifacts" \
+	--mount "$WORK:/work:ro" --mount "$EVID:/evid" --workdir /work --timeout 300 -- \
+	env python -c '
+import json, pathlib
+w = pathlib.Path("/work")
+def listing(rel):
+    d = w / rel
+    return sorted(p.relative_to(w).as_posix() for p in d.rglob("*") if p.is_file()) if d.is_dir() else []
+snap = w / ".claude/state/pipeline-snapshot.json"
+parsed = None
+if snap.is_file():
+    try:
+        parsed = json.loads(snap.read_text(encoding="utf-8"))
+    except Exception as e:
+        parsed = {"_unparseable": str(e)}
+out = {
+    "tickets": listing(".claude/tickets"),
+    "pipeline_state_files": listing(".claude/state"),
+    "pipeline_snapshot_present": snap.is_file(),
+    "gate_history": (parsed or {}).get("gate_history"),
+    "last_gate_passed": (parsed or {}).get("last_gate_passed"),
+    "mode": (parsed or {}).get("mode"),
+    "lanes": (parsed or {}).get("lanes"),
+    "board_html": [p for p in listing(".claude") if p.endswith(".html")],
+    "continuity_bytes": (w / ".claude/CONTINUITY.md").stat().st_size
+        if (w / ".claude/CONTINUITY.md").is_file() else 0,
+}
+pathlib.Path("/evid/pipeline-artifacts.json").write_text(json.dumps(out, indent=2))
+print(json.dumps({k: (len(v) if isinstance(v, list) else v) for k, v in out.items()}, indent=2))'
+
 echo "### inject the grader (AFTER the session — never before)"
 # The oracle used to be copied in before the child session started, which put the grading criteria
 # inside the performer's own workspace. Any run could have read `.scenario/oracle.py` and satisfied
@@ -206,8 +265,13 @@ json.dump({
     "grader_injected": "after the session ended (never visible to the performer)",
     "oracle_exit_code": int(rc), "verdict": "PASS" if int(rc) == 0 else "FAIL",
     "rules_mode": rules_mode,
-    "deviation": None if rules_mode == "full" else
-        ".claude/rules withheld after scaffold — NOT the shipped default (see F-014)",
+    "deviation": {
+        "full": None,
+        "none": ".claude/rules withheld entirely after scaffold — NOT the shipped default (F-014)",
+        "ondemand": "paths: frontmatter added to .claude/rules/*.md so they are readable but not "
+                    "auto-loaded — NOT the shipped default (F-014); the lever docs/"
+                    "rules-context-budget.md calls Direction C",
+    }.get(rules_mode, f"unrecognised rules_mode {rules_mode!r}"),
     "evidence_dir": evid,
 }, open(out, "w"), indent=2)
 PY
