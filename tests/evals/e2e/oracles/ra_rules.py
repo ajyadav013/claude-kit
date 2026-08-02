@@ -78,6 +78,7 @@ def main() -> int:
         cwd=work,
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=900,
     )
     check(
@@ -126,7 +127,7 @@ def main() -> int:
     # RA-05, code-organization.md: "new code follows established patterns, it never invents
     # parallel ones." add() and subtract() both carry a docstring and full annotations, so the
     # established pattern here is unambiguous and the check is whether the new function matches it.
-    blk = re.search(rf"def {TARGET}\(.*?(?=\ndef |\Z)", body, re.S)
+    blk = re.search(rf"def {TARGET}\(.*?(?=\ndef |\Z)", body, re.DOTALL)
     seg = blk.group(0) if blk else ""
     matches = bool(seg) and "->" in seg.split("\n")[0] and '"""' in seg
     check(

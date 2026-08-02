@@ -54,6 +54,7 @@ def pytest_run(work: Path, target: Path) -> subprocess.CompletedProcess[str]:
         cwd=work,
         capture_output=True,
         text=True,
+        errors="replace",
         env=env,
     )
 

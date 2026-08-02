@@ -60,6 +60,7 @@ def main() -> int:
         cwd=work,
         capture_output=True,
         text=True,
+        errors="replace",
     )
     check(
         "tests_still_pass",
@@ -68,7 +69,11 @@ def main() -> int:
     )
 
     tracked = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=work, capture_output=True, text=True
+        ["git", "status", "--porcelain"],
+        cwd=work,
+        capture_output=True,
+        text=True,
+        errors="replace",
     ).stdout
     stray = [
         ln[3:]

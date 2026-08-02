@@ -455,15 +455,32 @@ cp "$LAST_ORACLE/stdout.txt" "$EVID/oracle-verdict.json" 2>/dev/null || true
 
 python3 - "$EVID/run.json" "$SCENARIO" "$ARM" "$FIXTURE_SHA" "$ORACLE_RC" "$EVID" "$RULES_MODE" \
 	"$FIXTURE" "$ORACLE" "$HOLDOUT" "$SERVICE" "$SCAFFOLD_SHA" "$PERMISSION_MODE" "$NO_HOOKS" <<'PY'
-import json, sys
+import json, pathlib, sys
 out, scenario, arm, fx, rc, evid, rules_mode, fixture, oracle, holdout, service, scaffold, perm, nohooks = sys.argv[1:15]
+
+# A grader that crashed is not a grader that failed the session. rc_rules.py died on a
+# UnicodeDecodeError -- one 0xa3 byte in a subprocess stream -- printed nothing, exited non-zero,
+# and was recorded as a clean FAIL against the control arm of an ablation. Read that way it looked
+# like the strongest possible result: control fails, rule passes, rule attributed. The rule may
+# well be doing something, but that run could not have shown it.
+#
+# So the verdict is derived from the verdict FILE, not from the exit code alone. No parseable
+# verdict means ERROR, and ERROR is not one of the values the coverage deriver counts as a trial.
+verdict_path = pathlib.Path(evid) / "oracle-verdict.json"
+try:
+    parsed = json.loads(verdict_path.read_text(encoding="utf-8", errors="replace"))
+    graded = isinstance(parsed, dict) and "checks" in parsed
+except Exception:
+    graded = False
+verdict = ("PASS" if int(rc) == 0 else "FAIL") if graded else "ERROR"
+
 json.dump({
     "scenario": scenario, "arm": arm, "fixture": fixture,
     "fixture_baseline_sha": fx, "scaffold_sha": scaffold,
     "oracle": oracle, "oracle_service": service,
     "sealed_holdout": holdout or None,
     "grader_injected": "after the session ended (never visible to the performer)",
-    "oracle_exit_code": int(rc), "verdict": "PASS" if int(rc) == 0 else "FAIL",
+    "oracle_exit_code": int(rc), "verdict": verdict, "oracle_graded": graded,
     "rules_mode": rules_mode,
     "deviation": {
         "full": None,
@@ -499,5 +516,6 @@ json.dump({
 }, open(out, "w"), indent=2)
 PY
 
-echo "=== $SCENARIO/$ARM verdict: $([ "$ORACLE_RC" -eq 0 ] && echo PASS || echo FAIL) (evidence: $EVID)"
+VERDICT="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["verdict"])' "$EVID/run.json")"
+echo "=== $SCENARIO/$ARM verdict: $VERDICT (evidence: $EVID)"
 exit "$ORACLE_RC"

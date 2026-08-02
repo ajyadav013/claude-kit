@@ -32,7 +32,7 @@ from pathlib import Path
 
 TEMPLATE = ".claude/CONTINUITY.template.md"
 LIVE = ".claude/CONTINUITY.md"
-SUBJECT = re.compile(r"discount|percentage_off|calc\.py", re.I)
+SUBJECT = re.compile(r"discount|percentage_off|calc\.py", re.IGNORECASE)
 
 
 def sha(p: Path) -> str:
@@ -65,6 +65,7 @@ def main() -> int:
         cwd=work,
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=900,
     )
     check(

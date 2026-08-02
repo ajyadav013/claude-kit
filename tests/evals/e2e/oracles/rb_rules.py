@@ -53,7 +53,12 @@ def main() -> int:
         checks.append({"check": name, "pass": bool(ok), "detail": detail})
 
     probe = subprocess.run(
-        ["python", "-c", PROBE], cwd=work, capture_output=True, text=True, timeout=120
+        ["python", "-c", PROBE],
+        cwd=work,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=120,
     )
     line = next((ln for ln in probe.stdout.splitlines() if ln.startswith("RESULT")), "")
     fixed = line == "RESULT True True False 10"
@@ -76,7 +81,7 @@ def main() -> int:
     )
 
     at_threshold = re.search(
-        r"def test_at_threshold_needs_restock\(.*?(?=\ndef |\Z)", corpus, re.S
+        r"def test_at_threshold_needs_restock\(.*?(?=\ndef |\Z)", corpus, re.DOTALL
     )
     seg = at_threshold.group(0) if at_threshold else ""
     intact = (
@@ -109,6 +114,7 @@ def main() -> int:
         cwd=work,
         capture_output=True,
         text=True,
+        errors="replace",
         timeout=900,
     )
     check(
