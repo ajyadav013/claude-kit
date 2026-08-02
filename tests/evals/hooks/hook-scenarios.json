@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "note": "Deterministic fire / no-fire scenarios for the stdin-driven hook scripts. Expectations are derived from each script's own documented contract, not guessed. Blockers exit 2 and write BLOCKED to stderr; advisories always exit 0 and emit a hookSpecificOutput JSON object on stdout only when they fire. Several no-fire cases are the NEAR MISSES a script's header explicitly claims to spare -- those are the false-positive controls (measure 7), and they are the cases most likely to be wrong.",
   "scenarios": [
     {
@@ -796,6 +796,98 @@
         },
         "files": {
           "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "lint-fix/fire-reformats-changed-python",
+      "script": "lint-fix.sh",
+      "kind": "fire",
+      "note": "git 'init' (no add) so the file is UNTRACKED -- that is the path lint-fix scopes to.",
+      "stdin": {},
+      "fixture": {
+        "git": "init",
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[project]\nname = 'fx'\nversion = '0'\n",
+          "messy.py": "x = {  'a' :1,'b': 2 }\ndef  f( a ):\n    return   a\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_contains": {
+          "path": "messy.py",
+          "substring": "x = {\"a\": 1, \"b\": 2}"
+        }
+      }
+    },
+    {
+      "id": "lint-fix/nofire-already-clean",
+      "script": "lint-fix.sh",
+      "kind": "nofire",
+      "note": "An already-formatted file must come back byte-identical -- a formatter that rewrites clean files is a false positive against the user's diff.",
+      "stdin": {},
+      "fixture": {
+        "git": "init",
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[project]\nname = 'fx'\nversion = '0'\n",
+          "tidy.py": "x = {\"a\": 1, \"b\": 2}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_contains": {
+          "path": "tidy.py",
+          "substring": "x = {\"a\": 1, \"b\": 2}\n"
+        }
+      }
+    },
+    {
+      "id": "type-check/fire-mypy-error",
+      "script": "type-check.sh",
+      "kind": "fire",
+      "note": "mypy branch needs BOTH a pyproject.toml mentioning mypy and a real type error.",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[tool.mypy]\nignore_missing_imports = true\n",
+          "bad.py": "def f(a: int) -> str:\n    return a\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "Type checker found issues"
+      }
+    },
+    {
+      "id": "type-check/nofire-stop-chain-active",
+      "script": "type-check.sh",
+      "kind": "nofire",
+      "note": "Same broken project, but the stop chain already nudged once: one nudge per chain, or an unfixable error ping-pongs the session.",
+      "stdin": {
+        "stop_hook_active": true
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[tool.mypy]\nignore_missing_imports = true\n",
+          "bad.py": "def f(a: int) -> str:\n    return a\n"
         }
       },
       "expect": {

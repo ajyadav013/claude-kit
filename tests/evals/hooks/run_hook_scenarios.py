@@ -98,7 +98,14 @@ def build_fixture(sc, idx):
             "GIT_COMMITTER_NAME": "eval",
             "GIT_COMMITTER_EMAIL": "eval@local",
         }
-        for cmd in (["git", "init", "-q"], ["git", "add", "-A"]):
+        # "init" leaves the files UNTRACKED on purpose. lint-fix scopes itself to changed files via
+        # `git diff HEAD` plus `git ls-files --others`, and a fixture that stages everything has no
+        # HEAD and no untracked files -- so the scoped path finds nothing and the hook correctly
+        # does nothing, which would read as a broken hook rather than a broken fixture.
+        cmds = [["git", "init", "-q"]]
+        if fx["git"] != "init":
+            cmds.append(["git", "add", "-A"])
+        for cmd in cmds:
             subprocess.run(cmd, cwd=root, capture_output=True, env=env, timeout=60)
     envv = {
         k: v.replace("@@FIXTURE@@", str(root)) for k, v in (fx.get("env") or {}).items()
