@@ -1001,7 +1001,13 @@ def check_repo_script(comp, payload, corpus):
 
 
 def _entry_comment_block(payload: Path, name: str, sid: str) -> str:
-    """Raw comment lines belonging to one catalog entry — safe_load drops comments."""
+    """Comment lines belonging to one catalog entry — safe_load drops comments.
+
+    Both placements are idiomatic and both are used in the shipped catalog: `repowise` carries its
+    note INSIDE the entry (after the key, before `config:`), while `serena` and `skillspector`
+    carry it in the contiguous comment block immediately BEFORE the key. Reading only one side
+    reported two correctly-annotated servers as unannotated.
+    """
     text = (payload / "catalog" / name).read_text(encoding="utf-8")
     lines = text.splitlines()
     start = next(
@@ -1009,14 +1015,21 @@ def _entry_comment_block(payload: Path, name: str, sid: str) -> str:
     )
     if start is None:
         return ""
-    out = []
+
+    before = []
+    i = start - 1
+    while i >= 0 and lines[i].lstrip().startswith("#"):
+        before.append(lines[i])
+        i -= 1
+
+    after = []
     for ln in lines[start + 1 :]:
         if ln and not ln.startswith((" ", "\t")):
             break
-        if len(ln) - len(ln.lstrip()) <= 2 and ln.strip().endswith(":") and out:
+        if len(ln) - len(ln.lstrip()) <= 2 and ln.strip().endswith(":") and after:
             break
-        out.append(ln)
-    return "\n".join(out)
+        after.append(ln)
+    return "\n".join(reversed(before)) + "\n" + "\n".join(after)
 
 
 _SECRETISH_NAME = re.compile(

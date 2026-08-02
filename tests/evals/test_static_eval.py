@@ -979,6 +979,53 @@ def test_an_http_server_without_a_url_is_flagged(tmp_path):
     assert "url" in _checks(static_eval.check_mcp_entry(_mcp_comp("nourl"), tmp_path))
 
 
+def test_a_note_placed_before_the_key_is_found(tmp_path):
+    """Both placements are idiomatic and both are used in the shipped catalog; reading only the
+    lines after the key reported two correctly-annotated servers as unannotated."""
+    body = _MCP.replace(
+        "  good:",
+        "  # toxic-flow legs: private-data; local-only — no egress leg\n  good:",
+    )
+    _write_mcp(tmp_path, body, notes=False)
+    assert "toxic_flow_note" not in _checks(
+        static_eval.check_mcp_entry(_mcp_comp("good"), tmp_path)
+    )
+
+
+def test_a_note_placed_inside_the_entry_is_found(tmp_path):
+    body = _MCP.replace(
+        "    label: Good", "    label: Good\n    # toxic-flow legs: egress"
+    )
+    _write_mcp(tmp_path, body, notes=False)
+    assert "toxic_flow_note" not in _checks(
+        static_eval.check_mcp_entry(_mcp_comp("good"), tmp_path)
+    )
+
+
+def test_a_preceding_note_does_not_leak_to_the_next_entry(tmp_path):
+    """A comment block before one key must not silently annotate the entry after it."""
+    body = _MCP.replace("  good:", "  # toxic-flow legs: private-data\n  good:")
+    _write_mcp(tmp_path, body, notes=False)
+    assert "toxic_flow_note" in _checks(
+        static_eval.check_mcp_entry(_mcp_comp("floating"), tmp_path)
+    )
+
+
+def test_every_shipped_mcp_entry_declares_its_toxic_flow_legs(payload):
+    """The catalog header claims every entry carries one, and the fail-closed sandbox rule in
+    agent-guardrails.md is keyed to the union of legs across enabled servers."""
+    import yaml
+
+    doc = yaml.safe_load((payload / "catalog" / "mcp.yaml").read_text(encoding="utf-8"))
+    missing = [
+        sid
+        for sid in doc["servers"]
+        if "toxic_flow_note"
+        in _checks(static_eval.check_mcp_entry(_mcp_comp(sid), payload))
+    ]
+    assert not missing, f"servers with no toxic-flow legs note: {missing}"
+
+
 def test_a_missing_toxic_flow_note_is_flagged(tmp_path):
     _write_mcp(tmp_path, notes=False)
     assert "toxic_flow_note" in _checks(
