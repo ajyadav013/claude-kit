@@ -199,6 +199,33 @@ def final_result(probe_json: pathlib.Path) -> tuple[str, str]:
     return last, subtype
 
 
+def resolve_skill(doc: dict, universe: set[str]) -> str | None:
+    """Which skill does this run name? From the record first, the label only as a fallback.
+
+    Labels come in two shapes -- the batch path's `batchN-<skill>` and a standalone `<skill>-rN`
+    replicate -- and the split rule that fitted the first silently mangled the second, turning
+    `alembic-migrations-r1` into the skill `migrations-r1` and reporting all 22 runs NOT_INSTALLED.
+    So newer probes record `skill` outright and that is believed over any parsing.
+
+    The fallback must still resolve a skill that is NOT installed, because "named a real skill that
+    was not laid down here" and "named nothing recognisable" are different answers and only the
+    first is NOT_INSTALLED. Matching the universe therefore cannot be the only route: a decoration
+    strip is tried after it, so an unknown-but-well-formed label still yields a name.
+    """
+    # absent-ok: a probe written before `skill` existed simply has no recorded name, which means
+    # "fall back to the label", not "this run named no skill". Absence routes, it never decides.
+    if isinstance(doc.get("skill"), str) and doc["skill"]:
+        return doc["skill"]
+    label = doc.get("label") or ""
+    hits = [s for s in universe if s in label]
+    if hits:
+        return max(hits, key=len)
+    stripped = re.sub(r"-r\d+$", "", label)
+    if stripped != label:
+        return stripped
+    return label.split("-", 1)[1] if "-" in label else None
+
+
 def classify(
     skill: str, fired: set[str], own: set[str], prompt: str, answer: str
 ) -> dict:
@@ -367,13 +394,28 @@ def grade_solo(probe_dir: pathlib.Path, installed_file: str) -> int:
             pathlib.Path(installed_file).read_text(encoding="utf-8").split()
         )
 
+    # Identity resolution and the installed check use DIFFERENT sets on purpose: a real skill that
+    # simply was not laid down in this workspace must still resolve, so it can be reported as
+    # NOT_INSTALLED rather than silently dropped.
+    universe = set(installed) | {
+        d.parent.name for d in (REPO / "skills").glob("*/SKILL.md")
+    }
+
     per: dict[str, list[dict]] = {}
+    unresolved: list[str] = []
     for p in sorted(probe_dir.glob("*/probe.json")):
         doc = json.loads(p.read_text(encoding="utf-8"))
         label = doc["label"]
-        if "-" not in label:
+        skill = resolve_skill(doc, universe)
+        if skill is None:
+            # Refuse to guess. This used to be `label.split("-", 1)[1]`, which only held for the
+            # batch path's `batchN-<skill>` labels; a `<skill>-r1` replicate label turned
+            # `alembic-migrations-r1` into the skill `migrations-r1`, which is installed nowhere,
+            # so all 22 runs came back NOT_INSTALLED -- a clean sheet built from a parsing error.
+            # Same shape as E-061: identity taken from a convenience string instead of the
+            # artefact. An unresolvable label is now loud rather than silently excluded.
+            unresolved.append(label)
             continue
-        skill = label.split("-", 1)[1]
         answer, subtype = final_result(p)
         prompt_file = p.parent / "prompt.txt"
         prompt = (
@@ -425,6 +467,12 @@ def grade_solo(probe_dir: pathlib.Path, installed_file: str) -> int:
     for r in out:
         tally[r["outcome"]] = tally.get(r["outcome"], 0) + 1
     print("\n" + json.dumps(tally, sort_keys=True))
+    if unresolved:
+        print(
+            f"\nUNRESOLVED LABELS ({len(unresolved)}) -- graded nothing: "
+            + ", ".join(sorted(set(unresolved))),
+            file=sys.stderr,
+        )
     (probe_dir / "grades-solo.json").write_text(
         json.dumps(out, indent=2) + "\n", encoding="utf-8"
     )

@@ -1,7 +1,8 @@
 # Contributing to claude-kit
 
 Thanks for helping improve claude-kit! This guide covers the repo conventions, how to test
-locally, and how to release.
+locally, and how to release. Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md);
+security issues go through [SECURITY.md](SECURITY.md) rather than a public issue.
 
 ## Mental model
 

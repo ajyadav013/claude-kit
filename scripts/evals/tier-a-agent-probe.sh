@@ -30,10 +30,20 @@ set -Eeuo pipefail
 # file under version control -- the agent's own frontmatter and, optionally, a situation file I
 # author. No web content, no user submissions, no model output is interpolated. The child session
 # is sandboxed to a throwaway workspace with Bash restricted to inspection.
+#
+# PIPELINE MODE (--sdlc-task). E-060 says an ad-hoc "do this work" request may simply be the wrong
+# entry point for a coordinator agent, and that no coordinator may be called a criterion-1 defect on
+# ad-hoc evidence alone. This mode drives the shipped `sdlc` skill instead and records which agents
+# the PIPELINE dispatches. The entry point is named on purpose here: what is under test is agent
+# dispatch inside the pipeline, not whether the pipeline gets selected. That is a separate question,
+# already measured elsewhere, and conflating them would answer neither.
 AGENT="" FIXTURE="pybug" OUT="" MAX_TURNS=40 ARM="a1" SITUATION="" DB="none" LABEL=""
+SDLC_TASK="" KEEP_RULES=no
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--agent) AGENT="${2:?}"; shift 2 ;;
+	--sdlc-task) SDLC_TASK="${2:?}"; shift 2 ;;
+	--keep-rules) KEEP_RULES=yes; shift ;;
 	--fixture) FIXTURE="${2:?}"; shift 2 ;;
 	--out) OUT="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
@@ -44,7 +54,8 @@ while [ $# -gt 0 ]; do
 	*) echo "unknown arg: $1" >&2; exit 2 ;;
 	esac
 done
-[ -n "$AGENT" ] && [ -n "$OUT" ] || { echo "missing required arg" >&2; exit 2; }
+[ -n "$SDLC_TASK" ] && [ -z "$AGENT" ] && AGENT="skills/sdlc/SKILL.md"
+[ -n "$AGENT" ] && [ -n "$OUT" ] || { echo "missing required arg (--agent or --sdlc-task)" >&2; exit 2; }
 
 # The session runs from inside $WORK, so a RELATIVE evidence path stops resolving there and the
 # prompt `cat` silently yields nothing. That is E-049 exactly, and it cost 40 fabricated skill
@@ -70,6 +81,7 @@ else
 fi
 [ -n "$SRC" ] && [ -f "$SRC" ] || { echo "agent definition not found: $AGENT" >&2; exit 2; }
 [ -n "$LABEL" ] || LABEL="$AGENT"
+[ -n "$SDLC_TASK" ] && [ "$LABEL" = "SKILL" ] && LABEL="sdlc-pipeline" && AGENT="sdlc-pipeline"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVID="$OUT/$LABEL-$ARM-$STAMP"
@@ -100,8 +112,16 @@ AGENT_PRESENT=no
 echo "### installed $AGENTS_INSTALLED agents; $AGENT present=$AGENT_PRESENT"
 
 RULE_BYTES="$(cat "$WORK"/.claude/rules/*.md 2>/dev/null | wc -c | tr -d ' ')"
-mv "$WORK/.claude/rules" "$EVID/rules-withheld" 2>/dev/null || true
-echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
+if [ "$KEEP_RULES" = yes ]; then
+	# The shipped-default arm E-014 says the run owes: if the session dies on prompt size, that is
+	# F-014 reproducing on the flagship workflow rather than a harness failure, and the result
+	# subtype in the record says which happened.
+	echo "### rules KEPT ($RULE_BYTES bytes) — shipped-default arm"
+	RULE_BYTES=0
+else
+	mv "$WORK/.claude/rules" "$EVID/rules-withheld" 2>/dev/null || true
+	echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
+fi
 
 # Baseline is committed AFTER scaffolding, so `git status` afterwards shows the AGENT's work and
 # nothing else. Committing before would have left the kit's own installed files looking like agent
@@ -109,6 +129,16 @@ echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
 git -C "$WORK" add -A
 git -C "$WORK" -c user.email=eval@local -c user.name=eval commit -qm baseline
 
+if [ -n "$SDLC_TASK" ]; then
+	cat >"$EVID/prompt.txt" <<PROMPT
+Use this project's SDLC pipeline -- the \`sdlc\` skill installed at .claude/skills/sdlc -- to deliver
+the following change to this repository:
+
+$SDLC_TASK
+
+Run the pipeline as it is defined. Delegate each stage to the agent that stage calls for.
+PROMPT
+else
 # Derive the request from the agent's own description. Never name the agent.
 python3 - "$SRC" "$EVID/prompt.txt" "$AGENT" "$SITUATION" <<'PY'
 import re, sys
@@ -136,6 +166,7 @@ open(out, "w", encoding="utf-8").write(
     "Work on the real files here. Delegate to a subagent if one fits the job.\n"
 )
 PY
+fi
 
 # Bash is inspection-only BY DESIGN -- see the execution-plane note in the header. A denied test
 # invocation is a measurement, not an obstacle.

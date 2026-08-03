@@ -77,7 +77,12 @@ echo "### scaffold (Docker; the host never runs project code)"
 	--mount "$WORK:/work" --workdir /repo --timeout 600 -- \
 	env PYTHONPATH=/repo/src python -m claude_kit.cli init /work --config /work/.ck-selection.yaml
 
-SKILLS_INSTALLED="$(find "$WORK/.claude/skills" -name SKILL.md 2>/dev/null | wc -l | tr -d ' ')"
+# The SET, not just the count. A MISSED verdict is only admissible if the skill was installed in
+# THIS workspace, and a count cannot answer that -- checking it against a list captured by some
+# other run is the `absent != false` trap with extra steps.
+find "$WORK/.claude/skills" -name SKILL.md -exec sh -c 'for f; do basename "$(dirname "$f")"; done' _ {} + \
+	2>/dev/null | sort >"$EVID/skills-installed.txt"
+SKILLS_INSTALLED="$(wc -l <"$EVID/skills-installed.txt" | tr -d ' ')"
 echo "### installed $SKILLS_INSTALLED skills"
 
 RULE_BYTES="$(cat "$WORK"/.claude/rules/*.md 2>/dev/null | wc -c | tr -d ' ')"
@@ -107,7 +112,7 @@ SESSION_RC=$?
 set -e
 
 python3 - "$EVID/session.jsonl" "$EVID/probe.json" "$LABEL" "$SESSION_RC" "$SKILLS_INSTALLED" "$RULE_BYTES" "$FIXTURE" <<'PY'
-import json, sys
+import json, pathlib, sys
 jsonl, out, label, rc, installed, rule_bytes = sys.argv[1:7]
 skills, agents, tools, first_cache = [], [], [], None
 for line in open(jsonl, encoding="utf-8", errors="replace"):
@@ -139,6 +144,11 @@ for line in open(jsonl, encoding="utf-8", errors="replace"):
                 agents.append(inp.get("subagent_type", "<unspecified>"))
 json.dump({
     "label": label, "session_rc": int(rc), "skills_installed": int(installed),
+    "skills_installed_names": sorted(
+        p.read_text(encoding="utf-8").split()
+        if (p := pathlib.Path(out).parent / "skills-installed.txt").is_file()
+        else []
+    ),
     "rule_bytes_withheld": int(rule_bytes), "first_msg_cache_creation": first_cache,
     "skills_invoked": skills, "agents_spawned": agents, "tool_calls": tools,
     "deviations": ["profile=enterprise", "rules withheld (F-014)"], "fixture": sys.argv[7] if len(sys.argv) > 7 else "",
