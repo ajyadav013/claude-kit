@@ -628,52 +628,66 @@ def control_tier_c_reach() -> dict:
 
 
 def control_tier_a_cli() -> dict:
-    """The honesty check must be load-bearing: disable it and the known defect must flip to pass.
+    """The honesty check must be load-bearing: on fabricated arms, disabling it must flip them.
 
-    `init` is the one command of nineteen that crashes into a traceback on an absent prerequisite.
-    That makes it a natural control: if switching the traceback rule off does NOT change the
-    verdict, the rule is not what produced it and the finding is an artefact of the fixture.
+    This control used to lean on `init` -- the one command of nineteen that crashed into a
+    traceback. Fixing that defect (F-031) left the control with nothing to detect and it started
+    reporting "not load-bearing", which is the SECOND time here that a control turned out to
+    depend on the product staying broken. It now judges fabricated (rc, output) pairs through the
+    extracted `judge_missing` oracle, so it holds whatever the shipped commands do: two traceback
+    arms must fail strictly and pass once the honesty rule is switched off, and the three arms
+    that do not hinge on the rule must be unaffected by it.
     """
     entry = {
         "checker": "scripts/evals/tier_a_cli.py",
-        "kind": "load-bearing check, 2 arms",
+        "kind": "synthetic arms, honesty rule must be load-bearing",
     }
     script = REPO / "scripts/evals/tier_a_cli.py"
     env = dict(os.environ, PYTHONPATH=str(REPO / "src"))
     with tempfile.TemporaryDirectory(prefix="ck-ctl-tiera-") as t:
         out = pathlib.Path(t) / "r.json"
 
-        def once(extra: list[str]) -> bool | None:
+        def once(extra: list[str]) -> dict:
             proc = subprocess.run(
                 [
                     sys.executable,
                     str(script),
                     "--out",
                     str(out),
-                    "--only",
-                    "init",
+                    "--self-test",
                     *extra,
                 ],
                 cwd=REPO,
                 capture_output=True,
                 text=True,
                 errors="replace",
-                timeout=1800,
+                timeout=600,
                 env=env,
             )
             if not out.is_file():
                 raise RuntimeError(f"no output: {proc.stderr.strip()[:120]}")
             rows = json.loads(out.read_text(encoding="utf-8"))["rows"]
-            return rows[0]["arms"]["missing"]["ok"]
+            return {r["command"]: r["arms"]["missing"]["ok"] for r in rows}
 
         strict = once([])
         relaxed = once(["--break-honesty"])
 
-    entry["detected"] = strict is False and relaxed is True
+    want_strict = {
+        "traceback-but-declared": False,
+        "traceback-at-rc1": False,
+        "honest-nonzero": True,
+        "silent-success": False,
+        "declared-rc0": True,
+    }
+    # Switching the rule off may only move the two traceback arms. If it moves anything else the
+    # flag is doing more than it claims and the control proves the wrong thing.
+    want_relaxed = dict(
+        want_strict, **{"traceback-but-declared": True, "traceback-at-rc1": True}
+    )
+    entry["detected"] = strict == want_strict and relaxed == want_relaxed
     if not entry["detected"]:
         entry["error"] = (
-            f"honesty check is not load-bearing: strict={strict} (want False), "
-            f"relaxed={relaxed} (want True)"
+            f"strict={strict} (want {want_strict}); relaxed={relaxed} (want {want_relaxed})"
         )
     return entry
 

@@ -194,6 +194,43 @@ def make(kind: str, tmp: pathlib.Path) -> pathlib.Path:
     return d
 
 
+def judge_missing(
+    rc: int, out: str, expect: dict | None, honesty_broken: bool
+) -> tuple[bool, str]:
+    """Judge a `missing` arm: exit non-zero, without a traceback.
+
+    Read-only informational commands are the declared exception: `status` printing
+    "not installed -- run `claude-kit init` here" and exiting 0 IS handling a missing prerequisite
+    honestly, and my first spec called four such commands defective for it. The allowance is
+    per-command and must name the phrase, so it cannot become a blanket "rc=0 is fine" that would
+    pass a command which silently did nothing.
+
+    Split out of run_arm so the mutation control can exercise it on FABRICATED input. The control
+    used to lean on `init` being the one command that crashed; fixing that defect (F-031) left the
+    control with nothing to detect, which is the second time here that a control has quietly
+    depended on the product staying broken.
+    """
+    crashed = TRACEBACK in out and not honesty_broken
+    allow = (expect or {}).get("rc0_if_mentions") or []
+    said_so = any(x.lower() in out.lower() for x in allow)
+    ok = (rc != 0 or said_so) and not crashed
+    why = (
+        (
+            "reported the missing prerequisite and exited 0"
+            if rc == 0
+            else "exited non-zero without a traceback"
+        )
+        if ok
+        else (
+            f"crashed with a traceback instead of reporting the missing prerequisite: "
+            f"{out.strip().splitlines()[-1][:120] if out.strip() else ''}"
+            if crashed
+            else f"succeeded (rc=0) with its prerequisite absent -- {out.strip()[:120]}"
+        )
+    )
+    return ok, why
+
+
 def run_arm(
     kind: str,
     args: list[str],
@@ -205,31 +242,7 @@ def run_arm(
     rc, out = cli(args, d)
     row = {"args": args, "rc": rc, "setup": kind}
     if expect is None or "rc0_if_mentions" in expect:
-        # The `missing` arm. Default: exit non-zero, without a traceback.
-        #
-        # Read-only informational commands are the declared exception: `status` printing
-        # "not installed -- run `claude-kit init` here" and exiting 0 IS handling a missing
-        # prerequisite honestly, and my first spec called four such commands defective for it.
-        # The allowance is per-command and must name the phrase, so it cannot become a blanket
-        # "rc=0 is fine" that would pass a command which silently did nothing.
-        crashed = TRACEBACK in out and not honesty_broken
-        allow = (expect or {}).get("rc0_if_mentions") or []
-        said_so = any(x.lower() in out.lower() for x in allow)
-        row["ok"] = (rc != 0 or said_so) and not crashed
-        row["why"] = (
-            (
-                "reported the missing prerequisite and exited 0"
-                if rc == 0
-                else "exited non-zero without a traceback"
-            )
-            if row["ok"]
-            else (
-                f"crashed with a traceback instead of reporting the missing prerequisite: "
-                f"{out.strip().splitlines()[-1][:120] if out.strip() else ''}"
-                if crashed
-                else f"succeeded (rc=0) with its prerequisite absent -- {out.strip()[:120]}"
-            )
-        )
+        row["ok"], row["why"] = judge_missing(rc, out, expect, honesty_broken)
         return row
     problems = []
     if rc != expect.get("rc", 0):
@@ -260,8 +273,57 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--only", default="")
     ap.add_argument("--break-honesty", action="store_true")
+    ap.add_argument(
+        "--self-test",
+        action="store_true",
+        help="judge fabricated arms instead of running commands (the mutation control)",
+    )
     a = ap.parse_args()
     only = {x.strip() for x in a.only.split(",") if x.strip()}
+
+    if a.self_test:
+        crash = f"some output\n{TRACEBACK}\n  File x\nValueError: boom"
+        declared = "no pipeline run in progress"
+        cases = [
+            # The two traceback arms must fail ONLY because of the crash rule, so each is
+            # otherwise acceptable: one declares its missing prerequisite at rc0, the other
+            # exits nonzero. An arm that also fails for a second reason cannot isolate the rule.
+            (
+                "traceback-but-declared",
+                0,
+                f"{declared}\n{crash}",
+                {"rc0_if_mentions": [declared]},
+            ),
+            ("traceback-at-rc1", 1, crash, None),
+            ("honest-nonzero", 1, "error: not installed", None),
+            ("silent-success", 0, "", None),
+            (
+                "declared-rc0",
+                0,
+                "no pipeline run in progress",
+                {"rc0_if_mentions": ["no pipeline run in progress"]},
+            ),
+        ]
+        rows = [
+            {
+                "command": name,
+                "arms": {
+                    "missing": dict(
+                        zip(("ok", "why"), judge_missing(rc, out, exp, a.break_honesty))
+                    )
+                },
+            }
+            for name, rc, out, exp in cases
+        ]
+        for r in rows:
+            r["exercised"] = r["arms"]["missing"]["ok"]
+        pathlib.Path(a.out).write_text(
+            json.dumps({"rows": rows}, indent=2) + "\n", encoding="utf-8"
+        )
+        print(
+            f"tier A CLI self-test: {sum(1 for r in rows if r['exercised'])}/{len(rows)} judged ok"
+        )
+        return 0
 
     rows = []
     tmp = pathlib.Path(tempfile.mkdtemp(prefix="ck-tiera-"))
