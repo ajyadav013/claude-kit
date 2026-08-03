@@ -56,6 +56,7 @@ CHECKERS = [
     "scripts/evals/tier_b_reconcile.py",
     "scripts/evals/tier_c_reach.py",
     "scripts/evals/tier_a_cli.py",
+    "scripts/evals/tier_a_scripts.py",
     "scripts/evals/tier_b_batches.py",
     # This file is a checker too, and a gate exempt from its own rule is not a gate.
     "scripts/evals/meta_check.py",

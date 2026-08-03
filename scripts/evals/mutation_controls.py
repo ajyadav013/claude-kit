@@ -663,6 +663,57 @@ def control_tier_a_cli() -> dict:
     return entry
 
 
+def control_tier_a_scripts() -> dict:
+    """Remove the plants and every planted arm must collapse.
+
+    A two-sided script exerciser is only worth its clean arm if the planted arm actually depends
+    on the plant. Running with --no-plant leaves the repo pristine, so any arm still reporting
+    "caught it" is reporting something the plant did not cause.
+    """
+    entry = {
+        "checker": "scripts/evals/tier_a_scripts.py",
+        "kind": "plants removed, arms must fail",
+    }
+    script = REPO / "scripts/evals/tier_a_scripts.py"
+    subset = "check_docs_consistency.py,check_rule_sizes.py,gen_hooks.py"
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-tas-") as t:
+        out = pathlib.Path(t) / "r.json"
+
+        def once(extra: list[str]) -> dict:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--out",
+                    str(out),
+                    "--only",
+                    subset,
+                    *extra,
+                ],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=1800,
+            )
+            if not out.is_file():
+                raise RuntimeError("no output")
+            return {
+                r["script"]: r["arms"]["plant"]["ok"]
+                for r in json.loads(out.read_text(encoding="utf-8"))["rows"]
+            }
+
+        planted = once([])
+        bare = once(["--no-plant"])
+
+    entry["detected"] = all(planted.values()) and not any(bare.values())
+    if not entry["detected"]:
+        entry["error"] = (
+            f"planted={planted} (want all True); no-plant={bare} (want all False)"
+        )
+    return entry
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -697,6 +748,7 @@ def main() -> int:
         guarded(control_tier_b_grader, "scripts/evals/tier_b_batches.py"),
         guarded(control_tier_c_reach, "scripts/evals/tier_c_reach.py"),
         guarded(control_tier_a_cli, "scripts/evals/tier_a_cli.py"),
+        guarded(control_tier_a_scripts, "scripts/evals/tier_a_scripts.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
