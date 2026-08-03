@@ -1,0 +1,119 @@
+{
+  "_README": "Per-scenario deterministic specs for spec_task.py. SEALED: `behaviours` run against the workspace but are never written into it, so a session cannot satisfy a check by editing the check. Locked by sha256 in task-bank-lock.json before any run; spec_task.py refuses to grade if the hash has moved. Every behaviour declares a `kind`: a `discriminator` MUST fail on the pristine fixture and MUST pass on the solved reference under tests/evals/e2e/solutions/<id>/; a `guard` is a regression check that MUST pass on both. mutation_controls.py / discrim.py assert both directions -- a one-directional check cannot tell a working discriminator apart from one that can never match.",
+
+  "SC-04": {
+    "label": "easy backend feature",
+    "fixture": "pyservice",
+    "task": "Add a `multiply(a, b)` function to the calculation module, following the conventions of the functions already there, and cover it with tests.",
+    "behaviours": [
+      {
+        "name": "multiply_is_correct",
+        "kind": "discriminator",
+        "code": "from calc import multiply\nassert multiply(3, 4) == 12\nassert multiply(-2, 5) == -10\nassert multiply(0, 9) == 0"
+      },
+      {
+        "name": "existing_api_intact",
+        "kind": "guard",
+        "code": "from calc import add, subtract\nassert add(2, 3) == 5 and subtract(5, 2) == 3"
+      }
+    ],
+    "min_new_tests": 1
+  },
+
+  "SC-19": {
+    "label": "failing unit test",
+    "fixture": "pybug",
+    "task": "The test suite has a failing test. Diagnose it and fix the underlying defect rather than the test.",
+    "behaviours": [
+      {
+        "name": "contract_holds_at_boundary",
+        "kind": "discriminator",
+        "code": "from inventory import needs_restock\nassert needs_restock(5, 5) is True\nassert needs_restock(4, 5) is True\nassert needs_restock(6, 5) is False"
+      },
+      {
+        "name": "reorder_quantity_consistent",
+        "kind": "discriminator",
+        "code": "from inventory import reorder_quantity\nassert reorder_quantity(5, 5) == 10\nassert reorder_quantity(6, 5) == 0"
+      }
+    ],
+    "must_not_change": ["tests/test_inventory.py"]
+  },
+
+  "SC-22": {
+    "label": "security finding",
+    "fixture": "dbservice",
+    "task": "The order-lookup helpers build SQL by interpolating caller-supplied values into the query string. Fix the injection risk.",
+    "behaviours": [
+      {
+        "name": "no_fstring_interpolation_in_sql",
+        "kind": "discriminator",
+        "code": "import inspect, re, store\nsrc = inspect.getsource(store)\nbad = re.findall(r'f[\"\\x27][^\\n]*\\{', src)\nassert not bad, f'f-string interpolation still present: {bad}'"
+      },
+      {
+        "name": "callables_still_exist",
+        "kind": "guard",
+        "code": "import store\nfor n in ('orders_for_customer', 'recent_orders_by_status', 'customer_order_totals'):\n    assert callable(getattr(store, n)), n"
+      }
+    ]
+  },
+
+  "SC-10": {
+    "label": "PostgreSQL migration",
+    "fixture": "dbservice",
+    "task": "Every lookup filters orders by status and placed_at, and there is no index for it. Add the migration that creates one.",
+    "behaviours": [
+      {
+        "name": "index_migration_exists",
+        "kind": "discriminator",
+        "code": "import pathlib, re\nsql = '\\n'.join(p.read_text() for p in pathlib.Path('migrations').glob('*.sql'))\nassert re.search(r'CREATE\\s+INDEX', sql, re.I), 'no CREATE INDEX in any migration'\nassert re.search(r'status', sql, re.I), 'index does not mention the status column'"
+      },
+      {
+        "name": "original_migration_still_creates_table",
+        "kind": "guard",
+        "code": "import pathlib, re\nsql = pathlib.Path('migrations/0001_create_orders.sql').read_text()\nassert re.search(r'CREATE\\s+TABLE', sql, re.I)"
+      }
+    ],
+    "must_not_change": ["migrations/0001_create_orders.sql"]
+  },
+
+  "SC-11": {
+    "label": "MongoDB schema change",
+    "fixture": "docstore",
+    "task": "Queries scan the whole collection because the filtered fields are unindexed, and the supplier subdocument is duplicated inline on every document. Fix the data model and add the indexes, with a migration.",
+    "behaviours": [
+      {
+        "name": "index_declared_somewhere",
+        "kind": "discriminator",
+        "code": "import pathlib, re\ntxt = '\\n'.join(p.read_text(errors='replace') for p in pathlib.Path('.').rglob('*') if p.is_file() and p.suffix in ('.py', '.md', '.js', '.json') and '.claude' not in str(p))\nassert re.search(r'create_index|createIndex|ensureIndex', txt), 'no index creation anywhere'"
+      },
+      {
+        "name": "docstore_module_still_imports",
+        "kind": "guard",
+        "code": "import docstore\nassert docstore is not None"
+      }
+    ]
+  },
+
+  "SC-24": {
+    "label": "observability gap",
+    "fixture": "pyservice",
+    "task": "The service has no health check, no structured logging and no stated service-level objective. Make it observable.",
+    "behaviours": [
+      {
+        "name": "health_check_callable_exists",
+        "kind": "discriminator",
+        "code": "import pathlib, re\ntxt = '\\n'.join(p.read_text(errors='replace') for p in pathlib.Path('src').rglob('*.py'))\nassert re.search(r'def\\s+\\w*health\\w*\\(|/health', txt, re.I), 'no health check in src/'"
+      },
+      {
+        "name": "structured_logging_present",
+        "kind": "discriminator",
+        "code": "import pathlib, re\ntxt = '\\n'.join(p.read_text(errors='replace') for p in pathlib.Path('src').rglob('*.py'))\nassert re.search(r'import\\s+logging|getLogger|structlog', txt), 'no logging in src/'"
+      },
+      {
+        "name": "existing_api_intact",
+        "kind": "guard",
+        "code": "from calc import add, subtract\nassert add(2, 3) == 5 and subtract(5, 2) == 3"
+      }
+    ]
+  }
+}
