@@ -785,6 +785,61 @@ def control_tier_a_config() -> dict:
     return entry
 
 
+def control_tier_a_lifecycle() -> dict:
+    """Drop every negative arm; no row may survive on its happy path.
+
+    Each lifecycle row is a pair, and the refusing arm carries the weight -- an upgrader that
+    always overwrites, a validator that always returns True, and a renderer that emits "" for a
+    missing key all pass their positive arms. `--break-pairs` skips the negative arms, and every
+    row must then report itself unexercised rather than green.
+    """
+    entry = {
+        "checker": "scripts/evals/tier_a_lifecycle.py",
+        "kind": "negative arms dropped, no row may pass",
+    }
+    script = REPO / "scripts/evals/tier_a_lifecycle.py"
+    subset = "module:render,module:validator,module:upgrader,module:catalog"
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-tal-") as t:
+        out = pathlib.Path(t) / "r.json"
+
+        def once(extra: list[str]) -> dict:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--out",
+                    str(out),
+                    "--only",
+                    subset,
+                    *extra,
+                ],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=1800,
+            )
+            if not out.is_file():
+                raise RuntimeError("no output")
+            return {
+                r["id"]: r["ok"]
+                for r in json.loads(out.read_text(encoding="utf-8"))["rows"]
+            }
+
+        paired = once([])
+        halved = once(["--break-pairs"])
+
+    entry["detected"] = all(paired.values()) and not any(halved.values())
+    if not entry["detected"]:
+        bad = [k for k, v in paired.items() if not v]
+        survived = [k for k, v in halved.items() if v]
+        entry["error"] = (
+            f"paired run failed {bad} (want none); half-armed run still passed {survived} "
+            "(want none)"
+        )
+    return entry
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -821,6 +876,7 @@ def main() -> int:
         guarded(control_tier_a_cli, "scripts/evals/tier_a_cli.py"),
         guarded(control_tier_a_scripts, "scripts/evals/tier_a_scripts.py"),
         guarded(control_tier_a_config, "scripts/evals/tier_a_config.py"),
+        guarded(control_tier_a_lifecycle, "scripts/evals/tier_a_lifecycle.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
