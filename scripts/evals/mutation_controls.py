@@ -629,6 +629,99 @@ def control_tier_b_grader() -> dict:
     return entry
 
 
+def control_tier_b_grade_solo() -> dict:
+    """The standalone grader's admissibility guard must be ASYMMETRIC, both halves load-bearing.
+
+    Standalone runs are what overturn batch MISSEDs, so their grader is the court of appeal and has
+    to be at least as strict as the court below. Two opposite errors are live, and both were
+    committed on the way in:
+
+      a truncated SILENT run scored MISSED -- the harness cut the session off, so silence up to
+                                              that point is not evidence the skill failed to fire
+      a truncated FIRED run discarded      -- the tool call already happened; no later truncation
+                                              unmakes it, and dropping it loses a real pass
+
+    A control checking only one direction would certify the other. `error_max_turns` surfaces as
+    rc=1, which is why both arms use it.
+    """
+    entry: dict = {
+        "checker": "scripts/evals/tier_b_batches.py [grade-solo]",
+        "kind": "synthetic sessions, 5 arms",
+        "detected": False,
+    }
+    script = REPO / "scripts/evals/tier_b_batches.py"
+
+    def arm(tmp: pathlib.Path, skill: str, rc: int, result: str, invoked: list) -> None:
+        d = tmp / "runs" / f"solo-{skill}-20260101T000000Z"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "prompt.txt").write_text("1. do the thing\n", encoding="utf-8")
+        (d / "probe.json").write_text(
+            json.dumps(
+                {"label": f"solo-{skill}", "session_rc": rc, "skills_invoked": invoked}
+            ),
+            encoding="utf-8",
+        )
+        (d / "session.jsonl").write_text(
+            json.dumps(
+                {
+                    "type": "result",
+                    "result": result,
+                    "subtype": "success" if rc == 0 else "error_max_turns",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    want = {
+        "alpha": "INVOKED",  # fired then truncated -- the positive survives
+        "beta": "UNRUN",  # silent and truncated  -- the negative does not
+        "gamma": "MISSED",  # silent, clean session -- a real miss
+        "delta": "NAMED",  # selected in prose, never invoked
+        "epsilon": "NOT_INSTALLED",  # nothing was there to trigger
+    }
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-solo-") as t:
+        tmp = pathlib.Path(t)
+        arm(tmp, "alpha", 1, "", ["alpha"])
+        arm(tmp, "beta", 1, "", [])
+        arm(tmp, "gamma", 0, "I am not sure what you need.", [])
+        arm(
+            tmp, "delta", 0, "That is the `delta` skill; too underspecified to run.", []
+        )
+        arm(tmp, "epsilon", 0, "sure", [])
+        inst = tmp / "installed.txt"
+        inst.write_text("alpha\nbeta\ngamma\ndelta\n", encoding="utf-8")
+        rc, out = run(
+            [
+                sys.executable,
+                str(script),
+                "grade-solo",
+                "--probe-dir",
+                str(tmp / "runs"),
+                "--installed",
+                str(inst),
+            ],
+            REPO,
+        )
+        graded = tmp / "runs" / "grades-solo.json"
+        if not graded.is_file():
+            entry["error"] = f"grade-solo wrote no output (rc={rc}): {out[-300:]}"
+            return entry
+        got = {
+            r["skill"]: r["outcome"]
+            for r in json.loads(graded.read_text(encoding="utf-8"))
+        }
+
+    entry["verdicts"] = got
+    wrong = {k: (want[k], got.get(k)) for k in want if got.get(k) != want[k]}
+    entry["detected"] = not wrong
+    if wrong:
+        entry["error"] = "; ".join(
+            f"{k}: want {w}, got {g}" for k, (w, g) in sorted(wrong.items())
+        )
+    return entry
+
+
 def control_tier_c_reach() -> dict:
     """Plant one ghost per proof method; each must come back UNPROVEN.
 
@@ -956,6 +1049,9 @@ def main() -> int:
         guarded(control_stamp_provenance, "scripts/evals/stamp-coverage-provenance.py"),
         guarded(control_tier_b_reconcile, "scripts/evals/tier_b_reconcile.py"),
         guarded(control_tier_b_grader, "scripts/evals/tier_b_batches.py"),
+        guarded(
+            control_tier_b_grade_solo, "scripts/evals/tier_b_batches.py [grade-solo]"
+        ),
         guarded(control_tier_c_reach, "scripts/evals/tier_c_reach.py"),
         guarded(control_tier_a_cli, "scripts/evals/tier_a_cli.py"),
         guarded(control_tier_a_scripts, "scripts/evals/tier_a_scripts.py"),

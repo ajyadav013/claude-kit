@@ -168,12 +168,17 @@ def build(
     return 0
 
 
-def final_text(probe_json: pathlib.Path) -> str:
-    """The session's final result text, for detecting selection that stopped short of invocation."""
+def final_result(probe_json: pathlib.Path) -> tuple[str, str]:
+    """The session's final result text and its subtype.
+
+    The subtype distinguishes an answer the model chose to end from one the harness cut off
+    (`error_max_turns`). A truncated session that never reached the skill is not evidence that
+    the skill fails to trigger -- the question was never finished being asked.
+    """
     jsonl = probe_json.parent / "session.jsonl"
     if not jsonl.is_file():
-        return ""
-    last = ""
+        return "", ""
+    last, subtype = "", ""
     for line in jsonl.open(encoding="utf-8", errors="replace"):
         line = line.strip()
         if not line:
@@ -182,11 +187,57 @@ def final_text(probe_json: pathlib.Path) -> str:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if ev.get("type") == "result" and isinstance(
-            ev.get("result"), str
-        ):  # absent-ok: no `type` and a non-string `result` are both non-answers
-            last = ev["result"]
-    return last
+        if ev.get("type") == "result":
+            if isinstance(
+                ev.get("result"), str
+            ):  # absent-ok: a non-string `result` is a non-answer
+                last = ev["result"]
+            if isinstance(
+                ev.get("subtype"), str
+            ):  # absent-ok: a missing subtype leaves it "", which no verdict branches on
+                subtype = ev["subtype"]
+    return last, subtype
+
+
+def classify(
+    skill: str, fired: set[str], own: set[str], prompt: str, answer: str
+) -> dict:
+    """Score one target. Shared by the batch and standalone graders.
+
+    Standalone runs are what OVERTURN batch verdicts, so they must not be scored by a looser
+    rule than the batches they audit. Keeping one classifier is the only way to guarantee that:
+    the confirmation path and the audited path cannot drift apart if they are the same code.
+    """
+    invoked = skill in fired
+    circular = skill in prompt
+    named = (not invoked) and (not circular) and (skill in answer)
+    # A skill whose own name appears in its prompt cannot be scored on NAMED: if the answer says
+    # the name, that may be an echo of the question. The guard already refuses to CREDIT it --
+    # but calling the result MISSED is the opposite error, and it manufactured a false negative
+    # (`backlog`). Unmeasurable is its own outcome.
+    inconclusive = (not invoked) and circular and (skill in answer)
+    # A sibling skill firing while the target stayed silent is not the same event as silence: the
+    # request was recognised and routed elsewhere. Recorded separately so the two cannot be summed
+    # into one "failed to trigger" count.
+    outsiders = sorted(fired - own)
+    substituted = (not invoked) and (not named) and bool(outsiders)
+    return {
+        "triggered": invoked,
+        "named": named,
+        "name_in_prompt": circular,
+        "outsiders": outsiders if substituted else [],
+        "outcome": "INVOKED"
+        if invoked
+        else (
+            "NAMED"
+            if named
+            else (
+                "INCONCLUSIVE"
+                if inconclusive
+                else ("SUBSTITUTED" if substituted else "MISSED")
+            )
+        ),
+    }
 
 
 def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
@@ -211,7 +262,7 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
     for p in sorted(probe_dir.glob("*/probe.json")):
         doc = json.loads(p.read_text(encoding="utf-8"))
         probes[doc["label"]] = doc
-        texts[doc["label"]] = final_text(p)
+        texts[doc["label"]] = final_result(p)[0]
 
     all_targets = {t["skill"]: t["id"] for b in spec["batches"] for t in b["targets"]}
     rows, unrun = [], []
@@ -228,49 +279,24 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
         # call" was the same error mirrored: two batches answered every request in prose,
         # naming each skill correctly and declining for underspecification -- criteria 1 and 9
         # both passing -- and would have been discarded as never-run.
-        if pr["session_rc"] != 0 or not texts.get(b["label"], "").strip():
-            unrun.extend(t["id"] for t in b["targets"])
-            continue
         fired = set(pr["skills_invoked"])
         own = {t["skill"] for t in b["targets"]}
         prompt = (spec_path.parent / b["prompt_file"]).read_text(encoding="utf-8")
         answer = texts.get(b["label"], "")
+        # Asymmetric, as in grade_solo: a broken session cannot support a negative, but a skill
+        # that already fired inside it still counts. Blanket-discarding the batch would throw
+        # away real passes to avoid false failures -- the E-050 error.
+        admissible = pr["session_rc"] == 0 and bool(answer.strip())
         for t in b["targets"]:
-            invoked = t["skill"] in fired
-            circular = t["skill"] in prompt
-            named = (not invoked) and (not circular) and (t["skill"] in answer)
-            # A skill whose own name appears in its prompt cannot be scored on NAMED: if the
-            # answer says the name, that may be an echo of the question. The guard already
-            # refuses to CREDIT it -- but calling the result MISSED is the opposite error, and
-            # it manufactured a false negative (`backlog`). Unmeasurable is its own outcome.
-            inconclusive = (not invoked) and circular and (t["skill"] in answer)
-            # A sibling skill firing while the target stayed silent is not the same event as
-            # silence: the request was recognised and routed elsewhere. Recorded separately so
-            # the two cannot be summed into one "failed to trigger" count. This shows only that
-            # an outsider answered SOME request in the batch -- position is suggestive, not
-            # proof, so confirmation still needs the transcript.
-            outsiders = sorted(fired - own)
-            substituted = (not invoked) and (not named) and bool(outsiders)
+            if not admissible and t["skill"] not in fired:
+                unrun.append(t["id"])
+                continue
             rows.append(
                 {
                     "id": t["id"],
                     "skill": t["skill"],
                     "batch": b["label"],
-                    "outsiders": outsiders if substituted else [],
-                    "triggered": invoked,
-                    "named": named,
-                    "name_in_prompt": circular,
-                    "outcome": "INVOKED"
-                    if invoked
-                    else (
-                        "NAMED"
-                        if named
-                        else (
-                            "INCONCLUSIVE"
-                            if inconclusive
-                            else ("SUBSTITUTED" if substituted else "MISSED")
-                        )
-                    ),
+                    **classify(t["skill"], fired, own, prompt, answer),
                     "session_rc": pr["session_rc"],
                 }
             )
@@ -320,6 +346,91 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
     return 0
 
 
+RANK = ["INVOKED", "NAMED", "SUBSTITUTED", "INCONCLUSIVE", "MISSED"]
+
+
+def grade_solo(probe_dir: pathlib.Path, installed_file: str) -> int:
+    """Grade standalone single-skill probes with the batch grader's own rules.
+
+    A standalone run exists to CONFIRM or OVERTURN a batch MISSED. It therefore inherits every
+    guard the batch path has: a session that exited non-zero or produced no answer is UNRUN, not
+    a failure. `error_max_turns` lands here -- the harness stopped the session, so silence up to
+    that point says nothing about the skill.
+
+    A skill probed more than once is scored on its BEST admissible run: one confirmed trigger
+    refutes "it does not trigger". The fire ratio is reported alongside so a flaky trigger cannot
+    hide behind a single success.
+    """
+    installed: set[str] = set()
+    if installed_file:
+        installed = set(
+            pathlib.Path(installed_file).read_text(encoding="utf-8").split()
+        )
+
+    per: dict[str, list[dict]] = {}
+    for p in sorted(probe_dir.glob("*/probe.json")):
+        doc = json.loads(p.read_text(encoding="utf-8"))
+        label = doc["label"]
+        if "-" not in label:
+            continue
+        skill = label.split("-", 1)[1]
+        answer, subtype = final_result(p)
+        prompt_file = p.parent / "prompt.txt"
+        prompt = (
+            prompt_file.read_text(encoding="utf-8") if prompt_file.is_file() else ""
+        )
+        row = {"run": p.parent.name, "subtype": subtype, "rc": doc["session_rc"]}
+        # The admissibility guard is ASYMMETRIC on purpose. A session that died or was cut off
+        # cannot support a NEGATIVE -- silence up to the cut says nothing. It can still support a
+        # POSITIVE: a Skill tool call that already happened did happen, and no later truncation
+        # unmakes it. Discarding such a run is the E-050 error again, throwing away a correct
+        # pass to be safe.
+        if installed and skill not in installed:
+            # Not installed is not a trigger failure -- there was nothing to trigger.
+            row["outcome"] = "NOT_INSTALLED"
+        elif skill not in set(doc["skills_invoked"]) and (
+            doc["session_rc"] != 0 or not answer.strip()
+        ):
+            row["outcome"] = "UNRUN"
+        else:
+            row.update(
+                classify(skill, set(doc["skills_invoked"]), {skill}, prompt, answer)
+            )
+        per.setdefault(skill, []).append(row)
+
+    out = []
+    for skill, runs in sorted(per.items()):
+        adm = [r for r in runs if r["outcome"] not in ("UNRUN", "NOT_INSTALLED")]
+        if not adm:
+            best = runs[0]["outcome"]
+        else:
+            best = min((r["outcome"] for r in adm), key=RANK.index)
+        out.append(
+            {
+                "skill": skill,
+                "outcome": best,
+                "runs": len(runs),
+                "admissible": len(adm),
+                "invoked_runs": sum(1 for r in adm if r["outcome"] == "INVOKED"),
+                "detail": runs,
+            }
+        )
+
+    for r in out:
+        print(
+            "%-34s %-14s admissible=%d/%d invoked=%d"
+            % (r["skill"], r["outcome"], r["admissible"], r["runs"], r["invoked_runs"])
+        )
+    tally: dict[str, int] = {}
+    for r in out:
+        tally[r["outcome"]] = tally.get(r["outcome"], 0) + 1
+    print("\n" + json.dumps(tally, sort_keys=True))
+    (probe_dir / "grades-solo.json").write_text(
+        json.dumps(out, indent=2) + "\n", encoding="utf-8"
+    )
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -335,9 +446,14 @@ def main() -> int:
     g = sub.add_parser("grade")
     g.add_argument("--probe-dir", required=True)
     g.add_argument("--spec", required=True)
+    s = sub.add_parser("grade-solo")
+    s.add_argument("--probe-dir", required=True)
+    s.add_argument("--installed", default="", help="file listing installed skill names")
     a = ap.parse_args()
     if a.cmd == "build":
         return build(a.count, a.batches, pathlib.Path(a.out), a.ids, a.per, a.fixture)
+    if a.cmd == "grade-solo":
+        return grade_solo(pathlib.Path(a.probe_dir), a.installed)
     return grade(pathlib.Path(a.probe_dir), pathlib.Path(a.spec))
 
 
