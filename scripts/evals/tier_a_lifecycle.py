@@ -430,8 +430,9 @@ def c_hooks(tmp: pathlib.Path, neg: bool) -> dict:
 
     def walk(node):
         if isinstance(node, dict):
-            if isinstance(node.get("command") if "command" in node else None, str):
-                installed.add(node["command"])
+            cmd = node["command"] if "command" in node else None
+            if isinstance(cmd, str):
+                installed.add(cmd)
             for v in node.values():
                 walk(v)
         elif isinstance(node, list):
