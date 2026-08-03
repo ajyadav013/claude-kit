@@ -1360,6 +1360,11 @@ def main() -> int:
     ap.add_argument(
         "--coverage", help="coverage.json used for the callable-coverage check"
     )
+    ap.add_argument(
+        "--coverage-sha",
+        help="the commit the coverage report must have been generated at. Refuses to run on a "
+        "mismatch rather than reporting from it (E-029).",
+    )
     args = ap.parse_args()
 
     payload = Path(args.payload)
@@ -1388,6 +1393,29 @@ def main() -> int:
     coverage = {}
     if args.coverage:
         coverage = json.loads(Path(args.coverage).read_text(encoding="utf-8"))
+        # A coverage report measures ONE commit. Pointed at another it does not degrade
+        # gracefully, it answers a question nobody asked -- and answers it in the confident,
+        # well-formed shape of a real verdict. A file literally named latest-coverage.json spent
+        # two batches being the OLDEST snapshot on disk and produced "8 uncovered branches, high"
+        # against upgrader.py, describing a state that had not existed for an hour (E-029).
+        # Refuse rather than report: if the input is unusable then every coverage verdict in the
+        # run is unusable, so this is an abort, not a finding.
+        prov = (coverage.get("ck_provenance") or {}).get("sha")
+        if args.coverage_sha:
+            if not prov:
+                print(
+                    f"coverage report {args.coverage} carries no ck_provenance.sha. Regenerate it "
+                    "with stamp-coverage-provenance so its commit is recorded.",
+                    file=sys.stderr,
+                )
+                return 3
+            if prov != args.coverage_sha:
+                print(
+                    f"coverage provenance mismatch: report was generated at {prov}, evaluation is "
+                    f"at {args.coverage_sha}. Regenerate coverage at this commit.",
+                    file=sys.stderr,
+                )
+                return 3
     hook_reach, registered_scripts = hook_reach_set(payload)
     from claude_kit import hooks as hooks_mod
 
