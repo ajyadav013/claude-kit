@@ -36,14 +36,21 @@ baseline; arms named `only-<rule>` and `shipped-config` are the measured cells.
 from __future__ import annotations
 
 import argparse
+import calendar
+import datetime
 import json
 import pathlib
+import re
 import sys
 
 # Two first-message values belong to the same cache mode when they are within this fraction of
 # each other. The observed modes are ~20k and ~52k -- more than 2x apart -- so a 35% window
 # separates them cleanly without needing a hand-picked threshold per batch.
 MODE_TOLERANCE = 0.35
+
+#: Two arms belong to the same wave when their launch stamps are this close. A wave is one shell
+#: fan-out, so its arms start within a second or two; separate waves are minutes apart at least.
+WAVE_TOLERANCE_S = 180
 
 
 def first_message_cache_creation(session_jsonl: pathlib.Path) -> int | None:
@@ -81,6 +88,28 @@ def same_mode(a: int, b: int) -> bool:
     return hi > 0 and abs(a - b) / hi <= MODE_TOLERANCE
 
 
+def launch_stamp(arm_dir_name: str) -> int | None:
+    """Seconds-since-epoch of the `-YYYYmmddTHHMMSSZ` suffix an arm directory carries."""
+    m = re.search(r"-(\d{8}T\d{6}Z)$", arm_dir_name)
+    if not m:
+        return None
+    return int(
+        calendar.timegm(
+            datetime.datetime.strptime(m.group(1), "%Y%m%dT%H%M%SZ").timetuple()
+        )
+    )
+
+
+def same_wave(a: int | None, b: int | None) -> bool:
+    """True when two arms were launched together.
+
+    Arms in one wave are started by a single shell fan-out, so their stamps land within a second or
+    two of each other; the tolerance is generous enough to absorb a slow start and far tighter than
+    the gap between two deliberate waves.
+    """
+    return a is not None and b is not None and abs(a - b) <= WAVE_TOLERANCE_S
+
+
 def collect(scenario_dir: pathlib.Path) -> list[dict]:
     arms = []
     for arm_dir in sorted(scenario_dir.iterdir()):
@@ -105,6 +134,7 @@ def collect(scenario_dir: pathlib.Path) -> list[dict]:
                 "dir": str(arm_dir),
                 "rules_mode": rules_mode,
                 "first_msg_tokens": tokens,
+                "launched_at": launch_stamp(arm_dir.name),
             }
         )
     return arms
@@ -115,8 +145,14 @@ def main() -> int:
     ap.add_argument("scenarios", nargs="+")
     ap.add_argument("--band", nargs=2, type=float, default=[2.60, 2.82])
     ap.add_argument("--json", default="")
+    ap.add_argument(
+        "--allow-cross-wave",
+        action="store_true",
+        help="grade arms against controls from other waves (the pre-E-055 behaviour; unsound)",
+    )
     args = ap.parse_args()
     lo, hi = args.band
+    allow_cross_wave = args.allow_cross_wave
 
     repo_root = pathlib.Path(__file__).resolve().parents[2]
 
@@ -191,10 +227,36 @@ def main() -> int:
 
         # Only controls in the SAME cache mode may serve as the baseline. Picking the closest one
         # rather than an average keeps the comparison to a single real measurement.
+        #
+        # Same MODE is necessary but not sufficient (E-055). A control launched in another wave
+        # carries a different cached prefix even when its total lands inside the 35% window, and the
+        # resulting delta is wrong by far more than the band is wide: `agent-memory` graded 3.73
+        # against a foreign-wave control and 2.70 against its own. Measured within one wave the
+        # method reproduces to 0.03%, so the wave requirement is what makes the band meaningful.
+        pool = (
+            controls
+            if allow_cross_wave
+            else [
+                c for c in controls if same_wave(c["launched_at"], arm["launched_at"])
+            ]
+        )
+        if not pool:
+            results.append(
+                {
+                    **arm,
+                    "rule": rule,
+                    "rule_bytes": size,
+                    "verdict": "UNPAIRED",
+                    "detail": (
+                        "no control launched in this arm's wave. Grading it against a foreign-wave "
+                        "control would report a number the data cannot support, and FAILED would "
+                        "assert the rule did not load -- which is not what an absent baseline means."
+                    ),
+                }
+            )
+            continue
         matched = [
-            c
-            for c in controls
-            if same_mode(c["first_msg_tokens"], arm["first_msg_tokens"])
+            c for c in pool if same_mode(c["first_msg_tokens"], arm["first_msg_tokens"])
         ]
         if not matched:
             # A proportional mode test cannot separate "ran at a different cache warmth" from
@@ -205,7 +267,7 @@ def main() -> int:
             # to the answer. Report the arm against EVERY control mode instead and mark it
             # ambiguous -- if the candidates disagree, the reader sees the disagreement.
             candidates = []
-            for c in controls:
+            for c in pool:
                 d = arm["first_msg_tokens"] - c["first_msg_tokens"]
                 b = (size / d) if d > 0 else 0.0
                 candidates.append(
@@ -258,6 +320,12 @@ def main() -> int:
         f"{'arm':<{width}}{'tokens':>9}{'base':>9}{'delta':>9}{'bytes':>10}{'B/tok':>8}  verdict"
     )
     for r in sorted(results, key=lambda r: r["arm"]):
+        if r["verdict"] == "UNPAIRED":
+            print(
+                f"{r['arm']:<{width}}{r['first_msg_tokens']:>9}{'-':>9}{'-':>9}"
+                f"{r['rule_bytes']:>10}{'-':>8}  UNPAIRED  {r['detail']}"
+            )
+            continue
         if r["verdict"] == "AMBIGUOUS":
             print(
                 f"{r['arm']:<{width}}{r['first_msg_tokens']:>9}{'?':>9}{'?':>9}"

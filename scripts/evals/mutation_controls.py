@@ -232,8 +232,14 @@ def control_meta_check() -> dict:
     }
 
 
-def _arm(root: pathlib.Path, name: str, mode: str, tokens: int) -> None:
-    d = root / f"{name}-20260101T000000Z"
+def _arm(
+    root: pathlib.Path,
+    name: str,
+    mode: str,
+    tokens: int,
+    stamp: str = "20260101T000000Z",
+) -> None:
+    d = root / f"{name}-{stamp}"
     d.mkdir(parents=True)
     (d / "run.json").write_text(json.dumps({"rules_mode": mode}), encoding="utf-8")
     (d / "session.jsonl").write_text(
@@ -300,6 +306,67 @@ def control_rule_load_proof() -> dict:
         entry["error"] = (
             f"expected {good.stem} PROVEN and {bad.stem} rejected; got "
             f"{verdicts.get(good.stem)} and {verdicts.get(bad.stem)}"
+        )
+    return entry
+
+
+def control_rule_load_proof_wave() -> dict:
+    """The same-wave requirement must be load-bearing, and must be the ONLY thing rejecting the arm.
+
+    E-055: a control from another wave carries a different cached prefix, so its delta is wrong by
+    far more than the band is wide -- `agent-memory` graded 3.73 against a foreign-wave control and
+    2.70 against its own. The guard added in response is worth nothing unless it actually fires, so
+    this plants an arm whose delta is squarely IN band and whose only defect is that its control
+    belongs to a different wave. Strictly it must be refused as UNPAIRED; with --allow-cross-wave
+    the same arm must prove. If both runs agree, the flag is decorative and the guard is not real.
+    """
+    rel = "scripts/evals/rule_load_proof.py"
+    entry: dict = {
+        "checker": rel,
+        "kind": "cross-wave baseline must be refused",
+        "detected": False,
+    }
+    rules = sorted((REPO / "rules").glob("*.md"))
+    if not rules:
+        entry["error"] = "need a real rule to size the synthetic arm"
+        return entry
+    rule = rules[0]
+    base = 20_000
+    in_band = base + round(rule.stat().st_size / 2.71)
+
+    def grade(extra: list[str]) -> str:
+        with tempfile.TemporaryDirectory() as td:
+            scen = pathlib.Path(td) / "SYNTH"
+            scen.mkdir()
+            # One hour apart: same cache mode, different wave. Mode matching alone would accept it.
+            _arm(scen, "control-norules", "none", base, stamp="20260101T000000Z")
+            _arm(
+                scen,
+                f"only-{rule.stem}",
+                f"only:{rule.stem}",
+                in_band,
+                stamp="20260101T010000Z",
+            )
+            out = pathlib.Path(td) / "proofs.json"
+            rc, _ = run(
+                [sys.executable, str(REPO / rel), str(scen), "--json", str(out), *extra]
+            )
+            if not out.is_file():
+                raise RuntimeError(f"rule_load_proof wrote no output (rc={rc})")
+            results = json.loads(out.read_text(encoding="utf-8"))
+        for r in results:
+            if r.get("rule") == rule.stem:
+                return str(r.get("verdict"))
+        return "MISSING"
+
+    strict = grade([])
+    relaxed = grade(["--allow-cross-wave"])
+    entry["verdicts"] = {"strict": strict, "allow_cross_wave": relaxed}
+    entry["detected"] = strict == "UNPAIRED" and relaxed == "PROVEN"
+    if not entry["detected"]:
+        entry["error"] = (
+            f"cross-wave guard is not load-bearing: strict={strict} (want UNPAIRED), "
+            f"allow-cross-wave={relaxed} (want PROVEN)"
         )
     return entry
 
@@ -883,6 +950,9 @@ def main() -> int:
         guarded(control_static_eval, "scripts/evals/static_eval.py"),
         guarded(control_meta_check, "scripts/evals/meta_check.py"),
         guarded(control_rule_load_proof, "scripts/evals/rule_load_proof.py"),
+        guarded(
+            control_rule_load_proof_wave, "scripts/evals/rule_load_proof.py [wave]"
+        ),
         guarded(control_stamp_provenance, "scripts/evals/stamp-coverage-provenance.py"),
         guarded(control_tier_b_reconcile, "scripts/evals/tier_b_reconcile.py"),
         guarded(control_tier_b_grader, "scripts/evals/tier_b_batches.py"),
