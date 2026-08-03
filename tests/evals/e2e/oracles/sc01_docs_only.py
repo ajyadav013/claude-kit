@@ -31,7 +31,31 @@ def sha(p: Path) -> str:
 
 def main() -> int:
     work = Path(sys.argv[1])
-    baseline = json.loads((work / ".scenario" / "baseline-hashes.json").read_text())
+    # A missing prerequisite used to raise, so the oracle exited with a traceback and NO verdict.
+    # A caller that reads only the exit code cannot tell that from a clean FAIL -- which is
+    # exactly how a crashed grader once got booked as a real result (E-024). Report it as a
+    # verdict instead, so "could not run" is visible in the same channel as every other answer.
+    hashes = work / ".scenario" / "baseline-hashes.json"
+    if not hashes.is_file():
+        print(
+            json.dumps(
+                {
+                    "oracle": "sc01_docs_only",
+                    "pass": False,
+                    "error": "prerequisite missing",
+                    "checks": [
+                        {
+                            "check": "prerequisites",
+                            "pass": False,
+                            "detail": f"{hashes} is absent; the oracle cannot grade this workspace",
+                        }
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 1
+    baseline = json.loads(hashes.read_text())
     checks: list[dict] = []
 
     def check(name: str, ok: bool, detail: str) -> None:

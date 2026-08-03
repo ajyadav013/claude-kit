@@ -313,7 +313,10 @@ def check_agent_fanout(comp, payload):
     data, err = frontmatter(payload / comp["path"])
     if err:
         return []  # the frontmatter check owns this
-    if "Agent" not in tool_list(data.get("tools")):
+    # An agent that declares no `tools:` key INHERITS every tool, `Agent` included. Reading the
+    # absent key as an empty tool list made this check exit early for exactly the agents whose
+    # fan-out authority is widest -- absent read as false, in the direction that produces silence.
+    if "tools" in data and "Agent" not in tool_list(data["tools"]):
         return []
     tier = str(data.get("tier") or "").strip()
     if tier in COORDINATING_TIERS:
@@ -1149,7 +1152,9 @@ def check_mcp_entry(comp, payload):
     if kind not in ("stdio", "http", "sse"):
         add("high", "transport", f"config.type {kind!r} is not a known MCP transport")
     if kind == "stdio":
-        if not config.get("command"):
+        if not config.get(
+            "command"
+        ):  # absent-ok: absent and empty both mean it cannot start
             add("high", "command", "a stdio server with no command cannot start")
         args = [str(a) for a in config.get("args") or []]
         if config.get("command") == "npx":
@@ -1167,7 +1172,9 @@ def check_mcp_entry(comp, payload):
                         "pinned version so a fresh upstream release cannot silently change what "
                         "runs on a user's machine",
                     )
-    elif kind in ("http", "sse") and not config.get("url"):
+    elif kind in ("http", "sse") and not config.get(
+        "url"
+    ):  # absent-ok: both = no connect
         add("high", "url", f"a {kind} server with no url cannot connect")
 
     for key, value in (config.get("env") or {}).items():
@@ -1862,7 +1869,10 @@ def check_manifest(comp, payload):
     for e in entries:
         if not isinstance(e, dict):
             continue
-        for key in ("name", "description"):
+        # `version` is required, not optional: the parity check below compares manifest versions
+        # against __init__.py, and an entry with no version was silently dropped from that
+        # comparison -- with every entry missing it, the whole check skipped and reported nothing.
+        for key in ("name", "description", "version"):
             if not str(e.get(key, "")).strip():
                 findings.append(
                     {
@@ -1874,7 +1884,8 @@ def check_manifest(comp, payload):
     versions = {
         str(e.get("version"))
         for e in entries
-        if isinstance(e, dict) and e.get("version")
+        if isinstance(e, dict)
+        and e.get("version")  # absent-ok: reported as a missing field
     }
     init = payload / "src/claude_kit/__init__.py"
     if versions and init.is_file():

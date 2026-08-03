@@ -68,6 +68,27 @@ def main() -> int:
     work = Path(sys.argv[1])
     scen = work / ".scenario"
     pristine = scen / "pristine"
+    # See sc01: a missing prerequisite must produce a verdict, not a traceback. An oracle that
+    # exits without a parseable answer is indistinguishable from one that answered FAIL.
+    if not pristine.is_dir():
+        print(
+            json.dumps(
+                {
+                    "oracle": "sc02_bug_fix",
+                    "pass": False,
+                    "error": "prerequisite missing",
+                    "checks": [
+                        {
+                            "check": "prerequisites",
+                            "pass": False,
+                            "detail": f"{pristine} absent; the oracle cannot grade this workspace",
+                        }
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return 1
     checks: list[dict] = []
 
     def check(name: str, ok: bool, detail: str) -> None:
