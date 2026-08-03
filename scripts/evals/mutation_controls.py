@@ -612,6 +612,57 @@ def control_tier_c_reach() -> dict:
     return entry
 
 
+def control_tier_a_cli() -> dict:
+    """The honesty check must be load-bearing: disable it and the known defect must flip to pass.
+
+    `init` is the one command of nineteen that crashes into a traceback on an absent prerequisite.
+    That makes it a natural control: if switching the traceback rule off does NOT change the
+    verdict, the rule is not what produced it and the finding is an artefact of the fixture.
+    """
+    entry = {
+        "checker": "scripts/evals/tier_a_cli.py",
+        "kind": "load-bearing check, 2 arms",
+    }
+    script = REPO / "scripts/evals/tier_a_cli.py"
+    env = dict(os.environ, PYTHONPATH=str(REPO / "src"))
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-tiera-") as t:
+        out = pathlib.Path(t) / "r.json"
+
+        def once(extra: list[str]) -> bool | None:
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--out",
+                    str(out),
+                    "--only",
+                    "init",
+                    *extra,
+                ],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=1800,
+                env=env,
+            )
+            if not out.is_file():
+                raise RuntimeError(f"no output: {proc.stderr.strip()[:120]}")
+            rows = json.loads(out.read_text(encoding="utf-8"))["rows"]
+            return rows[0]["arms"]["missing"]["ok"]
+
+        strict = once([])
+        relaxed = once(["--break-honesty"])
+
+    entry["detected"] = strict is False and relaxed is True
+    if not entry["detected"]:
+        entry["error"] = (
+            f"honesty check is not load-bearing: strict={strict} (want False), "
+            f"relaxed={relaxed} (want True)"
+        )
+    return entry
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -645,6 +696,7 @@ def main() -> int:
         guarded(control_tier_b_reconcile, "scripts/evals/tier_b_reconcile.py"),
         guarded(control_tier_b_grader, "scripts/evals/tier_b_batches.py"),
         guarded(control_tier_c_reach, "scripts/evals/tier_c_reach.py"),
+        guarded(control_tier_a_cli, "scripts/evals/tier_a_cli.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
