@@ -44,6 +44,7 @@ while [ $# -gt 0 ]; do
 	--agent) AGENT="${2:?}"; shift 2 ;;
 	--sdlc-task) SDLC_TASK="${2:?}"; shift 2 ;;
 	--keep-rules) KEEP_RULES=yes; shift ;;
+	--rules-ondemand) KEEP_RULES=ondemand; shift ;;
 	--fixture) FIXTURE="${2:?}"; shift 2 ;;
 	--out) OUT="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
@@ -111,8 +112,25 @@ AGENT_PRESENT=no
 [ -f "$WORK/.claude/agents/$AGENT.md" ] && AGENT_PRESENT=yes
 echo "### installed $AGENTS_INSTALLED agents; $AGENT present=$AGENT_PRESENT"
 
-RULE_BYTES="$(cat "$WORK"/.claude/rules/*.md 2>/dev/null | wc -c | tr -d ' ')"
-if [ "$KEEP_RULES" = yes ]; then
+RULE_BYTES="$( (cat "$WORK"/.claude/rules/*.md 2>/dev/null || true) | wc -c | tr -d ' ')"
+if [ "$KEEP_RULES" = ondemand ]; then
+	# The third cell F-041 needs. `full` kills the pipeline and `none` is not the product, so
+	# neither answers "would progressive disclosure fix it". Every rule keeps its canonical path
+	# and stays readable on request; it simply stops being force-fed at launch. Same lever as
+	# run-scenario.sh's ondemand arm, and a DEVIATION either way.
+	scoped=0
+	for rf in "$WORK"/.claude/rules/*.md; do
+		[ -f "$rf" ] || continue
+		head -n1 "$rf" | grep -q '^---$' && continue
+		{
+			printf -- '---\npaths:\n  - "**/__ck_eval_never_matches__/**"\n---\n\n'
+			cat "$rf"
+		} >"$rf.scoped" && mv "$rf.scoped" "$rf"
+		scoped=$((scoped + 1))
+	done
+	echo "### rules ON-DEMAND: scoped $scoped files, still readable at .claude/rules/"
+	RULE_BYTES=0
+elif [ "$KEEP_RULES" = yes ]; then
 	# The shipped-default arm E-014 says the run owes: if the session dies on prompt size, that is
 	# F-014 reproducing on the flagship workflow rather than a harness failure, and the result
 	# subtype in the record says which happened.
