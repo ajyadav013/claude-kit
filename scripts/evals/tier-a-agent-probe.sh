@@ -141,6 +141,36 @@ else
 	echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
 fi
 
+# A real test command, for pipeline mode only. Without one the pipeline halts at stage 0 -- it
+# cannot verify the baseline, so it correctly refuses to proceed, and every agent behind that gate
+# (ui-designer, observability-engineer, the reviewers) becomes unreachable for reasons that are
+# mine, not the product's (E-063). The execution-plane rule is not bent to fix it: the command
+# shells into the run's Docker wrapper, so the child runs the project's tests and the tests still
+# run in a container, with the usual evidence record.
+if [ -n "$SDLC_TASK" ]; then
+	RUN_DIR="$ROOT/.claude/state/full-self-evaluation"
+	RUN_ID="${EVAL_RUN_ID:-$( [ -f "$RUN_DIR/run-id.txt" ] && cat "$RUN_DIR/run-id.txt" || echo unknown )}"
+	if [ -f "$WORK/package.json" ] && [ ! -f "$WORK/pyproject.toml" ]; then
+		SERVICE=node; TEST_CMD="node --test test/"
+	else
+		SERVICE=python; TEST_CMD="env PYTHONPATH=/work/src python -m pytest -q -p no:cacheprovider"
+	fi
+	mkdir -p "$WORK/scripts"
+	cat >"$WORK/scripts/test.sh" <<EOF
+#!/usr/bin/env sh
+# The project's test command. Runs the suite inside a container; never on the host.
+export EVAL_COMPOSE_FILE="$ROOT/docker-compose.evals.yml"
+export EVAL_RUN_DIR="$RUN_DIR"
+export EVAL_RUN_ID="$RUN_ID"
+exec "$ROOT/scripts/evals/run-in-docker.sh" --echo --service "$SERVICE" \\
+	--label "sdlc-$ARM-projtest" --mount "$WORK:/work" --workdir /work --timeout 600 -- \\
+	$TEST_CMD
+EOF
+	chmod +x "$WORK/scripts/test.sh"
+	printf '\n## Commands\n\n- Test: `./scripts/test.sh` (runs the suite in a container)\n' >>"$WORK/CLAUDE.md"
+	echo "### project test command installed (delegates into Docker, service=$SERVICE)"
+fi
+
 # Baseline is committed AFTER scaffolding, so `git status` afterwards shows the AGENT's work and
 # nothing else. Committing before would have left the kit's own installed files looking like agent
 # edits -- which read-only reviewers are graded on NOT making, so every reviewer would have failed.
@@ -195,7 +225,9 @@ cat >"$CFG/settings.json" <<'JSON'
   "permissions": {
     "allow": ["Read", "Glob", "Grep", "Write", "Edit", "Agent", "Skill",
               "TaskCreate", "TaskList", "TaskUpdate", "TaskGet",
-              "Bash(ls:*)", "Bash(cat:*)", "Bash(pwd)", "Bash(git status:*)", "Bash(git diff:*)"],
+              "Bash(ls:*)", "Bash(cat:*)", "Bash(pwd)", "Bash(git status:*)", "Bash(git diff:*)",
+              "Bash(./scripts/test.sh)", "Bash(sh scripts/test.sh)", "Bash(bash scripts/test.sh)",
+              "Bash(scripts/test.sh)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"],
     "deny": ["Bash(rm:*)", "Bash(git push:*)", "WebFetch", "WebSearch"]
   }
 }
