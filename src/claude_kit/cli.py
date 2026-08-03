@@ -264,7 +264,16 @@ def init(
             ):
                 typer.echo("aborted.")
                 raise typer.Exit(0)
-            target.mkdir(parents=True, exist_ok=True)
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                # Every other command reports an unmet prerequisite and exits non-zero; this one
+                # let the OSError reach the user as a traceback, which is an uncaught exception
+                # rather than a safe stop.
+                typer.echo(
+                    f"error: cannot create {target} — {exc.strerror or exc}", err=True
+                )
+                raise typer.Exit(1) from exc
 
         # 2) Existing .claude handling: merge / overwrite / backup / abort.
         mode = "fresh"

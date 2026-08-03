@@ -231,7 +231,13 @@ def scan(paths: Iterable[Path], branch: Optional[str] = None) -> "dict[str, Tele
             if branch is not None and record_branch != branch:
                 continue
 
-            usage = record.get("message", {}).get("usage")
+            # `.get("message", {})` only guards the key being ABSENT, not its holding a non-mapping
+            # — a transcript line like {"message": 3} then raises AttributeError out of a reporting
+            # command. _iter_records already treats this file as untrusted; so does this.
+            message = record.get("message")
+            if not isinstance(message, dict):
+                message = {}
+            usage = message.get("usage")
             if not isinstance(usage, dict):
                 # Not a billed turn, but it may still name the agent that ran it. Only credit the
                 # branch the record itself states — transcripts interleave many branches and many
@@ -252,7 +258,7 @@ def scan(paths: Iterable[Path], branch: Optional[str] = None) -> "dict[str, Tele
             entry.cache_read += _as_int(usage.get("cache_read_input_tokens"))
             entry.cache_write += _as_int(usage.get("cache_creation_input_tokens"))
 
-            model = record.get("message", {}).get("model")
+            model = message.get("model")
             if (
                 isinstance(model, str)
                 and model

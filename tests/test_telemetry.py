@@ -386,3 +386,30 @@ def test_dir_matches_keeps_looking_past_transcripts_with_no_cwd(tmp_path):
     os.utime(speaking, (1, 1))
 
     assert telemetry._dir_matches(candidate, project.resolve())
+
+
+def test_scan_skips_records_whose_message_is_not_an_object(tmp_path):
+    """A non-mapping `message` must be skipped, not crash the scan (F-034).
+
+    `record.get("message", {})` guards the key being absent and not its holding the wrong type, so
+    a line like {"message": 3} used to raise AttributeError out of a read-only reporting command --
+    in a module whose contract for this file is to skip anything unreadable.
+    """
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"message": 3, "gitBranch": "feat/x"}),
+                json.dumps({"message": "a string", "gitBranch": "feat/x"}),
+                json.dumps({"message": [1, 2], "gitBranch": "feat/x"}),
+                json.dumps(_record("req-1", branch="feat/x")),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    by_branch = telemetry.scan([path])
+
+    # the one well-formed record still lands, and the three malformed ones are simply not counted
+    assert by_branch["feat/x"].requests == 1

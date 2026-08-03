@@ -58,3 +58,23 @@ def test_permission_modes_are_valid_kit_values(payload: Path) -> None:
                 f"{f}: permissionMode {fm['permissionMode']!r} is not one the kit assigns "
                 f"({sorted(_KIT_PERMISSION_MODES)})"
             )
+
+
+def test_auditor_is_read_only_by_allowlist_not_by_discipline(payload):
+    """The auditor must not hold Write/Edit/Agent (F-023).
+
+    It used to omit `tools:` entirely -- inheriting the full toolset -- on the stated grounds that
+    an explicit list would exclude its Chrome DevTools MCP tools. That premise is false: the
+    subagent frontmatter accepts server-level MCP patterns, so `mcp__chrome-devtools` grants the
+    whole server while still excluding the write and spawn tools its own description disclaims.
+    """
+    text = (payload / "agents" / "auditor.md").read_text(encoding="utf-8")
+    front = text.split("---", 2)[1]
+    line = next(
+        (ln for ln in front.splitlines() if ln.startswith("tools:")),
+        "",
+    )
+    assert line, "auditor.md must declare an explicit tools allowlist"
+    granted = {t.strip() for t in line.split(":", 1)[1].split(",")}
+    assert "mcp__chrome-devtools" in granted, "the MCP server grant must survive"
+    assert not (granted & {"Write", "Edit", "Agent", "Task", "NotebookEdit"})

@@ -798,3 +798,22 @@ def test_privacy_report_lookalike_command_listed_for_review(tmp_path):
     assert (
         "learnings index" not in result.stdout
     )  # the real hook's note was NOT attached
+
+
+def test_init_reports_an_uncreatable_target_instead_of_crashing(tmp_path):
+    """An unmet prerequisite must be a reported failure, not a traceback (F-031).
+
+    Every other command in the suite says what is missing and exits non-zero -- `status` reports
+    'not installed', `pipeline abort` reports 'nothing to abort'. `init` alone let the OSError from
+    mkdir reach the user, which is an uncaught exception rather than a safe stop.
+    """
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    blocked.chmod(0o500)  # readable and traversable, but not writable
+    try:
+        result = runner.invoke(app, ["init", str(blocked / "child"), "--defaults"])
+        assert result.exit_code != 0
+        assert "cannot create" in result.output
+        assert "Traceback" not in result.output
+    finally:
+        blocked.chmod(0o700)
