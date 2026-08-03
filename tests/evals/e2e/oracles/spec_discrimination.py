@@ -57,6 +57,23 @@ def behaves(work: str, code: str) -> bool:
     return r.returncode == 0
 
 
+def survives_pristine(work: str, fixture: str, node: str) -> bool:
+    """Run one pristine fixture test against a workspace; True if it still passes there."""
+    tmp = tempfile.mkdtemp()
+    pristine = os.path.join(tmp, "t")
+    shutil.copytree(FIXTURES / fixture / "tests", pristine)
+    env = dict(os.environ, PYTHONPATH=os.path.join(work, "src"), PYTHONDONTWRITEBYTECODE="1")
+    r = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", os.path.join(pristine, node)],
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    return r.returncode == 0
+
+
 def main() -> int:
     if not pathlib.Path("/.dockerenv").exists():
         print("refusing to run fixture code outside Docker", file=sys.stderr)
@@ -125,6 +142,19 @@ def main() -> int:
                 f"{'pass' if on_base else 'FAIL':9} {'pass' if on_solved else 'FAIL':7} "
                 f"{alt_cell:5} {'ok' if ok else 'VIOLATION: ' + why}"
             )
+
+        # An exclusion is only legitimate if the excluded test genuinely conflicts with a correct
+        # solution. If it would have passed anyway, the spec is carrying a hole it does not need,
+        # and holes are how a suite quietly stops testing things.
+        for exc in spec.get("pristine_suite_excludes", []):
+            if not exc.get("reason"):
+                violations.append(f"{sid}: exclusion {exc.get('test')!r} has no reason")
+            conflicts = not survives_pristine(solved, spec["fixture"], exc["test"])
+            if not conflicts:
+                violations.append(
+                    f"{sid}: exclusion {exc['test']!r} is unjustified -- that test passes on the solution"
+                )
+            print(f"{sid:8} exclusion {exc['test'][:52]:52} {'load-bearing' if conflicts else 'UNJUSTIFIED'}")
 
     print()
     if unprotected:

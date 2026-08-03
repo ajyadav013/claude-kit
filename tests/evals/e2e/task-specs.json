@@ -76,6 +76,36 @@
     "must_not_change": ["migrations/0001_create_orders.sql"]
   },
 
+  "SC-14": {
+    "label": "scalability bottleneck",
+    "fixture": "dbservice",
+    "task": "Order totals are fetched with one query per customer, which does not scale. Fix the bottleneck.",
+    "must_not_change": ["migrations/0001_create_orders.sql"],
+    "pristine_suite_excludes": [
+      {
+        "test": "test_store.py::test_totals_cover_every_requested_customer",
+        "reason": "asserts len(customer_order_totals([1,2,3])) == 3, which pins the N+1 this scenario asks the session to remove; it cannot be rewritten to assert intent because SC-22's correct answer removes customer ids from the SQL that such a rewrite would require"
+      }
+    ],
+    "behaviours": [
+      {
+        "name": "totals_batched_into_single_statement",
+        "kind": "discriminator",
+        "code": "import store\n\n\ndef _stmts(r):\n    if isinstance(r, str):\n        return [p for p in r.split(';') if p.strip()]\n    if isinstance(r, dict):\n        q = r.get('sql') or r.get('query') or r.get('statement')\n        assert isinstance(q, str), 'dict result lacks sql/query/statement: %r' % (r,)\n        return [p for p in q.split(';') if p.strip()]\n    if hasattr(r, '__iter__'):\n        items = list(r)\n        if len(items) == 2 and isinstance(items[0], str) and not isinstance(items[1], str):\n            return [p for p in items[0].split(';') if p.strip()]\n        out = []\n        for it in items:\n            out.extend(_stmts(it))\n        return out\n    raise AssertionError('unrecognized result type from customer_order_totals: %r' % (type(r),))\n\n\nids = [4181, 6765, 10946]\nres = store.customer_order_totals(ids)\nstmts = _stmts(res)\nassert len(stmts) >= 1, 'no SQL statement produced for %r' % (ids,)\nassert len(stmts) < len(ids), 'still per-customer querying: %d statements for %d customers' % (len(stmts), len(ids))\njoined = ' '.join(stmts).lower()\nassert 'orders' in joined, 'batched statement does not read the orders table'\nblob = repr(res)\nfor cid in ids:\n    assert str(cid) in blob, 'customer id %d not covered by the batched query' % cid\n"
+      },
+      {
+        "name": "statement_count_flat_as_customers_grow",
+        "kind": "discriminator",
+        "code": "import store\n\n\ndef _stmts(r):\n    if isinstance(r, str):\n        return [p for p in r.split(';') if p.strip()]\n    if isinstance(r, dict):\n        q = r.get('sql') or r.get('query') or r.get('statement')\n        assert isinstance(q, str), 'dict result lacks sql/query/statement: %r' % (r,)\n        return [p for p in q.split(';') if p.strip()]\n    if hasattr(r, '__iter__'):\n        items = list(r)\n        if len(items) == 2 and isinstance(items[0], str) and not isinstance(items[1], str):\n            return [p for p in items[0].split(';') if p.strip()]\n        out = []\n        for it in items:\n            out.extend(_stmts(it))\n        return out\n    raise AssertionError('unrecognized result type from customer_order_totals: %r' % (type(r),))\n\n\none = _stmts(store.customer_order_totals([149]))\nmany_ids = [149, 151, 157, 163, 167, 173, 179]\nres = store.customer_order_totals(many_ids)\nmany = _stmts(res)\nassert len(one) >= 1 and len(many) >= 1, 'no SQL statement produced'\nassert len(many) == len(one), 'statement count grows with customer count: %d for 1 customer vs %d for 7' % (len(one), len(many))\nblob = repr(res)\nfor cid in many_ids:\n    assert str(cid) in blob, 'customer id %d missing from the batched query' % cid\n"
+      },
+      {
+        "name": "helper_queries_and_public_api_intact",
+        "kind": "guard",
+        "code": "import store\n\nfor name in ('orders_for_customer', 'customer_order_totals', 'recent_orders_by_status'):\n    assert callable(getattr(store, name, None)), 'public function %s was removed or is not callable' % name\nq = store.orders_for_customer(7)\nassert isinstance(q, str), 'orders_for_customer no longer returns SQL text'\nassert 'orders' in q.lower(), 'orders_for_customer no longer targets the orders table'\nassert '7' in q, 'orders_for_customer ignores the requested customer id'\nblob = repr(store.recent_orders_by_status('paid')).lower()\nassert 'orders' in blob, 'recent_orders_by_status no longer targets the orders table'\nassert 'placed_at' in blob, 'recent_orders_by_status no longer sorts by placed_at'\n"
+      }
+    ]
+  },
+
   "SC-11": {
     "label": "MongoDB schema change",
     "fixture": "docstore",
@@ -92,6 +122,94 @@
         "code": "import docstore\nassert docstore is not None"
       }
     ]
+  },
+
+  "SC-16": {
+    "label": "reliability and retry problem",
+    "fixture": "pyservice",
+    "task": "Reliability: this library is about to be used against a flaky external operation, and there is no retry support. Create a new module `src/retry.py` (importable as `retry`, matching how `calc` is imported) exposing exactly this public function:\n\n    call_with_retry(fn, *, attempts=3, base_delay=0.1, retry_on=(ConnectionError, TimeoutError), sleep=time.sleep)\n\nContract -- implement it exactly as written; grading is deterministic:\n1. `fn` is a zero-argument callable. Call it as `fn()` and return its return value. A successful call returns immediately and is NEVER retried, and `sleep` is not called.\n2. `attempts` is the TOTAL number of times `fn` may be called (the first call counts as attempt 1); you may assume attempts >= 1. All four options are keyword-only with exactly the defaults shown, so `call_with_retry(some_fn)` must work.\n3. An exception is retryable if and only if `isinstance(exc, retry_on)` -- subclasses of the listed types are retried too. Any other exception propagates immediately, unchanged: no further calls to `fn`, no call to `sleep`.\n4. Exponential backoff, no jitter, no randomness: before retry number k (k = 1, 2, ...) call the injected `sleep` exactly once with `base_delay * 2 ** (k - 1)` -- i.e. delays of base_delay, 2*base_delay, 4*base_delay, ... Never sleep after a success and never sleep after the final failed attempt (attempts calls => at most attempts - 1 sleeps).\n5. If all `attempts` calls raise retryable exceptions, re-raise the LAST exception -- the same exception object from the final attempt (e.g. bare `raise`), never a new or wrapped exception.\n6. `sleep` MUST remain an injectable keyword parameter (defaulting to `time.sleep`) so tests can pass a fake that records delays instead of sleeping. Inside the helper, only ever call the injected `sleep`; never call `time.sleep` directly and never use wall-clock time or randomness.\n\nAlso add unit tests in `tests/test_retry.py` that inject a fake sleep which records delays into a list (the tests must never actually sleep), covering at least: first-try success (one call, no sleeps), success after retries with the exact backoff delays, exhausting attempts re-raising the last error, and a non-retryable exception propagating immediately. Do not modify `src/calc.py` or the existing tests.",
+    "behaviours": [
+      {
+        "name": "first_try_success_one_call_no_sleep",
+        "kind": "discriminator",
+        "code": "from retry import call_with_retry\ncalls = []\ndelays = []\ndef op():\n    calls.append(1)\n    return 'ok'\nout = call_with_retry(op, attempts=5, base_delay=0.5, retry_on=(ConnectionError,), sleep=delays.append)\nassert out == 'ok', out\nassert calls == [1], calls\nassert delays == [], delays\nassert call_with_retry(lambda: 42) == 42\n"
+      },
+      {
+        "name": "third_attempt_success_three_calls_two_sleeps",
+        "kind": "discriminator",
+        "code": "from retry import call_with_retry\ndelays = []\nstate = {'n': 0}\ndef op():\n    state['n'] += 1\n    if state['n'] < 3:\n        raise ConnectionResetError('reset %d' % state['n'])\n    return state['n']\nresult = call_with_retry(op, attempts=5, base_delay=0.25, retry_on=(ConnectionError,), sleep=delays.append)\nassert result == 3, result\nassert state['n'] == 3, state\nassert delays == [0.25, 0.5], delays\n"
+      },
+      {
+        "name": "exhaustion_reraises_last_error_after_exact_attempts",
+        "kind": "discriminator",
+        "code": "from retry import call_with_retry\ndelays = []\nerrors = []\ndef op():\n    e = TimeoutError('t%d' % (len(errors) + 1))\n    errors.append(e)\n    raise e\ntry:\n    call_with_retry(op, attempts=4, base_delay=0.5, retry_on=(TimeoutError,), sleep=delays.append)\nexcept TimeoutError as caught:\n    assert caught is errors[-1], 'must re-raise the exact LAST exception object'\nelse:\n    raise AssertionError('expected TimeoutError after exhausting attempts')\nassert len(errors) == 4, errors\nassert len(delays) == 3, delays\n"
+      },
+      {
+        "name": "non_retryable_propagates_immediately",
+        "kind": "discriminator",
+        "code": "from retry import call_with_retry\ncalls = []\ndelays = []\nclass Bug(RuntimeError):\n    pass\ndef op():\n    calls.append(1)\n    raise Bug('logic error, not an outage')\ntry:\n    call_with_retry(op, attempts=5, base_delay=0.5, retry_on=(ConnectionError, TimeoutError), sleep=delays.append)\nexcept Bug:\n    pass\nelse:\n    raise AssertionError('non-retryable exception must propagate')\nassert calls == [1], calls\nassert delays == [], delays\n"
+      },
+      {
+        "name": "backoff_delays_are_exponential_and_scale_with_base",
+        "kind": "discriminator",
+        "code": "from retry import call_with_retry\ndelays = []\ndef op():\n    raise ConnectionError('still down')\ntry:\n    call_with_retry(op, attempts=6, base_delay=0.25, retry_on=(ConnectionError,), sleep=delays.append)\nexcept ConnectionError:\n    pass\nelse:\n    raise AssertionError('expected ConnectionError')\nassert delays == [0.25, 0.5, 1.0, 2.0, 4.0], delays\ndelays2 = []\ntry:\n    call_with_retry(op, attempts=4, base_delay=0.75, retry_on=(ConnectionError,), sleep=delays2.append)\nexcept ConnectionError:\n    pass\nelse:\n    raise AssertionError('expected ConnectionError')\nassert delays2 == [0.75, 1.5, 3.0], delays2\n"
+      },
+      {
+        "name": "existing_calc_api_intact",
+        "kind": "guard",
+        "code": "from calc import add, subtract\nassert add(2, 3) == 5 and subtract(5, 2) == 3\n"
+      }
+    ],
+    "min_new_tests": 2
+  },
+
+  "SK-04": {
+    "label": "paginated filterable API surface",
+    "fixture": "pyservice",
+    "task": "Add a paginated, filterable, sortable listing API over an in-memory collection of record dicts. Create a new module at src/records_api.py (importable as `records_api`). Pure Python only: no web framework, no HTTP server, no I/O -- this is a query layer over a list passed in by the caller. The public function must be exactly: list_records(records, *, filters=None, sort_by=None, sort_dir='asc', page=1, limit=10). `records` is a list of record dicts; a record has exactly the four fields 'id' (int), 'name' (str), 'category' (str), 'priority' (int), all always present and non-None, e.g. {'id': 1, 'name': 'mango', 'category': 'tools', 'priority': 3}. A canonical sample dataset (use it in your unit tests; the grader passes its own conforming lists directly to the function) is: ids 1..12 with (name, category, priority) = (mango, tools, 3), (apple, toys, 1), (peach, tools, 2), (banana, food, 3), (cherry, toys, 2), (grape, food, 1), (lemon, tools, 1), (fig, food, 2), (olive, toys, 3), (date, tools, 2), (kiwi, food, 1), (plum, toys, 2). Semantics, applied strictly in this order: filter, then sort, then paginate. (1) FILTER: `filters` is None or a dict mapping field name -> required value; a record matches only if every listed field compares equal (==) to its value (multiple entries AND together). None or {} means no filtering. A filter KEY that is not one of the four record fields raises ValueError; a value that merely matches no records is NOT an error and yields an empty result. (2) SORT: `sort_by` is None (preserve the input order of `records`) or one of the four field names; any other value raises ValueError. `sort_dir` must be 'asc' or 'desc' and is validated even when sort_by is None; anything else raises ValueError. Sorting must be STABLE in both directions: records whose sort field compares equal keep their relative order from the input (for 'desc' that means a stable descending sort, not a reversed ascending list). (3) PAGINATE: `page` is 1-based and `limit` is the page size; page < 1 or limit < 1 raises ValueError (so limit=0 is an error). A page past the end of the filtered result is NOT an error: it returns an empty items list with the normal envelope. (4) ENVELOPE: return a dict with exactly these five keys and no others: 'items' (list of the record dicts for the requested page), 'total' (int: number of records after filtering, before pagination), 'page' (int: the requested page, echoed), 'limit' (int: the requested limit, echoed), 'has_next' (bool: True iff page * limit < total). All validation errors are raised as ValueError before any envelope is returned. The function must not mutate the `records` list it is given. Also add unit tests for the new module under tests/.",
+    "behaviours": [
+      {
+        "name": "envelope_shape_and_defaults",
+        "kind": "discriminator",
+        "code": "from records_api import list_records\ndef R(i, n, c, p): return {'id': i, 'name': n, 'category': c, 'priority': p}\nDATA = [R(1, 'mango', 'tools', 3), R(2, 'apple', 'toys', 1), R(3, 'peach', 'tools', 2), R(4, 'banana', 'food', 3), R(5, 'cherry', 'toys', 2), R(6, 'grape', 'food', 1), R(7, 'lemon', 'tools', 1), R(8, 'fig', 'food', 2), R(9, 'olive', 'toys', 3), R(10, 'date', 'tools', 2), R(11, 'kiwi', 'food', 1), R(12, 'plum', 'toys', 2)]\ndef ids(res): return [r['id'] for r in res['items']]\nres = list_records(DATA)\nassert set(res.keys()) == {'items', 'total', 'page', 'limit', 'has_next'}, sorted(res.keys())\nassert res['total'] == 12 and res['page'] == 1 and res['limit'] == 10\nassert res['has_next'] is True\nassert ids(res) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\nassert res['items'][0] == {'id': 1, 'name': 'mango', 'category': 'tools', 'priority': 3}\nempty = list_records([])\nassert empty == {'items': [], 'total': 0, 'page': 1, 'limit': 10, 'has_next': False}\n"
+      },
+      {
+        "name": "pagination_boundaries",
+        "kind": "discriminator",
+        "code": "from records_api import list_records\ndef R(i, n, c, p): return {'id': i, 'name': n, 'category': c, 'priority': p}\nDATA = [R(1, 'mango', 'tools', 3), R(2, 'apple', 'toys', 1), R(3, 'peach', 'tools', 2), R(4, 'banana', 'food', 3), R(5, 'cherry', 'toys', 2), R(6, 'grape', 'food', 1), R(7, 'lemon', 'tools', 1), R(8, 'fig', 'food', 2), R(9, 'olive', 'toys', 3), R(10, 'date', 'tools', 2), R(11, 'kiwi', 'food', 1), R(12, 'plum', 'toys', 2)]\ndef ids(res): return [r['id'] for r in res['items']]\np2 = list_records(DATA, page=2, limit=10)\nassert ids(p2) == [11, 12] and p2['total'] == 12 and p2['has_next'] is False\nassert ids(list_records(DATA, page=3, limit=5)) == [11, 12]\nh1 = list_records(DATA, page=1, limit=6)\nh2 = list_records(DATA, page=2, limit=6)\nassert h1['has_next'] is True and ids(h1) == [1, 2, 3, 4, 5, 6]\nassert h2['has_next'] is False and ids(h2) == [7, 8, 9, 10, 11, 12]\none = list_records(DATA, page=12, limit=1)\nassert ids(one) == [12] and one['has_next'] is False\nbig = list_records(DATA, page=1, limit=50)\nassert ids(big) == list(range(1, 13)) and big['total'] == 12 and big['has_next'] is False\n"
+      },
+      {
+        "name": "out_of_range_page_is_empty_not_error",
+        "kind": "discriminator",
+        "code": "from records_api import list_records\ndef R(i, n, c, p): return {'id': i, 'name': n, 'category': c, 'priority': p}\nDATA = [R(1, 'mango', 'tools', 3), R(2, 'apple', 'toys', 1), R(3, 'peach', 'tools', 2), R(4, 'banana', 'food', 3), R(5, 'cherry', 'toys', 2), R(6, 'grape', 'food', 1), R(7, 'lemon', 'tools', 1), R(8, 'fig', 'food', 2), R(9, 'olive', 'toys', 3), R(10, 'date', 'tools', 2), R(11, 'kiwi', 'food', 1), R(12, 'plum', 'toys', 2)]\nres = list_records(DATA, page=99, limit=10)\nassert res == {'items': [], 'total': 12, 'page': 99, 'limit': 10, 'has_next': False}\nfirst_past = list_records(DATA, page=3, limit=6)\nassert first_past['items'] == [] and first_past['total'] == 12 and first_past['has_next'] is False\nonempty = list_records([], page=7, limit=3)\nassert onempty == {'items': [], 'total': 0, 'page': 7, 'limit': 3, 'has_next': False}\n"
+      },
+      {
+        "name": "filter_semantics",
+        "kind": "discriminator",
+        "code": "from records_api import list_records\ndef R(i, n, c, p): return {'id': i, 'name': n, 'category': c, 'priority': p}\nDATA = [R(1, 'mango', 'tools', 3), R(2, 'apple', 'toys', 1), R(3, 'peach', 'tools', 2), R(4, 'banana', 'food', 3), R(5, 'cherry', 'toys', 2), R(6, 'grape', 'food', 1), R(7, 'lemon', 'tools', 1), R(8, 'fig', 'food', 2), R(9, 'olive', 'toys', 3), R(10, 'date', 'tools', 2), R(11, 'kiwi', 'food', 1), R(12, 'plum', 'toys', 2)]\ndef ids(res): return [r['id'] for r in res['items']]\nt = list_records(DATA, filters={'category': 'tools'})\nassert ids(t) == [1, 3, 7, 10] and t['total'] == 4 and t['has_next'] is False\nboth = list_records(DATA, filters={'category': 'toys', 'priority': 2})\nassert ids(both) == [5, 12] and both['total'] == 2\nnothing = list_records(DATA, filters={'category': 'missing'})\nassert nothing['items'] == [] and nothing['total'] == 0 and nothing['has_next'] is False\nunfiltered = list_records(DATA, filters={})\nassert unfiltered['total'] == 12 and ids(unfiltered) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]\nbyid = list_records(DATA, filters={'id': 8})\nassert ids(byid) == [8] and byid['total'] == 1\n"
+      },
+      {
+        "name": "sort_semantics_stable_both_directions",
+        "kind": "discriminator",
+        "code": "from records_api import list_records\ndef R(i, n, c, p): return {'id': i, 'name': n, 'category': c, 'priority': p}\nDATA = [R(1, 'mango', 'tools', 3), R(2, 'apple', 'toys', 1), R(3, 'peach', 'tools', 2), R(4, 'banana', 'food', 3), R(5, 'cherry', 'toys', 2), R(6, 'grape', 'food', 1), R(7, 'lemon', 'tools', 1), R(8, 'fig', 'food', 2), R(9, 'olive', 'toys', 3), R(10, 'date', 'tools', 2), R(11, 'kiwi', 'food', 1), R(12, 'plum', 'toys', 2)]\ndef ids(res): return [r['id'] for r in res['items']]\nname_asc = list_records(DATA, sort_by='name', limit=12)\nassert ids(name_asc) == [2, 4, 5, 10, 8, 6, 11, 7, 1, 9, 3, 12]\nname_desc = list_records(DATA, sort_by='name', sort_dir='desc', limit=12)\nassert ids(name_desc) == [12, 3, 9, 1, 7, 11, 6, 8, 10, 5, 4, 2]\nstable_asc = list_records(DATA, sort_by='priority', limit=12)\nassert ids(stable_asc) == [2, 6, 7, 11, 3, 5, 8, 10, 12, 1, 4, 9], 'asc not stable'\nstable_desc = list_records(DATA, sort_by='priority', sort_dir='desc', limit=12)\nassert ids(stable_desc) == [1, 4, 9, 3, 5, 8, 10, 12, 2, 6, 7, 11], 'desc must be a stable descending sort, not reversed asc'\ncombo = list_records(DATA, filters={'category': 'tools'}, sort_by='priority', page=1, limit=2)\nassert ids(combo) == [7, 3] and combo['total'] == 4 and combo['has_next'] is True\ncombo2 = list_records(DATA, filters={'category': 'tools'}, sort_by='priority', page=2, limit=2)\nassert ids(combo2) == [10, 1] and combo2['has_next'] is False\n"
+      },
+      {
+        "name": "invalid_inputs_raise_value_error",
+        "kind": "discriminator",
+        "code": "from records_api import list_records\ndef R(i, n, c, p): return {'id': i, 'name': n, 'category': c, 'priority': p}\nDATA = [R(1, 'mango', 'tools', 3), R(2, 'apple', 'toys', 1), R(3, 'peach', 'tools', 2)]\ndef raises_value_error(**kw):\n    try:\n        list_records(DATA, **kw)\n    except ValueError:\n        return True\n    except Exception:\n        return False\n    return False\nassert raises_value_error(filters={'color': 'red'}), 'unknown filter field must raise ValueError'\nassert raises_value_error(sort_by='color'), 'unknown sort field must raise ValueError'\nassert raises_value_error(sort_dir='up'), 'bad sort_dir must raise ValueError even without sort_by'\nassert raises_value_error(sort_by='name', sort_dir='DESC'), 'sort_dir is case-sensitive'\nassert raises_value_error(page=0), 'page=0 must raise ValueError'\nassert raises_value_error(page=-2), 'negative page must raise ValueError'\nassert raises_value_error(limit=0), 'limit=0 must raise ValueError'\nassert raises_value_error(limit=-5), 'negative limit must raise ValueError'\n"
+      },
+      {
+        "name": "input_list_not_mutated",
+        "kind": "discriminator",
+        "code": "import copy\nfrom records_api import list_records\ndef R(i, n, c, p): return {'id': i, 'name': n, 'category': c, 'priority': p}\nDATA = [R(1, 'mango', 'tools', 3), R(2, 'apple', 'toys', 1), R(3, 'peach', 'tools', 2), R(4, 'banana', 'food', 3), R(5, 'cherry', 'toys', 2), R(6, 'grape', 'food', 1), R(7, 'lemon', 'tools', 1), R(8, 'fig', 'food', 2), R(9, 'olive', 'toys', 3), R(10, 'date', 'tools', 2), R(11, 'kiwi', 'food', 1), R(12, 'plum', 'toys', 2)]\nsnapshot = copy.deepcopy(DATA)\nlist_records(DATA, filters={'category': 'food'}, sort_by='name', sort_dir='desc', page=1, limit=2)\nlist_records(DATA, sort_by='priority', sort_dir='desc')\nassert DATA == snapshot, 'list_records must not mutate the records list it is given'\n"
+      },
+      {
+        "name": "existing_calc_api_intact",
+        "kind": "guard",
+        "code": "from calc import add, subtract\nassert add(2, 3) == 5 and subtract(5, 3) == 2\n"
+      }
+    ],
+    "min_new_tests": 3
   },
 
   "SC-24": {

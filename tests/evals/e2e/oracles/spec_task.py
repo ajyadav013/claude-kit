@@ -62,10 +62,18 @@ def run_py(work: Path, code: str, timeout: int = 120) -> subprocess.CompletedPro
     )
 
 
-def pytest_on(work: Path, target: Path) -> subprocess.CompletedProcess[str]:
+def pytest_on(
+    work: Path, target: Path, deselect: list[str] | None = None
+) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ, PYTHONPATH=str(work / "src"), PYTHONDONTWRITEBYTECODE="1")
+    # Address the target relative to cwd: pytest matches --deselect against collected node ids,
+    # which are rootdir-relative, so an absolute path silently deselects nothing.
+    rel = target.relative_to(work) if target.is_relative_to(work) else target
+    args = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(rel)]
+    for node in deselect or []:
+        args += ["--deselect", f"{rel}/{node}"]
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(target)],
+        args,
         cwd=work,
         env=env,
         capture_output=True,
@@ -99,17 +107,29 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
         )
 
     # 2. The visible suite, re-run from a PRISTINE copy so workspace test edits cannot help.
+    #
+    #    A fixture test can pin the very defect a scenario asks the session to remove -- dbservice's
+    #    totals test asserts one statement per customer, which IS the N+1 that SC-14 must fix. Such a
+    #    test cannot simply be rewritten, because the same fixture serves scenarios whose correct
+    #    answers contradict each other (SC-22 removes customer ids from the SQL; SC-14 requires them
+    #    covered). So a spec may deselect a named test, but must say why, and spec_discrimination.py
+    #    refuses any exclusion that is not load-bearing -- an exclusion whose test would have passed
+    #    anyway is an unjustified hole, not a documented one.
+    excludes = spec.get("pristine_suite_excludes", [])
     if (fixture / "tests").is_dir():
         pristine = work / ".__pristine_tests"
         if pristine.exists():
             shutil.rmtree(pristine)
         shutil.copytree(fixture / "tests", pristine)
-        r = pytest_on(work, pristine)
+        r = pytest_on(work, pristine, [e["test"] for e in excludes])
+        detail = (r.stdout or "")[-300:]
+        if excludes:
+            detail += " | deselected: " + "; ".join(f"{e['test']} ({e['reason']})" for e in excludes)
         checks.append(
             {
                 "check": "pristine_suite_passes",
                 "pass": r.returncode == 0,
-                "detail": (r.stdout or "")[-300:],
+                "detail": detail,
             }
         )
         shutil.rmtree(pristine, ignore_errors=True)
