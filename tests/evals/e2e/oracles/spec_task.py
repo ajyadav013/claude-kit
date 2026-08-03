@@ -125,11 +125,19 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
         detail = (r.stdout or "")[-300:]
         if excludes:
             detail += " | deselected: " + "; ".join(f"{e['test']} ({e['reason']})" for e in excludes)
+        # pytest exits 5 when it collects nothing. A scenario that rewrites every public signature
+        # (SC-13) legitimately deselects the whole fixture suite, and failing the solution for that
+        # would be failing it for the wrong reason -- but silently passing would hide that this
+        # check contributed no regression signal at all. So: not a failure, and never silent.
+        vacuous = r.returncode == 5 and bool(excludes)
         checks.append(
             {
                 "check": "pristine_suite_passes",
-                "pass": r.returncode == 0,
-                "detail": detail,
+                "pass": r.returncode == 0 or vacuous,
+                "vacuous": vacuous,
+                "detail": ("VACUOUS -- every pristine test deselected; this check proved nothing. " + detail)
+                if vacuous
+                else detail,
             }
         )
         shutil.rmtree(pristine, ignore_errors=True)

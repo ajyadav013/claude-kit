@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -55,6 +56,18 @@ def behaves(work: str, code: str) -> bool:
         [sys.executable, "-c", code], cwd=work, env=env, capture_output=True, text=True, timeout=120
     )
     return r.returncode == 0
+
+
+def collect_pristine_nodes(fixture: str) -> set[str]:
+    """Every `file.py::test_name` node id in a fixture's own test suite."""
+    nodes: set[str] = set()
+    tests = FIXTURES / fixture / "tests"
+    if not tests.is_dir():
+        return nodes
+    for f in tests.rglob("test_*.py"):
+        for name in re.findall(r"^def (test_\w+)", f.read_text(errors="replace"), re.M):
+            nodes.add(f"{f.relative_to(tests)}::{name}")
+    return nodes
 
 
 def survives_pristine(work: str, fixture: str, node: str) -> bool:
@@ -92,6 +105,7 @@ def main() -> int:
     print("-" * 98)
 
     unprotected: list[str] = []
+    fully_excluded: list[str] = []
 
     for sid, spec in specs.items():
         if sid.startswith("_"):
@@ -156,7 +170,20 @@ def main() -> int:
                 )
             print(f"{sid:8} exclusion {exc['test'][:52]:52} {'load-bearing' if conflicts else 'UNJUSTIFIED'}")
 
+        # Excluding the entire fixture suite is legitimate for a scenario that rewrites every
+        # public signature, but it means the pristine-suite check contributes nothing for that
+        # scenario. Say so here, at lock time, rather than only in a per-run detail string.
+        excluded = {e["test"] for e in spec.get("pristine_suite_excludes", [])}
+        if excluded:
+            fixture_tests = collect_pristine_nodes(spec["fixture"])
+            if fixture_tests and excluded >= fixture_tests:
+                fully_excluded.append(sid)
+
     print()
+    if fully_excluded:
+        print(f"PRISTINE SUITE FULLY EXCLUDED ({len(fully_excluded)}) -- that check proves nothing for:")
+        print(f"  {', '.join(fully_excluded)}")
+        print()
     if unprotected:
         print(f"NO ANTI-OVERFIT CONTROL ({len(unprotected)}) -- no solutions/<id>__alt/ reference:")
         print(f"  {', '.join(unprotected)}")

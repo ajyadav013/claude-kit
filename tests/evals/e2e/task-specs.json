@@ -163,6 +163,162 @@
     "min_new_tests": 2
   },
 
+  "SC-06": {
+    "label": "complex business-logic feature",
+    "fixture": "pyservice",
+    "task": "Implement a tiered order-pricing engine for this project.\n\nCreate a new module `billing` at src/billing.py (importable as `import billing`) exposing exactly this public function:\n\n    price_order(quantity, unit_price_cents, tier=\"standard\", promo_code=None) -> dict\n\nAll monetary amounts are integer cents everywhere (inputs and outputs). quantity and unit_price_cents are ints; tier is a string; promo_code is None or a string.\n\nROUNDING RULE (used wherever a rule below says \"rounded\"): round to the nearest whole cent, with exact halves (.5) rounding UP (away from zero; every amount in this engine is >= 0). Python's built-in round() is banker's rounding and produces WRONG results for this spec (e.g. round(142.5) == 142; this spec requires 143). Use exact integer or decimal.Decimal arithmetic, not binary floats.\n\nRULES, applied in exactly this order:\n\n1. Validation - raise ValueError if any of: quantity < 1; unit_price_cents < 0; tier not one of \"standard\", \"silver\", \"gold\"; promo_code is not None and not one of \"SAVE15\", \"FLAT500\" (codes are case-sensitive; e.g. \"save15\" is invalid).\n\n2. subtotal_cents - graduated volume pricing over per-unit bands (like tax brackets, NOT flat tiers):\n   - units 1-10: 100% of unit_price_cents\n   - units 11-50: 90% of unit_price_cents\n   - units 51 and up: 75% of unit_price_cents\n   Each band line is computed as units_in_band * unit_price_cents * band_percent / 100 and rounded (half up) AS ONE LINE - do not round per unit, and do not defer rounding to the summed subtotal. subtotal_cents = sum of the rounded band lines. Example: quantity=60, unit_price_cents=100 -> 10*100 + 40*90 + 10*75 = 5350 (a flat-tier implementation would wrongly give 4500). Example: quantity=11, unit_price_cents=25 -> 250 + round_half_up(22.5) = 273.\n\n3. tier_discount_cents - a percentage of subtotal_cents, rounded: \"standard\" 0%, \"silver\" 5%, \"gold\" 10%.\n\n4. promo_discount_cents - computed on the post-tier remainder R = subtotal_cents - tier_discount_cents:\n   - promo_code None -> 0.\n   - \"FLAT500\" -> min(500, R), so the total never goes below zero. FLAT500 combines with every tier.\n   - \"SAVE15\" -> 15% of R, rounded, then capped at 2000 cents: promo_discount_cents = min(rounded_value, 2000).\n   - EXCEPTION - \"SAVE15\" cannot be combined with tier \"gold\". When tier == \"gold\" and promo_code == \"SAVE15\", evaluate two mutually exclusive options: (a) tier-only: tier_discount_cents = 10% of subtotal_cents rounded, promo_discount_cents = 0; (b) promo-only: tier_discount_cents = 0, promo_discount_cents = 15% of subtotal_cents rounded then capped at 2000. Apply whichever option yields the LOWER total_cents; if the two totals are equal, apply the tier-only option. The returned fields must reflect the applied option (the other discount field is 0).\n\n5. total_cents = subtotal_cents - tier_discount_cents - promo_discount_cents.\n\nReturn a dict containing at least the keys \"subtotal_cents\", \"tier_discount_cents\", \"promo_discount_cents\", \"total_cents\", all Python ints (extra keys are allowed).\n\nWorked examples to self-check:\n- price_order(quantity=10, unit_price_cents=100, tier=\"silver\", promo_code=\"SAVE15\") -> subtotal 1000, tier 50, promo 143 (15% of 950 = 142.5 rounds up), total 807.\n- price_order(quantity=10, unit_price_cents=2000, tier=\"gold\", promo_code=\"SAVE15\") -> tie between gold (2000) and capped SAVE15 (2000): the tier option applies -> tier 2000, promo 0, total 18000.\n\nAlso: keep the existing calc.add / calc.subtract behaviour unchanged, and add pytest tests for the new module under tests/ (at least 5 new test functions).",
+    "behaviours": [
+      {
+        "name": "api_shape_and_no_discount_identity",
+        "kind": "discriminator",
+        "code": "import billing\nr = billing.price_order(quantity=1, unit_price_cents=100)\nkeys = ('subtotal_cents', 'tier_discount_cents', 'promo_discount_cents', 'total_cents')\nfor k in keys:\n    assert k in r, ('missing key', k, r)\n    assert isinstance(r[k], int) and not isinstance(r[k], bool), ('not an int', k, r)\nassert r['subtotal_cents'] == 100, r\nassert r['tier_discount_cents'] == 0, r\nassert r['promo_discount_cents'] == 0, r\nassert r['total_cents'] == 100, r\n"
+      },
+      {
+        "name": "graduated_band_boundaries",
+        "kind": "discriminator",
+        "code": "import billing\n\ndef sub(q, p):\n    return billing.price_order(quantity=q, unit_price_cents=p)['subtotal_cents']\n\nassert sub(10, 100) == 1000, sub(10, 100)\nassert sub(11, 100) == 1090, sub(11, 100)\nassert sub(50, 100) == 4600, sub(50, 100)\nassert sub(51, 100) == 4675, sub(51, 100)\nassert sub(60, 100) == 5350, sub(60, 100)\nassert billing.price_order(quantity=60, unit_price_cents=100)['total_cents'] == 5350\n"
+      },
+      {
+        "name": "band_line_rounding_half_up",
+        "kind": "discriminator",
+        "code": "import billing\n\ndef sub(q, p):\n    return billing.price_order(quantity=q, unit_price_cents=p)['subtotal_cents']\n\nassert sub(50, 105) == 4830, sub(50, 105)\nassert sub(11, 25) == 273, sub(11, 25)\n"
+      },
+      {
+        "name": "tier_discount_half_up",
+        "kind": "discriminator",
+        "code": "import billing\nr = billing.price_order(quantity=10, unit_price_cents=100, tier='silver')\nassert (r['tier_discount_cents'], r['total_cents']) == (50, 950), r\nr = billing.price_order(quantity=10, unit_price_cents=100, tier='gold')\nassert (r['tier_discount_cents'], r['total_cents']) == (100, 900), r\nr = billing.price_order(quantity=10, unit_price_cents=101, tier='silver')\nassert (r['tier_discount_cents'], r['total_cents']) == (51, 959), r\n"
+      },
+      {
+        "name": "save15_after_tier_and_cap",
+        "kind": "discriminator",
+        "code": "import billing\nr = billing.price_order(quantity=10, unit_price_cents=100, tier='standard', promo_code='SAVE15')\nassert (r['tier_discount_cents'], r['promo_discount_cents'], r['total_cents']) == (0, 150, 850), r\nr = billing.price_order(quantity=10, unit_price_cents=100, tier='silver', promo_code='SAVE15')\nassert (r['tier_discount_cents'], r['promo_discount_cents'], r['total_cents']) == (50, 143, 807), r\nr = billing.price_order(quantity=200, unit_price_cents=100, promo_code='SAVE15')\nassert (r['subtotal_cents'], r['promo_discount_cents'], r['total_cents']) == (15850, 2000, 13850), r\nr = billing.price_order(quantity=150, unit_price_cents=100, promo_code='SAVE15')\nassert (r['subtotal_cents'], r['promo_discount_cents'], r['total_cents']) == (12100, 1815, 10285), r\n"
+      },
+      {
+        "name": "gold_save15_exclusivity_tiebreak",
+        "kind": "discriminator",
+        "code": "import billing\n\ndef gp(p):\n    return billing.price_order(quantity=10, unit_price_cents=p, tier='gold', promo_code='SAVE15')\n\nr = gp(100)\nassert (r['tier_discount_cents'], r['promo_discount_cents'], r['total_cents']) == (0, 150, 850), r\nr = gp(3000)\nassert (r['tier_discount_cents'], r['promo_discount_cents'], r['total_cents']) == (3000, 0, 27000), r\nr = gp(2000)\nassert (r['tier_discount_cents'], r['promo_discount_cents'], r['total_cents']) == (2000, 0, 18000), r\nr = gp(1999)\nassert (r['tier_discount_cents'], r['promo_discount_cents'], r['total_cents']) == (0, 2000, 17990), r\n"
+      },
+      {
+        "name": "flat500_floor_and_stacking",
+        "kind": "discriminator",
+        "code": "import billing\nr = billing.price_order(quantity=10, unit_price_cents=100, tier='gold', promo_code='FLAT500')\nassert (r['tier_discount_cents'], r['promo_discount_cents'], r['total_cents']) == (100, 500, 400), r\nr = billing.price_order(quantity=3, unit_price_cents=100, promo_code='FLAT500')\nassert (r['promo_discount_cents'], r['total_cents']) == (300, 0), r\nr = billing.price_order(quantity=5, unit_price_cents=100, promo_code='FLAT500')\nassert (r['promo_discount_cents'], r['total_cents']) == (500, 0), r\nr = billing.price_order(quantity=1, unit_price_cents=0, promo_code='FLAT500')\nassert (r['subtotal_cents'], r['promo_discount_cents'], r['total_cents']) == (0, 0, 0), r\n"
+      },
+      {
+        "name": "validation_value_errors",
+        "kind": "discriminator",
+        "code": "import billing\n\ndef expect_value_error(kw):\n    try:\n        billing.price_order(**kw)\n    except ValueError:\n        return\n    except Exception as e:\n        raise SystemExit('wrong exception type for %r: %r' % (kw, e))\n    raise SystemExit('no ValueError for %r' % (kw,))\n\nexpect_value_error({'quantity': 0, 'unit_price_cents': 100})\nexpect_value_error({'quantity': -3, 'unit_price_cents': 100})\nexpect_value_error({'quantity': 1, 'unit_price_cents': -1})\nexpect_value_error({'quantity': 1, 'unit_price_cents': 100, 'tier': 'platinum'})\nexpect_value_error({'quantity': 1, 'unit_price_cents': 100, 'promo_code': 'BOGUS'})\nexpect_value_error({'quantity': 1, 'unit_price_cents': 100, 'promo_code': 'save15'})\n"
+      },
+      {
+        "name": "calc_regression_guard",
+        "kind": "guard",
+        "code": "from calc import add, subtract\nassert add(2, 3) == 5\nassert add(-1, 1) == 0\nassert subtract(5, 3) == 2\nassert subtract(0, 4) == -4\n"
+      }
+    ],
+    "min_new_tests": 5
+  },
+
+  "SC-12": {
+    "label": "concurrent update problem",
+    "fixture": "dbservice",
+    "task": "The dbservice codebase has a concurrent update problem: callers do read-modify-write on order records by hand, so two concurrent writers silently lose updates (the classic lost-update anomaly). Fix it with optimistic concurrency control. Create a NEW module src/order_store.py exposing exactly this public API. (1) class ConflictError(Exception): raised whenever a conditional write observes a stale version; instances must carry the attributes order_id, expected_version and actual_version. (2) class OrderStore: an in-memory store of orders keyed by integer order_id, each record holding (status: str, total_cents: int, version: int). Methods: OrderStore() -> empty store. create(order_id: int, status: str, total_cents: int) -> int: insert a new record at version 1 and return 1; raise ValueError if order_id already exists. read(order_id: int) -> tuple: return the snapshot (status, total_cents, version) in that order; raise KeyError for an unknown order_id. write(order_id: int, status: str, total_cents: int, expected_version: int) -> int: CONDITIONAL write - if the record's current version equals expected_version, apply both fields, increment the version by exactly 1 and return the new version; otherwise raise ConflictError (attributes set as above) and leave the record completely unchanged; raise KeyError for an unknown order_id. Versions therefore start at 1 on create and go up by exactly 1 per successful write. adjust_total(order_id: int, delta_cents: int, max_attempts: int = 5) -> int: read-modify-write that adds delta_cents to total_cents, keeps the current status, and returns the new total_cents. It MUST be an optimistic retry loop with this exact attempt protocol: (a) take exactly one snapshot via read; (b) if the public instance attribute interleave_hook is not None, call it exactly once with no arguments; (c) attempt write(...) using the snapshot's version, with NO additional read between the hook call and the write. If the write raises ConflictError, start a fresh attempt; after max_attempts conflicting attempts re-raise ConflictError, in which case delta_cents must not have been applied at all (the store reflects only the rival writes). interleave_hook: a public instance attribute, default None; tests assign a zero-argument callable to it to force interleavings deterministically. ONLY adjust_total ever invokes it (once per attempt, at the point defined above); create/read/write never do. The hook must be invoked with no internal locks held, and the store's public API must be safely callable from inside the hook (the grader's hook performs rival read/write calls on the same store instance). INVARIANT: for any sequence of create/write/adjust_total calls, every update is either applied exactly once or surfaced as a ConflictError - a silently lost update must be impossible. Concretely, if a rival write commits between adjust_total's snapshot and its conditional write, the final total_cents must include BOTH the rival's change and delta_cents (via retry), or a ConflictError must escape after max_attempts; and after any run, version == 1 + (number of successful writes to that order). Also ship the matching schema change for the real database: add a NEW migration file migrations/0002_*.sql (e.g. migrations/0002_add_order_version.sql) that adds an integer version column NOT NULL DEFAULT 1 to the orders table. Do NOT modify migrations/0001_create_orders.sql, and do not change or remove the existing query builders in src/store.py - their current behaviour must keep working.",
+    "must_not_change": ["migrations/0001_create_orders.sql"],
+    "behaviours": [
+      {
+        "name": "lost_update_prevented_under_forced_interleaving",
+        "kind": "discriminator",
+        "code": "from order_store import OrderStore\n\ns = OrderStore()\nassert s.create(101, 'paid', 5000) == 1, 'create must return the initial version 1'\n\ncalls = []\n\ndef hook():\n    calls.append(1)\n    if len(calls) == 1:\n        st, total, ver = s.read(101)\n        s.write(101, st, total + 700, ver)\n\ns.interleave_hook = hook\nnew_total = s.adjust_total(101, 250)\nn = len(calls)\nassert n >= 2, 'hook fires once per attempt; the forced conflict implies a retry, got %d call(s)' % n\nassert new_total == 5950, 'adjust_total returned %r; the rival +700 was silently lost' % (new_total,)\nst, total, ver = s.read(101)\nassert (st, total) == ('paid', 5950), 'store holds total %r; an update was lost' % (total,)\nassert ver == 3, 'expected version 3 after two successful writes, got %r' % (ver,)\n"
+      },
+      {
+        "name": "stale_write_raises_conflict_and_changes_nothing",
+        "kind": "discriminator",
+        "code": "from order_store import ConflictError, OrderStore\n\ns = OrderStore()\ns.create(7, 'new', 100)\nsnap = s.read(7)\nassert snap == ('new', 100, 1), 'read must return (status, total_cents, version), got %r' % (snap,)\nassert s.write(7, 'paid', 100, 1) == 2, 'successful write must return the new version'\ntry:\n    s.write(7, 'cancelled', 100, 1)\nexcept ConflictError as e:\n    assert e.order_id == 7, 'ConflictError.order_id wrong: %r' % (e.order_id,)\n    assert e.expected_version == 1, 'ConflictError.expected_version wrong: %r' % (e.expected_version,)\n    assert e.actual_version == 2, 'ConflictError.actual_version wrong: %r' % (e.actual_version,)\nelse:\n    raise SystemExit('a write carrying a stale version must raise ConflictError, not win')\nassert s.read(7) == ('paid', 100, 2), 'a conflicting write must leave the record untouched'\ntry:\n    s.read(999)\nexcept KeyError:\n    pass\nelse:\n    raise SystemExit('read of an unknown order_id must raise KeyError')\n"
+      },
+      {
+        "name": "exhausted_retries_raise_conflict_without_corruption",
+        "kind": "discriminator",
+        "code": "from order_store import ConflictError, OrderStore\n\ns = OrderStore()\ns.create(1, 'new', 0)\ncalls = []\n\ndef hostile():\n    calls.append(1)\n    st, t, v = s.read(1)\n    s.write(1, st, t + 10, v)\n\ns.interleave_hook = hostile\ntry:\n    s.adjust_total(1, 5, max_attempts=3)\nexcept ConflictError:\n    pass\nelse:\n    raise SystemExit('adjust_total must raise ConflictError when every attempt conflicts')\nn = len(calls)\nassert n == 3, 'exactly one hook call per attempt: expected 3, got %d' % n\nst, t, v = s.read(1)\nassert (t, v) == (30, 4), 'state must reflect exactly the three rival writes, got total=%r version=%r' % (t, v)\n"
+      },
+      {
+        "name": "version_migration_shipped",
+        "kind": "discriminator",
+        "code": "import glob\nimport os\nimport sys\n\nhits = sorted(glob.glob(os.path.join('migrations', '0002*.sql')))\nif not hits:\n    sys.exit('expected a new migrations/0002*.sql migration adding the version column')\nwith open(hits[0], 'r', encoding='utf-8') as fh:\n    text = fh.read().lower()\nassert 'orders' in text, 'the 0002 migration must target the orders table'\nassert 'version' in text, 'the 0002 migration must add a version column'\n"
+      },
+      {
+        "name": "existing_order_lookups_intact",
+        "kind": "guard",
+        "code": "from store import customer_order_totals, orders_for_customer, recent_orders_by_status\n\nq = orders_for_customer(7)\nassert 'FROM orders' in q and '7' in q\nqs = customer_order_totals([1, 2, 3])\nassert len(qs) == 3\nassert all('FROM orders' in x for x in qs)\nr = recent_orders_by_status('paid')\nassert 'ORDER BY placed_at DESC' in r\nassert 'paid' in r\n"
+      }
+    ]
+  },
+
+  "SC-13": {
+    "label": "multi-tenant authorization problem",
+    "fixture": "dbservice",
+    "task": "Orders are currently readable across tenants: src/store.py builds order-lookup SQL with no tenant boundary at all (recent_orders_by_status is fully global, and orders_for_customer lets any caller read any customer's orders). Introduce a tenant boundary so every order lookup is scoped to the calling tenant, and make it impossible to build an unscoped orders query.\n\nRequired public API in src/store.py (exact names; keep the module's pure-string style - functions return the final SQL string, no live database, no new dependencies):\n1. class UnscopedQueryError(Exception) - raised whenever a lookup would be built without a tenant.\n2. orders_for_customer(customer_id: int, *, tenant_id: int) -> str - tenant_id is required and keyword-only; the returned SQL must constrain BOTH tenant_id AND customer_id in its WHERE clause on the orders table.\n3. customer_order_totals(customer_ids: list, *, tenant_id: int) -> list - still one SQL string per customer, in the same order; every query tenant-scoped.\n4. recent_orders_by_status(status: str, limit: int = 100, *, tenant_id: int) -> str - still newest-first (ORDER BY placed_at DESC) with a LIMIT, now additionally constrained to the tenant.\n5. class TenantScope - TenantScope(tenant_id) with instance methods orders_for_customer(customer_id), customer_order_totals(customer_ids), and recent_orders_by_status(status, limit=100), producing the same tenant-scoped SQL. TenantScope(None) raises UnscopedQueryError.\n6. Passing tenant_id=None to any module-level lookup raises UnscopedQueryError. Calling a module-level lookup without tenant_id must fail loudly (the TypeError from the required keyword-only parameter is acceptable) - it must never fall back to a global query.\n\nSchema: add a NEW migration file migrations/0002_add_tenant_id.sql that ALTERs the orders table to add a tenant_id BIGINT NOT NULL column (an index on it is recommended). Do NOT modify migrations/0001_create_orders.sql.\n\nTests: update tests/test_store.py to the new API (the old unscoped calls must now raise), preserving the existing behavioural assertions: lookups still target the orders table, one query per requested customer, and recent orders are still newest-first.",
+    "must_not_change": ["migrations/0001_create_orders.sql"],
+    "pristine_suite_excludes": [
+      {
+        "test": "test_store.py::test_orders_for_customer_targets_the_orders_table",
+        "reason": "calls orders_for_customer(7) with no tenant, which is exactly the unscoped global lookup this scenario abolishes; keeping it green would mean keeping the vulnerability. The same intent is re-asserted through the tenant-scoped API by tenant_kwarg_scopes_orders_for_customer."
+      },
+      {
+        "test": "test_store.py::test_totals_cover_every_requested_customer",
+        "reason": "calls customer_order_totals([1,2,3]) with no tenant; re-asserted tenant-scoped by tenant_kwarg_scopes_customer_order_totals, which also pins one query per customer."
+      },
+      {
+        "test": "test_store.py::test_recent_orders_are_newest_first",
+        "reason": "calls recent_orders_by_status('paid') with no tenant; the newest-first ordering it protects is re-asserted tenant-scoped by tenant_kwarg_scopes_recent_orders_by_status."
+      }
+    ],
+    "behaviours": [
+      {
+        "name": "tenant_kwarg_scopes_orders_for_customer",
+        "kind": "discriminator",
+        "code": "from store import orders_for_customer\n\nsql = orders_for_customer(7, tenant_id=42)\nassert isinstance(sql, str), type(sql)\nlow = sql.lower()\nassert 'from orders' in low, sql\nassert 'where' in low, sql\ntail = low.split('where', 1)[1]\nassert 'tenant_id' in tail, sql\nassert '42' in tail, sql\nassert 'customer_id' in tail, sql\nassert '7' in tail, sql\n"
+      },
+      {
+        "name": "tenant_kwarg_scopes_recent_orders_by_status",
+        "kind": "discriminator",
+        "code": "from store import recent_orders_by_status\n\nsql = recent_orders_by_status('paid', 5, tenant_id=42)\nlow = sql.lower()\nassert 'from orders' in low, sql\ntail = low.split('where', 1)[1]\nassert 'tenant_id' in tail, sql\nassert '42' in tail, sql\nassert 'paid' in tail, sql\nassert 'order by' in low, sql\nordering = low.split('order by', 1)[1]\nassert 'placed_at' in ordering and 'desc' in ordering, sql\nassert 'limit' in low, sql\nassert low.split('limit', 1)[1].strip().startswith('5'), sql\n"
+      },
+      {
+        "name": "tenant_kwarg_scopes_customer_order_totals",
+        "kind": "discriminator",
+        "code": "from store import customer_order_totals\n\nqueries = customer_order_totals([1, 2, 3], tenant_id=42)\nassert len(queries) == 3, queries\nfor q in queries:\n    assert isinstance(q, str), q\n    low = q.lower()\n    assert 'from orders' in low, q\n    tail = low.split('where', 1)[1]\n    assert 'tenant_id' in tail, q\n    assert '42' in tail, q\n"
+      },
+      {
+        "name": "unscoped_calls_raise_not_return_global_query",
+        "kind": "discriminator",
+        "code": "import store\n\nattempts = [\n    lambda: store.orders_for_customer(7),\n    lambda: store.customer_order_totals([1, 2]),\n    lambda: store.recent_orders_by_status('paid'),\n]\nfor attempt in attempts:\n    try:\n        result = attempt()\n    except Exception:\n        continue\n    raise SystemExit('unscoped lookup did not raise: ' + repr(result))\n"
+      },
+      {
+        "name": "tenant_none_raises_unscoped_query_error",
+        "kind": "discriminator",
+        "code": "import store\n\nerr = store.UnscopedQueryError\nassert isinstance(err, type) and issubclass(err, Exception), err\nattempts = [\n    lambda: store.orders_for_customer(7, tenant_id=None),\n    lambda: store.customer_order_totals([1], tenant_id=None),\n    lambda: store.recent_orders_by_status('paid', tenant_id=None),\n]\nfor attempt in attempts:\n    try:\n        result = attempt()\n    except err:\n        continue\n    raise SystemExit('tenant_id=None must raise UnscopedQueryError, got: ' + repr(result))\n"
+      },
+      {
+        "name": "tenant_scope_object_builds_scoped_sql",
+        "kind": "discriminator",
+        "code": "from store import TenantScope, UnscopedQueryError\n\nscope = TenantScope(42)\n\nsql = scope.orders_for_customer(7)\ntail = sql.lower().split('where', 1)[1]\nassert 'tenant_id' in tail and '42' in tail and 'customer_id' in tail, sql\n\nrecent = scope.recent_orders_by_status('paid', limit=5)\nlow = recent.lower()\ntail2 = low.split('where', 1)[1]\nassert 'tenant_id' in tail2 and '42' in tail2, recent\nordering = low.split('order by', 1)[1]\nassert 'placed_at' in ordering and 'desc' in ordering, recent\n\nqueries = scope.customer_order_totals([1, 2])\nassert len(queries) == 2, queries\nfor q in queries:\n    assert 'tenant_id' in q.lower().split('where', 1)[1], q\n\ntry:\n    TenantScope(None)\nexcept UnscopedQueryError:\n    pass\nelse:\n    raise SystemExit('TenantScope(None) must raise UnscopedQueryError')\n"
+      },
+      {
+        "name": "new_migration_adds_tenant_column_to_orders",
+        "kind": "discriminator",
+        "code": "import pathlib\n\ncandidates = sorted(pathlib.Path('migrations').glob('0002*.sql'))\nassert candidates, 'expected a new migrations/0002*.sql adding the tenant column'\ntext = ' '.join(p.read_text().lower() for p in candidates)\nassert 'alter table' in text, text\nassert 'orders' in text, text\nassert 'tenant_id' in text, text\n"
+      },
+      {
+        "name": "store_still_exposes_the_three_lookups",
+        "kind": "guard",
+        "code": "import store\n\nfor name in ('orders_for_customer', 'customer_order_totals', 'recent_orders_by_status'):\n    assert callable(getattr(store, name, None)), 'public lookup %s was removed' % name\n"
+      },
+      {
+        "name": "test_suite_still_present_and_valid",
+        "kind": "guard",
+        "code": "import pathlib\n\npath = pathlib.Path('tests/test_store.py')\nsource = path.read_text()\ncompile(source, str(path), 'exec')\nassert 'def test_' in source, 'test functions missing'\nassert 'store' in source, 'tests no longer exercise the store module'\n"
+      }
+    ]
+  },
+
   "SK-04": {
     "label": "paginated filterable API surface",
     "fixture": "pyservice",
