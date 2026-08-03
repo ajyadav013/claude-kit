@@ -53,7 +53,7 @@ def main() -> int:
         checks.append({"check": name, "pass": bool(ok), "detail": detail})
 
     probe = subprocess.run(
-        ["python", "-c", PROBE],
+        [sys.executable, "-c", PROBE],
         cwd=work,
         capture_output=True,
         text=True,
@@ -110,7 +110,7 @@ def main() -> int:
     )
 
     proc = subprocess.run(
-        ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
         cwd=work,
         capture_output=True,
         text=True,

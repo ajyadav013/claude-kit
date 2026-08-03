@@ -61,7 +61,7 @@ def main() -> int:
     # host); an oracle that copies the session's command gets exit 127 and reports a passing suite
     # as broken.
     proc = subprocess.run(
-        ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
         cwd=work,
         capture_output=True,
         text=True,

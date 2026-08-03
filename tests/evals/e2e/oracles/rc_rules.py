@@ -73,7 +73,7 @@ def main() -> int:
     )
 
     proc = subprocess.run(
-        ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"],
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"],
         cwd=work,
         capture_output=True,
         text=True,

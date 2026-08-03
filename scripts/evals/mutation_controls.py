@@ -389,6 +389,160 @@ def control_stamp_provenance() -> dict:
     return entry
 
 
+def control_tier_b_reconcile() -> dict:
+    """Two-sided: an unsupported mark must be caught, an honest manifest must not be flagged.
+
+    This checker decides the dynamic-coverage number, so the failure that matters is it staying
+    quiet about a component marked measured with nothing behind it -- which is precisely the
+    state the live manifest was in when it was written (12 rows, one of them genuinely wrong).
+    """
+    entry = {
+        "checker": "scripts/evals/tier_b_reconcile.py",
+        "kind": "planted-defect + clean control",
+    }
+    script = REPO / "scripts/evals/tier_b_reconcile.py"
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-reconcile-") as tmp:
+        state = pathlib.Path(tmp) / "state"
+        (state / "raw/tier-b").mkdir(parents=True)
+        live = REPO / ".claude/state/full-self-evaluation"
+        shutil.copy2(
+            live / "component-manifest.json", state / "component-manifest.json"
+        )
+        for g in sorted((live / "raw/tier-b").glob("runs*/grades.json")):
+            dst = state / "raw/tier-b" / g.parent.name
+            dst.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(g, dst / "grades.json")
+
+        clean_rc = run([sys.executable, str(script), "--state", str(state)], REPO)[0]
+
+        doc = json.loads(
+            (state / "component-manifest.json").read_text(encoding="utf-8")
+        )
+        planted = None
+        for c in doc["components"]:
+            # a Tier B row with no grade row anywhere -- claim it as measured, with no evidence
+            if c["tier"] == "B" and c.get("dynamic_attempted") is not True:
+                c["dynamic_done"] = True
+                c["dynamic_evidence"] = None
+                planted = c["id"]
+                break
+        if planted is None:
+            entry["detected"] = False
+            entry["error"] = "no unprobed Tier B row available to plant on"
+            return entry
+        (state / "component-manifest.json").write_text(
+            json.dumps(doc, indent=1) + "\n", encoding="utf-8"
+        )
+        rc, out = run([sys.executable, str(script), "--state", str(state)], REPO)
+
+    entry["detected"] = clean_rc == 0 and rc == 1 and planted in out
+    if not entry["detected"]:
+        entry["error"] = (
+            f"clean rc={clean_rc} (want 0); planted rc={rc} (want 1); "
+            f"{planted} named in output: {planted in out}"
+        )
+    return entry
+
+
+def control_tier_b_grader() -> dict:
+    """Pins E-049/E-050: a dead session must not be scored, a live one must be.
+
+    Both directions have already failed here. Scoring a session that never started produced 40
+    fabricated skill defects; the fix then discarded four correct passes because it keyed on tool
+    calls instead of on whether an answer came back. A control that only checked one direction
+    would have certified each bug in turn.
+    """
+    entry = {
+        "checker": "scripts/evals/tier_b_batches.py",
+        "kind": "synthetic sessions, 3 arms",
+    }
+    script = REPO / "scripts/evals/tier_b_batches.py"
+
+    def arm(tmp: pathlib.Path, label: str, rc: int, result: str, invoked: list) -> None:
+        spec = tmp / "spec"
+        spec.mkdir(parents=True, exist_ok=True)
+        (spec / f"{label}.txt").write_text("1. do the thing\n", encoding="utf-8")
+        d = tmp / "runs" / f"{label}-x"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "probe.json").write_text(
+            json.dumps(
+                {
+                    "label": label,
+                    "session_rc": rc,
+                    "skills_invoked": invoked,
+                    "tool_calls": ["Skill"] if invoked else [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (d / "session.jsonl").write_text(
+            json.dumps({"type": "result", "result": result}) + "\n", encoding="utf-8"
+        )
+
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-grader-") as t:
+        tmp = pathlib.Path(t)
+        arm(tmp, "a1", 0, "done", ["alpha"])  # fired            -> INVOKED
+        arm(tmp, "a2", 1, "", [])  # dead session     -> UNRUN, never MISSED
+        arm(
+            tmp, "a3", 0, "That's the `gamma` skill; underspecified.", []
+        )  # prose -> NAMED
+        spec = {
+            "batches": [
+                {
+                    "label": "a1",
+                    "targets": [{"id": "skill:alpha", "skill": "alpha"}],
+                    "prompt_file": "a1.txt",
+                },
+                {
+                    "label": "a2",
+                    "targets": [{"id": "skill:beta", "skill": "beta"}],
+                    "prompt_file": "a2.txt",
+                },
+                {
+                    "label": "a3",
+                    "targets": [{"id": "skill:gamma", "skill": "gamma"}],
+                    "prompt_file": "a3.txt",
+                },
+            ],
+            "decoys": [],
+        }
+        (tmp / "spec" / "batches.json").write_text(json.dumps(spec), encoding="utf-8")
+        rc, out = run(
+            [
+                sys.executable,
+                str(script),
+                "grade",
+                "--probe-dir",
+                str(tmp / "runs"),
+                "--spec",
+                str(tmp / "spec" / "batches.json"),
+            ],
+            REPO,
+        )
+        graded = {}
+        gp = tmp / "runs" / "grades.json"
+        if gp.is_file():
+            doc = json.loads(gp.read_text(encoding="utf-8"))
+            graded = {r["skill"]: r.get("outcome") for r in doc["rows"]}
+            unrun = doc.get("unrun", [])
+        else:
+            unrun = []
+
+    want = {"alpha": "INVOKED", "gamma": "NAMED"}
+    entry["detected"] = (
+        rc == 0
+        and graded.get("alpha") == "INVOKED"
+        and graded.get("gamma") == "NAMED"
+        and "beta" not in graded
+        and "skill:beta" in unrun
+    )
+    if not entry["detected"]:
+        entry["error"] = (
+            f"rc={rc}; got {graded} (want {want}); beta must be UNRUN, unrun={unrun}"
+        )
+    return entry
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -419,6 +573,8 @@ def main() -> int:
         guarded(control_meta_check, "scripts/evals/meta_check.py"),
         guarded(control_rule_load_proof, "scripts/evals/rule_load_proof.py"),
         guarded(control_stamp_provenance, "scripts/evals/stamp-coverage-provenance.py"),
+        guarded(control_tier_b_reconcile, "scripts/evals/tier_b_reconcile.py"),
+        guarded(control_tier_b_grader, "scripts/evals/tier_b_batches.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))

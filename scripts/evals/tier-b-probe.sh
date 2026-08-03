@@ -33,6 +33,14 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$LABEL" ] && [ -n "$PROMPT_FILE" ] && [ -n "$OUT" ] || { echo "missing required arg" >&2; exit 2; }
 
+# The session runs from inside $WORK, so a RELATIVE prompt path stops resolving there. It failed
+# silently in the worst possible way: `cat` wrote nothing, `claude -p ""` refused to start, and
+# 40 skills were graded MISSED because the harness never asked them anything. Resolve up front,
+# and refuse to run on an empty prompt rather than measuring one.
+[ -f "$PROMPT_FILE" ] || { echo "prompt file not found: $PROMPT_FILE" >&2; exit 2; }
+PROMPT_FILE="$(cd "$(dirname "$PROMPT_FILE")" && pwd)/$(basename "$PROMPT_FILE")"
+[ -s "$PROMPT_FILE" ] || { echo "prompt file is empty: $PROMPT_FILE" >&2; exit 2; }
+
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVID="$OUT/$LABEL-$STAMP"

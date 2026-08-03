@@ -99,6 +99,9 @@ def build(
             for c in comps
             if c["tier"] == "B"
             and c.get("dynamic_done") is not True
+            # An attempted-but-missed skill re-probed with the same prompt reproduces the same
+            # miss. Re-serving it would burn budget re-confirming a finding already recorded.
+            and c.get("dynamic_attempted") is not True
             and c["type"] == "skill"
         ]
         pool.sort(key=lambda c: c["id"])
@@ -179,7 +182,9 @@ def final_text(probe_json: pathlib.Path) -> str:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if ev.get("type") == "result" and isinstance(ev.get("result"), str):
+        if ev.get("type") == "result" and isinstance(
+            ev.get("result"), str
+        ):  # absent-ok: no `type` and a non-string `result` are both non-answers
             last = ev["result"]
     return last
 
@@ -215,6 +220,17 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
         if pr is None:
             unrun.extend(t["id"] for t in b["targets"])
             continue
+        # A session that exited non-zero, or produced no answer at all, did not ask the
+        # question. Scoring its targets MISSED turns a harness fault into 40 skill defects --
+        # which is what happened when a relative prompt path left every prompt empty.
+        #
+        # The discriminator is the ANSWER, not the tool calls. Keying this on "made no tool
+        # call" was the same error mirrored: two batches answered every request in prose,
+        # naming each skill correctly and declining for underspecification -- criteria 1 and 9
+        # both passing -- and would have been discarded as never-run.
+        if pr["session_rc"] != 0 or not texts.get(b["label"], "").strip():
+            unrun.extend(t["id"] for t in b["targets"])
+            continue
         fired = set(pr["skills_invoked"])
         own = {t["skill"] for t in b["targets"]}
         prompt = (spec_path.parent / b["prompt_file"]).read_text(encoding="utf-8")
@@ -223,17 +239,38 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
             invoked = t["skill"] in fired
             circular = t["skill"] in prompt
             named = (not invoked) and (not circular) and (t["skill"] in answer)
+            # A skill whose own name appears in its prompt cannot be scored on NAMED: if the
+            # answer says the name, that may be an echo of the question. The guard already
+            # refuses to CREDIT it -- but calling the result MISSED is the opposite error, and
+            # it manufactured a false negative (`backlog`). Unmeasurable is its own outcome.
+            inconclusive = (not invoked) and circular and (t["skill"] in answer)
+            # A sibling skill firing while the target stayed silent is not the same event as
+            # silence: the request was recognised and routed elsewhere. Recorded separately so
+            # the two cannot be summed into one "failed to trigger" count. This shows only that
+            # an outsider answered SOME request in the batch -- position is suggestive, not
+            # proof, so confirmation still needs the transcript.
+            outsiders = sorted(fired - own)
+            substituted = (not invoked) and (not named) and bool(outsiders)
             rows.append(
                 {
                     "id": t["id"],
                     "skill": t["skill"],
                     "batch": b["label"],
+                    "outsiders": outsiders if substituted else [],
                     "triggered": invoked,
                     "named": named,
                     "name_in_prompt": circular,
                     "outcome": "INVOKED"
                     if invoked
-                    else ("NAMED" if named else "MISSED"),
+                    else (
+                        "NAMED"
+                        if named
+                        else (
+                            "INCONCLUSIVE"
+                            if inconclusive
+                            else ("SUBSTITUTED" if substituted else "MISSED")
+                        )
+                    ),
                     "session_rc": pr["session_rc"],
                 }
             )
@@ -250,15 +287,21 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
                     }
                 )
 
-    fired_n = sum(1 for r in rows if r.get("triggered"))
-    named_n = sum(1 for r in rows if r.get("named"))
+    fired_n = sum(1 for r in rows if r.get("triggered") is True)
+    named_n = sum(1 for r in rows if r.get("named") is True)
     total = sum(1 for r in rows if "triggered" in r)
-    false_n = sum(1 for r in rows if r.get("false_trigger"))
-    circ = sum(1 for r in rows if r.get("name_in_prompt"))
+    false_n = sum(1 for r in rows if r.get("false_trigger") is True)
+    circ = sum(1 for r in rows if r.get("name_in_prompt") is True)
     print(f"batches run {len(probes)}/{len(spec['batches'])}")
     print(f"INVOKED (tool call)      : {fired_n}/{total}")
     print(f"NAMED   (selected, not invoked): {named_n}/{total}")
-    print(f"MISSED                   : {total - fired_n - named_n}/{total}")
+    incon_n = sum(1 for r in rows if r.get("outcome") == "INCONCLUSIVE")
+    sub_n = sum(1 for r in rows if r.get("outcome") == "SUBSTITUTED")
+    print(f"SUBSTITUTED (a sibling skill fired instead): {sub_n}/{total}")
+    print(f"INCONCLUSIVE (own name in prompt, cannot score): {incon_n}/{total}")
+    print(
+        f"MISSED (silent)          : {total - fired_n - named_n - incon_n - sub_n}/{total}"
+    )
     print(f"false triggers           : {false_n}")
     if circ:
         print(f"NAMED not creditable (own name in prompt): {circ}")
