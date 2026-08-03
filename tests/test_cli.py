@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+import sys
 from contextlib import ExitStack
 
+import pytest
 from typer.testing import CliRunner
 
-from claude_kit import scaffold
+from claude_kit import cli, scaffold, upgrader
 from claude_kit.cli import app
 from tests._helpers import install
+from tests.test_tickets import write_store
 
 runner = CliRunner()
 
@@ -817,3 +822,189 @@ def test_init_reports_an_uncreatable_target_instead_of_crashing(tmp_path):
         assert "Traceback" not in result.output
     finally:
         blocked.chmod(0o700)
+
+
+# --- CLI surface that no test drove (F-035) ----------------------------------------------
+# Fixing F-031 changed cli.py, which put the whole file under the evaluation gate's >=95%
+# floor for changed production files -- and it was the least-covered module in the package at
+# 86.54%. What follows drives the arms that were never executed: the bare invocation, init's
+# non-interactive / decline / backup / failed-merge branches, the JSON report's failure exit,
+# export's unreadable-selection path, status' rendering arms, and tickets' graph and watch modes.
+
+
+def test_bare_invocation_prints_banner_and_help():
+    """No subcommand is a help request, not an error."""
+    result = runner.invoke(app, [])
+    assert result.exit_code == 0, result.output
+    assert "autonomous SDLC config for Claude Code" in result.output  # the banner
+    assert "Usage:" in result.output and "init" in result.output  # the help body
+
+
+def test_version_command_matches_the_flag():
+    from claude_kit import __version__
+
+    result = runner.invoke(app, ["version"])
+    assert result.exit_code == 0
+    assert __version__ in result.output
+
+
+def test_main_entry_point_dispatches(monkeypatch):
+    """`main()` is the console-script seam -- it has to actually run the app."""
+    monkeypatch.setattr(sys, "argv", ["claude-kit", "version"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 0
+
+
+def test_json_report_keeps_the_failure_exit_code(tmp_path):
+    """--json must not launder a failing report into a zero exit code."""
+    result = runner.invoke(app, ["validate", str(tmp_path), "--json"])
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["ok"] is False
+
+
+def test_dry_run_flags_an_existing_install_and_writes_nothing(tmp_path, payload):
+    install(payload, tmp_path)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    result = runner.invoke(app, ["init", str(tmp_path), "--defaults", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "MERGE" in result.output and "DRY RUN" in result.output
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_dry_run_json_reports_the_plan(tmp_path):
+    result = runner.invoke(
+        app, ["init", str(tmp_path), "--defaults", "--dry-run", "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    doc = json.loads(result.stdout)
+    assert doc["dry_run"] is True
+    assert doc["existing_claude"] is False
+    assert doc["would_write"], "a dry run that would write nothing is not a preview"
+    assert not (tmp_path / ".claude").exists()
+
+
+def test_init_without_a_path_targets_the_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init", "--defaults"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "CLAUDE.md").is_file()
+
+
+def test_init_declining_the_directory_creation_stops_cleanly(tmp_path):
+    target = tmp_path / "nope"
+    result = runner.invoke(app, ["init", str(target)], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert "aborted." in result.output
+    assert not target.exists(), "a declined init must not leave the directory behind"
+
+
+def test_init_backup_mode_skips_an_existing_backup(tmp_path, payload):
+    """Backup numbering must not clobber a backup taken by an earlier run."""
+    install(payload, tmp_path)
+    (tmp_path / ".claude.bak-1").mkdir()
+    marker = tmp_path / ".claude.bak-1" / "earlier.txt"
+    marker.write_text("keep me", encoding="utf-8")
+
+    result = runner.invoke(app, ["init", str(tmp_path)], input="backup\n")
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".claude.bak-2").is_dir()
+    assert marker.read_text(encoding="utf-8") == "keep me"
+
+
+def test_init_reports_a_failed_merge(tmp_path, payload, monkeypatch):
+    install(payload, tmp_path)
+    monkeypatch.setattr(
+        upgrader, "merge_install", lambda *a, **k: (False, ["FAIL  merge refused"])
+    )
+    result = runner.invoke(app, ["init", str(tmp_path), "--defaults"])
+    assert result.exit_code == 1
+    assert "merge refused" in result.output
+
+
+def test_export_refuses_an_unreadable_installed_selection(tmp_path, payload):
+    """A corrupt init-options.json is an unmet prerequisite, not a reason to guess a selection."""
+    install(payload, tmp_path)
+    (tmp_path / ".claude" / "config" / "init-options.json").write_text(
+        "{not json", encoding="utf-8"
+    )
+    result = runner.invoke(app, ["export", str(tmp_path)])
+    assert result.exit_code == 2
+    assert "could not read installed selection" in result.output
+
+
+def test_status_reports_a_project_with_no_install(tmp_path):
+    result = runner.invoke(app, ["status", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "not installed" in result.output
+
+
+def test_status_renders_components_selection_and_working_memory(tmp_path, payload):
+    install(payload, tmp_path)
+    fresh = runner.invoke(app, ["status", str(tmp_path)])
+    assert fresh.exit_code == 0, fresh.output
+    assert "profile=" in fresh.output
+    assert "no CONTINUITY.md yet" in fresh.output
+
+    (tmp_path / ".claude" / "CONTINUITY.md").write_text(
+        "# Working Memory\ncurrent phase: exercising status\n", encoding="utf-8"
+    )
+    withmem = runner.invoke(app, ["status", str(tmp_path)])
+    assert "working memory" in withmem.output
+    assert "current phase: exercising status" in withmem.output
+
+    # An absent component directory is reported as missing -- distinguishable from zero.
+    shutil.rmtree(tmp_path / ".claude" / "hooks")
+    missing = runner.invoke(app, ["status", str(tmp_path)])
+    assert "hooks/: (missing)" in missing.output
+
+
+def test_tickets_graph_modes_render(tmp_path):
+    write_store(tmp_path, [("PROJ-1", "first", "done"), ("PROJ-2", "second", "todo")])
+    nowhere = str(tmp_path / "no-transcripts")
+    deps = runner.invoke(
+        app,
+        ["tickets", "--path", str(tmp_path), "--graph", "--transcript-dir", nowhere],
+    )
+    assert deps.exit_code == 0, deps.output
+    git = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--graph-git",
+            "--transcript-dir",
+            nowhere,
+        ],
+    )
+    assert git.exit_code == 0, git.output
+    assert deps.output != git.output, (
+        "two graph modes rendering identically is not two modes"
+    )
+
+
+def test_tickets_watch_redraws_until_interrupted(tmp_path, monkeypatch):
+    write_store(tmp_path, [("PROJ-1", "first", "todo")])
+    slept = []
+
+    def interrupt(seconds):
+        slept.append(seconds)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli.time, "sleep", interrupt)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--watch",
+            "0",
+            "--transcript-dir",
+            str(tmp_path / "no-transcripts"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert slept == [1], "--watch 0 must be clamped to the 1s minimum"
+    assert "refreshing every 1s" in result.output
