@@ -75,18 +75,34 @@ def request_from_description(desc: str) -> str:
     return f"I need help with this on my project: {d}."
 
 
-def build(count: int, batches: int, out: pathlib.Path) -> int:
+def build(
+    count: int,
+    batches: int,
+    out: pathlib.Path,
+    ids: str = "",
+    per_batch: int = 3,
+    fixture: str = "",
+) -> int:
     man = json.loads((STATE / "component-manifest.json").read_text(encoding="utf-8"))
     comps = man["components"] if isinstance(man, dict) else man
-    pool = [
-        c
-        for c in comps
-        if c["tier"] == "B"
-        and c.get("dynamic_done") is not True
-        and c["type"] == "skill"
-    ]
-    pool.sort(key=lambda c: c["id"])
-    chosen = pool[:count]
+    if ids:
+        want = [i.strip() for i in ids.split(",") if i.strip()]
+        by = {c["id"]: c for c in comps}
+        unknown = [i for i in want if i not in by]
+        if unknown:
+            print(f"unknown component ids: {unknown}", file=sys.stderr)
+            return 2
+        chosen = [by[i] for i in want]
+    else:
+        pool = [
+            c
+            for c in comps
+            if c["tier"] == "B"
+            and c.get("dynamic_done") is not True
+            and c["type"] == "skill"
+        ]
+        pool.sort(key=lambda c: c["id"])
+        chosen = pool[:count]
     if not chosen:
         print("no un-probed Tier B skills remain", file=sys.stderr)
         return 2
@@ -112,9 +128,9 @@ def build(count: int, batches: int, out: pathlib.Path) -> int:
         )
 
     out.mkdir(parents=True, exist_ok=True)
-    spec = {"batches": [], "decoys": DECOYS}
+    spec = {"batches": [], "decoys": DECOYS, "fixture": fixture}
     usable = [t for t in targets if t["request"]]
-    per = max(1, -(-len(usable) // batches))
+    per = per_batch if per_batch else max(1, -(-len(usable) // batches))
     for i in range(0, len(usable), per):
         group = usable[i : i + per]
         label = f"tb{i // per + 1:02d}"
@@ -134,6 +150,7 @@ def build(count: int, batches: int, out: pathlib.Path) -> int:
                 "targets": group,
                 "decoy": items[-1],
                 "prompt_file": f"{label}.txt",
+                "fixture": fixture,
             }
         )
     (out / "batches.json").write_text(
@@ -148,12 +165,48 @@ def build(count: int, batches: int, out: pathlib.Path) -> int:
     return 0
 
 
+def final_text(probe_json: pathlib.Path) -> str:
+    """The session's final result text, for detecting selection that stopped short of invocation."""
+    jsonl = probe_json.parent / "session.jsonl"
+    if not jsonl.is_file():
+        return ""
+    last = ""
+    for line in jsonl.open(encoding="utf-8", errors="replace"):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if ev.get("type") == "result" and isinstance(ev.get("result"), str):
+            last = ev["result"]
+    return last
+
+
 def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
+    """Grade selection, not merely tool invocation.
+
+    Criterion 1 is "selects or triggers correctly". The Skill tool call is a PROXY for that, and the
+    probes showed it is a lossy one: given a request derived from a skill's own description, the
+    model repeatedly answered "that's the description of the `X` skill, not a task" and declined to
+    invoke -- while naming X correctly. Selection succeeded; invocation did not follow, because
+    there was no concrete task to do. Scoring only tool calls would book those as trigger failures.
+
+    Three outcomes per target:
+      INVOKED  the Skill tool ran with this skill        -- criterion 1 satisfied, strongest evidence
+      NAMED    the skill is named in the final answer    -- selection demonstrated, invocation withheld
+      MISSED   neither                                   -- a real criterion 1 failure
+
+    NAMED is only credited when the skill's own name does NOT appear in the prompt, otherwise the
+    model could be echoing the question and the evidence would be circular.
+    """
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    probes = {}
+    probes, texts = {}, {}
     for p in sorted(probe_dir.glob("*/probe.json")):
         doc = json.loads(p.read_text(encoding="utf-8"))
         probes[doc["label"]] = doc
+        texts[doc["label"]] = final_text(p)
 
     all_targets = {t["skill"]: t["id"] for b in spec["batches"] for t in b["targets"]}
     rows, unrun = [], []
@@ -164,13 +217,23 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
             continue
         fired = set(pr["skills_invoked"])
         own = {t["skill"] for t in b["targets"]}
+        prompt = (spec_path.parent / b["prompt_file"]).read_text(encoding="utf-8")
+        answer = texts.get(b["label"], "")
         for t in b["targets"]:
+            invoked = t["skill"] in fired
+            circular = t["skill"] in prompt
+            named = (not invoked) and (not circular) and (t["skill"] in answer)
             rows.append(
                 {
                     "id": t["id"],
                     "skill": t["skill"],
                     "batch": b["label"],
-                    "triggered": t["skill"] in fired,
+                    "triggered": invoked,
+                    "named": named,
+                    "name_in_prompt": circular,
+                    "outcome": "INVOKED"
+                    if invoked
+                    else ("NAMED" if named else "MISSED"),
                     "session_rc": pr["session_rc"],
                 }
             )
@@ -188,14 +251,20 @@ def grade(probe_dir: pathlib.Path, spec_path: pathlib.Path) -> int:
                 )
 
     fired_n = sum(1 for r in rows if r.get("triggered"))
+    named_n = sum(1 for r in rows if r.get("named"))
     total = sum(1 for r in rows if "triggered" in r)
     false_n = sum(1 for r in rows if r.get("false_trigger"))
+    circ = sum(1 for r in rows if r.get("name_in_prompt"))
     print(f"batches run {len(probes)}/{len(spec['batches'])}")
-    print(f"triggered on own request : {fired_n}/{total}")
+    print(f"INVOKED (tool call)      : {fired_n}/{total}")
+    print(f"NAMED   (selected, not invoked): {named_n}/{total}")
+    print(f"MISSED                   : {total - fired_n - named_n}/{total}")
     print(f"false triggers           : {false_n}")
+    if circ:
+        print(f"NAMED not creditable (own name in prompt): {circ}")
     if unrun:
         print(f"UNRUN (not measured, not a pass): {len(unrun)}")
-    for r in sorted(rows, key=lambda r: (not r.get("triggered"), r["skill"])):
+    for r in sorted(rows, key=lambda r: (r.get("outcome") or "Z", r["skill"])):
         mark = (
             "FIRED"
             if r.get("triggered")
@@ -215,12 +284,17 @@ def main() -> int:
     b.add_argument("--count", type=int, default=18)
     b.add_argument("--batches", type=int, default=6)
     b.add_argument("--out", required=True)
+    b.add_argument(
+        "--ids", default="", help="explicit component ids instead of the next N"
+    )
+    b.add_argument("--per", type=int, default=3, help="targets per batch")
+    b.add_argument("--fixture", default="", help="fixture name recorded in the spec")
     g = sub.add_parser("grade")
     g.add_argument("--probe-dir", required=True)
     g.add_argument("--spec", required=True)
     a = ap.parse_args()
     if a.cmd == "build":
-        return build(a.count, a.batches, pathlib.Path(a.out))
+        return build(a.count, a.batches, pathlib.Path(a.out), a.ids, a.per, a.fixture)
     return grade(pathlib.Path(a.probe_dir), pathlib.Path(a.spec))
 
 

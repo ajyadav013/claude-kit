@@ -20,13 +20,14 @@
 # Usage: tier-b-probe.sh --label <id> --prompt-file <path> --out <dir> [--max-turns N]
 set -Eeuo pipefail
 
-LABEL="" PROMPT_FILE="" OUT="" MAX_TURNS=12
+LABEL="" PROMPT_FILE="" OUT="" MAX_TURNS=12 FIXTURE=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--label) LABEL="${2:?}"; shift 2 ;;
 	--prompt-file) PROMPT_FILE="${2:?}"; shift 2 ;;
 	--out) OUT="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
+	--fixture) FIXTURE="${2:?}"; shift 2 ;;
 	*) echo "unknown arg: $1" >&2; exit 2 ;;
 	esac
 done
@@ -39,8 +40,17 @@ mkdir -p "$EVID"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ck-tierb-$LABEL-XXXXXX")"
 
 echo "### workspace $WORK"
+# An EMPTY workspace cannot distinguish "the skill failed to trigger" from "the skill correctly
+# declined because there is nothing to work on" (E-047). Five of six silences in the first batch
+# were the latter -- skills naming their own missing prerequisite and refusing to invent work.
+# A fixture with real code removes that confound for every skill whose job needs a codebase.
+if [ -n "$FIXTURE" ]; then
+	cp -a "$ROOT/tests/evals/e2e/fixtures/$FIXTURE/." "$WORK/"
+	echo "### fixture $FIXTURE materialised"
+else
+	printf 'placeholder\n' >"$WORK/README.md"
+fi
 git -C "$WORK" init -q
-printf 'placeholder\n' >"$WORK/README.md"
 git -C "$WORK" add -A
 git -C "$WORK" -c user.email=eval@local -c user.name=eval commit -qm baseline
 
@@ -88,7 +98,7 @@ set +e
 SESSION_RC=$?
 set -e
 
-python3 - "$EVID/session.jsonl" "$EVID/probe.json" "$LABEL" "$SESSION_RC" "$SKILLS_INSTALLED" "$RULE_BYTES" <<'PY'
+python3 - "$EVID/session.jsonl" "$EVID/probe.json" "$LABEL" "$SESSION_RC" "$SKILLS_INSTALLED" "$RULE_BYTES" "$FIXTURE" <<'PY'
 import json, sys
 jsonl, out, label, rc, installed, rule_bytes = sys.argv[1:7]
 skills, agents, tools, first_cache = [], [], [], None
@@ -123,7 +133,7 @@ json.dump({
     "label": label, "session_rc": int(rc), "skills_installed": int(installed),
     "rule_bytes_withheld": int(rule_bytes), "first_msg_cache_creation": first_cache,
     "skills_invoked": skills, "agents_spawned": agents, "tool_calls": tools,
-    "deviations": ["profile=enterprise", "rules withheld (F-014)"],
+    "deviations": ["profile=enterprise", "rules withheld (F-014)"], "fixture": sys.argv[7] if len(sys.argv) > 7 else "",
 }, open(out, "w"), indent=2)
 print(f"skills_invoked={skills}")
 PY
