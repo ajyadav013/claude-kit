@@ -30,7 +30,7 @@ set -Eeuo pipefail
 # file under version control -- the agent's own frontmatter and, optionally, a situation file I
 # author. No web content, no user submissions, no model output is interpolated. The child session
 # is sandboxed to a throwaway workspace with Bash restricted to inspection.
-AGENT="" FIXTURE="pybug" OUT="" MAX_TURNS=40 ARM="a1" SITUATION=""
+AGENT="" FIXTURE="pybug" OUT="" MAX_TURNS=40 ARM="a1" SITUATION="" DB="none" LABEL=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--agent) AGENT="${2:?}"; shift 2 ;;
@@ -39,6 +39,8 @@ while [ $# -gt 0 ]; do
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
 	--arm) ARM="${2:?}"; shift 2 ;;
 	--situation) SITUATION="${2:?}"; shift 2 ;;
+	--db) DB="${2:?}"; shift 2 ;;
+	--label) LABEL="${2:?}"; shift 2 ;;
 	*) echo "unknown arg: $1" >&2; exit 2 ;;
 	esac
 done
@@ -53,29 +55,37 @@ OUT="$(cd "$OUT" && pwd)"
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SRC=""
-for cand in "$ROOT/agents/$AGENT.md" "$ROOT/templates/org/agents/$AGENT.md"; do
-	[ -f "$cand" ] && SRC="$cand" && break
-done
-if [ -z "$SRC" ]; then
-	SRC="$(find "$ROOT/templates/stacks" -name "$AGENT.md" -print -quit 2>/dev/null || true)"
+if [ -f "$ROOT/$AGENT" ]; then
+	# An explicit path. Two overlay agents share the basename `migration-specialist` across the
+	# postgres and mongodb stacks, so a name lookup cannot address them unambiguously.
+	SRC="$ROOT/$AGENT"
+	AGENT="$(basename "$AGENT" .md)"
+else
+	for cand in "$ROOT/agents/$AGENT.md" "$ROOT/templates/org/agents/$AGENT.md"; do
+		[ -f "$cand" ] && SRC="$cand" && break
+	done
+	if [ -z "$SRC" ]; then
+		SRC="$(find "$ROOT/templates/stacks" -name "$AGENT.md" -print -quit 2>/dev/null || true)"
+	fi
 fi
 [ -n "$SRC" ] && [ -f "$SRC" ] || { echo "agent definition not found: $AGENT" >&2; exit 2; }
+[ -n "$LABEL" ] || LABEL="$AGENT"
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
-EVID="$OUT/$AGENT-$ARM-$STAMP"
+EVID="$OUT/$LABEL-$ARM-$STAMP"
 mkdir -p "$EVID"
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/ck-tiera-$AGENT-XXXXXX")"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/ck-tiera-$LABEL-XXXXXX")"
 echo "### workspace $WORK"
 
 cp -a "$ROOT/tests/evals/e2e/fixtures/$FIXTURE/." "$WORK/"
 git -C "$WORK" init -q
 
-cat >"$WORK/.ck-selection.yaml" <<'YAML'
+cat >"$WORK/.ck-selection.yaml" <<YAML
 profile: enterprise
 scope: organization
 backend: none
 frontend: none
-database: none
+database: $DB
 mcp: []
 YAML
 
@@ -155,9 +165,13 @@ git -C "$WORK" add -A >/dev/null 2>&1 || true
 git -C "$WORK" diff --cached --stat >"$EVID/workspace.diffstat" 2>/dev/null || true
 cp -a "$WORK" "$EVID/workspace"
 
-python3 - "$EVID" "$AGENT" "$SESSION_RC" "$AGENTS_INSTALLED" "$AGENT_PRESENT" "$RULE_BYTES" "$FIXTURE" "$SRC" <<'PY'
+python3 - "$EVID" "$AGENT" "$SESSION_RC" "$AGENTS_INSTALLED" "$AGENT_PRESENT" "$RULE_BYTES" "$FIXTURE" "$SRC" "$LABEL" <<'PY'
 import json, re, sys, pathlib
 evid, agent, rc, installed, present, rule_bytes, fixture, src = sys.argv[1:9]
+# The LABEL only disambiguates directories (two stacks ship a `migration-specialist`).
+# The `agent` field must stay the real name -- grading selection against a label the
+# runtime never sees reported three correct spawns as substitutions.
+label = sys.argv[9] if len(sys.argv) > 9 else agent
 d = pathlib.Path(evid)
 
 defn = open(src, encoding="utf-8", errors="replace").read()
@@ -211,7 +225,7 @@ verify_pat = re.compile(r"pytest|npm test|go test|ruff|mypy|coverage|make test",
 attempted_verification = any(verify_pat.search(x) for x in denied)
 
 json.dump({
-    "agent": agent, "arm": d.name, "session_rc": int(rc),
+    "agent": agent, "label": label, "arm": d.name, "session_rc": int(rc),
     "result_subtype": result_subtype, "num_turns": num_turns,
     "agents_installed": int(installed), "agent_present": present == "yes",
     "rule_bytes_withheld": int(rule_bytes), "fixture": fixture,

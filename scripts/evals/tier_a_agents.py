@@ -267,6 +267,7 @@ def final_result(jsonl: pathlib.Path) -> tuple[str, str]:
 def grade_one(d: pathlib.Path) -> dict:
     probe = json.loads((d / "probe.json").read_text(encoding="utf-8"))
     agent = probe["agent"]
+    label = probe.get("label") or agent
     declared = probe.get("declared_tools") or []
     mutating = any(t in declared for t in ("Write", "Edit"))
     # Role is derived from the agent's OWN frontmatter and description, never from a list I keep by
@@ -287,7 +288,8 @@ def grade_one(d: pathlib.Path) -> dict:
     selected = agent in spawned
 
     row: dict = {
-        "agent": agent,
+        "agent": label,
+        "agent_name": agent,
         "run": d.name,
         "class": "mutating" if mutating else "read-only",
         "session_rc": probe.get("session_rc"),
