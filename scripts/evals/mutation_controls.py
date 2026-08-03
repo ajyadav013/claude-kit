@@ -31,11 +31,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 
@@ -418,18 +420,20 @@ def control_tier_b_reconcile() -> dict:
         doc = json.loads(
             (state / "component-manifest.json").read_text(encoding="utf-8")
         )
-        planted = None
-        for c in doc["components"]:
-            # a Tier B row with no grade row anywhere -- claim it as measured, with no evidence
-            if c["tier"] == "B" and c.get("dynamic_attempted") is not True:
-                c["dynamic_done"] = True
-                c["dynamic_evidence"] = None
-                planted = c["id"]
-                break
-        if planted is None:
-            entry["detected"] = False
-            entry["error"] = "no unprobed Tier B row available to plant on"
-            return entry
+        # Append a synthetic row rather than borrowing a real one: once every Tier B component
+        # has been probed there is no unprobed row left to borrow, and a control that stops
+        # working the moment the run succeeds is not a control.
+        planted = f"skill:{uuid.uuid4().hex[:12]}-ghost"
+        doc["components"].append(
+            {
+                "id": planted,
+                "type": "skill",
+                "tier": "B",
+                "path": "skills/does-not-exist/SKILL.md",
+                "dynamic_done": True,
+                "dynamic_evidence": None,
+            }
+        )
         (state / "component-manifest.json").write_text(
             json.dumps(doc, indent=1) + "\n", encoding="utf-8"
         )
@@ -543,6 +547,71 @@ def control_tier_b_grader() -> dict:
     return entry
 
 
+def control_tier_c_reach() -> dict:
+    """Plant one ghost per proof method; each must come back UNPROVEN.
+
+    This checker reported 111/111 the first time it ran, which is the number least worth
+    believing. Planting ghosts caught four separate ways it could not fail -- including a corpus
+    that had absorbed the evaluator's own logs, so a fake doc proved itself against a previous
+    run's stdout. One ghost per method, because each method fails independently.
+    """
+    entry = {
+        "checker": "scripts/evals/tier_c_reach.py",
+        "kind": "planted ghosts, one per method",
+    }
+    script = REPO / "scripts/evals/tier_c_reach.py"
+    manifest = REPO / ".claude/state/full-self-evaluation/component-manifest.json"
+    # Ghost names are generated at runtime. A hardcoded one fails for a stupid reason: this
+    # control lives in scripts/, scripts/ is inside the reachability corpus, so the literal
+    # "ghost-doc.md" written here became a real reference and the ghost proved itself against
+    # the very file testing it.
+    tag = uuid.uuid4().hex[:12]
+    ghosts = [
+        f"template-artifact:{tag}.md",
+        f"schema:{tag}-schema.json",
+        f"doc:{tag}-doc.md",
+        f"profile:{tag}-profile",
+        f"live-stack:{tag}-stack",
+        f"unknown-type:{tag}",
+    ]
+    env = dict(os.environ, PYTHONPATH=str(REPO / "src"))
+    missed = []
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-tierc-") as t:
+        out = pathlib.Path(t) / "r.json"
+        for g in ghosts:
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--manifest",
+                    str(manifest),
+                    "--out",
+                    str(out),
+                    "--plant",
+                    g,
+                ],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=900,
+                env=env,
+            )
+            if not out.is_file():
+                missed.append(f"{g}: no output ({proc.stderr.strip()[:80]})")
+                continue
+            rows = json.loads(out.read_text(encoding="utf-8"))["rows"]
+            row = next((r for r in rows if r["id"] == g), None)
+            if row is None:
+                missed.append(f"{g}: ghost absent from output")
+            elif row["proven"]:
+                missed.append(f"{g}: proved itself -- {row.get('why')}")
+    entry["detected"] = not missed
+    if missed:
+        entry["error"] = "; ".join(missed)
+    return entry
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -575,6 +644,7 @@ def main() -> int:
         guarded(control_stamp_provenance, "scripts/evals/stamp-coverage-provenance.py"),
         guarded(control_tier_b_reconcile, "scripts/evals/tier_b_reconcile.py"),
         guarded(control_tier_b_grader, "scripts/evals/tier_b_batches.py"),
+        guarded(control_tier_c_reach, "scripts/evals/tier_c_reach.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
