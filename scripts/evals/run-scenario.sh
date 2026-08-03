@@ -516,6 +516,16 @@ json.dump({
 }, open(out, "w"), indent=2)
 PY
 
+# Archive the workspace TREE, not just the derived evidence. The oracle grades files in the
+# workspace, so re-taking an oracle's mutation control later needs those files -- and the live
+# workspace is deliberately sited in volatile /tmp (see the WORK comment above; moving it back
+# into the repo is what the path-based permission rules refused). Five controls were already lost
+# to this: their evidence dirs survived, their trees did not, so the controls could no longer be
+# re-taken at a new commit. .git is excluded -- the end-state diff already carries the history.
+echo "### archive the workspace tree so the oracle control can be re-taken"
+rsync -a --exclude .git "$WORK/" "$EVID/workspace/" 2>/dev/null ||
+	(mkdir -p "$EVID/workspace" && (cd "$WORK" && tar cf - --exclude=.git .) | (cd "$EVID/workspace" && tar xf -))
+
 VERDICT="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["verdict"])' "$EVID/run.json")"
 echo "=== $SCENARIO/$ARM verdict: $VERDICT (evidence: $EVID)"
 exit "$ORACLE_RC"

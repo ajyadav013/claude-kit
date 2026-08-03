@@ -77,8 +77,23 @@ def control_oracle(rel: str, prefix: str, ws_root: pathlib.Path) -> dict:
     entry: dict = {"checker": rel, "kind": "discrimination", "detected": False}
     matches = sorted(ws_root.glob(f"{prefix}*"))
     if not matches:
+        # Fall back to the archived tree under the evidence dir. The live workspace sits in
+        # volatile /tmp by design, so after a reboot or a tmp sweep it is the only copy left --
+        # and a control that quietly reports "could not run" when the tree is gone is a control
+        # that disarms itself. `prefix` is "<SCENARIO>-<arm>"; the archive is
+        # raw/task-runs/<SCENARIO>/<arm>-<stamp>/workspace.
+        runs = REPO / ".claude/state/full-self-evaluation/raw/task-runs"
+        for scen in sorted(
+            (p for p in runs.glob("*") if p.is_dir()),
+            key=lambda p: -len(p.name),
+        ):
+            if prefix.startswith(scen.name + "-"):
+                arm = prefix[len(scen.name) + 1 :]
+                matches = sorted(scen.glob(f"{arm}-*/workspace"))
+                break
+    if not matches:
         entry["error"] = (
-            f"no preserved workspace matching {prefix}*; control could not run"
+            f"no preserved or archived workspace matching {prefix}*; control could not run"
         )
         return entry
     real = matches[-1]
