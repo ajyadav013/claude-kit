@@ -142,8 +142,9 @@ def judge(rc: int, out: str, expect: dict) -> tuple[bool, str]:
     problems = []
     if "rc" in expect and rc != expect["rc"]:
         problems.append(f"rc={rc} (want {expect['rc']})")
-    if expect.get("reports") and expect["reports"] not in out:
-        problems.append(f"output never mentions {expect['reports']!r}")
+    reports = expect.get("reports") or ""
+    if reports and reports not in out:
+        problems.append(f"output never mentions {reports!r}")
     if TRACEBACK in out:
         problems.append("crashed with a traceback")
     return (not problems), ("; ".join(problems) or "behaved as specified")
@@ -166,8 +167,9 @@ def main() -> int:
             if only and name not in only:
                 continue
             row: dict = {"script": name, "arms": {}}
-            if spec.get("note"):
-                row["note"] = spec["note"]
+            note = spec.get("note") or ""
+            if note:
+                row["note"] = note
 
             if spec["clean"]:
                 root = worktree(tmp)
