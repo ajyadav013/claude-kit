@@ -124,8 +124,10 @@ def fam_gates(tmp: pathlib.Path) -> list[dict]:
         )
         if entry is None:
             problems.append("no ledger entry after a successful close")
-        elif not entry.get("evidence_sha256"):
-            problems.append("ledger entry carries no evidence hash")
+        elif "evidence_sha256" not in entry:
+            problems.append("ledger entry has no evidence_sha256 field at all")
+        elif not entry["evidence_sha256"]:
+            problems.append("ledger entry carries an empty evidence hash")
 
         out.append(
             row(
@@ -180,8 +182,9 @@ def _commands(node) -> set[str]:
     """Every `command` string anywhere in a parsed settings.json."""
     found: set[str] = set()
     if isinstance(node, dict):
-        if isinstance(node.get("command"), str):
-            found.add(node["command"])
+        cmd = node["command"] if "command" in node else None
+        if isinstance(cmd, str):
+            found.add(cmd)
         for v in node.values():
             found |= _commands(v)
     elif isinstance(node, list):
@@ -229,11 +232,11 @@ def fam_autonomy(tmp: pathlib.Path) -> tuple[list[dict], dict[str, str]]:
         s = sel(scope="organization", autonomy=lid, teams=["engineering"])
         d = install(s, tmp, f"aut-{lid}")
         readme = read(d / "README.claude-sdlc.md")
-        policy = spec.get("policy", "")
+        policy = str(spec["policy"]) if "policy" in spec else ""
         others = [
-            v.get("policy", "")
+            str(v["policy"])
             for k, v in levels.items()
-            if k != lid and v.get("policy")
+            if k != lid and "policy" in v and v["policy"]
         ]
         plan = catalog.resolve(SRC, s)
         problems = []
@@ -697,8 +700,8 @@ def main() -> int:
     # a distinctness row overrides an earlier green row for the same id
     collapsed: dict[str, dict] = {}
     for r in rows:
-        prev = collapsed.get(r["id"])
-        if prev is None or (prev.get("ok") and not r.get("ok")):
+        prev = collapsed[r["id"]] if r["id"] in collapsed else None
+        if prev is None or (prev["ok"] and not r["ok"]):
             collapsed[r["id"]] = r
     final = [collapsed[k] for k in sorted(collapsed)]
 
