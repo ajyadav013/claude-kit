@@ -215,6 +215,180 @@ def control_meta_check() -> dict:
     }
 
 
+def _arm(root: pathlib.Path, name: str, mode: str, tokens: int) -> None:
+    d = root / f"{name}-20260101T000000Z"
+    d.mkdir(parents=True)
+    (d / "run.json").write_text(json.dumps({"rules_mode": mode}), encoding="utf-8")
+    (d / "session.jsonl").write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {"usage": {"cache_creation_input_tokens": tokens}},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def control_rule_load_proof() -> dict:
+    """Synthetic arms with KNOWN deltas: an in-band one must prove, an out-of-band one must not.
+
+    The load proof is the only instrument in this run that produced findings unobtainable by
+    reading the repo, and it is the one whose verdicts have already been wrong in both directions
+    (E-036: the band rejected six arms that were all loaded). A control that only fed it a loadable
+    arm would confirm it says PROVEN and learn nothing.
+    """
+    rel = "scripts/evals/rule_load_proof.py"
+    entry: dict = {"checker": rel, "kind": "planted-defect", "detected": False}
+    rules = sorted((REPO / "rules").glob("*.md"))
+    if len(rules) < 2:
+        entry["error"] = "need two real rules to size the synthetic arms"
+        return entry
+    good, bad = rules[0], rules[1]
+    base = 20_000
+
+    with tempfile.TemporaryDirectory() as td:
+        scen = pathlib.Path(td) / "SYNTH"
+        scen.mkdir()
+        _arm(scen, "control-norules", "none", base)
+        # in band: bytes / 2.71 lands inside the 2.60-2.82 payload band
+        _arm(
+            scen,
+            f"only-{good.stem}",
+            f"only:{good.stem}",
+            base + round(good.stat().st_size / 2.71),
+        )
+        # far out of band: a delta implying ~1.5 bytes/token cannot be this rule loading
+        _arm(
+            scen,
+            f"only-{bad.stem}",
+            f"only:{bad.stem}",
+            base + round(bad.stat().st_size / 1.5),
+        )
+        out = pathlib.Path(td) / "proofs.json"
+        rc, _ = run([sys.executable, str(REPO / rel), str(scen), "--json", str(out)])
+        if not out.is_file():
+            raise RuntimeError(
+                f"rule_load_proof wrote no output (rc={rc}); the control did not run"
+            )
+        results = json.loads(out.read_text(encoding="utf-8"))
+
+    verdicts = {r["rule"]: r["verdict"] for r in results if "rule" in r}
+    entry["verdicts"] = verdicts
+    proved_good = verdicts.get(good.stem) == "PROVEN"
+    rejected_bad = verdicts.get(bad.stem) not in (None, "PROVEN")
+    entry["detected"] = proved_good and rejected_bad
+    if not entry["detected"]:
+        entry["error"] = (
+            f"expected {good.stem} PROVEN and {bad.stem} rejected; got "
+            f"{verdicts.get(good.stem)} and {verdicts.get(bad.stem)}"
+        )
+    return entry
+
+
+def control_stamp_provenance() -> dict:
+    """Three-way control of the provenance chain: stamp, refuse to re-label, refuse to consume.
+
+    The first version of this control tried to stamp an already-stamped report at a different sha
+    and treated the resulting rc=3 as a broken stamper. It was the opposite: refusing to re-label a
+    stale report as fresh is the tool's whole anti-laundering guard, and the control was asking it
+    to commit the exact fraud it exists to prevent. Controlling the CORRECT contract instead:
+
+      writes    an UNSTAMPED report gains the sha it was given
+      refuses   an already-stamped report is NOT re-labelled to a different commit (rc=3)
+      enforced  the consumer accepts the stamp at its own sha and ABORTS at any other
+
+    E-029 was a stale report read as current, so the third leg is the one that matters most; the
+    first two are what make it trustworthy.
+    """
+    rel = "scripts/evals/stamp-coverage-provenance.py"
+    entry: dict = {"checker": rel, "kind": "planted-defect", "detected": False}
+    src = REPO / ".claude/state/full-self-evaluation/latest-coverage.json"
+    manifest = REPO / ".claude/state/full-self-evaluation/component-manifest.json"
+    if not src.is_file() or not manifest.is_file():
+        entry["error"] = (
+            "no coverage report or manifest available; control could not run"
+        )
+        return entry
+
+    planted = "0bad51a"
+    with tempfile.TemporaryDirectory() as td:
+        tmp = pathlib.Path(td)
+        doc = json.loads(src.read_text(encoding="utf-8"))
+        doc.pop("ck_provenance", None)
+        bare = tmp / "unstamped.json"
+        bare.write_text(json.dumps(doc), encoding="utf-8")
+
+        stamped = tmp / "stamped.json"
+        rc_write, _ = run(
+            [sys.executable, str(REPO / rel), str(bare), planted, "--out", str(stamped)]
+        )
+        if not stamped.is_file():
+            raise RuntimeError(
+                f"stamper wrote no output for an UNSTAMPED report (rc={rc_write})"
+            )
+        got = (
+            json.loads(stamped.read_text(encoding="utf-8")).get("ck_provenance") or {}
+        ).get("sha")
+
+        # Laundering attempt: same file, different commit. Must refuse.
+        relabel = tmp / "relabelled.json"
+        rc_relabel, _ = run(
+            [
+                sys.executable,
+                str(REPO / rel),
+                str(stamped),
+                "feedfac",
+                "--out",
+                str(relabel),
+            ]
+        )
+
+        def grade(coverage_sha: str) -> int:
+            out = tmp / f"g-{coverage_sha}.json"
+            code, _ = run(
+                [
+                    sys.executable,
+                    str(REPO / "scripts/evals/static_eval.py"),
+                    "--manifest",
+                    str(manifest),
+                    "--payload",
+                    str(REPO),
+                    "--ids",
+                    "module:upgrader",
+                    "--coverage",
+                    str(stamped),
+                    "--coverage-sha",
+                    coverage_sha,
+                    "--out",
+                    str(out),
+                ]
+            )
+            return code
+
+        honoured = grade(planted)
+        refused = grade("feedfac")
+
+    entry.update(
+        stamped_sha=got,
+        rc_relabel_attempt=rc_relabel,
+        relabel_written=relabel.name if relabel.exists() else None,
+        rc_matching_sha=honoured,
+        rc_mismatched_sha=refused,
+    )
+    entry["detected"] = (
+        got == planted and rc_relabel == 3 and honoured == 0 and refused == 3
+    )
+    if not entry["detected"]:
+        entry["error"] = (
+            f"provenance chain not enforced: stamped={got!r} (want {planted!r}), "
+            f"rc(relabel)={rc_relabel} (want 3), rc(match)={honoured} (want 0), "
+            f"rc(mismatch)={refused} (want 3)"
+        )
+    return entry
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -243,6 +417,8 @@ def main() -> int:
     controls = [
         guarded(control_static_eval, "scripts/evals/static_eval.py"),
         guarded(control_meta_check, "scripts/evals/meta_check.py"),
+        guarded(control_rule_load_proof, "scripts/evals/rule_load_proof.py"),
+        guarded(control_stamp_provenance, "scripts/evals/stamp-coverage-provenance.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
