@@ -26,7 +26,11 @@
 # Usage: tier-a-agent-probe.sh --agent <name> --fixture <f> --out <dir> [--max-turns N] [--arm A]
 set -Eeuo pipefail
 
-AGENT="" FIXTURE="pybug" OUT="" MAX_TURNS=40 ARM="a1"
+# Prompt-injection surface, stated deliberately: every input to the derived prompt is a repo-local
+# file under version control -- the agent's own frontmatter and, optionally, a situation file I
+# author. No web content, no user submissions, no model output is interpolated. The child session
+# is sandboxed to a throwaway workspace with Bash restricted to inspection.
+AGENT="" FIXTURE="pybug" OUT="" MAX_TURNS=40 ARM="a1" SITUATION=""
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--agent) AGENT="${2:?}"; shift 2 ;;
@@ -34,6 +38,7 @@ while [ $# -gt 0 ]; do
 	--out) OUT="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
 	--arm) ARM="${2:?}"; shift 2 ;;
+	--situation) SITUATION="${2:?}"; shift 2 ;;
 	*) echo "unknown arg: $1" >&2; exit 2 ;;
 	esac
 done
@@ -95,7 +100,7 @@ git -C "$WORK" add -A
 git -C "$WORK" -c user.email=eval@local -c user.name=eval commit -qm baseline
 
 # Derive the request from the agent's own description. Never name the agent.
-python3 - "$SRC" "$EVID/prompt.txt" "$AGENT" <<'PY'
+python3 - "$SRC" "$EVID/prompt.txt" "$AGENT" "$SITUATION" <<'PY'
 import re, sys
 src, out, agent = sys.argv[1:4]
 text = open(src, encoding="utf-8", errors="replace").read()
@@ -108,10 +113,17 @@ for token in (agent, pretty):
     desc = re.sub(re.escape(token), "the appropriate specialist", desc, flags=re.I)
 if len(desc) > 400:
     desc = desc[:400].rsplit(" ", 1)[0]
+situation = ""
+if len(sys.argv) > 4 and sys.argv[4]:
+    situation = open(sys.argv[4], encoding="utf-8", errors="replace").read().strip() + "\n\n"
+# The framing must not assert what the repository IS. An earlier version opened with "this is a
+# small Python package with a bug in it", which is incoherent next to a description about auditing
+# web pages -- so `auditor` and `incident-responder` correctly declined, and were booked as
+# selection failures for being right. The prompt states the job and lets the repo speak for itself.
 open(out, "w", encoding="utf-8").write(
-    "This project is a small Python package with a bug in it. Do the following work on it:\n\n"
+    f"{situation}You are working in this repository. Do the following work on it:\n\n"
     f"{desc}\n\n"
-    "Work on the real files in this repository. Delegate to a subagent if one fits the job.\n"
+    "Work on the real files here. Delegate to a subagent if one fits the job.\n"
 )
 PY
 

@@ -63,6 +63,40 @@ def run_dirs(probe_dir: pathlib.Path) -> list[pathlib.Path]:
 SCAFFOLD = (".claude/", ".claude", ".ck-selection.yaml", "CLAUDE.md", ".mcp.json")
 
 
+def node_counts(ws: pathlib.Path) -> dict | None:
+    """Same shape as the python side, for `node --test` fixtures. None if node is not here."""
+    if not shutil.which("node"):
+        return None
+    run = subprocess.run(
+        ["node", "--test", "test/"],
+        cwd=ws,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=600,
+    )
+    tail = ((run.stdout or "") + (run.stderr or ""))[-2000:]
+    m_p = re.search(r"^# pass (\d+)", tail, re.M)
+    m_f = re.search(r"^# fail (\d+)", tail, re.M)
+    passed = int(m_p.group(1)) if m_p else 0
+    failed = int(m_f.group(1)) if m_f else 0
+    return {
+        # A node suite that cannot even be parsed reports neither counter.
+        "collects": bool(m_p or m_f),
+        "tests_failed": failed,
+        "tests_passed": passed,
+        "tests_total": failed + passed,
+        "tests_tail": tail[-600:],
+    }
+
+
+def suite_counts(ws: pathlib.Path) -> dict | None:
+    """Dispatch on what the fixture actually is. None means 'wrong container', never 'broken'."""
+    if (ws / "package.json").is_file() and not (ws / "pyproject.toml").is_file():
+        return node_counts(ws)
+    return pytest_counts(ws)
+
+
 def pytest_counts(ws: pathlib.Path) -> dict:
     """Collectability and pass/fail counts. Collectability is the real 'did you break it' signal."""
     col = subprocess.run(
@@ -151,9 +185,18 @@ def oracle(probe_dir: pathlib.Path) -> int:
                     tmp = probe_dir / f".baseline-{fx}"
                     if not tmp.is_dir():
                         shutil.copytree(src, tmp)
-                    baselines[fx] = pytest_counts(tmp)
+                    b = suite_counts(tmp)
+                    if b is not None:
+                        baselines[fx] = b
+            counts = suite_counts(ws)
+            if counts is None:
+                # This container cannot run this fixture's suite. Recording a verdict anyway would
+                # be a fabricated one, and OVERWRITING a good record from the right container would
+                # be worse. Leave whatever is already there alone.
+                print(f"{d.name}: skipped -- wrong container for this fixture")
+                continue
             rec["baseline"] = baselines.get(fx)
-            rec.update(pytest_counts(ws))
+            rec.update(counts)
             ch = changed_paths(ws)
             rec["changed_paths"] = ch[:50]
             rec["changed_count"] = len(ch)
@@ -228,10 +271,13 @@ def grade_one(d: pathlib.Path) -> dict:
     mutating = any(t in declared for t in ("Write", "Edit"))
     # Role is derived from the agent's OWN frontmatter and description, never from a list I keep by
     # hand -- the same anti-tuning discipline the prompt derivation uses.
-    desc = (probe.get("description") or "") + " " + agent
+    # Keyed on the agent's NAME, not its description. Matching the description on /test/ swept in
+    # every implementer that merely mentions testing as part of its remit -- `senior-backend-dev`
+    # fixed the fixture's bug (2 failures to 0) and was booked a defect for not adding tests it was
+    # never asked for. The name is the component's own declaration of what it is.
     if not mutating:
         role = "read-only"
-    elif re.search(r"\btest|\bqa\b|coverage", desc, re.I):
+    elif re.search(r"(^|-)(unit-)?test(er)?$|(^|-)qa$", agent, re.I):
         role = "test-author"
     else:
         role = "implementer"
@@ -307,7 +353,13 @@ def grade_one(d: pathlib.Path) -> dict:
         # tester read only. Judging the agent by the workspace booked both as defects for behaving
         # correctly -- the same shape of error as scoring a test-author by whether tests pass.
         mutators = {"Write", "Edit", "NotebookEdit"}
-        agent_mutated = bool(set(used) & mutators)
+        attempted = bool(set(used) & mutators)
+        # ATTEMPTED is not EFFECTIVE. `senior-frontend-dev` issued an Edit that left the workspace
+        # byte-identical; scoring that as "mutated, and the mutation was bad" invented a defect out
+        # of an agent that simply did not deliver on an underspecified request. No trace means no
+        # contribution (E-047), which is a different event from doing the wrong thing.
+        agent_mutated = attempted and changed > 0
+        row["mutation_attempted"] = attempted
         row["agent_mutated"] = agent_mutated
         if not base:
             row["c3_working"] = None
