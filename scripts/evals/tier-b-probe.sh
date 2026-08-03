@@ -20,7 +20,7 @@
 # Usage: tier-b-probe.sh --label <id> --prompt-file <path> --out <dir> [--max-turns N]
 set -Eeuo pipefail
 
-LABEL="" PROMPT_FILE="" OUT="" MAX_TURNS=12 FIXTURE=""
+LABEL="" PROMPT_FILE="" OUT="" MAX_TURNS=12 FIXTURE="" PLUGIN=no SCAFFOLD=yes ALLOW_WRITE=no
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--label) LABEL="${2:?}"; shift 2 ;;
@@ -28,6 +28,12 @@ while [ $# -gt 0 ]; do
 	--out) OUT="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
 	--fixture) FIXTURE="${2:?}"; shift 2 ;;
+	# Slash commands ship ONLY with the plugin -- `init` does not install commands/ -- so the only
+	# place they can be measured is a plugin-loaded session, and `/claude-kit:init` must run on a
+	# workspace this probe has NOT already scaffolded.
+	--plugin) PLUGIN=yes; shift ;;
+	--no-scaffold) SCAFFOLD=no; shift ;;
+	--allow-write) ALLOW_WRITE=yes; shift ;;
 	*) echo "unknown arg: $1" >&2; exit 2 ;;
 	esac
 done
@@ -72,20 +78,26 @@ database: none
 mcp: []
 YAML
 
-echo "### scaffold (Docker; the host never runs project code)"
-"$ROOT/scripts/evals/run-in-docker.sh" --service python --label "tierb-$LABEL-scaffold" \
-	--mount "$WORK:/work" --workdir /repo --timeout 600 -- \
-	env PYTHONPATH=/repo/src python -m claude_kit.cli init /work --config /work/.ck-selection.yaml
+if [ "$SCAFFOLD" = yes ]; then
+	echo "### scaffold (Docker; the host never runs project code)"
+	"$ROOT/scripts/evals/run-in-docker.sh" --service python --label "tierb-$LABEL-scaffold" \
+		--mount "$WORK:/work" --workdir /repo --timeout 600 -- \
+		env PYTHONPATH=/repo/src python -m claude_kit.cli init /work --config /work/.ck-selection.yaml
+else
+	echo "### scaffold SKIPPED (--no-scaffold)"
+fi
 
 # The SET, not just the count. A MISSED verdict is only admissible if the skill was installed in
 # THIS workspace, and a count cannot answer that -- checking it against a list captured by some
 # other run is the `absent != false` trap with extra steps.
-find "$WORK/.claude/skills" -name SKILL.md -exec sh -c 'for f; do basename "$(dirname "$f")"; done' _ {} + \
-	2>/dev/null | sort >"$EVID/skills-installed.txt"
+(find "$WORK/.claude/skills" -name SKILL.md -exec sh -c 'for f; do basename "$(dirname "$f")"; done' _ {} + \
+	2>/dev/null || true) | sort >"$EVID/skills-installed.txt"
 SKILLS_INSTALLED="$(wc -l <"$EVID/skills-installed.txt" | tr -d ' ')"
 echo "### installed $SKILLS_INSTALLED skills"
 
-RULE_BYTES="$(cat "$WORK"/.claude/rules/*.md 2>/dev/null | wc -c | tr -d ' ')"
+# `|| true`: under --no-scaffold there is no .claude/rules yet, and `pipefail` turns that expected
+# absence into a hard exit before the session ever runs. Absent means zero bytes, not a crash.
+RULE_BYTES="$( (cat "$WORK"/.claude/rules/*.md 2>/dev/null || true) | wc -c | tr -d ' ')"
 mv "$WORK/.claude/rules" "$EVID/rules-withheld" 2>/dev/null || true
 echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
 
@@ -93,19 +105,32 @@ echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
 # measure their permission posture instead of the kit's (E-006).
 CFG="$EVID/claude-config"
 mkdir -p "$CFG"
-cat >"$CFG/settings.json" <<'JSON'
+# A command whose whole job is to WRITE a scaffold cannot be measured with Write denied: it would
+# be graded on a permission this probe imposed, not on anything the command does.
+if [ "$ALLOW_WRITE" = yes ]; then
+	WRITE_ALLOW='"Write", "Edit", "Bash(mkdir:*)", "Bash(cp:*)",'
+	WRITE_DENY=""
+else
+	WRITE_ALLOW=""
+	WRITE_DENY='"Write", "Edit",'
+fi
+cat >"$CFG/settings.json" <<JSON
 {
   "permissions": {
-    "allow": ["Read", "Glob", "Grep", "Skill", "TaskCreate", "TaskList", "TaskUpdate",
+    "allow": [$WRITE_ALLOW "Read", "Glob", "Grep", "Skill", "TaskCreate", "TaskList", "TaskUpdate",
               "Bash(ls:*)", "Bash(cat:*)", "Bash(pwd)"],
-    "deny": ["Bash(rm:*)", "Write", "Edit"]
+    "deny": [$WRITE_DENY "Bash(rm:*)", "Bash(git push:*)", "WebFetch", "WebSearch"]
   }
 }
 JSON
 
+PLUGIN_ARGS=()
+[ "$PLUGIN" = yes ] && PLUGIN_ARGS=(--plugin-dir "$ROOT")
+
 cp "$PROMPT_FILE" "$EVID/prompt.txt"
 set +e
 ( cd "$WORK" && CLAUDE_CONFIG_DIR="$CFG" claude -p "$(cat "$PROMPT_FILE")" \
+	"${PLUGIN_ARGS[@]+"${PLUGIN_ARGS[@]}"}" \
 	--max-turns "$MAX_TURNS" --output-format stream-json --verbose \
 	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr"
 SESSION_RC=$?
