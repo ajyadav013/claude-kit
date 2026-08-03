@@ -71,14 +71,26 @@ def main() -> int:
     specs = json.loads(spec_path.read_text())
     violations: list[str] = []
 
-    print(f"{'scenario':8} {'behaviour':34} {'kind':14} {'baseline':9} {'solved':7} verdict")
-    print("-" * 92)
+    print(f"{'scenario':8} {'behaviour':34} {'kind':14} {'baseline':9} {'solvedA':7} {'altB':5} verdict")
+    print("-" * 98)
+
+    unprotected: list[str] = []
 
     for sid, spec in specs.items():
         if sid.startswith("_"):
             continue
         base = materialise(spec["fixture"], None)
         solved = materialise(spec["fixture"], sid)
+
+        # A second, independently-written reference is the anti-overfit control: a discriminator
+        # that only passes the one solution we happened to write is pinned to that implementation,
+        # not to the behaviour the task asked for. Optional, but its absence is reported -- a
+        # silently missing control is indistinguishable from a control that passed.
+        alt_id = f"{sid}__alt"
+        has_alt = (SOLUTIONS / alt_id).is_dir()
+        alt = materialise(spec["fixture"], alt_id) if has_alt else None
+        if not has_alt:
+            unprotected.append(sid)
 
         for b in spec["behaviours"]:
             kind = b.get("kind")
@@ -88,28 +100,37 @@ def main() -> int:
 
             on_base = behaves(base, b["code"])
             on_solved = behaves(solved, b["code"])
+            on_alt = behaves(alt, b["code"]) if alt else None
 
             if kind == "discriminator":
-                ok = (not on_base) and on_solved
-                why = (
-                    "OK"
-                    if ok
-                    else ("passes on baseline -- measures nothing" if on_base else "cannot pass even when solved")
-                )
+                ok = (not on_base) and on_solved and (on_alt is not False)
+                if on_base:
+                    why = "passes on baseline -- measures nothing"
+                elif not on_solved:
+                    why = "cannot pass even when solved"
+                elif on_alt is False:
+                    why = "passes solution A but not the independent solution B -- overfitted"
+                else:
+                    why = "OK"
             else:
-                ok = on_base and on_solved
+                ok = on_base and on_solved and (on_alt is not False)
                 why = "OK" if ok else "guard does not hold -- broken check or broken fixture"
 
             if not ok:
                 violations.append(f"{sid}:{b['name']} ({why})")
 
+            alt_cell = "n/a" if on_alt is None else ("pass" if on_alt else "FAIL")
             print(
                 f"{sid:8} {b['name']:34} {kind:14} "
                 f"{'pass' if on_base else 'FAIL':9} {'pass' if on_solved else 'FAIL':7} "
-                f"{'ok' if ok else 'VIOLATION: ' + why}"
+                f"{alt_cell:5} {'ok' if ok else 'VIOLATION: ' + why}"
             )
 
     print()
+    if unprotected:
+        print(f"NO ANTI-OVERFIT CONTROL ({len(unprotected)}) -- no solutions/<id>__alt/ reference:")
+        print(f"  {', '.join(unprotected)}")
+        print()
     if violations:
         print(f"NON-DISCRIMINATING ({len(violations)}):")
         for v in violations:

@@ -2,11 +2,13 @@
 
 The gate exists to catch specs that cannot distinguish solved from untouched. If the gate itself
 silently passed everything, the whole task bank would be unverified and look fine -- so this control
-feeds it three known-bad behaviours and fails unless it flags each one:
+feeds it four known-bad behaviours and fails unless it flags each one:
 
   M1  a discriminator that already passes on the pristine fixture (measures nothing)
   M2  a discriminator that can never pass, the over-escaped-regex shape that started this
   M3  a guard that does not hold on the pristine fixture
+  M4  a discriminator overfitted to one reference implementation -- it fails on the baseline and
+      passes solution A, so only the independent solution B exposes it
 
 It also feeds the real bank through unchanged and fails if that does NOT come back clean, so the
 control cannot pass merely by rejecting everything.
@@ -71,6 +73,22 @@ MUTANTS = {
             ],
         }
     },
+    # Fails on the untouched fixture and passes solution A, so the bi-directional check alone
+    # clears it -- only the independent solution B exposes that it is pinned to A's module name.
+    "M4_discriminator_overfitted_to_solution_a": {
+        "SC-24": {
+            "label": "mutant",
+            "fixture": "pyservice",
+            "task": "n/a",
+            "behaviours": [
+                {
+                    "name": "pinned_to_solution_a_module_name",
+                    "kind": "discriminator",
+                    "code": "import observability\nassert callable(observability.health)",
+                }
+            ],
+        }
+    },
 }
 
 
@@ -112,7 +130,7 @@ def main() -> int:
     if failures:
         print("CONTROL FAILED:", failures)
         return 1
-    print("Control passed: the gate catches all three defect shapes and still clears the real bank.")
+    print(f"Control passed: the gate catches all {len(MUTANTS)} defect shapes and still clears the real bank.")
     return 0
 
 
