@@ -135,6 +135,45 @@ def main() -> int:
         )
         return 2
 
+    # Control noise, derived here rather than eyeballed. The proposed signal-vs-noise criterion in
+    # small-rule-load-proof.md is admissible only if sigma < 50 tokens from >=3 same-mode control
+    # replicates, a bound fixed before this measurement was taken. Reporting it in the same pass
+    # that reports the verdicts is the P3 rule: a scalar quoted from memory is a scalar that can
+    # drift from the data it claims to describe.
+    clusters: list[list[dict]] = []
+    for c in sorted(controls, key=lambda c: c["first_msg_tokens"]):
+        if clusters and same_mode(
+            clusters[-1][-1]["first_msg_tokens"], c["first_msg_tokens"]
+        ):
+            clusters[-1].append(c)
+        else:
+            clusters.append([c])
+    print(
+        "control noise by cache mode (pre-registered guard: sigma < 50 tokens, n >= 3)"
+    )
+    admissible = False
+    for cl in clusters:
+        vals = [c["first_msg_tokens"] for c in cl]
+        n = len(vals)
+        mean = sum(vals) / n
+        sigma = (
+            (sum((v - mean) ** 2 for v in vals) / (n - 1)) ** 0.5
+            if n > 1
+            else float("nan")
+        )
+        ok = n >= 3 and sigma < 50
+        admissible = admissible or ok
+        verdict = (
+            "ADMISSIBLE" if ok else ("n<3" if n < 3 else "sigma>=50 -> criterion VOID")
+        )
+        print(
+            f"  mode~{mean:>9.0f}  n={n}  sigma={sigma:>8.1f}  values={vals}  {verdict}"
+        )
+    print(
+        f"  -> signal criterion {'ADMISSIBLE' if admissible else 'NOT admissible'}; "
+        f"small-rule verdicts {'may be re-adjudicated' if admissible else 'stay UNPROVEN'}\n"
+    )
+
     results = []
     for arm in arms:
         mode = arm["rules_mode"]
