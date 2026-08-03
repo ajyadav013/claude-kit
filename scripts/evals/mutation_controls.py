@@ -714,6 +714,62 @@ def control_tier_a_scripts() -> dict:
     return entry
 
 
+def control_tier_a_config() -> dict:
+    """Collapse every variant's observable to a constant; the distinctness check must fail them.
+
+    The config families are judged on whether their variants produce DIFFERENT installs. That check
+    is the only thing standing between a real measurement and one where, say, `advisory` and
+    `assisted` autonomy both resolve to the same empty hook set and both go green on the strength
+    of being identical. `--break-distinctness` makes every variant look the same; if the
+    multi-variant families still pass, the check is decorative.
+    """
+    entry = {
+        "checker": "scripts/evals/tier_a_config.py",
+        "kind": "observables collapsed, variants must fail",
+    }
+    script = REPO / "scripts/evals/tier_a_config.py"
+    subset = "capture,autonomy,strictness"
+    with tempfile.TemporaryDirectory(prefix="ck-ctl-tac-") as t:
+        out = pathlib.Path(t) / "r.json"
+
+        def once(extra: list[str]) -> dict:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(script),
+                    "--out",
+                    str(out),
+                    "--only",
+                    subset,
+                    *extra,
+                ],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=1800,
+            )
+            if not out.is_file():
+                raise RuntimeError("no output")
+            return {
+                r["id"]: r["ok"]
+                for r in json.loads(out.read_text(encoding="utf-8"))["rows"]
+            }
+
+        honest = once([])
+        collapsed = once(["--break-distinctness"])
+
+    entry["detected"] = all(honest.values()) and not any(collapsed.values())
+    if not entry["detected"]:
+        bad = [k for k, v in honest.items() if not v]
+        survived = [k for k, v in collapsed.items() if v]
+        entry["error"] = (
+            f"honest run failed {bad} (want none); collapsed run still passed {survived} "
+            "(want none)"
+        )
+    return entry
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -749,6 +805,7 @@ def main() -> int:
         guarded(control_tier_c_reach, "scripts/evals/tier_c_reach.py"),
         guarded(control_tier_a_cli, "scripts/evals/tier_a_cli.py"),
         guarded(control_tier_a_scripts, "scripts/evals/tier_a_scripts.py"),
+        guarded(control_tier_a_config, "scripts/evals/tier_a_config.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
