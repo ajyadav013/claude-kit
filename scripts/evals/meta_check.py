@@ -253,22 +253,30 @@ def check_absent_is_not_false(r: Result) -> None:
                     out.append(n)
             return out
 
-        def _record(self, call: ast.Call, why: str) -> None:
+        def _record(self, call: ast.Call, why: str, ctx: ast.AST | None = None) -> None:
             # Span, not a single line: the formatter splits a long call across lines, so a waiver
             # comment written next to it lands on a DIFFERENT line than `call.lineno`. Keying the
             # waiver to one line silently un-waived two sites the moment ruff reflowed them.
+            # The span is the ENCLOSING expression, not the `.get()` call. A comment -- waiver or
+            # control marker -- attaches to the statement, and the formatter puts it on the line
+            # holding the closing paren. Keying to the inner call's own span put the marker one
+            # line outside it, which broke a waiver and then broke the control that checks waivers.
+            outer = ctx if ctx is not None else call
             hits.append(
                 {
                     "path": self.path,
                     "line": call.lineno,
-                    "end": getattr(call, "end_lineno", call.lineno) or call.lineno,
+                    "end": max(
+                        getattr(call, "end_lineno", call.lineno) or call.lineno,
+                        getattr(outer, "end_lineno", call.lineno) or call.lineno,
+                    ),
                     "why": why,
                 }
             )
 
         def visit_If(self, node: ast.If) -> None:
             for c in self._bare_get(node.test):
-                self._record(c, "decides an `if`")
+                self._record(c, "decides an `if`", node.test)
             self.generic_visit(node)
 
         def visit_Call(self, node: ast.Call) -> None:
@@ -277,12 +285,12 @@ def check_absent_is_not_false(r: Result) -> None:
             if name in AGG:
                 for a in node.args:
                     for c in self._bare_get(a):
-                        self._record(c, f"inside {name}()")
+                        self._record(c, f"inside {name}()", a)
             self.generic_visit(node)
 
         def visit_BoolOp(self, node: ast.BoolOp) -> None:
             for c in self._bare_get(node):
-                self._record(c, "in a boolean expression")
+                self._record(c, "in a boolean expression", node)
             self.generic_visit(node)
 
     scanned = 0
@@ -312,11 +320,15 @@ def check_absent_is_not_false(r: Result) -> None:
             else:
                 kept.append(h)
         hits[before:] = kept
+    sites = list(hits)
     hits[:] = [f"{h['path']}:{h['line']}: bare .get() {h['why']}" for h in hits]
     detail = f"scanned {scanned} checkers for verdict-deciding bare .get()"
     if waived:
         detail += f"; {waived} site(s) waived with a stated reason"
     r.add("absent_is_not_false", not hits, detail, hits)
+    # Keep the spans: the self-test has to match a hit against a marker that the formatter may
+    # have pushed onto a different line than the call starts on.
+    r.checks[-1]["sites"] = sites
 
 
 def self_test() -> int:
@@ -331,12 +343,7 @@ def self_test() -> int:
         print(f"control fixture missing: {fx}", file=sys.stderr)
         return 2
     src = fx.read_text(encoding="utf-8").splitlines()
-    must = {i for i, ln in enumerate(src, 1) if "# FLAG" in ln}
-    must_not = {
-        i
-        for i, ln in enumerate(src, 1)
-        if ".get(" in ln and "# FLAG" not in ln and i not in must
-    }
+    marked = {i for i, ln in enumerate(src, 1) if "# FLAG" in ln}
 
     saved_c, saved_r = CHECKERS, REPO
     CHECKERS, REPO = [str(fx.relative_to(saved_r))], saved_r
@@ -344,9 +351,26 @@ def self_test() -> int:
     check_absent_is_not_false(r)
     CHECKERS, REPO = saved_c, saved_r
 
-    flagged = {int(h.split(":")[1]) for h in r.checks[0]["findings"]}
-    missed = sorted(must - flagged)
-    false_pos = sorted(must_not & flagged)
+    # Match a hit to its marker by SPAN, not by start line. The claim that marker-keyed
+    # expectations were reformat-proof was false: ruff split the E-038 line and pushed its
+    # `# FLAG` comment two lines below the call, so the control reported a miss AND a false
+    # positive for the same site. Same span bug as the waivers, in the control itself.
+    sites = r.checks[0].get("sites") or []
+    flagged = {h["line"] for h in sites}
+    covered = {i for h in sites for i in range(h["line"], h["end"] + 1)} & marked
+    missed = sorted(marked - covered)
+
+    # A benign line is one holding a `.get(` that no flagged span covers and that carries no
+    # marker anywhere in a flagged span.
+    benign = {
+        i
+        for i, ln in enumerate(src, 1)
+        if ".get(" in ln and not any(h["line"] <= i <= h["end"] for h in sites)
+    }
+    false_pos = sorted(
+        {h["line"] for h in sites if not (set(range(h["line"], h["end"] + 1)) & marked)}
+    )
+    must, must_not = marked, benign
     print(f"mutation control on {fx.name}")
     print(f"  flagged      {sorted(flagged)}")
     print(f"  must-flag    {sorted(must)}  missed={missed}")
