@@ -287,6 +287,29 @@ def grade_one(d: pathlib.Path) -> dict:
     spawned = probe.get("agents_spawned") or []
     selected = agent in spawned
 
+    # Recorded for EVERY row, not just read-only ones. Its absence is what let three agents be
+    # booked NO_CONTRIBUTION while their final answers -- 1471 and 2084 characters of it -- said
+    # plainly why they had not mutated (F-068).
+    answer_len = len(answer.strip())
+
+    # Evidence, not a verdict. These are deterministic markers of a session that was prevented from
+    # working by its environment rather than by the product: a pinned model the deployment does not
+    # serve, a write the permission layer refused, or a derived prompt that carried no task at all.
+    # They are SURFACED and never allowed to reclassify an outcome on their own -- auto-downgrading
+    # on a regex would trade one silent misgrade for another.
+    blocking_markers = []
+    low = answer.lower()
+    for pat, tag in (
+        ("isn't available on this", "model-unavailable"),
+        ("is not available on this", "model-unavailable"),
+        ("needs your approval", "permission-blocked"),
+        ("needs approval", "permission-blocked"),
+        ("contained no actual task", "empty-task-prompt"),
+        ("no actual task", "empty-task-prompt"),
+    ):
+        if pat in low and tag not in blocking_markers:
+            blocking_markers.append(tag)
+
     row: dict = {
         "agent": label,
         "agent_name": agent,
@@ -295,6 +318,8 @@ def grade_one(d: pathlib.Path) -> dict:
         "session_rc": probe.get("session_rc"),
         "result_subtype": subtype,
         "spawned": spawned,
+        "answer_len": answer_len,
+        "blocking_markers": blocking_markers,
     }
 
     # Asymmetric admissibility: a broken session cannot support a negative, but a spawn that
@@ -379,14 +404,28 @@ def grade_one(d: pathlib.Path) -> dict:
             row["c3_note"] = (
                 "left the suite uncollectable -- broke the project whatever the job"
             )
+        elif not agent_mutated and answer_len >= 200:
+            # It ran, stayed in role, mutated nothing, and SAID something substantial. Booking that
+            # as "no contribution" is the same conflation this file warns about one branch below,
+            # applied to a different pair: a verdict is a contribution. Three agents were graded
+            # not-PASS this way while their answers explained that the deployment would not serve
+            # their pinned model, that a write had been refused, or that the derived prompt carried
+            # no task (F-068). Declared tools say what an agent MAY do, not what the task requires.
+            row["c3_working"] = None
+            marker_note = (
+                f"; blocking markers: {blocking_markers}" if blocking_markers else ""
+            )
+            row["c3_note"] = (
+                f"reported without mutating ({answer_len} chars); its job may not require a "
+                f"mutation on this fixture -- graded partial, not absent{marker_note}"
+            )
         elif not agent_mutated:
-            # The agent ran, stayed in role, and produced nothing the workspace can show. That is
-            # not the same event as doing the wrong thing, and summing them into one "defect" count
-            # would hide which of the two actually happened.
+            # Nothing in the workspace AND nothing said. This is the genuine no-contribution case,
+            # and it stays distinct from doing the wrong thing.
             row["c3_working"] = None
             row["c3_note"] = (
-                "agent made no mutating call; on this fixture its job may not apply -- "
-                "recorded as no contribution rather than as a defect"
+                f"agent made no mutating call and produced no substantive answer ({answer_len} "
+                "chars); recorded as no contribution rather than as a defect"
             )
             row["no_contribution"] = True
         elif role == "test-author":
