@@ -110,7 +110,27 @@ def count_tests(root: Path) -> int:
 
 
 def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
-    fixture = REPO / "tests/evals/e2e/fixtures" / spec["fixture"]
+    # The baseline is the pristine fixture. run-scenario.sh stages it beside the oracle; in-repo
+    # runs read it from the fixtures tree. Getting this path wrong is NOT harmless: `unchanged:`
+    # compares against it, and a missing baseline made `a.is_file()` false, which rendered as
+    # "MODIFIED or missing" -- five scenarios were reported as having tampered with a file that
+    # was byte-identical. min_new_tests reads it too, and silently counted a 0 baseline. So an
+    # absent baseline is now a loud failed check rather than a comparison against nothing.
+    staged = _HERE / "pristine"
+    fixture = (
+        staged
+        if staged.is_dir()
+        else REPO / "tests/evals/e2e/fixtures" / spec["fixture"]
+    )
+    if not fixture.is_dir():
+        checks.append(
+            {
+                "check": "fixture_baseline_present",
+                "pass": False,
+                "detail": f"no pristine baseline at {fixture}; unchanged/min_new_tests cannot be judged",
+            }
+        )
+        return
 
     # 1. Sealed holdouts. Executed against the workspace, never written into it.
     for b in spec["behaviours"]:
