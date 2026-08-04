@@ -114,14 +114,18 @@ def main() -> int:
         p.write_text(json.dumps(bank))
         r = run(p)
         caught = r.returncode == 1 and "NON-DISCRIMINATING" in r.stdout
-        print(f"{name:38} -> exit {r.returncode} {'CAUGHT' if caught else 'ESCAPED (control failure)'}")
+        print(
+            f"{name:38} -> exit {r.returncode} {'CAUGHT' if caught else 'ESCAPED (control failure)'}"
+        )
         if not caught:
             failures.append(name)
             print(r.stdout[-400:])
 
     r = run(REAL)
     clean = r.returncode == 0
-    print(f"{'real bank (must stay clean)':38} -> exit {r.returncode} {'clean' if clean else 'REGRESSED'}")
+    print(
+        f"{'real bank (must stay clean)':38} -> exit {r.returncode} {'clean' if clean else 'REGRESSED'}"
+    )
     if not clean:
         failures.append("real bank no longer clean")
         print(r.stdout[-600:])
@@ -130,7 +134,9 @@ def main() -> int:
     if failures:
         print("CONTROL FAILED:", failures)
         return 1
-    print(f"Control passed: the gate catches all {len(MUTANTS)} defect shapes and still clears the real bank.")
+    print(
+        f"Control passed: the gate catches all {len(MUTANTS)} defect shapes and still clears the real bank."
+    )
     return 0
 
 

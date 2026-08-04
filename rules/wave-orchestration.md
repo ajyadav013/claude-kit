@@ -1,3 +1,12 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+  - '.claude/**'
+---
+
 # Wave Orchestration (Program-Scale Work)
 
 When a single run is too big to be one feature pipeline — a migration, a repo-wide refactor, a

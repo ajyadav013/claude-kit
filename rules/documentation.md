@@ -1,3 +1,18 @@
+---
+paths:
+  - '**/*.py'
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/*.go'
+  - '**/*.rs'
+  - '**/*.java'
+  - '**/*.rb'
+  - '**/*.md'
+  - '**/docs/**'
+---
+
 # Documentation Standards
 
 Mandatory documentation standards for all code in this repository. Every change must maintain or improve documentation.

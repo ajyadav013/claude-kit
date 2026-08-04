@@ -1,3 +1,11 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+---
+
 # Agent Memory System
 
 Claude maintains a project-scoped knowledge base in `.claude/agent-memory/` that persists learnings across sessions. This memory is shared — any Claude session working in this project can read and contribute.

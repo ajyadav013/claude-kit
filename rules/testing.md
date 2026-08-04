@@ -1,3 +1,22 @@
+---
+paths:
+  - '**/test_*.py'
+  - '**/*_test.py'
+  - '**/*.test.*'
+  - '**/*.spec.*'
+  - '**/tests/**'
+  - '**/__tests__/**'
+  - '**/*.py'
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/*.go'
+  - '**/*.rs'
+  - '**/*.java'
+  - '**/*.rb'
+---
+
 # Testing Standards
 
 All new code and modified code MUST have accompanying unit tests with a minimum **90% coverage** threshold across all metrics (or as defined by the project's coverage policy).

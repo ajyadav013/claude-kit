@@ -4,6 +4,69 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.77.0] — 2026-08-04
+
+**The kit stopped fitting in the window it ships into.** Every rule in `.claude/rules/` loaded at
+launch, on every session, whether or not it applied. Measured on a default install: **101,255 tokens
+of rules, 173,750 tokens of standing context — 87% of a 200k window consumed before a single word of
+work.** On the flagship path this was not a slow session, it was a dead one: a `/sdlc` run on the
+shipped default was killed by autocompact thrashing having dispatched *zero* agents.
+
+### Fixed
+
+- **Rules are now split into a covenant and a scoped set.** Seven rules whose trigger is *temporal*
+  — `rarv-cycle`, `risk-classification`, `autonomy-levels`, `quality-gates`, `mandatory-workflow`,
+  `human-in-the-loop`, `continuity` — still load at launch, because "every turn" and "every change"
+  cannot be expressed as a file glob. The other eighteen carry `paths:` frontmatter and load when you
+  touch matching files.
+
+  | | standing context | attributable to rules | % of a 200k window |
+  |---|---:|---:|---:|
+  | before | 173,750 | 101,255 | 87% |
+  | after | 91,511 | 19,016 | 46% |
+
+  **Nothing was moved, renamed, shortened or deleted.** Every rule keeps its full text at its
+  existing path, so all ~668 `.claude/rules/<name>.md` citations across agents, skills and docs still
+  resolve, and any rule remains readable by name at any time.
+
+- **`CLAUDE.md` gained a rule index** — the seven always-on rules and the eighteen on-demand ones,
+  each with a "read it when" trigger, so a scoped rule stays discoverable rather than merely absent.
+
+- **`documentation.md` is scoped to source files, not only markdown.** It mandates headers and
+  docstrings on *source*; scoping it to `**/*.md` would have inverted it, loading the rule when
+  editing docs and hiding it when editing the code it governs.
+
+- **Reference solutions, fixtures and holdouts are excluded from `ruff`.** They are data, not this
+  project's code — spec behaviours match against their source *text*, so import-sorting or
+  reformatting them could silently change what a check matches. Mirrors the existing
+  `collect_ignore_glob` in the eval conftest.
+
+### Added
+
+- `scripts/evals/measure-standing-context.sh` — reproducible standing-context measurement
+  (`input + cache_creation + cache_read`), with an empty-directory control so the kit's cost is
+  reported as a *difference* and never as a raw session total.
+- Four new payload pins in `tests/test_rule_frontmatter.py`: the covenant is frontmatter-free, every
+  other core rule carries valid globs, covenant membership is exhaustive (a new rule must make a
+  deliberate covenant-or-scoped choice rather than joining the always-on set by omission), and
+  `documentation.md` matches source.
+
+### Not adopted (deliberately)
+
+- **Slimming the covenant rules and relocating their detail (Phase 2 of the design spec).** Would
+  reach ~78,700 standing context (rules ~8,000) — a further ~14k tokens. It requires rewriting four
+  large rules into contracts plus a new `references/` home, with scaffolder, validator and
+  upgrade-path work. Phase 1 already captures ~90% of the available reduction and is the difference
+  between exceeding a 200k window and fitting inside it; the rest is a separate release. The plan
+  stands in `docs/rules-context-budget.md`.
+- **Scoping the covenant rules too.** Tried, measured, reverted. A path glob is a claim about *when*
+  a rule applies; for these seven the honest answer is "always", and globbing them silently exempts
+  docs-only, YAML-only and migration-only changes from gate and workflow discipline.
+- **Moving rule text out of `.claude/rules/` (Direction B).** Byte-identical moves look clean, but
+  they break ~668 citations and leave two homes for "rules" permanently.
+- **Putting every agent on `opus`.** The three-tier policy in `rules/model-tiers.md` is a cost
+  control, not an oversight; collapsing it would also leave that rule contradicting the payload.
+
 ## [0.76.0] — 2026-08-01
 
 **The Trust Release — enforcement catches up with the promise.** The kit has always *claimed* that

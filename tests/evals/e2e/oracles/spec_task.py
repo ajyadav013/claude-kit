@@ -45,7 +45,9 @@ def sha(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def run_py(work: Path, code: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+def run_py(
+    work: Path, code: str, timeout: int = 120
+) -> subprocess.CompletedProcess[str]:
     env = dict(
         os.environ,
         PYTHONPATH=str(work / "src"),
@@ -124,7 +126,9 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
         r = pytest_on(work, pristine, [e["test"] for e in excludes])
         detail = (r.stdout or "")[-300:]
         if excludes:
-            detail += " | deselected: " + "; ".join(f"{e['test']} ({e['reason']})" for e in excludes)
+            detail += " | deselected: " + "; ".join(
+                f"{e['test']} ({e['reason']})" for e in excludes
+            )
         # pytest exits 5 when it collects nothing. A scenario that rewrites every public signature
         # (SC-13) legitimately deselects the whole fixture suite, and failing the solution for that
         # would be failing it for the wrong reason -- but silently passing would hide that this
@@ -135,7 +139,10 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
                 "check": "pristine_suite_passes",
                 "pass": r.returncode == 0 or vacuous,
                 "vacuous": vacuous,
-                "detail": ("VACUOUS -- every pristine test deselected; this check proved nothing. " + detail)
+                "detail": (
+                    "VACUOUS -- every pristine test deselected; this check proved nothing. "
+                    + detail
+                )
                 if vacuous
                 else detail,
             }
@@ -145,7 +152,9 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
     # 3. Content requirements, positive and negative.
     for req in spec.get("must_contain", []):
         f = work / req["file"]
-        ok = f.is_file() and re.search(req["pattern"], f.read_text(errors="replace"), re.M | re.I)
+        ok = f.is_file() and re.search(
+            req["pattern"], f.read_text(errors="replace"), re.M | re.I
+        )
         checks.append(
             {
                 "check": f"contains:{req['file']}:{req['pattern'][:40]}",
@@ -155,7 +164,9 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
         )
     for req in spec.get("must_not_contain", []):
         f = work / req["file"]
-        hit = f.is_file() and re.search(req["pattern"], f.read_text(errors="replace"), re.M | re.I)
+        hit = f.is_file() and re.search(
+            req["pattern"], f.read_text(errors="replace"), re.M | re.I
+        )
         checks.append(
             {
                 "check": f"absent:{req['file']}:{req['pattern'][:40]}",
@@ -181,7 +192,11 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
         a, b = fixture / rel, work / rel
         same = a.is_file() and b.is_file() and sha(a) == sha(b)
         checks.append(
-            {"check": f"unchanged:{rel}", "pass": same, "detail": "identical" if same else "MODIFIED or missing"}
+            {
+                "check": f"unchanged:{rel}",
+                "pass": same,
+                "detail": "identical" if same else "MODIFIED or missing",
+            }
         )
 
 
@@ -225,13 +240,26 @@ def main() -> int:
         print(f"no spec for scenario {a.scenario}", file=sys.stderr)
         return 2
     if not spec.get("behaviours"):
-        print(f"spec {a.scenario} declares no behaviours; nothing to falsify", file=sys.stderr)
+        print(
+            f"spec {a.scenario} declares no behaviours; nothing to falsify",
+            file=sys.stderr,
+        )
         return 2
 
     checks: list[dict] = []
     check_spec(Path(a.workdir), spec, checks)
     ok = all(c["pass"] for c in checks)
-    print(json.dumps({"oracle": "spec_task", "scenario": a.scenario, "pass": ok, "checks": checks}, indent=2))
+    print(
+        json.dumps(
+            {
+                "oracle": "spec_task",
+                "scenario": a.scenario,
+                "pass": ok,
+                "checks": checks,
+            },
+            indent=2,
+        )
+    )
     return 0 if ok else 1
 
 

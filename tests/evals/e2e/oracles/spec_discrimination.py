@@ -51,9 +51,16 @@ def materialise(fixture: str, solution: str | None) -> str:
 
 
 def behaves(work: str, code: str) -> bool:
-    env = dict(os.environ, PYTHONPATH=os.path.join(work, "src"), PYTHONDONTWRITEBYTECODE="1")
+    env = dict(
+        os.environ, PYTHONPATH=os.path.join(work, "src"), PYTHONDONTWRITEBYTECODE="1"
+    )
     r = subprocess.run(
-        [sys.executable, "-c", code], cwd=work, env=env, capture_output=True, text=True, timeout=120
+        [sys.executable, "-c", code],
+        cwd=work,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     return r.returncode == 0
 
@@ -75,9 +82,19 @@ def survives_pristine(work: str, fixture: str, node: str) -> bool:
     tmp = tempfile.mkdtemp()
     pristine = os.path.join(tmp, "t")
     shutil.copytree(FIXTURES / fixture / "tests", pristine)
-    env = dict(os.environ, PYTHONPATH=os.path.join(work, "src"), PYTHONDONTWRITEBYTECODE="1")
+    env = dict(
+        os.environ, PYTHONPATH=os.path.join(work, "src"), PYTHONDONTWRITEBYTECODE="1"
+    )
     r = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", os.path.join(pristine, node)],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            os.path.join(pristine, node),
+        ],
         cwd=work,
         env=env,
         capture_output=True,
@@ -101,7 +118,9 @@ def main() -> int:
     specs = json.loads(spec_path.read_text())
     violations: list[str] = []
 
-    print(f"{'scenario':8} {'behaviour':34} {'kind':14} {'baseline':9} {'solvedA':7} {'altB':5} verdict")
+    print(
+        f"{'scenario':8} {'behaviour':34} {'kind':14} {'baseline':9} {'solvedA':7} {'altB':5} verdict"
+    )
     print("-" * 98)
 
     unprotected: list[str] = []
@@ -145,7 +164,11 @@ def main() -> int:
                     why = "OK"
             else:
                 ok = on_base and on_solved and (on_alt is not False)
-                why = "OK" if ok else "guard does not hold -- broken check or broken fixture"
+                why = (
+                    "OK"
+                    if ok
+                    else "guard does not hold -- broken check or broken fixture"
+                )
 
             if not ok:
                 violations.append(f"{sid}:{b['name']} ({why})")
@@ -168,7 +191,9 @@ def main() -> int:
                 violations.append(
                     f"{sid}: exclusion {exc['test']!r} is unjustified -- that test passes on the solution"
                 )
-            print(f"{sid:8} exclusion {exc['test'][:52]:52} {'load-bearing' if conflicts else 'UNJUSTIFIED'}")
+            print(
+                f"{sid:8} exclusion {exc['test'][:52]:52} {'load-bearing' if conflicts else 'UNJUSTIFIED'}"
+            )
 
         # Excluding the entire fixture suite is legitimate for a scenario that rewrites every
         # public signature, but it means the pristine-suite check contributes nothing for that
@@ -181,11 +206,15 @@ def main() -> int:
 
     print()
     if fully_excluded:
-        print(f"PRISTINE SUITE FULLY EXCLUDED ({len(fully_excluded)}) -- that check proves nothing for:")
+        print(
+            f"PRISTINE SUITE FULLY EXCLUDED ({len(fully_excluded)}) -- that check proves nothing for:"
+        )
         print(f"  {', '.join(fully_excluded)}")
         print()
     if unprotected:
-        print(f"NO ANTI-OVERFIT CONTROL ({len(unprotected)}) -- no solutions/<id>__alt/ reference:")
+        print(
+            f"NO ANTI-OVERFIT CONTROL ({len(unprotected)}) -- no solutions/<id>__alt/ reference:"
+        )
         print(f"  {', '.join(unprotected)}")
         print()
     if violations:

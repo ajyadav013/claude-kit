@@ -1,3 +1,11 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+---
+
 # Reasoning Techniques
 
 **Match the thinking to the stakes: show the path, observe before you act, and ask when it's genuinely ambiguous.**

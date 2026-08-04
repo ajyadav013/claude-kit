@@ -157,6 +157,50 @@ one left off.
 
 ---
 
+## Rule index — the seven that always apply, and the rest on demand
+
+Seven rules load every session because they apply to *every* turn regardless of which files you
+touch. The other eighteen carry `paths:` frontmatter and load when you work on matching files —
+they keep their full text at `.claude/rules/<name>.md`, so **you can open any of them by name at
+any time**, and every citation elsewhere in this config still resolves.
+
+**If a task touches one of these areas and the rule is not already in context, read it before you
+act.** On-demand is what keeps the standing baseline small enough to leave room for the actual
+work; it is not permission to skip the rule.
+
+| Always-on (7) | What it governs |
+|---|---|
+| `rarv-cycle.md` | Reason → Act → Reflect → Verify: the loop every task runs |
+| `risk-classification.md` | How much caution, review, and approval this change needs |
+| `autonomy-levels.md` | How far you may act before a human decides |
+| `quality-gates.md` | Severity model, gate-pass contract, evidence rule |
+| `mandatory-workflow.md` | Pipeline phases, ordering, who runs what, the defect loop |
+| `human-in-the-loop.md` | When to stop and ask a human |
+| `continuity.md` | The resume contract — read/write working memory every turn |
+
+| On-demand (18) | Read it when |
+|---|---|
+| `testing.md` | writing or judging tests, coverage thresholds |
+| `linting-and-formatting.md` | lint/format config or a style disagreement |
+| `code-organization.md` | adding files/modules, deciding where code lives |
+| `design-patterns.md` | choosing a structure or refactoring toward one |
+| `resilience-engineering.md` | timeouts, retries, fallback, degradation in service code |
+| `frontend-best-practices.md` | any frontend component or client-state work |
+| `responsive-and-accessibility.md` | layout, breakpoints, a11y, keyboard/screen-reader paths |
+| `devops-observability.md` | CI, build, release, logging, metrics, health checks, SLOs |
+| `documentation.md` | writing any source file (headers, docstrings) or docs |
+| `wave-orchestration.md` | program-scale work spanning many lanes or waves |
+| `agent-guardrails.md` | building or constraining an agent |
+| `agent-memory.md` | persisting learnings across sessions |
+| `agent-resilience.md` | an agent that must survive failure or timeout |
+| `tool-design.md` | designing a tool or MCP surface for an agent |
+| `evals.md` | measuring whether a change actually helped |
+| `model-tiers.md` | choosing a model for a task or subagent |
+| `reasoning-techniques.md` | a task that needs structured reasoning |
+| `goal-setting-and-monitoring.md` | defining success criteria or tracking progress |
+
+---
+
 ## Project-specific rules
 
 > Add your stack's conventions here (language style, framework patterns, naming, directory

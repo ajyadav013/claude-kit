@@ -1,8 +1,38 @@
 # Rules context budget — the auto-load problem and the redesign options
 
-> **Status: DESIGN SPEC, decision pending.** Nothing in this document is implemented yet. It is
-> the verified problem statement + measured data + candidate directions for a 0.59.0-scale
-> change to how the kit ships rule content.
+> **Status: DECIDED and PARTLY SHIPPED in 0.77.0.** The chosen fix is a hybrid — the covenant idea
+> from **Direction A** plus the scoping mechanism from **Direction C**, which this document filed as
+> "useful as a component of A, not a fix". That judgement was right: C alone is not a fix, but C
+> applied *only* to the rules whose trigger genuinely is a file type, with an always-on covenant
+> carrying the rest, is.
+>
+> **Shipped (Phase 1).** Seven covenant rules stay frontmatter-free and load at launch; the other
+> eighteen carry `paths:` globs. Nothing was moved, renamed or deleted, so all ~668
+> `.claude/rules/<name>.md` citations still resolve and no rule lost a word of its text.
+>
+> Measured A/B on the HEAD payload (`scripts/evals/measure-standing-context.sh`; total =
+> `input + cache_creation + cache_read`; control = empty dir at 63,717; attribution floor = rules
+> removed at 72,495):
+>
+> | arm | standing context | attributable to rules | % of a 200k window |
+> |---|---:|---:|---:|
+> | before | 173,750 | 101,255 | 87% |
+> | after (Phase 1) | 91,511 | 19,016 | 46% |
+>
+> An 81% cut in rule cost, and the difference between a default install nearly filling a 200k window
+> before any work and using under half of it. The `before` arm independently reproduces the live
+> 172,964 measurement in finding F-041 to within 0.5%.
+>
+> **Not shipped (Phase 2).** Slimming the four largest covenant rules into contracts and relocating
+> their detail would reach ~78,700 standing (rules ~8,000). That is a further ~14k tokens for a large
+> prose rewrite plus a new `references/` home, with scaffolder, validator and upgrade-path work — a
+> separate release. The working map in the appendix below stands as its plan.
+>
+> **A caution the appendix predates.** Five rules cannot be honestly path-scoped at all: their trigger
+> is temporal, not a file type (`quality-gates`, `mandatory-workflow`, `continuity`,
+> `human-in-the-loop`, and `documentation` — the last governs docstrings on *source*, so scoping it to
+> `**/*.md` inverts it). They belong in the covenant permanently. See finding F-066; the constraint is
+> pinned by `tests/test_rule_frontmatter.py`.
 
 ## The verified problem
 
