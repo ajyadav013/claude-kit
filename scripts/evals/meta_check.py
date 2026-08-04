@@ -126,30 +126,45 @@ def check_mutation_controls(state: pathlib.Path, sha: str, r: Result) -> None:
 
 
 def check_derived_scalars(state: pathlib.Path, r: Result) -> None:
-    """Recompute every headline scalar from the records and compare to what is stored."""
+    """Recompute every headline scalar from the records and compare to what is stored.
+
+    Every scalar the terminal gate reads must be listed here. One this function does not
+    recompute cannot drift-fail, which is the same "a checker that cannot fail reports CLEAN"
+    shape the program keeps finding in the product -- and it had already happened here:
+    task_domain_coverage_percent was absent from the derived set and stored 35.3 against a
+    real 6.2, having picked up an unrelated tier-A figure.
+    """
     st = json.loads((state / "state.json").read_text(encoding="utf-8"))
     man = json.loads((state / "component-manifest.json").read_text(encoding="utf-8"))
     comps = man["components"] if isinstance(man, dict) else man
     fnd = json.loads((state / "findings.json").read_text(encoding="utf-8"))["findings"]
+    bank = json.loads((state / "task-bank-manifest.json").read_text(encoding="utf-8"))
+
+    def pct(n: int, d: int) -> float:
+        return round(n / d * 100, 1) if d else 0.0
+
+    def done(xs: list) -> int:
+        return sum(1 for c in xs if c.get("dynamic_done") is True)
 
     total = len(comps)
+    # The gate asks for 100% *required* dynamic coverage. Dividing by all 447 caps the metric at
+    # 97.5%, because 11 components are reference-only and can never be dynamic_done -- so on that
+    # denominator the gate is unreachable by construction rather than by any shortfall in work.
+    required = [c for c in comps if c.get("dynamic_required") is True]
+    rules = [c for c in comps if c.get("type") == "rule"]
+    hook_family = [c for c in comps if c.get("type") in ("hook", "hook-script")]
+    tasks = bank["tasks"]
+
     derived = {
         "components_total": total,
-        "component_static_coverage_percent": round(
-            sum(1 for c in comps if c.get("static_done") is True) / total * 100, 1
+        "component_static_coverage_percent": pct(
+            sum(1 for c in comps if c.get("static_done") is True), total
         ),
-        "component_dynamic_coverage_percent": round(
-            sum(1 for c in comps if c.get("dynamic_done") is True) / total * 100, 1
-        ),
-        "rule_evaluation_coverage_percent": round(
-            sum(
-                1
-                for c in comps
-                if c.get("type") == "rule" and c.get("dynamic_done") is True
-            )
-            / max(1, sum(1 for c in comps if c.get("type") == "rule"))
-            * 100,
-            1,
+        "component_dynamic_coverage_percent": pct(done(required), len(required)),
+        "rule_evaluation_coverage_percent": pct(done(rules), len(rules)),
+        "hook_evaluation_coverage_percent": pct(done(hook_family), len(hook_family)),
+        "task_domain_coverage_percent": pct(
+            sum(1 for t in tasks if t.get("status") != "NOT_RUN"), len(tasks)
         ),
     }
     sev = {"critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0}
