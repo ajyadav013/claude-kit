@@ -246,13 +246,14 @@ git -C "$WORK" add -A >/dev/null 2>&1 || true
 git -C "$WORK" diff --cached --stat >"$EVID/workspace.diffstat" 2>/dev/null || true
 cp -a "$WORK" "$EVID/workspace"
 
-python3 - "$EVID" "$AGENT" "$SESSION_RC" "$AGENTS_INSTALLED" "$AGENT_PRESENT" "$RULE_BYTES" "$FIXTURE" "$SRC" "$LABEL" <<'PY'
+python3 - "$EVID" "$AGENT" "$SESSION_RC" "$AGENTS_INSTALLED" "$AGENT_PRESENT" "$RULE_BYTES" "$FIXTURE" "$SRC" "$LABEL" "$KEEP_RULES" <<'PY'
 import json, re, sys, pathlib
 evid, agent, rc, installed, present, rule_bytes, fixture, src = sys.argv[1:9]
 # The LABEL only disambiguates directories (two stacks ship a `migration-specialist`).
 # The `agent` field must stay the real name -- grading selection against a label the
 # runtime never sees reported three correct spawns as substitutions.
 label = sys.argv[9] if len(sys.argv) > 9 else agent
+keep_rules = sys.argv[10] if len(sys.argv) > 10 else "no"
 d = pathlib.Path(evid)
 
 defn = open(src, encoding="utf-8", errors="replace").read()
@@ -305,16 +306,36 @@ for line in (d / "session.jsonl").open(encoding="utf-8", errors="replace"):
 verify_pat = re.compile(r"pytest|npm test|go test|ruff|mypy|coverage|make test", re.I)
 attempted_verification = any(verify_pat.search(x) for x in denied)
 
+# The deviations list is PROVENANCE: it decides whether a result may be quoted as the shipped
+# default or must be discounted. It was hardcoded to claim rules were withheld, which was true of
+# every run that existed until F-041 was fixed and --keep-rules became a usable arm -- at which
+# point a safe constant became a lie that discounts correct results (F-074).
+rules_deviation = {
+    "no": "rules withheld (F-014)",
+    "ondemand": "rules on-demand (scoped to a never-matching glob)",
+}.get(keep_rules)
+deviations = ["profile=enterprise", "bash inspection-only"]
+if rules_deviation:
+    deviations.insert(1, rules_deviation)
+# A record claiming rules were withheld while reporting zero withheld bytes is unreadable as
+# evidence. Surface it as a field rather than asserting: the session has already been paid for, and
+# throwing its evidence away to signal a labelling bug is the worse trade.
+provenance_warning = None
+if int(rule_bytes) == 0 and rules_deviation == "rules withheld (F-014)":
+    provenance_warning = "deviations say rules withheld but rule_bytes_withheld is 0 — do not quote this arm"
+    print(f"### PROVENANCE WARNING {provenance_warning}", file=sys.stderr)
+
 json.dump({
     "agent": agent, "label": label, "arm": d.name, "session_rc": int(rc),
     "result_subtype": result_subtype, "num_turns": num_turns,
     "agents_installed": int(installed), "agent_present": present == "yes",
     "rule_bytes_withheld": int(rule_bytes), "fixture": fixture,
+    "rules_mode": keep_rules,
     "first_msg_cache_creation": first_cache,
     "declared_tools": declared, "description": description,
     "agents_spawned": spawned, "tool_calls": tools,
     "denied_tool_results": denied, "attempted_verification": attempted_verification,
-    "deviations": ["profile=enterprise", "rules withheld (F-014)", "bash inspection-only"],
+    "deviations": deviations, "provenance_warning": provenance_warning,
 }, (d / "probe.json").open("w"), indent=2)
 print(f"agents_spawned={spawned} tools={sorted(set(tools))}")
 PY
