@@ -35,6 +35,23 @@ you, that's useful signal — open an issue.
   installs made before 0.76.0 keep their recorded choice across upgrades (the upgrade prints a
   notice when capture is on).
 
+## `pentest-scanner` may be refused at the platform level, and needs more than an install
+
+- The agent is **enterprise-profile only, opt-in, and preflight-gated**: it runs nothing without an
+  explicit request, a concrete **authorized non-production** target, and an installed tool (Strix,
+  Shannon, PentesterFlow or ZAP) with its runtime. A default install has none of those, so out of the
+  box it reports `SKIPPED` — by design. It never edits code and never blocks the Security Clear gate.
+- Separately, and outside claude-kit's control: **a request phrased as a general "run a penetration
+  test" can be refused by the model platform itself** under its cyber-content usage policy, ending the
+  session before the agent's own preflight gate is ever reached. Measured twice; the refusal is a
+  platform response to the request, not a kit malfunction, and the kit cannot suppress it.
+- Practical consequence: treat this agent as available only inside a genuine, authorized engagement
+  where you can state the target and the authorization. If you need static coverage instead, the four
+  scanners that always run (`secret-scanner`, `dependency-scanner`, `owasp-reviewer`,
+  `policy-validator`) read code and stand on their own.
+- We have deliberately **not** reworded the agent to make the refusal go away. Tuning wording until a
+  safety control stops firing would be evading it, not fixing anything.
+
 ## MCP servers are third-party
 
 - `catalog/mcp.yaml` **references** external MCP servers (pinned to exact versions); claude-kit does

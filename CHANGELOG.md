@@ -64,6 +64,11 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
 - Eight `guard-secrets.sh` scenarios in `tests/evals/hooks/hook-scenarios.json` — three proving the
   new detections fire, five as false-positive controls. All five controls also pass against the
   *pre-fix* hook, so the change is measured to add catches without adding noise.
+- A `pentest-scanner` entry in `docs/KNOWN_LIMITATIONS.md`. The agent is enterprise-only, opt-in and
+  preflight-gated, so a default install correctly reports `SKIPPED`; separately, a request phrased as
+  a general "run a penetration test" can be refused by the model platform under its cyber-content
+  policy before the agent's own gate is reached. That is a platform response the kit cannot suppress,
+  and users should know it rather than meet it as a surprise.
 
 ### Not adopted (deliberately)
 
@@ -80,6 +85,9 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   they break ~668 citations and leave two homes for "rules" permanently.
 - **Putting every agent on `opus`.** The three-tier policy in `rules/model-tiers.md` is a cost
   control, not an oversight; collapsing it would also leave that rule contradicting the payload.
+- **Rewording `pentest-scanner` so the platform stops refusing it.** Tuning wording until a safety
+  control stops firing is evading it, not fixing anything. The refusal is documented as the platform
+  behaviour it is; the agent's preflight gate, which is strict and correct, is left alone.
 - **Blocking low-entropy passwords in connection URIs** (`://svc:hunter2@db`). They are not
   distinguishable from the `user:pass` placeholders that fill real compose files, CI configs and
   docs; the false positives would cost more than the catch, and a guard people route around protects
