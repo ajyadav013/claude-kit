@@ -36,9 +36,24 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[4]
-SPECS = REPO / "tests/evals/e2e/task-specs.json"
-LOCK = REPO / ".claude/state/full-self-evaluation/task-bank-lock.json"
+# run-scenario.sh copies the oracle to <workspace>/.scenario/oracle.py before running it in
+# Docker, where parents[4] is above / and raises. Prefer siblings of the script -- which is where
+# the harness stages the spec and the lock -- and fall back to the repo layout when running in
+# place. Staging happens only AFTER the session ends, so the specs are still sealed from the run.
+_HERE = Path(__file__).resolve().parent
+_PARENTS = Path(__file__).resolve().parents
+REPO = _PARENTS[4] if len(_PARENTS) > 4 else _HERE
+
+
+def _staged(name: str, repo_rel: str) -> Path:
+    local = _HERE / name
+    return local if local.is_file() else REPO / repo_rel
+
+
+SPECS = _staged("task-specs.json", "tests/evals/e2e/task-specs.json")
+LOCK = _staged(
+    "task-bank-lock.json", ".claude/state/full-self-evaluation/task-bank-lock.json"
+)
 
 
 def sha(p: Path) -> str:

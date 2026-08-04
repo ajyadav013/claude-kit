@@ -1,0 +1,1 @@
+Add a `multiply(a, b)` function to the calculation module, following the conventions of the functions already there, and cover it with tests.

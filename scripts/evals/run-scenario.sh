@@ -23,6 +23,9 @@
 set -Eeuo pipefail
 
 SCENARIO="" FIXTURE="" ORACLE="" PROMPT_FILE="" ARM="baseline" MAX_TURNS=60
+# Extra argv for the oracle, word-split on purpose (e.g. --oracle-args "--scenario SC-04").
+# Spec-driven oracles need to know WHICH spec to grade; oracles that take only a workdir ignore it.
+ORACLE_ARGS=""
 # The container the ORACLE runs in. Fixtures are not all Python: a Node fixture is graded by a
 # JS oracle in the node image, which has no python (and no git — hence the manifest below).
 SERVICE="python"
@@ -55,6 +58,7 @@ while [ $# -gt 0 ]; do
 	--no-hooks) NO_HOOKS=1; shift ;;
 	--fixture) FIXTURE="${2:?}"; shift 2 ;;
 	--oracle) ORACLE="${2:?}"; shift 2 ;;
+	--oracle-args) ORACLE_ARGS="${2:?}"; shift 2 ;;
 	--prompt-file) PROMPT_FILE="${2:?}"; shift 2 ;;
 	--arm) ARM="${2:?}"; shift 2 ;;
 	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
@@ -427,6 +431,12 @@ echo "### inject the grader (AFTER the session — never before)"
 mkdir -p "$WORK/.scenario"
 ORACLE_EXT="${ORACLE##*.}"
 cp "$ROOT/tests/evals/e2e/oracles/$ORACLE" "$WORK/.scenario/oracle.$ORACLE_EXT"
+# Spec-driven oracles grade against a sealed spec plus its sha256 lock. Both are staged HERE,
+# next to the oracle, and deliberately not earlier: the session must never see the checks it is
+# being graded on. Staging both keeps the lock meaningful -- a spec without its lock would grade
+# against whatever the file happens to say now.
+cp "$ROOT/tests/evals/e2e/task-specs.json" "$WORK/.scenario/task-specs.json"
+cp "$RUN_DIR/task-bank-lock.json" "$WORK/.scenario/task-bank-lock.json" 2>/dev/null || true
 cp -a "$ROOT/tests/evals/e2e/fixtures/$FIXTURE" "$WORK/.scenario/pristine"
 cp "$EVID/manifest.json" "$WORK/.scenario/manifest.json"
 # SC-01's oracle predates the manifest and reads baseline-hashes.json; the manifest is a superset.
@@ -444,9 +454,10 @@ js) ORACLE_INTERP=node ;;
 *) echo "run-scenario: no interpreter for .$ORACLE_EXT oracles" >&2; exit 2 ;;
 esac
 set +e
+# shellcheck disable=SC2086  # ORACLE_ARGS must word-split into separate argv entries
 "$ROOT/scripts/evals/run-in-docker.sh" --service "$SERVICE" --label "$SCENARIO-$ARM-oracle" \
 	--mount "$WORK:/work" --workdir /work --timeout 600 -- \
-	env "$ORACLE_INTERP" "/work/.scenario/oracle.$ORACLE_EXT" /work
+	env "$ORACLE_INTERP" "/work/.scenario/oracle.$ORACLE_EXT" /work ${ORACLE_ARGS}
 ORACLE_RC=$?
 set -e
 

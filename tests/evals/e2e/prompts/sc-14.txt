@@ -1,0 +1,1 @@
+Order totals are fetched with one query per customer, which does not scale. Fix the bottleneck.

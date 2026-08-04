@@ -1,0 +1,1 @@
+Queries scan the whole collection because the filtered fields are unindexed, and the supplier subdocument is duplicated inline on every document. Fix the data model and add the indexes, with a migration.
