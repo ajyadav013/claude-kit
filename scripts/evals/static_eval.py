@@ -1495,6 +1495,12 @@ def main() -> int:
         elif ctype == "manifest":
             findings = check_manifest(comp, payload)
             ran = ["manifest"]
+        elif ctype == "packaging-workflow":
+            findings = check_packaging_workflow(comp, payload)
+            ran = ["packaging_workflow"]
+        elif ctype == "example":
+            findings = check_example(comp, payload, commands)
+            ran = ["example"]
         elif ctype.startswith("workflow-") or ctype in (
             "resolver",
             "rendering",
@@ -1900,6 +1906,251 @@ def check_manifest(comp, payload):
                     "detail": f"manifest {sorted(versions)} != __init__ {m.group(1)!r}",
                 }
             )
+    return findings
+
+
+# --------------------------------------------------------------------------------------------
+# The last two types with no checker at all: the packaging workflows and the worked examples.
+# Same mandate as the E-025 block above: each check asserts a contract the component advertises
+# that nothing else verifies. CI validates the plugin JSON manifests but no workflow YAML, and
+# check_cross_references.py scans templates/docs/README but not examples/.
+# --------------------------------------------------------------------------------------------
+
+#: Repo-tooling paths named in a workflow `run:` body. Scoped to the directories that hold repo
+#: scripts: a missing file in a PR-gating job fails loudly on the next push, but the same rot in
+#: a SCHEDULED workflow (mcp-freshness fires monthly) surfaces to nobody — the guard silently
+#: stops guarding, which is the failure class this whole program hunts.
+_RUN_PATH = re.compile(r"\b((?:scripts|hooks|templates)/[A-Za-z0-9_.*/-]+)")
+#: `${{ github.event.* }}` / `${{ inputs.* }}` inside a `run:` body is the canonical workflow
+#: injection vector — externally influenced text spliced into shell source. publish.yml's own
+#: comments document the safe idiom (route values through `env:`); this asserts every run body
+#: follows it.
+_RUN_INJECTION = re.compile(r"\$\{\{\s*(?:github\.event|inputs)\.")
+#: Branch heads a third-party action must not float on: upstream can change what runs in this
+#: repo's CI without any change here. Version tags (@v7) and vendor-documented release branches
+#: (@release/v1) are accepted — flagging those would be opinion, not contract.
+_FLOATING_REF = frozenset({"main", "master", "latest", "HEAD"})
+
+
+def _workflow_steps(doc):
+    for job in (doc.get("jobs") or {}).values():
+        if isinstance(job, dict):
+            for step in job.get("steps") or []:
+                if isinstance(step, dict):
+                    yield step
+
+
+def check_packaging_workflow(comp, payload):
+    """A workflow must parse, be triggerable, invoke files that exist, and honour its own posture.
+
+    A workflow that stops parsing does not fail — GitHub silently drops it from the Actions run
+    list, so the repository loses a guard without a single red X. Everything else here enforces
+    what the file itself says: a `run:` body naming a repo script claims the script exists, and a
+    header claiming OIDC/Trusted Publishing claims an `id-token: write` grant.
+    """
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    path = payload / comp["path"]
+    if not path.is_file():
+        return [
+            {
+                "severity": "critical",
+                "check": "exists",
+                "detail": f"absent: {comp['path']}",
+            }
+        ]
+    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        return [
+            {
+                "severity": "critical",
+                "check": "parses",
+                "detail": "invalid YAML — GitHub drops the workflow without failing anything: "
+                f"{' '.join(str(exc).split())[:160]}",
+            }
+        ]
+    if not isinstance(doc, dict):
+        return [
+            {
+                "severity": "high",
+                "check": "mapping",
+                "detail": "top level is not a mapping",
+            }
+        ]
+
+    # YAML 1.1 reads an unquoted `on:` key as the boolean True; either spelling is the trigger
+    # block, and reading only the string key would report every shipped workflow as inert.
+    triggers = doc.get("on", doc.get(True))
+    if not triggers:
+        add("high", "triggerable", "no `on:` block — the workflow can never run")
+    if not doc.get("jobs"):
+        add("high", "jobs", "no jobs — the workflow runs nothing")
+
+    seen: set[str] = set()
+    for step in _workflow_steps(doc):
+        run = str(step.get("run") or "")
+        for token in _RUN_PATH.findall(run):
+            token = token.rstrip(".")
+            if token in seen:
+                continue
+            seen.add(token)
+            present = (
+                any(payload.glob(token))
+                if any(ch in token for ch in "*?[")
+                else (payload / token).exists()
+            )
+            if not present:
+                add(
+                    "high",
+                    "invokes_missing_file",
+                    f"a run: step invokes {token}, which does not exist — in a scheduled "
+                    "workflow that failure is visible to nobody and the guard stops guarding",
+                )
+        if _RUN_INJECTION.search(run):
+            add(
+                "high",
+                "run_injection",
+                "interpolates `${{ github.event.* }}`/`${{ inputs.* }}` directly into a run: "
+                "body — externally influenced text becomes shell source; route it through env:",
+            )
+        uses = str(step.get("uses") or "")
+        if uses.startswith("./"):
+            if not (payload / uses[2:]).exists():
+                add(
+                    "high",
+                    "local_action_exists",
+                    f"uses local action {uses}, which is absent",
+                )
+        elif "@" in uses and uses.rsplit("@", 1)[1] in _FLOATING_REF:
+            add(
+                "medium",
+                "floating_action_ref",
+                f"{uses!r} floats on a branch head; upstream can change what runs in this "
+                "repo's CI without any change here",
+            )
+
+    if re.search(r"trusted publishing|\boidc\b", text, re.I) and not re.search(
+        r"id-token:\s*write", text
+    ):
+        add(
+            "high",
+            "oidc_backed",
+            "claims OIDC / Trusted Publishing but no job grants `id-token: write`, so the "
+            "publish fails exactly when a release is attempted",
+        )
+    return findings
+
+
+def _wheel_force_include_keys(payload):
+    """Source keys of [tool.hatch.build.targets.wheel.force-include], sans a TOML parser.
+
+    tomllib is 3.11+ and the eval image must stay runnable on every python CI tests against, so
+    this is a deliberate line-scan of one table rather than a new dependency.
+    """
+    f = payload / "pyproject.toml"
+    if not f.is_file():
+        return []
+    keys, in_table = [], False
+    for line in f.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s.startswith("["):
+            in_table = s == "[tool.hatch.build.targets.wheel.force-include]"
+            continue
+        if in_table and "=" in s and not s.startswith("#"):
+            keys.append(s.split("=", 1)[0].strip().strip('"'))
+    return keys
+
+
+def check_example(comp, payload, commands):
+    """A worked example must exist, carry an entry point, stay portable, and tell the truth.
+
+    Examples are advertised as repo reference only — CLAUDE.md states they are NOT bundled into
+    the wheel — and they are the one prose surface check_cross_references.py does not scan, so a
+    ghost CLI invocation or a leaked host path here is verified by nothing else. The CLI-claim
+    check is the same bar check_doc holds shipped documents to.
+    """
+    findings = []
+
+    def add(sev, check, detail):
+        findings.append({"severity": sev, "check": check, "detail": detail})
+
+    root = payload / comp["path"]
+    if not root.is_dir():
+        return [
+            {
+                "severity": "critical",
+                "check": "exists",
+                "detail": f"absent: {comp['path']}",
+            }
+        ]
+    files = [f for f in sorted(root.rglob("*")) if f.is_file()]
+    if not files:
+        return [
+            {
+                "severity": "high",
+                "check": "nonempty",
+                "detail": "the example directory is empty",
+            }
+        ]
+    if not (root / "README.md").is_file():
+        add(
+            "medium",
+            "readme",
+            "no README.md at the example root — a repo-reference example with no entry point",
+        )
+
+    leaked: list[str] = []
+    ghost_by_file: dict[str, list[str]] = {}
+    dead_refs: set[str] = set()
+    for f in files:
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        if LOCAL_PATH_RE.search(text):
+            leaked.append(str(f.relative_to(payload)))
+        if f.suffix == ".md":
+            ghosts = sorted(documented_invocations(text) - commands)
+            if ghosts:
+                ghost_by_file[str(f.relative_to(payload))] = ghosts
+            for ref in re.findall(r"\bscripts/[A-Za-z0-9_./-]+?\.(?:sh|py)\b", text):
+                if not (payload / ref).is_file():
+                    dead_refs.add(ref)
+    if leaked:
+        add(
+            "high",
+            "no_local_paths",
+            f"{len(leaked)} file(s) carry a host path from the author's machine: "
+            + ", ".join(leaked[:3]),
+        )
+    for rel, ghosts in sorted(ghost_by_file.items()):
+        add(
+            "high",
+            "cli_claims",
+            f"{rel} shows `claude-kit {', '.join(ghosts)}` at command position, but the CLI "
+            "registers no such root subcommand — a reader following the example gets an error",
+        )
+    for ref in sorted(dead_refs):
+        add(
+            "medium",
+            "script_ref",
+            f"references {ref}, which does not exist in the repository",
+        )
+
+    bundled = [
+        k
+        for k in _wheel_force_include_keys(payload)
+        if k == "examples" or k.startswith("examples/")
+    ]
+    if bundled:
+        add(
+            "high",
+            "wheel_excluded",
+            f"pyproject force-include maps {bundled} into the wheel, but CLAUDE.md advertises "
+            "examples as repo reference only, never bundled",
+        )
     return findings
 
 

@@ -1462,3 +1462,216 @@ def test_every_shipped_agent_that_can_spawn_is_a_coordinating_tier(payload):
         comp = {"id": f"agent:{f.stem}", "type": "agent", "path": f"agents/{f.stem}.md"}
         assert static_eval.check_agent_fanout(comp, payload) == [], f.stem
     assert holders, "no agent holds the Agent tool — the check would be vacuous"
+
+
+# ---------------------------------------------------------------------------------------------
+# packaging workflows (check_packaging_workflow)
+
+
+def _workflow(tmp_path: Path, name: str, text: str) -> dict:
+    d = tmp_path / ".github" / "workflows"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.yml").write_text(text, encoding="utf-8")
+    return {
+        "id": f"ci-workflow:{name}",
+        "type": "packaging-workflow",
+        "path": f".github/workflows/{name}.yml",
+        "risk": "low",
+    }
+
+
+def test_an_unparseable_workflow_is_critical(tmp_path):
+    comp = _workflow(tmp_path, "bad", "on: [push\njobs: {")
+    findings = static_eval.check_packaging_workflow(comp, tmp_path)
+    assert _checks(findings) == {"parses"}
+    assert findings[0]["severity"] == "critical"
+
+
+def test_a_workflow_with_no_trigger_and_no_jobs_is_flagged(tmp_path):
+    comp = _workflow(tmp_path, "inert", "name: inert\n")
+    checks = _checks(static_eval.check_packaging_workflow(comp, tmp_path))
+    assert {"triggerable", "jobs"} <= checks
+
+
+def test_yaml_reading_on_as_boolean_true_is_still_a_trigger(tmp_path):
+    """YAML 1.1 parses an unquoted `on:` key as boolean True; that is still the trigger block."""
+    comp = _workflow(
+        tmp_path,
+        "ok",
+        "on:\n  push:\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n"
+        "      - run: echo hi\n",
+    )
+    assert static_eval.check_packaging_workflow(comp, tmp_path) == []
+
+
+def test_a_run_step_invoking_a_missing_repo_script_is_flagged(tmp_path):
+    comp = _workflow(
+        tmp_path,
+        "sched",
+        "on:\n  schedule:\n    - cron: '0 0 * * *'\njobs:\n  a:\n    steps:\n"
+        "      - run: python scripts/gone_forever.py\n",
+    )
+    findings = static_eval.check_packaging_workflow(comp, tmp_path)
+    assert any(
+        f["check"] == "invokes_missing_file" and f["severity"] == "high"
+        for f in findings
+    )
+
+
+def test_a_run_step_invoking_a_present_script_or_glob_is_not_flagged(tmp_path):
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "ok.py").write_text("print()\n", encoding="utf-8")
+    (tmp_path / "scripts" / "a.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    comp = _workflow(
+        tmp_path,
+        "fine",
+        "on: {push: null}\njobs:\n  a:\n    steps:\n"
+        "      - run: python scripts/ok.py\n      - run: shellcheck scripts/*.sh\n",
+    )
+    assert static_eval.check_packaging_workflow(comp, tmp_path) == []
+
+
+def test_untrusted_interpolation_in_a_run_body_is_flagged(tmp_path):
+    comp = _workflow(
+        tmp_path,
+        "inj",
+        "on: {push: null}\njobs:\n  a:\n    steps:\n"
+        '      - run: echo "${{ github.event.issue.title }}"\n',
+    )
+    findings = static_eval.check_packaging_workflow(comp, tmp_path)
+    assert any(
+        f["check"] == "run_injection" and f["severity"] == "high" for f in findings
+    )
+
+
+def test_a_floating_action_ref_is_flagged_and_a_version_tag_is_not(tmp_path):
+    comp = _workflow(
+        tmp_path,
+        "float",
+        "on: {push: null}\njobs:\n  a:\n    steps:\n"
+        "      - uses: actions/checkout@main\n      - uses: actions/setup-python@v7\n"
+        "      - uses: pypa/gh-action-pypi-publish@release/v1\n",
+    )
+    findings = static_eval.check_packaging_workflow(comp, tmp_path)
+    assert [f["check"] for f in findings] == ["floating_action_ref"]
+    assert "checkout@main" in findings[0]["detail"]
+
+
+def test_an_oidc_claim_without_id_token_write_is_flagged(tmp_path):
+    comp = _workflow(
+        tmp_path,
+        "pub",
+        "# Publishes via Trusted Publishing (OIDC).\non: {push: null}\n"
+        "jobs:\n  a:\n    steps:\n      - run: echo publish\n",
+    )
+    findings = static_eval.check_packaging_workflow(comp, tmp_path)
+    assert any(
+        f["check"] == "oidc_backed" and f["severity"] == "high" for f in findings
+    )
+
+
+def test_an_oidc_claim_backed_by_id_token_write_is_not_flagged(tmp_path):
+    comp = _workflow(
+        tmp_path,
+        "pub2",
+        "# Trusted Publishing (OIDC)\non: {push: null}\n"
+        "jobs:\n  a:\n    permissions:\n      id-token: write\n    steps:\n"
+        "      - run: echo ok\n",
+    )
+    assert static_eval.check_packaging_workflow(comp, tmp_path) == []
+
+
+# ---------------------------------------------------------------------------------------------
+# worked examples (check_example)
+
+
+def _example(tmp_path: Path, name: str) -> dict:
+    (tmp_path / "examples" / name).mkdir(parents=True, exist_ok=True)
+    return {
+        "id": f"example:{name}",
+        "type": "example",
+        "path": f"examples/{name}",
+        "risk": "low",
+    }
+
+
+def test_a_missing_example_directory_is_critical(tmp_path):
+    comp = {
+        "id": "example:gone",
+        "type": "example",
+        "path": "examples/gone",
+        "risk": "low",
+    }
+    findings = static_eval.check_example(comp, tmp_path, set())
+    assert _checks(findings) == {"exists"}
+    assert findings[0]["severity"] == "critical"
+
+
+def test_an_empty_example_directory_is_flagged(tmp_path):
+    comp = _example(tmp_path, "hollow")
+    findings = static_eval.check_example(comp, tmp_path, set())
+    assert _checks(findings) == {"nonempty"}
+
+
+def test_an_example_without_a_readme_is_flagged(tmp_path):
+    comp = _example(tmp_path, "bare")
+    (tmp_path / "examples" / "bare" / "notes.md").write_text("hi\n", encoding="utf-8")
+    findings = static_eval.check_example(comp, tmp_path, set())
+    assert any(f["check"] == "readme" for f in findings)
+
+
+def test_an_example_claiming_a_ghost_cli_command_is_flagged(tmp_path):
+    comp = _example(tmp_path, "ghost")
+    (tmp_path / "examples" / "ghost" / "README.md").write_text(
+        "Run `claude-kit teleport now`.\n", encoding="utf-8"
+    )
+    findings = static_eval.check_example(comp, tmp_path, {"init", "validate"})
+    assert any(
+        f["check"] == "cli_claims" and "teleport" in f["detail"] for f in findings
+    )
+
+
+def test_an_example_with_a_host_path_is_flagged(tmp_path):
+    comp = _example(tmp_path, "leaky")
+    (tmp_path / "examples" / "leaky" / "README.md").write_text(
+        "# ok\nsee /Users/somebody/work/demo\n", encoding="utf-8"
+    )
+    findings = static_eval.check_example(comp, tmp_path, set())
+    assert any(
+        f["check"] == "no_local_paths" and f["severity"] == "high" for f in findings
+    )
+
+
+def test_an_example_referencing_a_missing_script_is_flagged(tmp_path):
+    comp = _example(tmp_path, "deadref")
+    (tmp_path / "examples" / "deadref" / "README.md").write_text(
+        "Produced by scripts/never-existed.sh against a scratch repo.\n",
+        encoding="utf-8",
+    )
+    findings = static_eval.check_example(comp, tmp_path, set())
+    assert any(f["check"] == "script_ref" for f in findings)
+
+
+def test_an_example_bundled_into_the_wheel_is_flagged(tmp_path):
+    comp = _example(tmp_path, "bundled")
+    (tmp_path / "examples" / "bundled" / "README.md").write_text(
+        "# e\n", encoding="utf-8"
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.hatch.build.targets.wheel.force-include]\n"
+        '"examples" = "claude_kit/_payload/examples"\n',
+        encoding="utf-8",
+    )
+    findings = static_eval.check_example(comp, tmp_path, set())
+    assert any(f["check"] == "wheel_excluded" for f in findings)
+
+
+def test_a_clean_example_produces_no_findings(tmp_path):
+    comp = _example(tmp_path, "clean")
+    (tmp_path / "examples" / "clean" / "README.md").write_text(
+        "Run `claude-kit init` here, then scripts/build.sh if you like.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "build.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    assert static_eval.check_example(comp, tmp_path, {"init"}) == []
