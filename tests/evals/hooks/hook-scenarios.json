@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "note": "Deterministic fire / no-fire scenarios for the stdin-driven hook scripts. Expectations are derived from each script's own documented contract, not guessed. Blockers exit 2 and write BLOCKED to stderr; advisories always exit 0 and emit a hookSpecificOutput JSON object on stdout only when they fire. Several no-fire cases are the NEAR MISSES a script's header explicitly claims to spare -- those are the false-positive controls (measure 7), and they are the cases most likely to be wrong.",
   "scenarios": [
     {
@@ -720,6 +720,198 @@
         "git": true,
         "files": {
           ".env": "API_TOKEN=abc123\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/fire-aws-secret-access-key",
+      "script": "guard-secrets.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "app/settings.py": "AWS_SECRET_ACCESS_KEY = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"\n"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-secrets/fire-uri-credential-postgres",
+      "script": "guard-secrets.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "app/settings.py": "DATABASE_URL = \"postgresql://svc_user:8Kd2mQx7Lp0vRt3Z@db.internal:5432/warehouse\"\n"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-secrets/fire-uri-credential-redis",
+      "script": "guard-secrets.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  REDIS_URL: redis://default:aG9yc2ViYXR0ZXJ5c3RhcGxl123@cache.prod:6379\n"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-user-pass",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  DATABASE_URL: postgresql://user:pass@db:5432/app\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-same-word",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  POSTGRES_DB_URL: postgresql+asyncpg://postgres:postgres@localhost/mydb\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-interpolated",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  DATABASE_URL: postgresql://user:${DB_PASSWORD}@host/db\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-redacted",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "docs/runbook.md": "Connection string: postgresql://admin:<REDACTED>@app-postgres:5432/app_db\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-aws-secret-name-only",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/ci.yml": "  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n"
         }
       },
       "expect": {

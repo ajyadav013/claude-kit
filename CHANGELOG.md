@@ -41,6 +41,17 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   reformatting them could silently change what a check matches. Mirrors the existing
   `collect_ignore_glob` in the eval conftest.
 
+- **The commit secret-guard now catches URI-embedded credentials and AWS secret access keys.**
+  `hooks/scripts/guard-secrets.sh` matched only vendor-*prefixed* tokens (`AKIA…`, `sk_live_…`,
+  `ghp_…`) and PEM headers, so `postgresql://svc:<real-password>@db/warehouse` and
+  `AWS_SECRET_ACCESS_KEY=<40 chars>` — neither of which carries a distinguishing prefix — committed
+  cleanly. Both are detected now, and the hook's values-not-names rule is preserved: the AWS key
+  matches only when the variable name sits *adjacent to* a 40-character value, so a CI binding or a
+  prose mention still passes. URI credentials require a high-entropy password (≥16 characters,
+  excluding placeholder shapes such as `user:pass`, `<REDACTED>`, `${VAR}` and `YOUR_*`) — this repo
+  alone ships 30+ documentation placeholders of that shape, and a guard that blocks a compose-file
+  example teaches people to work around the guard.
+
 ### Added
 
 - `scripts/evals/measure-standing-context.sh` — reproducible standing-context measurement
@@ -50,6 +61,9 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   other core rule carries valid globs, covenant membership is exhaustive (a new rule must make a
   deliberate covenant-or-scoped choice rather than joining the always-on set by omission), and
   `documentation.md` matches source.
+- Eight `guard-secrets.sh` scenarios in `tests/evals/hooks/hook-scenarios.json` — three proving the
+  new detections fire, five as false-positive controls. All five controls also pass against the
+  *pre-fix* hook, so the change is measured to add catches without adding noise.
 
 ### Not adopted (deliberately)
 
@@ -66,6 +80,10 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   they break ~668 citations and leave two homes for "rules" permanently.
 - **Putting every agent on `opus`.** The three-tier policy in `rules/model-tiers.md` is a cost
   control, not an oversight; collapsing it would also leave that rule contradicting the payload.
+- **Blocking low-entropy passwords in connection URIs** (`://svc:hunter2@db`). They are not
+  distinguishable from the `user:pass` placeholders that fill real compose files, CI configs and
+  docs; the false positives would cost more than the catch, and a guard people route around protects
+  nothing. The `secret-scanner` agent remains the deeper, non-blocking net for those.
 
 ## [0.76.0] — 2026-08-01
 
