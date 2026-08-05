@@ -251,6 +251,34 @@ def control_test_integrity() -> dict:
     }
 
 
+def control_holdout_seal() -> dict:
+    """The seal must detect a modified holdout suite, and pass the unmodified one.
+
+    "Do not change a holdout expectation after seeing the output" is the rule the seal exists to
+    enforce, so a seal that cannot notice a changed file enforces nothing. Both directions matter:
+    a seal that always fails is just as useless, because it would be switched off within a day.
+    """
+    rel = "scripts/evals/holdout_seal.py"
+    suite = REPO / "tests/evals/holdouts/accepted_changes.py"
+    before = suite.read_bytes()
+    clean_rc, _ = run([sys.executable, str(REPO / rel), "verify"])
+    try:
+        suite.write_bytes(before + b"\n# planted edit\n")
+        tampered_rc, out = run([sys.executable, str(REPO / rel), "verify"])
+    finally:
+        suite.write_bytes(before)
+    restored_rc, _ = run([sys.executable, str(REPO / rel), "verify"])
+    return {
+        "checker": rel,
+        "kind": "planted edit to the sealed suite",
+        "detected": clean_rc == 0 and tampered_rc != 0 and restored_rc == 0,
+        "detail": (
+            f"clean rc={clean_rc}, tampered rc={tampered_rc}, restored rc={restored_rc}; "
+            + (out.strip().splitlines()[0] if out.strip() else "no output")
+        ),
+    }
+
+
 def control_blind_ab() -> dict:
     """The A/B adjudicator must FAIL a change that gains nothing over its own baseline.
 
@@ -1095,6 +1123,7 @@ def main() -> int:
         guarded(control_tier_a_lifecycle, "scripts/evals/tier_a_lifecycle.py"),
         guarded(control_test_integrity, "scripts/evals/test_integrity.py"),
         guarded(control_blind_ab, "scripts/evals/blind_ab.py"),
+        guarded(control_holdout_seal, "scripts/evals/holdout_seal.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
