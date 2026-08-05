@@ -71,9 +71,17 @@ BAD_CONTENT=$(git diff --cached -U0 2>/dev/null \
 #    and a guard that blocks a compose-file example teaches people to bypass the guard. So require
 #    >=16 chars, then drop the placeholder shapes. POSIX ERE has no lookahead, hence the second,
 #    negating grep -- same idiom as the .env.example sparing above.
-#    DELIBERATELY NOT COVERED: short or dictionary-word passwords (`://svc:hunter2@db`). They are
-#    not distinguishable from the placeholders, and the false positives would cost more than the
-#    catch. The secret-scanner agent is the deeper, non-blocking net for those.
+#    DELIBERATELY NOT COVERED, stated precisely because an earlier version of this comment
+#    understated it (F-093): the `[a-z._-]+` alternative below is ENTROPY-BLIND. Any password made
+#    only of letters, dots, underscores and hyphens passes, at any length -- a 32-character random
+#    alphabetic string and a diceware passphrase both pass, while either one with a single digit
+#    added is blocked. Passwords shorter than 16 chars never reach this grep at all; the `{16,}`
+#    floor above already dropped them, so they are not what this carve-out is for.
+#    Why it stays: the alternative is blocking `://user:passwordplaceholder@db`, and this repo
+#    alone ships 30+ such lines. A guard that blocks documentation is one people route around, and
+#    a bypassed guard catches nothing. Narrowing the class (a length bound, or requiring a
+#    separator-free run) needs its own false-positive controls before it can ship.
+#    The secret-scanner agent is the deeper, non-blocking net for this class.
 BAD_URI=$(git diff --cached -U0 2>/dev/null \
   | grep -E '^\+.*://[^/:@[:space:]"]+:[^/:@[:space:]"]{16,}@' \
   | grep -ivE '://[^/:@[:space:]"]+:([a-z._-]+|<[^@]*>|\$\{[^@]*\}|\$[A-Za-z_]+|\*+|your[_a-z0-9]*|changeme[_a-z0-9]*|redacted|example[_a-z0-9]*)@')

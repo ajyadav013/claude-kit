@@ -28,11 +28,18 @@
 > prose rewrite plus a new `references/` home, with scaffolder, validator and upgrade-path work — a
 > separate release. The working map in the appendix below stands as its plan.
 >
-> **A caution the appendix predates.** Five rules cannot be honestly path-scoped at all: their trigger
-> is temporal, not a file type (`quality-gates`, `mandatory-workflow`, `continuity`,
-> `human-in-the-loop`, and `documentation` — the last governs docstrings on *source*, so scoping it to
-> `**/*.md` inverts it). They belong in the covenant permanently. See finding F-066; the constraint is
-> pinned by `tests/test_rule_frontmatter.py`.
+> **A caution the appendix predates.** Some rules cannot be honestly path-scoped, because their
+> trigger is temporal rather than a file type. Seven are in that covenant as shipped:
+> `autonomy-levels`, `continuity`, `human-in-the-loop`, `mandatory-workflow`, `quality-gates`,
+> `rarv-cycle`, `risk-classification`. See finding F-066; the membership is pinned by
+> `tests/test_rule_frontmatter.py`.
+>
+> `documentation` is the near miss worth recording. Scoping it to `**/*.md` really would invert it —
+> it governs headers and docstrings on *source*, not prose files — but that argues for the right
+> globs, not for no globs, and it ships scoped to source extensions with
+> `test_documentation_rule_is_scoped_to_source_not_only_markdown` pinning exactly that. An earlier
+> revision of this paragraph listed it as un-scopable and put the covenant at five; both were wrong
+> against the shipped tree (F-090).
 
 ## The verified problem
 

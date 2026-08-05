@@ -149,6 +149,29 @@ def reachable_sets(payload: Path) -> dict[str, set[str]]:
     return out
 
 
+def nondiscriminating_reach(payload: Path) -> dict[str, str]:
+    """Which reach keys are the complete set BY CONSTRUCTION, and therefore prove nothing.
+
+    A profile declaring ``skills: all`` puts every skill into the union, so the reachability
+    finding cannot fire for skills no matter what ships -- an orphaned skill would be reported
+    reachable. That is the failure mode this whole evaluation exists to catch, so the answer is
+    not to delete the check (it is still live for agents) but to stop it reporting a clean result
+    it did not earn: the keys named here are declared inapplicable in the output, and deadness for
+    those types is proved by reference instead, in tier_c_reach.py.
+    """
+    from claude_kit import catalog
+
+    profiles = catalog._load(payload, "profiles.yaml")
+    vacuous: dict[str, str] = {}
+    for name, body in (profiles.get("profiles") or {}).items():
+        if not isinstance(body, dict):
+            continue
+        for key in ("agents", "skills", "hooks"):
+            if body.get(key) == "all" and key not in vacuous:
+                vacuous[key] = f"profile {name!r} declares {key}: all"
+    return vacuous
+
+
 def hook_reach_set(payload: Path) -> tuple[set[str], set[str]]:
     """Every hook id that some channel installs, and every script some entry references.
 
@@ -1534,7 +1557,13 @@ def main() -> int:
                 "type": comp["type"],
                 "path": comp["path"],
                 "risk": comp["risk"],
-                "checks_run": ran,
+                # Named for what it is. This is the check FAMILY the type dispatched to, set as a
+                # literal on each branch -- it is not a record of which individual checks inside
+                # that family executed, and it was previously called `checks_run`, which claimed
+                # exactly that (F-092). `statically_evaluated` means a family exists for this
+                # type, not that every check within it did work; the two-sided guarantee for the
+                # checks themselves comes from mutation_controls.py, not from this field.
+                "check_family": ran[0] if ran else None,
                 "statically_evaluated": bool(ran),
                 "findings": findings,
                 "worst_severity": worst,
@@ -1542,12 +1571,31 @@ def main() -> int:
             }
         )
 
+    vacuous = nondiscriminating_reach(payload)
+    doc = {
+        "records": records,
+        "reachability": {
+            "discriminating": sorted({"agents", "skills", "hooks"} - set(vacuous)),
+            "nondiscriminating": vacuous,
+            "note": (
+                "A key listed under nondiscriminating cannot produce a reachability finding: "
+                "some profile resolves to ALL of that type, so the union is the complete set and "
+                "an orphaned component would be reported reachable. A clean result for those "
+                "keys carries no information. Deadness for them is proved by reference in "
+                "tier_c_reach.py instead."
+            ),
+        },
+    }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"records": records}, indent=2) + "\n", encoding="utf-8")
+    out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
 
     flagged = [r for r in records if r["findings"]]
     print(f"evaluated {len(records)} components; {len(flagged)} with findings")
+    if vacuous:
+        print(f"reachability NOT discriminating for: {', '.join(sorted(vacuous))}")
+        for k, why in sorted(vacuous.items()):
+            print(f"  {k}: {why}")
     for r in flagged:
         for f in r["findings"]:
             print(f"  [{f['severity']:<8}] {r['id']:<40} {f['check']}: {f['detail']}")

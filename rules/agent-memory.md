@@ -1,5 +1,6 @@
 ---
 paths:
+  - '.claude/agent-memory/**'
   - '.claude/agents/**'
   - '.claude/skills/**'
   - '**/agents/**'

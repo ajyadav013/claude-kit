@@ -824,6 +824,32 @@ def test_init_reports_an_uncreatable_target_instead_of_crashing(tmp_path):
         blocked.chmod(0o700)
 
 
+def test_init_reports_an_unwritable_existing_target_instead_of_crashing(tmp_path):
+    """The F-031 guard only covered the mkdir, which an EXISTING target never reaches (F-087).
+
+    `.claude` as a regular file is the cheap way to make the install fail deep inside
+    install_sdlc rather than at the entry mkdir -- the same class as an existing-but-unwritable
+    directory, but reproducible without depending on the test user's privileges.
+    """
+    target = tmp_path / "existing"
+    target.mkdir()
+    (target / ".claude").write_text("not a directory")
+    result = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert result.exit_code != 0
+    assert "cannot write into" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_init_reports_a_target_that_is_a_file_instead_of_crashing(tmp_path):
+    """`target.exists()` is True for a regular file, so init walked straight past the mkdir guard."""
+    target = tmp_path / "afile"
+    target.write_text("x")
+    result = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert result.exit_code != 0
+    assert "cannot write into" in result.output
+    assert "Traceback" not in result.output
+
+
 # --- CLI surface that no test drove (F-035) ----------------------------------------------
 # Fixing F-031 changed cli.py, which put the whole file under the evaluation gate's >=95%
 # floor for changed production files -- and it was the least-covered module in the package at
