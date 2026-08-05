@@ -240,6 +240,17 @@ def control_meta_check() -> dict:
     }
 
 
+def control_test_integrity() -> dict:
+    rel = "scripts/evals/test_integrity.py"
+    rc, out = run([sys.executable, str(REPO / rel), "--self-test"])
+    return {
+        "checker": rel,
+        "kind": "planted weakenings vs a benign diff",
+        "detected": rc == 0,
+        "detail": out.strip().splitlines()[-1] if out.strip() else "no output",
+    }
+
+
 def _arm(
     root: pathlib.Path,
     name: str,
@@ -1065,6 +1076,7 @@ def main() -> int:
         guarded(control_tier_a_scripts, "scripts/evals/tier_a_scripts.py"),
         guarded(control_tier_a_config, "scripts/evals/tier_a_config.py"),
         guarded(control_tier_a_lifecycle, "scripts/evals/tier_a_lifecycle.py"),
+        guarded(control_test_integrity, "scripts/evals/test_integrity.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
