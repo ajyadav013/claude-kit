@@ -4,7 +4,7 @@
   "private": true,
   "description": "A dependency-free task-list renderer.",
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dependencies": {},
   "devDependencies": {}
