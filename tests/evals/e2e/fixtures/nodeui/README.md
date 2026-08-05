@@ -1,6 +1,6 @@
 # nodeui
 
-A dependency-free task-list renderer. Run the tests with `npm test` (`node --test test/`).
+A dependency-free task-list renderer. Run the tests with `npm test` (`node --test`).
 
 This package has no dependencies and no network access — do not add any.
 
