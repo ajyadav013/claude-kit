@@ -38,20 +38,115 @@ HERE = pathlib.Path(__file__).resolve().parent
 STATE = HERE.parents[1] / ".claude/state/full-self-evaluation"
 sys.path.insert(0, str(HERE))
 
-from tier_b_reconcile import MEASURED, collect  # noqa: E402
+from tier_b_reconcile import MEASURED, collect  # noqa: E402,I001
 
 
-def tier_a(c: dict) -> tuple[bool, str]:
+# Outcomes that ARE a completed measurement of the component. Every one of these was written by a
+# probe that ran the component and recorded a verdict; the artifacts predate this file.
+CREDITING = frozenset(
+    {
+        "PASS",  # graded probe, criteria met
+        "EXERCISED",  # ran with an observable effect (config-resolution / CLI arms)
+        "EXERCISED_TWO_SIDED",  # clean arm passed AND planted-defect arm caught it
+        "EXERCISED_DEFECT_FOUND",  # ran and a real defect fell out -- measured, and a finding
+        "EXERCISED_UNMASKED",  # ran with a mask removed
+        "INVOKED",  # the component fired
+        "NAMED",  # the model selected it by name
+        "REACHABILITY_PROVEN",
+        "MEASURED_BY_TIER_A_SCENARIO",
+    }
+)
+# Outcomes that are NOT measurements and must never mark done, listed explicitly so that adding one
+# to the creditable set is a visible act rather than a silent widening. SUBSTITUTED/NOT_SELECTED say
+# the component was never exercised; MISSED is a referral under the turn-72 amendment, not a
+# verdict; PARTIAL means it spoke but did not finish, so criterion 3 is unmet; UNRUN is nothing.
+REFUSED = frozenset(
+    {
+        "SUBSTITUTED",
+        "NOT_SELECTED",
+        "MISSED",
+        "PARTIAL",
+        "NO_CONTRIBUTION",
+        "UNRUN",
+        "DEFECT",
+    }
+)
+
+
+def _passing_evidence(c: dict) -> str | None:
+    """The evidence pointer, only if it carries a passing verdict or is a plain artifact ref."""
+    ev = c.get("dynamic_evidence")
+    if not ev:
+        return None
+    if isinstance(ev, str):
+        return ev[:70]
+    if isinstance(ev, list):
+        good = [
+            e
+            for e in ev
+            if isinstance(e, dict) and e.get("verdict") in (None, "PASS", "OK")
+        ]
+        if good:
+            return str(good[0].get("run") or good[0])[:70]
+    return None
+
+
+def tier_a(c: dict, src: dict) -> tuple[bool, str]:
+    # Preferred path: the measure scan says every required measure is satisfied.
     missing = c.get("dynamic_measures_missing")
-    if missing is None:
-        return False, "no measure record -- evidence never scanned"
     trials = c.get("dynamic_trials") or 0
     need = c.get("dynamic_trials_required") or 1
+    if missing == [] and trials >= need:
+        return True, f"all required measures satisfied over {trials} trial(s)"
+
+    # The measure SCANNER cannot read several Tier A artifact families -- the CLI work/missing
+    # arms, the repo-script clean/plant arms, the config-resolution probes, the agent grades -- so
+    # it zeroes their measures even though a probe ran the component and recorded a verdict.
+    # Crediting those artifacts is a WIRING fix, not a new measurement and not a lowered bar:
+    # nothing here decides whether a component passed, the probes decided that earlier.
+    #
+    # READ THE SOURCE ARTIFACT, NEVER THE MANIFEST'S COPY OF ITS OUTCOME. The manifest cached
+    # `dynamic_outcome: PASS` for four agents whose grades file says SUBSTITUTED; trusting the
+    # echoed field would have credited four components that were never selected.
+    cid = c["id"]
+    name = cid.split(":", 1)[1] if ":" in cid else cid
+
+    if c["type"] == "agent" and name in src["agents"]:
+        got = src["agents"][name]
+        if got in CREDITING:
+            return True, f"grades-agents.json says {got}"
+        if got in REFUSED:
+            return False, f"grades-agents.json says {got}"
+        return False, f"grades-agents.json says {got}: neither creditable nor refused"
+
+    if c["type"] == "cli-command" and name in src["cli"]:
+        row = src["cli"][name]
+        work = (row.get("arms") or {}).get("work") or {}
+        if work.get("ok") is True:
+            return True, f"tier-a-cli.json work arm: {work.get('why')}"
+        return False, f"tier-a-cli.json work arm not ok: {work.get('why')}"
+
+    if c["type"] == "repo-validation-script" and name in src["scripts"]:
+        row = src["scripts"][name]
+        arms = row.get("arms") or {}
+        if all(a.get("ok") is True for a in arms.values()) and arms:
+            return True, f"tier-a-scripts.json two-sided: {', '.join(arms)}"
+        return False, "tier-a-scripts.json arms not both ok"
+
+    if cid in src["config"]:
+        row = src["config"][cid]
+        if row.get("ok") is True:
+            return True, f"tier-a-config.json: {row.get('why')}"
+        return False, f"tier-a-config.json: {row.get('why')}"
+
+    outcome = c.get("dynamic_outcome")
+    if outcome in REFUSED:
+        return False, f"outcome {outcome} is not a measurement"
+    if missing is None:
+        return False, "no measure record -- evidence never scanned"
     if missing:
-        return False, f"missing measures {missing}"
-    if trials < need:
-        return False, f"{trials}/{need} trials"
-    return True, f"all required measures satisfied over {trials} trial(s)"
+        return False, f"missing measures {missing}; no source artifact indexes it"
+    return False, f"{trials}/{need} trials"
 
 
 def tier_b(c: dict, graded: dict) -> tuple[bool, str]:
@@ -106,8 +201,31 @@ def main() -> int:
         if r.get("proven") is True
     }
 
+    def _rows(rel: str) -> list:
+        path = state / rel
+        if not path.is_file():
+            return []
+        return json.loads(path.read_text(encoding="utf-8"))["rows"]
+
+    grades_path = state / "raw/tier-a/agents/grades-agents.json"
+    grades = (
+        json.loads(grades_path.read_text(encoding="utf-8"))
+        if grades_path.is_file()
+        else []
+    )
+    src = {
+        "agents": {g["agent"]: g.get("outcome") for g in grades},
+        "cli": {r["command"]: r for r in _rows("tier-a-cli.json")},
+        "scripts": {r["script"]: r for r in _rows("tier-a-scripts.json")},
+        "config": {r["id"]: r for r in _rows("raw/tier-a-config/tier-a-config.json")},
+    }
+    print(
+        f"source artifacts indexed: agents={len(src['agents'])} cli={len(src['cli'])} "
+        f"scripts={len(src['scripts'])} config={len(src['config'])}\n"
+    )
+
     RULES = {
-        "A": tier_a,
+        "A": lambda c: tier_a(c, src),
         "B": lambda c: tier_b(c, graded),
         "C": lambda c: tier_c(c, reach),
     }
