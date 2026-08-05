@@ -82,11 +82,19 @@ def control_oracle(rel: str, prefix: str, ws_root: pathlib.Path) -> dict:
         # and a control that quietly reports "could not run" when the tree is gone is a control
         # that disarms itself. `prefix` is "<SCENARIO>-<arm>"; the archive is
         # raw/task-runs/<SCENARIO>/<arm>-<stamp>/workspace.
+        #
+        # The arm is OPTIONAL. `SC-01` names a scenario with no arm pinned, and the original
+        # `prefix.startswith(scen.name + "-")` test could never be true for it -- so that control
+        # was unresolvable by construction, and reported "no archived workspace" no matter how
+        # many were archived. An arm-less prefix takes the newest run of the scenario.
         runs = REPO / ".claude/state/full-self-evaluation/raw/task-runs"
         for scen in sorted(
             (p for p in runs.glob("*") if p.is_dir()),
             key=lambda p: -len(p.name),
         ):
+            if prefix == scen.name:
+                matches = sorted(scen.glob("*/workspace"))
+                break
             if prefix.startswith(scen.name + "-"):
                 arm = prefix[len(scen.name) + 1 :]
                 matches = sorted(scen.glob(f"{arm}-*/workspace"))
