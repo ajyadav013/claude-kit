@@ -61,6 +61,7 @@ CHECKERS = [
     "scripts/evals/tier_a_lifecycle.py",
     "scripts/evals/tier_b_batches.py",
     "scripts/evals/test_integrity.py",
+    "scripts/evals/blind_ab.py",
     # This file is a checker too, and a gate exempt from its own rule is not a gate.
     "scripts/evals/meta_check.py",
 ]

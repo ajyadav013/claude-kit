@@ -251,6 +251,23 @@ def control_test_integrity() -> dict:
     }
 
 
+def control_blind_ab() -> dict:
+    """The A/B adjudicator must FAIL a change that gains nothing over its own baseline.
+
+    The planted case worth having is the swapped seal: an adjudicator that simply assumed the
+    second arm was the candidate would score every real run correctly by luck, and nothing else
+    in this harness would notice.
+    """
+    rel = "scripts/evals/blind_ab.py"
+    rc, out = run([sys.executable, str(REPO / rel), "selftest"])
+    return {
+        "checker": rel,
+        "kind": "planted A/B outcomes incl. a swapped seal",
+        "detected": rc == 0,
+        "detail": out.strip().splitlines()[-1] if out.strip() else "no output",
+    }
+
+
 def _arm(
     root: pathlib.Path,
     name: str,
@@ -1077,6 +1094,7 @@ def main() -> int:
         guarded(control_tier_a_config, "scripts/evals/tier_a_config.py"),
         guarded(control_tier_a_lifecycle, "scripts/evals/tier_a_lifecycle.py"),
         guarded(control_test_integrity, "scripts/evals/test_integrity.py"),
+        guarded(control_blind_ab, "scripts/evals/blind_ab.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))
