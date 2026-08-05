@@ -125,16 +125,28 @@ def check_mutation_controls(state: pathlib.Path, sha: str, r: Result) -> None:
     )
 
 
-def check_derived_scalars(state: pathlib.Path, r: Result) -> None:
-    """Recompute every headline scalar from the records and compare to what is stored.
+# A scenario counts toward task-domain coverage only if it MEASURED something. RUN_FAILED counts:
+# a real failure is a result. Listed as an allowlist rather than `!= "NOT_RUN"`, because with a
+# denylist every status invented later is credited as coverage by default -- and one was:
+# RUN_UNMEASURED, for scenarios that executed but whose verdict says nothing about the product
+# (the harness had no approval channel, or the fixture contradicted the scenario premise).
+MEASURED_TASK_STATUSES = frozenset(
+    {"RUN_PASSED", "RUN_PASSED_WITH_DEVIATION", "RUN_FAILED"}
+)
 
-    Every scalar the terminal gate reads must be listed here. One this function does not
-    recompute cannot drift-fail, which is the same "a checker that cannot fail reports CLEAN"
-    shape the program keeps finding in the product -- and it had already happened here:
-    task_domain_coverage_percent was absent from the derived set and stored 35.3 against a
-    real 6.2, having picked up an unrelated tier-A figure.
+
+def derived_scalars(state: pathlib.Path) -> dict:
+    """Recompute every headline scalar from the records. The single definition of each formula.
+
+    Every scalar the terminal gate reads must be computed here. One that is not cannot drift-fail,
+    which is the same "a checker that cannot fail reports CLEAN" shape the program keeps finding
+    in the product -- and it had already happened: task_domain_coverage_percent was absent from
+    this set and stored 35.3 against a real 6.2, having picked up an unrelated tier-A figure.
+
+    It returns the dict rather than asserting on it so that the checker and the corrector share
+    one arithmetic. Two copies of a formula is how the stored value drifted from the computed one
+    in the first place; a corrector with its own copy just moves the seam.
     """
-    st = json.loads((state / "state.json").read_text(encoding="utf-8"))
     man = json.loads((state / "component-manifest.json").read_text(encoding="utf-8"))
     comps = man["components"] if isinstance(man, dict) else man
     fnd = json.loads((state / "findings.json").read_text(encoding="utf-8"))["findings"]
@@ -164,7 +176,8 @@ def check_derived_scalars(state: pathlib.Path, r: Result) -> None:
         "rule_evaluation_coverage_percent": pct(done(rules), len(rules)),
         "hook_evaluation_coverage_percent": pct(done(hook_family), len(hook_family)),
         "task_domain_coverage_percent": pct(
-            sum(1 for t in tasks if t.get("status") != "NOT_RUN"), len(tasks)
+            sum(1 for t in tasks if t.get("status") in MEASURED_TASK_STATUSES),
+            len(tasks),
         ),
     }
     sev = {"critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0}
@@ -172,6 +185,13 @@ def check_derived_scalars(state: pathlib.Path, r: Result) -> None:
         if f.get("status") == "open":
             sev[f["severity"]] = sev.get(f["severity"], 0) + 1
     derived["open_findings"] = sev
+    return derived
+
+
+def check_derived_scalars(state: pathlib.Path, r: Result) -> None:
+    """Compare every stored headline scalar against the value its records imply."""
+    st = json.loads((state / "state.json").read_text(encoding="utf-8"))
+    derived = derived_scalars(state)
 
     drift = []
     for k, v in derived.items():
@@ -333,10 +353,24 @@ def check_absent_is_not_false(r: Result) -> None:
         # A waiver is written AT the site, so it appears in the diff that introduces it and a
         # reviewer sees it next to the code it excuses. Waivers are counted in the headline rather
         # than silently subtracted -- a gate that hides how much it forgave is not a gate.
+        #
+        # "At the site" includes the comment block directly ABOVE the statement, not only a
+        # trailing comment inside it. Requiring the marker to fall within the expression's own
+        # span made comment PLACEMENT load-bearing: tier_b_batches.py:217 carried a two-line
+        # waiver immediately above the `if`, which is where anyone would write a reason too long
+        # to trail, and the checker reported it as unwaived -- an accusation produced by the
+        # instrument's formatting preference rather than by the code. The block is walked upward
+        # only while lines are contiguous comments, so nothing distant can reach down and forgive
+        # a site.
         lines = src.splitlines()
         kept = []
         for h in hits[before:]:
-            span = "\n".join(lines[h["line"] - 1 : h["end"]])
+            span_lines = lines[h["line"] - 1 : h["end"]]
+            i = h["line"] - 2
+            while i >= 0 and lines[i].lstrip().startswith("#"):
+                span_lines.insert(0, lines[i])
+                i -= 1
+            span = "\n".join(span_lines)
             if WAIVER in span and span.split(WAIVER, 1)[1].strip():
                 waived += 1
             else:

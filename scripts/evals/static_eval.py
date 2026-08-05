@@ -1988,6 +1988,9 @@ def check_packaging_workflow(comp, payload):
     triggers = doc.get("on", doc.get(True))
     if not triggers:
         add("high", "triggerable", "no `on:` block — the workflow can never run")
+    # absent-ok: absence IS the finding here. A workflow document with no `jobs` key runs nothing,
+    # so "missing" and "empty" are the same defect and there is no third state to distinguish.
+    # Unlike `on:`, `jobs` has no YAML 1.1 boolean-key spelling to be confused with.
     if not doc.get("jobs"):
         add("high", "jobs", "no jobs — the workflow runs nothing")
 
