@@ -278,6 +278,10 @@ def cmd_adjudicate(args: argparse.Namespace) -> int:
     spec = CHANGES[args.change]
     root = pathlib.Path(args.arms) / args.change
     results = json.loads(pathlib.Path(args.results).read_text(encoding="utf-8"))
+    # absent-ok: absence IS the finding, and it is the safe direction. A results file with no
+    # dockerenv_verified key was not written by cmd_run, which sets it unconditionally after
+    # proving /.dockerenv -- so missing and false both mean "not proven to have run in Docker",
+    # and both must refuse. Distinguishing them would only let a hand-written file through.
     if not results.get("dockerenv_verified"):
         return _die("refusing: results do not record a Docker run")
 
