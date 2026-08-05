@@ -26,6 +26,13 @@ Plugin slash commands: `/claude-kit:init`, `/claude-kit:sdlc <task>`, `/claude-k
 `/claude-kit:abort` (cleanly tear down an in-progress `/sdlc` run — removes only that run's
 worktrees); plus the `/sdlc` skill inside any scaffolded project.
 
+**These four are plugin-only, by design.** `claude-kit init` installs agents, skills, rules, hooks,
+templates and config, but no `.claude/commands/`, so a pip-only project has none of the
+`/claude-kit:*` commands. No capability is lost — the `sdlc` skill *is* installed, so `/sdlc` reaches
+the same pipeline, and `claude-kit status` / `claude-kit pipeline abort` cover the rest — but the two
+distribution paths do not present the same surface, and it is worth knowing which one you are on
+before looking for a command that was never installed.
+
 > When MCP servers are selected, `init` also writes a derived **`.mcp.lock.json`** pinning each
 > server's resolved package version — inspect it (or run `doctor --mcp`) to see exactly what would run.
 

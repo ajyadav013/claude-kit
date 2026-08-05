@@ -63,6 +63,7 @@ CHECKERS = [
     "scripts/evals/test_integrity.py",
     "scripts/evals/blind_ab.py",
     "scripts/evals/holdout_seal.py",
+    "tests/evals/e2e/oracles/transcript_stop.py",
     # This file is a checker too, and a gate exempt from its own rule is not a gate.
     "scripts/evals/meta_check.py",
 ]

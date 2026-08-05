@@ -577,3 +577,44 @@ def test_secrets_guard_degrades_outside_a_git_repo(tmp_path: Path) -> None:
         )
         == 0
     )
+
+
+def test_gate_ledger_guidance_probes_capability_not_cli_presence(payload: Path) -> None:
+    """No payload file may gate the gate-ledger commands on `command -v claude-kit`.
+
+    A presence test is satisfied by a binary of any age. A CLI pip-installed once while the plugin
+    moved on is the ordinary state, not an exotic one, and `skip-gate` only shipped in 0.76.0 — so
+    presence-testing let a live run announce that a command "doesn't exist in this version" when it
+    existed in the version the project actually had (F-075). The fix is to probe the subcommand
+    (`claude-kit pipeline close-gate --help`), and this pins it: prose drifts back easily, and the
+    failure it causes is a false statement about the product rather than a crash anyone would spot.
+
+    `commands/init.md` is deliberately NOT covered. It probes presence to choose between the pip CLI
+    and the shell fallback for `init`, which every version can run; it never reaches for the ledger.
+    """
+    offenders = []
+    for rel in ("rules", "skills", "agents", "templates"):
+        root = payload / rel
+        if not root.is_dir():
+            continue
+        for md in root.rglob("*.md"):
+            text = md.read_text(encoding="utf-8", errors="replace")
+            if "command -v claude-kit" not in text:
+                continue
+            # Only a file that then relies on the ledger subcommands is making the bad promise.
+            if "close-gate" not in text and "skip-gate" not in text:
+                continue
+            # A POSITIVE requirement, after two attempts at negative ones failed in opposite
+            # directions: "line contains no 'never'" passed the planted pre-fix wording (these
+            # paragraphs are single unwrapped lines that all say "never by hand-editing" further
+            # along), and "no 'never' in the 40 chars before" then flagged the fixed text, which
+            # has to quote the bad probe in order to warn against it. Prose is a poor thing to
+            # pattern-match for absence. So: a file that reaches for the ledger and mentions the
+            # presence probe must ALSO carry the capability probe. That is one unambiguous string,
+            # it cannot be satisfied by accident, and deleting it is exactly the regression.
+            if "close-gate --help" not in text:
+                offenders.append(str(md.relative_to(payload)))
+    assert not offenders, (
+        "gate-ledger guidance still gates on CLI presence instead of subcommand capability "
+        f"(F-075): {offenders}"
+    )

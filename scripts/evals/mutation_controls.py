@@ -296,6 +296,25 @@ def control_blind_ab() -> dict:
     }
 
 
+def control_transcript_stop() -> dict:
+    """The transcript classifier must separate a compliant stop from an idle one -- both ways.
+
+    Its whole purpose is to stop a blocked run being scored as a product failure, which makes it a
+    device for excusing failures, and therefore exactly the kind of instrument that rots into always
+    saying "blocked". Two of the planted cases exist to prevent that: a session that stalls without
+    doing any work must NOT earn the exemption, and a session that walked through a refused plan
+    gate must be caught rather than excused.
+    """
+    rel = "tests/evals/e2e/oracles/transcript_stop.py"
+    rc, out = run([sys.executable, str(REPO / rel), "--selftest"])
+    return {
+        "checker": rel,
+        "kind": "planted transcripts incl. a stall and a walked-through gate",
+        "detected": rc == 0,
+        "detail": out.strip().splitlines()[-1] if out.strip() else "no output",
+    }
+
+
 def _arm(
     root: pathlib.Path,
     name: str,
@@ -1124,6 +1143,7 @@ def main() -> int:
         guarded(control_test_integrity, "scripts/evals/test_integrity.py"),
         guarded(control_blind_ab, "scripts/evals/blind_ab.py"),
         guarded(control_holdout_seal, "scripts/evals/holdout_seal.py"),
+        guarded(control_transcript_stop, "tests/evals/e2e/oracles/transcript_stop.py"),
     ]
     for rel, prefix in ORACLE_WORKSPACES.items():
         controls.append(control_oracle(rel, prefix, ws_root))

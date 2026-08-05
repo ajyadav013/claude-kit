@@ -167,6 +167,24 @@ for line in open(jsonl, encoding="utf-8", errors="replace"):
                     skills.append(f"<Skill call with no `skill` field: {sorted(inp)}>")
             if name == "Agent":
                 agents.append(inp.get("subagent_type", "<unspecified>"))
+# Provenance, not decoration: the deviations list decides whether a result may be quoted as the
+# shipped default or must be discounted as a deviating arm. The tier-A probe hardcoded this string
+# and started lying the moment keeping rules became a usable arm (F-074). This probe withholds rules
+# unconditionally, so the string is true of every run recorded so far (0 of 149 contradict it) --
+# but it is true by circumstance, not by construction, and `--no-scaffold` already produces a
+# workspace with no rules to withhold. Deriving it from the measured byte count closes the class
+# rather than the one instrument where it had begun to bite.
+deviations = ["profile=enterprise"]
+provenance_warning = None
+if int(rule_bytes) > 0:
+    deviations.append("rules withheld (F-014)")
+else:
+    provenance_warning = (
+        "no rules were present to withhold (rule_bytes_withheld=0); this arm is NOT the "
+        "rules-withheld deviation and must not be pooled with runs that are"
+    )
+    print(f"### PROVENANCE {provenance_warning}", file=sys.stderr)
+
 json.dump({
     "label": label, "session_rc": int(rc), "skills_installed": int(installed),
     "skills_installed_names": sorted(
@@ -176,7 +194,8 @@ json.dump({
     ),
     "rule_bytes_withheld": int(rule_bytes), "first_msg_cache_creation": first_cache,
     "skills_invoked": skills, "agents_spawned": agents, "tool_calls": tools,
-    "deviations": ["profile=enterprise", "rules withheld (F-014)"], "fixture": sys.argv[7] if len(sys.argv) > 7 else "",
+    "deviations": deviations, "provenance_warning": provenance_warning,
+    "fixture": sys.argv[7] if len(sys.argv) > 7 else "",
 }, open(out, "w"), indent=2)
 print(f"skills_invoked={skills}")
 PY

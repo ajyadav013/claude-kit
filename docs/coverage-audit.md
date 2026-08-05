@@ -96,6 +96,27 @@ design, and the product-lens review tier is additionally **scope-gated** to orga
 - Where a capability is *advisory by design* (cost, lean/standard rollback, non-regulated a11y), this
   audit says so plainly rather than implying enforcement the kit doesn't provide.
 
+## What the ledger does not enforce
+
+The gate ledger enforces gate **order** and evidence **presence**: it refuses an out-of-order close,
+refuses a close with open Critical/High/Medium findings, hashes the cited evidence, and re-verifies
+every entry on `pipeline validate`. That is a real mechanical boundary, and it is narrower than the
+pipeline it guards. Four pipeline behaviours are **prose-only** — implemented as instructions to
+agents, believed to work, not machine-checked:
+
+| Behaviour | Where it lives | What is not checked |
+|---|---|---|
+| Independent review before cross-exposure | `agents/orchestrator.md` (parallel review lanes) | Nothing prevents reviewers being run in sequence and influencing each other; the ledger sees only the verdicts |
+| Recorded disagreement | `rules/quality-gates.md`, reviewer agents | Unanimity can be *manufactured* — a gate that records four PASSes is indistinguishable from one where dissent was never surfaced |
+| Defect-loop retest discipline | `rules/mandatory-workflow.md` | A ticket can be closed without the retest actually being re-run; evidence presence does not prove the evidence is *current* |
+| Final-implementation documentation | `agents/pr-raiser.md`, delivery stage | Presence of a document is checkable; whether it describes what shipped is not |
+
+Stated here rather than left implied, because the failure mode is specific: a reader who knows the
+ledger is mechanical can easily assume the whole pipeline is, and then trust a unanimous gate more
+than it has earned. These four are the honest edge of the enforcement story. Moving any of them
+inward is the lever below — a gate token with an owner, plus something deterministic for that owner
+to run.
+
 ## How to extend enforcement (the lever)
 
 To move a capability from RULE/SKILL to GATED: add a gate token to a profile (`catalog/profiles.yaml`)

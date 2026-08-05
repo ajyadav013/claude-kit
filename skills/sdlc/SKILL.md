@@ -81,11 +81,15 @@ and the stack selection. Instruct it to:
 2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
    survives compaction — update it at every phase transition), and mirror the gate-precise state into
    the structured snapshot `.claude/state/pipeline-snapshot.json`. Gate verdicts go through the
-   deterministic ledger: when the `claude-kit` CLI is on PATH (`command -v claude-kit`), record each
+   deterministic ledger: probe the subcommand you are about to run, not the binary —
+   `claude-kit pipeline close-gate --help >/dev/null 2>&1`, since `command -v` also passes for a
+   stale CLI that lacks it. Then record each
    passed gate with `claude-kit pipeline close-gate <gate> --evidence <evidence-file>` and each
    non-applicable conditional gate with `claude-kit pipeline skip-gate <gate> --reason '<why>'` —
    the CLI enforces gate order, refuses blocking findings, and hashes the evidence; hand-write the
-   `gate_history` entry (schema: `.claude/rules/continuity.md`) only when the CLI is absent. On
+   `gate_history` entry (schema: `.claude/rules/continuity.md`) when the subcommand is missing, and
+   report which subcommand and what `claude-kit --version` says rather than attributing the gap to
+   the kit. On
    resume, reload the snapshot as *context* and re-enter at the first gate *after*
    `last_gate_passed` — re-running only un-passed or defect-affected lanes, never re-running setup
    or re-applying committed edits.

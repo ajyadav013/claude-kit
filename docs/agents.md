@@ -163,7 +163,7 @@ What this means in practice:
 
 - **Working memory — `.claude/CONTINUITY.md`.** The current phase, active tasks, and next steps are
   written every turn and re-read at the start of the next, so work survives context compaction and
-  new sessions. Inspect it with `/claude-kit:status`.
+  new sessions. Inspect it with `claude-kit status`, or `/claude-kit:status` from the plugin.
 - **Learnings — `.claude/agent-memory/`.** Durable lessons (gotchas, conventions, decisions) are
   captured via the `remember` skill and re-injected at the start of future sessions, so the same
   mistake isn't repeated. See `.claude/rules/agent-memory.md`.
