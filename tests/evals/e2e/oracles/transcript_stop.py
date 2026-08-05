@@ -114,6 +114,11 @@ def classify(run: Path) -> dict:
                 res = json.loads(summary.read_text(errors="replace"))
             except json.JSONDecodeError:
                 res = {}
+            # absent-ok: a summary with no `is_error` key predates the field or was truncated. The
+            # safe reading is "not known to have errored", which falls through to UNCLASSIFIABLE --
+            # the outcome that claims nothing. Treating absence as an error would manufacture
+            # VOID_TRANSPORT verdicts and silently shrink the denominator, which is the one
+            # direction this file must never fail in.
             if res.get("is_error"):
                 return {
                     "oracle": "transcript_stop",
@@ -139,6 +144,10 @@ def classify(run: Path) -> dict:
                 explore += 1
         elif blk.get("type") == "tool_result":
             results[blk.get("tool_use_id") or ""] = bool(blk.get("is_error"))
+        # absent-ok: both keys. An event with no `type` is not the terminating result event, and a
+        # result event with no `is_error` is not a recorded failure. Both absences mean "no evidence
+        # this session died", which leaves the run gradeable -- the conservative direction here,
+        # because the alternative is voiding runs that completed and thereby excusing real misses.
         if ev.get("type") == "result" and ev.get("is_error"):
             transport_error = str(ev.get("result") or "")[:200]
 
