@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Security stage coordinator. Runs at Phase 5.4 (after test-coverage VERIFIED, before DevOps). Dispatches four sub-scanners in parallel — secret, dependency, owasp, policy — and owns the Security Clear gate.
+description: Reviews a change for security problems — hardcoded secrets, vulnerable dependencies, OWASP Top 10 issues, missing security policies — via four parallel sub-scanners. Use when a change needs a security review. Owns the Security Clear gate.
 tools: Agent, Read, Glob, Grep, Bash, SendMessage
 permissionMode: plan
 model: sonnet

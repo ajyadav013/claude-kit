@@ -1,6 +1,6 @@
 ---
 name: containerization-and-deployment
-description: End-to-end containerization overview for Python/FastAPI services — entrypoint MODE dispatch (server/consumer/worker/cron), cert/keytab bootstrap from env vars, Cloud Run/k8s deploy, Makefile dev workflow. Start here for the whole picture; for focused work use dockerfile-backend or dockerfile-frontend (image builds), docker-compose (local dev), or docker-shared (base images).
+description: End-to-end containerization overview for Python/FastAPI services — entrypoint MODE dispatch, cert and keytab bootstrap, Cloud Run and k8s deploy, Makefile dev workflow. Start here for the whole picture; the dockerfile-* skills cover focused work.
 ---
 
 # Containerization and Deployment

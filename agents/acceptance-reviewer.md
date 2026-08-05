@@ -1,6 +1,6 @@
 ---
 name: acceptance-reviewer
-description: Final acceptance gate before human review. Independently verifies that delivered work satisfies every acceptance criterion in the spec, end to end, and that all prior gates actually passed. Read-only — produces an accept/reject verdict.
+description: Checks delivered work against every acceptance criterion in the spec, end to end, and confirms all prior gates actually passed. Use when work claims to be done and needs independent sign-off. Read-only accept/reject verdict.
 tools: Read, Glob, Grep, Bash
 permissionMode: plan
 model: sonnet

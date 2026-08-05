@@ -1,6 +1,6 @@
 ---
 name: story-planner
-description: Turns an approved spec into an ordered, dependency-aware set of small implementable stories/tasks, identifying which can run in parallel. Use after the spec is approved and before implementation begins.
+description: Breaks an approved spec into an ordered, dependency-aware set of small implementable stories, and identifies which can run in parallel. Use when work needs splitting into tickets, sequencing, or a parallelisation plan.
 tools: Read, Glob, Grep, Write
 model: sonnet
 color: cyan
