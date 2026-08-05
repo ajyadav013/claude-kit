@@ -1,6 +1,6 @@
 ---
 name: load-testing
-description: Load and stress test API endpoints under concurrency. Use when measuring throughput/latency, validating an SLO before launch, or hunting a performance cliff. Distinct from frontend performance-optimization.
+description: Load and stress test API endpoints under concurrency. Use when asked to measure throughput or latency, validate an SLO before launch, find a breaking point, or hunt a performance cliff. Frontend speed belongs to performance-optimization.
 ---
 
 # Load Testing

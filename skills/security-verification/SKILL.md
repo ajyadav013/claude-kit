@@ -1,6 +1,6 @@
 ---
 name: security-verification
-description: Verify and enforce input sanitization and security best practices across all user input surfaces — forms, textareas, query params, URL params, and external data, for any web stack.
+description: Check that every user-input surface is validated and sanitized — forms, textareas, query and URL params, external data. Use when asked to verify input validation, audit sanitization, or confirm untrusted input is handled safely.
 argument-hint: [component, page, or "all"]
 disable-model-invocation: true
 ---

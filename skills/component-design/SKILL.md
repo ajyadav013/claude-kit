@@ -1,6 +1,6 @@
 ---
 name: component-design
-description: Design and build UI components following project architecture, component patterns, accessibility standards, and design system rules.
+description: Create or restructure a UI component — architecture, component patterns, accessibility, design-system rules. Use when adding a new component, splitting a large one, or making one reusable. App-level work belongs to frontend-ui-engineering.
 argument-hint: [component name and purpose]
 disable-model-invocation: true
 ---

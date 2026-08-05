@@ -1,6 +1,6 @@
 ---
 name: manual-test
-description: Manually test a developed feature using browser automation in headed mode. Navigates to the page, interacts with elements, and verifies behavior visually — like a QA tester sitting at the screen.
+description: Click through a feature in a real browser and verify it behaves — navigate, interact, observe. Use when asked to manually test, QA, or try out a feature as a user would, rather than writing an automated test.
 argument-hint: [page route or feature name, e.g. "/analytics", "dashboard filters", "exception card"]
 disable-model-invocation: true
 ---

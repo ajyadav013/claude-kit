@@ -1,6 +1,6 @@
 ---
 name: modernization-and-migration
-description: Migrate legacy Pydantic v1 + SQLAlchemy 1.4 to modern v2 + 2.0 Mapped, plus shared-library extraction. Use when modernizing Python backends, planning upgrades, or extracting duplicated core/ dirs.
+description: Migrate a legacy backend to current versions — Pydantic v1 to v2, SQLAlchemy 1.4 to 2.0 Mapped, shared-library extraction. Use when asked to modernize, upgrade, or migrate off deprecated APIs, or to de-duplicate copied core dirs.
 ---
 
 # Modernization and Migration

@@ -1,6 +1,6 @@
 ---
 name: security-and-hardening
-description: Hardens code against vulnerabilities. Use when handling user input, auth, data storage, or integrations. Do NOT use for upfront STRIDE enumeration (use threat-model) or a live DAST scan (use zap-vapt-scanning).
+description: Find and fix vulnerabilities in code — input handling, auth, data storage, integrations. Use when asked to harden, secure, or security-review an implementation. Not for STRIDE enumeration (use threat-model) or a DAST scan (use zap-vapt-scanning).
 ---
 
 # Security and Hardening
