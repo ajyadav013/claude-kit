@@ -36,6 +36,25 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   docstrings on *source*; scoping it to `**/*.md` would have inverted it, loading the rule when
   editing docs and hiding it when editing the code it governs.
 
+- **Security- and observability-sensitive work now reaches a specialist regardless of which
+  workflow it routed to.** Across fifteen shipped-default scenario runs, `agents_spawned` and
+  `skills_invoked` were both empty — the entire agent and skill layer was dormant. Two structural
+  causes: pipeline stages are written as bracketed role *labels* (`[Developer]`), which read as a
+  hat the main session puts on rather than an agent to spawn; and anything that is not a new feature
+  routes to a six-step bug-fix flow with no specialist step, so a SQL-injection fix bypassed the
+  security stage by construction. `mandatory-workflow.md` gained a **Specialist routing** block keyed
+  on the *surface the change touches*, an explicit statement that a bracketed label names an agent,
+  and a proportionality clause. Measured: baseline 0 spawns; with the block, `security-reviewer` in
+  2/2 runs (one fanning out to all four sub-scanners), while a docs-only task still spawns nothing
+  and passes.
+
+- **The learnings hook no longer tells every session that capture is automatic.**
+  `load-learnings.sh` injected "New learnings are captured automatically" unconditionally, but
+  0.76.0 consent-gated the capture hooks *off* by default — so in a default install the kit asserted
+  a falsehood into context on every session, and a self-defeating one: an agent told its learnings
+  are already recorded has no reason to record them. It now reads the installed `settings.json` and
+  states which of the two worlds the project is in.
+
 - **Reference solutions, fixtures and holdouts are excluded from `ruff`.** They are data, not this
   project's code — spec behaviours match against their source *text*, so import-sorting or
   reformatting them could silently change what a check matches. Mirrors the existing
@@ -54,6 +73,22 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
 
 ### Added
 
+- **`verify-continuity-writeback.sh`** — a Stop hook that reports when a session changed files but
+  never wrote back to `CONTINUITY.md`. `rarv-cycle.md` step 4 ("update `CONTINUITY.md` with what
+  passed") was observed 0/12 across every measured arm *including the arm where `rarv-cycle` was the
+  only rule loaded*: a rule that cannot cause its behaviour even alone is not weak prose but an
+  unkept contract, so it gets a mechanism — the Stop-hook mirror of the SessionStart hook that
+  already carries the read half. The signal is mtime ordering rather than "was the file touched",
+  because the rule asks for a write-back *after* the work and a stale file must not be credited.
+  Whether the content is any good is deliberately not graded: that is an LLM judgement, and this
+  kit's own rules forbid substituting one for a deterministic oracle. Never blocks; every unknown
+  (no git, no jq, unreadable mtime) degrades to silence.
+- `scripts/evals/grade_covenant.py` — grades the covenant dilution sweep, refuses to score a run
+  that produced no oracle verdict, and prints the specificity control beside the result so a
+  prompt-length effect cannot be read as a rule effect.
+- Nine hook-script tests: six two-sided ones for the write-back hook (it must *fire* on a planted
+  defect and stay *silent* on the compliant control, a clean tree, its own `.claude/` output, a stop
+  chain, and outside a git repo) and three pinning both arms of the capture-state wording.
 - `scripts/evals/measure-standing-context.sh` — reproducible standing-context measurement
   (`input + cache_creation + cache_read`), with an empty-directory control so the kit's cost is
   reported as a *difference* and never as a raw session total.
@@ -77,7 +112,28 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   large rules into contracts plus a new `references/` home, with scaffolder, validator and
   upgrade-path work. Phase 1 already captures ~90% of the available reduction and is the difference
   between exceeding a 200k window and fitting inside it; the rest is a separate release. The plan
-  stands in `docs/rules-context-budget.md`.
+  stands in `docs/rules-context-budget.md`. **Update:** Phase 2's premise has since been measured
+  and does not hold. It rested on the covenant rules diluting each other (F-073) — but that
+  hypothesis was formed when 25 rules loaded and the prompt ran ~163k tokens. Re-taken at 7 rules,
+  the shipped arm is indistinguishable from the isolated one (severity labelled 5/5 vs 5/5; blocking
+  verdict 3/5 vs 4/5, Fisher one-sided p=0.50). The specificity control also showed
+  `severity_classified` never discriminated at all — 3/3 for a rule with no severity ladder — so
+  part of F-073's original evidence rested on a check that could not fail. Phase 2 is now a
+  token-cost optimisation with no measured behavioural defect behind it.
+
+- **Splitting `mandatory-workflow.md`.** At 25,307 B it is a third of the always-on budget and the
+  obvious first cut. It is not being cut: Phase 1 already removed the failure it would have
+  addressed (three scenarios that died with "Prompt is too long" now complete), and with no live
+  defect the split is churn against a 668-citation surface.
+
+- **Fixing the two SC-22 oracle defects found while measuring the specialist routing.** One check
+  flags an f-string in an *error message* as SQL injection, penalising a session for adding input
+  validation; the other demands a parameterised rewrite while also requiring the pristine tests —
+  which assert the un-parameterised return type — to keep passing, so no correct implementation can
+  pass the scenario. Both are recorded (F-096, F-097) and neither is touched here: SC-22 is sealed
+  by `task-bank-lock.json` and both were found *after* seeing candidate output. Editing a locked
+  oracle to fit the implementation is the one move the evaluation contract forbids outright; they
+  belong in a fresh pre-registered lock.
 - **Scoping the covenant rules too.** Tried, measured, reverted. A path glob is a claim about *when*
   a rule applies; for these seven the honest answer is "always", and globbing them silently exempts
   docs-only, YAML-only and migration-only changes from gate and workflow discipline.
