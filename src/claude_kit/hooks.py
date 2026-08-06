@@ -249,6 +249,17 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "script": "type-check.sh",
         "data_access": "runs the project's own type checker; best-effort, never blocks",
     },
+    # The write half of the continuity pair. load-continuity reads working memory at SessionStart;
+    # until this hook there was no mechanism behind rarv-cycle.md's "update CONTINUITY.md with what
+    # passed", and the behaviour was observed 0/12 even with rarv-cycle as the only rule loaded.
+    "verify-continuity-writeback": {
+        "event": "Stop",
+        "matcher": "",
+        "entry": _script_entry("verify-continuity-writeback.sh"),
+        "script": "verify-continuity-writeback.sh",
+        "data_access": "reads `git status` and file mtimes to tell whether CONTINUITY.md was "
+        "written after the session's changes; never blocks, writes nothing",
+    },
     # --- learning capture: one script, three triggers, chosen by capture_mode (catalog/capture.yaml).
     # Never put these in a profile's hooks: list or rely on the `all` token — catalog._apply_capture_mode
     # is the sole installer (it strips all three, then adds back the chosen mode's set).
@@ -341,6 +352,7 @@ PLUGIN_HOOK_IDS: frozenset[str] = frozenset(
         "validate-settings",
         "lint-fix",
         "type-check",
+        "verify-continuity-writeback",
         # The capture-learnings hooks are DELIBERATELY absent (0.76.0): they spawn a background
         # `claude` job that reads session transcript content, and the plugin channel has no init
         # question — background capture is consent-gated, so only an explicit `capture_mode`
@@ -360,6 +372,7 @@ STARTER_HOOK_IDS: frozenset[str] = frozenset(
         "warn-shared-modules",
         "lint-fix",
         "type-check",
+        "verify-continuity-writeback",
         # capture-learnings hooks deliberately absent — same consent gate as PLUGIN_HOOK_IDS above:
         # the no-pip starter is copied without an init question, so background capture stays off.
     }

@@ -36,7 +36,18 @@ else
   printf '\n\n...[learnings index trimmed to save context -- %s bytes total; open .claude/agent-memory/MEMORY.md for the full index]...\n' "$ISIZE"
 fi
 echo
-echo "Before design or implementation, open the category file whose \"applies when\" matches the current task and follow it. New learnings are captured automatically; you may also use the /remember skill."
+# Whether capture actually runs is the init-time `capture_mode` choice, and since 0.76.0 the default
+# is OFF (background capture spawns a `claude` job that reads transcript content, so it is consent-
+# gated). This line used to promise "captured automatically" unconditionally; in a default install
+# that is false, and an agent told its learnings are already being recorded has no reason to record
+# them — a plausible part of why writing a learning was never observed in any measured session.
+SETTINGS="${CLAUDE_PROJECT_DIR}/.claude/settings.json"
+if [ -f "$SETTINGS" ] && grep -q 'capture-learnings' "$SETTINGS" 2>/dev/null; then
+  CAPTURE_NOTE="New learnings are captured automatically; you may also use the /remember skill."
+else
+  CAPTURE_NOTE="Automatic capture is OFF for this project — nothing records a learning unless you do: use the /remember skill when you learn something durable."
+fi
+echo "Before design or implementation, open the category file whose \"applies when\" matches the current task and follow it. $CAPTURE_NOTE"
 
 # --- Periodic consolidation trigger ---------------------------------------
 # Increment a session counter; every CONSOLIDATE_EVERY sessions, nudge a merge pass.
