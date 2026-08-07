@@ -22,6 +22,15 @@ When a CONTINUITY entry under **Mistakes & Learnings** is durable (a correction,
 - **Seed:** `.claude/CONTINUITY.template.md` — committed. The `load-continuity.sh` SessionStart hook copies the template to the live file if the live file is missing, then prints it into context.
 - Never commit the live file. Never store secrets, tokens, or credentials in it.
 
+**This rule deliberately restates what the hook already does.** Ablation shows `load-continuity.sh`
+is both necessary and sufficient for the file-observable half of this protocol: with the hook on,
+the behaviour happens whether or not this rule is loaded. That makes the overlap look like dead
+weight, and it is kept anyway — hooks are opt-out, can be disabled per project, are skipped by
+harnesses that do not run SessionStart, and are the first thing removed when someone is debugging.
+An install with no hooks still needs the resume contract to be *stated somewhere*, so the prose is
+defence-in-depth rather than duplication. Read it as the contract; the hook is one implementation
+of it, not the only one. Do not delete either on the grounds that the other covers it.
+
 ## Resume snapshot (`.claude/state/pipeline-snapshot.json`)
 
 `CONTINUITY.md` is the human-readable scratchpad; for a pipeline run it is paired with a small **structured snapshot** so a later session can re-enter precisely. The Orchestrator writes/updates it at every stage transition (alongside the `PIPELINE:` line it mirrors into **Current Phase**). It is gitignored runtime state under `.claude/state/` — created by the installer and ensured by the `load-continuity` SessionStart hook.
