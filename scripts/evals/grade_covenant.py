@@ -63,7 +63,13 @@ def load(run_dir: pathlib.Path) -> dict | None:
     if not v.is_file():
         return None
     doc = json.loads(v.read_text(encoding="utf-8"))
-    checks = {c["check"]: bool(c["pass"]) for c in doc.get("checks", [])}
+    # Vacuous checks (pass is None, F-080) are dropped rather than coerced to False: a check that
+    # proved nothing must not be scored as a negative result for the arm it ran in.
+    checks = {
+        c["check"]: bool(c["pass"])
+        for c in doc.get("checks", [])
+        if c["pass"] is not None
+    }
     return checks or None
 
 
@@ -92,7 +98,10 @@ def main() -> int:
             continue
         arms[key].append(checks)
 
-    print(f"{'arm':10s} {'n':>3s}  " + "  ".join(f"{c:>20s}" for c in (CANARY, *QG_CHECKS)))
+    print(
+        f"{'arm':10s} {'n':>3s}  "
+        + "  ".join(f"{c:>20s}" for c in (CANARY, *QG_CHECKS))
+    )
     print("-" * 78)
     score: dict[str, dict[str, int]] = {}
     for arm, runs in arms.items():
@@ -100,7 +109,9 @@ def main() -> int:
             print(f"{arm:10s} {0:3d}   (no gradeable runs)")
             continue
         score[arm] = {c: sum(1 for r in runs if r.get(c)) for c in (CANARY, *QG_CHECKS)}
-        cells = "  ".join(f"{score[arm][c]:>17d}/{len(runs)}" for c in (CANARY, *QG_CHECKS))
+        cells = "  ".join(
+            f"{score[arm][c]:>17d}/{len(runs)}" for c in (CANARY, *QG_CHECKS)
+        )
         print(f"{arm:10s} {len(runs):3d}  {cells}")
 
     print()
@@ -108,8 +119,10 @@ def main() -> int:
     for arm, s in score.items():
         n = len(arms[arm])
         if s[CANARY] < n:
-            print(f"WARNING: {arm} found the seeded bug in only {s[CANARY]}/{n} runs -- the task "
-                  f"may be too hard for this arm, which would confound every check above.")
+            print(
+                f"WARNING: {arm} found the seeded bug in only {s[CANARY]}/{n} runs -- the task "
+                f"may be too hard for this arm, which would confound every check above."
+            )
 
     verdict = {}
     if "shipped" in score and "onlyqg" in score:
@@ -122,14 +135,24 @@ def main() -> int:
             verdict[c] = {
                 "shipped": f"{hs}/{ns}",
                 "only_quality_gates": f"{hq}/{nq}",
-                "specificity_control_only_risk": (f"{ctl}/{nctl}" if ctl is not None else None),
+                "specificity_control_only_risk": (
+                    f"{ctl}/{nctl}" if ctl is not None else None
+                ),
                 "fisher_one_sided_p": round(p, 5),
             }
-            print(f"{c}: shipped {hs}/{ns} vs only:quality-gates {hq}/{nq}  p={p:.4f}"
-                  + (f"   [control only:risk-classification {ctl}/{nctl}]" if ctl is not None else ""))
+            print(
+                f"{c}: shipped {hs}/{ns} vs only:quality-gates {hq}/{nq}  p={p:.4f}"
+                + (
+                    f"   [control only:risk-classification {ctl}/{nctl}]"
+                    if ctl is not None
+                    else ""
+                )
+            )
             if ctl is not None and nctl and ctl / nctl >= (hq / nq if nq else 0) and hq:
-                print("   ^ the specificity control scores as high as the treatment: this is a "
-                      "prompt-length effect, NOT evidence about quality-gates.md")
+                print(
+                    "   ^ the specificity control scores as high as the treatment: this is a "
+                    "prompt-length effect, NOT evidence about quality-gates.md"
+                )
 
     if voids:
         print(f"\nVOID (not counted): {len(voids)}")
@@ -139,8 +162,12 @@ def main() -> int:
     if a.out:
         pathlib.Path(a.out).write_text(
             json.dumps(
-                {"counts": {k: len(v) for k, v in arms.items()}, "hits": score,
-                 "verdict": verdict, "void": voids},
+                {
+                    "counts": {k: len(v) for k, v in arms.items()},
+                    "hits": score,
+                    "verdict": verdict,
+                    "void": voids,
+                },
                 indent=2,
             )
             + "\n",

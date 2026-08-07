@@ -75,14 +75,14 @@ jobs:
         run: python scripts/gen_hooks.py --check
       - name: Docs / version / count consistency
         run: python scripts/check_docs_consistency.py
-      - name: Skill/agent descriptions within picker cap (warn-only)
-        run: python scripts/check_skill_descriptions.py
+      - name: Skill/agent descriptions within picker cap
+        run: python scripts/check_skill_descriptions.py --strict
       - name: MCP servers pinned to exact versions (no @latest)
         run: python scripts/check_mcp_pins.py
       - name: Rule files under the 40k memory limit
         run: python scripts/check_rule_sizes.py
-      - name: Cross-references in prose resolve to shipped files (warn-only)
-        run: python scripts/check_cross_references.py
+      - name: Cross-references in prose resolve to shipped files
+        run: python scripts/check_cross_references.py --strict
       - name: Catalog referential integrity
         run: |
           python -c "import sys; from claude_kit import validator; ok, msgs = validator.check_catalog('.'); [print(m) for m in msgs]; sys.exit(0 if ok else 1)"

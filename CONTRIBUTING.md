@@ -78,6 +78,10 @@ mypy
 shellcheck -S warning hooks/scripts/*.sh scripts/*.sh
 python scripts/gen_hooks.py --check
 python scripts/check_docs_consistency.py
+python scripts/check_cross_references.py --strict
+python scripts/check_skill_descriptions.py --strict
+python scripts/check_rule_sizes.py
+python scripts/check_mcp_pins.py
 
 # Build + validate the package:
 python3 -m build
@@ -107,7 +111,10 @@ a specific stack — `pytest` enforces the no-Docker invariant on a scaffolded p
 3. `pytest` green, then `python3 -m build && python3 -m twine check dist/*`.
 4. CI auto-publishes to PyPI on merge to `main` when the version is new (`.github/workflows/publish.yml`,
    OIDC trusted publishing). Manual `python3 -m twine upload dist/*` is the fallback.
-5. Tag the release and push so plugin users get the update.
+5. The tag and GitHub Release are created for you — `publish.yml`'s `github-release` job does both on
+   every successful publish (since 0.57.0), so there is nothing to tag by hand. If a release ever
+   lands on PyPI without its tag, `scripts/backfill-releases.sh --dry-run` shows what is missing and
+   the same script without the flag creates it; it is idempotent, so re-running is safe.
 6. Publish the context-cost report for the release: run `claude plugin details claude-kit@claude-kit`
    in Claude Code and paste the token/context figures into the release notes, so users can see what
    the plugin costs their context window before installing.

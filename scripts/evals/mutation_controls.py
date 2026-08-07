@@ -120,8 +120,11 @@ def control_oracle(rel: str, prefix: str, ws_root: pathlib.Path) -> dict:
         return entry
 
     # A crash-to-nothing is not a FAIL. The oracle must have produced real check records.
-    broken_fails = [c["check"] for c in broken.get("checks", []) if not c["pass"]]
-    good_passes = [c["check"] for c in good.get("checks", []) if c["pass"]]
+    # `pass is None` is the vacuous state (F-080): the check said it proved nothing. Counting it
+    # as a failure on the broken side would let a control claim detection it never demonstrated,
+    # which is the same false-confidence this whole control exists to prevent.
+    broken_fails = [c["check"] for c in broken.get("checks", []) if c["pass"] is False]
+    good_passes = [c["check"] for c in good.get("checks", []) if c["pass"] is True]
     entry["fails_on_empty"] = broken_fails
     entry["passes_on_real"] = good_passes
     entry["detected"] = bool(broken_fails) and bool(good_passes)

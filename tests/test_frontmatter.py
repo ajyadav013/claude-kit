@@ -89,3 +89,52 @@ def test_skill_description_within_limit(path: Path) -> None:
     assert len(desc) <= DESCRIPTION_LIMIT, (
         f"{_ids(path)} description is {len(desc)} chars (limit {DESCRIPTION_LIMIT})"
     )
+
+
+def test_claude_md_lists_exactly_the_slash_only_skills() -> None:
+    """The routing section in ``templates/CLAUDE.md`` names every ``disable-model-invocation`` skill.
+
+    Such a skill never surfaces on its own -- the picker will not volunteer it -- so if the routing
+    section does not name it, nothing will, and the work silently gets done some other way. That
+    makes the list load-bearing rather than decorative, in both directions: a skill that gains the
+    flag and is missing from the list goes quietly unreachable, and one that loses the flag but
+    stays listed is described by a rationale that no longer applies to it.
+
+    Not a prohibition, and the distinction matters: a routing wave measured these skills being
+    invoked by name in 13 of 14 runs once the section named them (F-103). The flag suppresses
+    volunteering, not invocation.
+    """
+    declared = {
+        p.parent.name
+        for p in (REPO_ROOT / "skills").glob("*/SKILL.md")
+        if _frontmatter(p).get("disable-model-invocation") is True
+    }
+    text = (REPO_ROOT / "templates" / "CLAUDE.md").read_text(encoding="utf-8")
+    section = text.split("## Skill routing", 1)
+    assert len(section) == 2, "templates/CLAUDE.md has no '## Skill routing' section"
+    body = section[1].split("\n## ", 1)[0]
+    # The section names several DIFFERENT populations -- substitution pairs, silent skills, and
+    # the slash-only set. Scan only the slash-only paragraph, or a name from any other group reads
+    # as a claim that it is slash-only too.
+    marker = "**Why these particular skills need naming.**"
+    _, sep, tail = body.partition(marker)
+    assert sep, (
+        f"the routing section lost its {marker!r} paragraph; this test parses on it"
+    )
+    para = tail.split("\n\n", 1)[0]
+    listed = set(re.findall(r"`([a-z0-9][a-z0-9-]*)`", para))
+
+    missing = sorted(declared - listed)
+    assert not missing, (
+        f"slash-only skills absent from the CLAUDE.md routing list: {missing}. "
+        "They will read as model-selectable."
+    )
+    stale = sorted(
+        n
+        for n in listed - declared
+        if (REPO_ROOT / "skills" / n / "SKILL.md").is_file()
+    )
+    assert not stale, (
+        f"listed as slash-only but model-selectable: {stale}. "
+        "Remove them from the list or restore the frontmatter flag."
+    )

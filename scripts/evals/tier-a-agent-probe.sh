@@ -86,6 +86,13 @@ fi
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVID="$OUT/$LABEL-$ARM-$STAMP"
+# The stamp is second-resolution, so N probes launched together with the same label and arm all
+# resolve to ONE directory and overwrite each other's session.jsonl. The survivor is a chimera: its
+# `agent` field names the run that created the directory and its `agents_spawned` comes from
+# whichever run finished last. It parses, it grades, and it is fiction. Six parallel runs became
+# two records this way. Refuse rather than merge -- the caller must vary --label or --arm.
+[ -e "$EVID" ] && { echo "evidence dir already exists: $EVID
+another probe is using this label/arm/second; vary --label or --arm rather than sharing it" >&2; exit 2; }
 mkdir -p "$EVID"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ck-tiera-$LABEL-XXXXXX")"
 echo "### workspace $WORK"
@@ -235,11 +242,39 @@ JSON
 
 [ -s "$EVID/prompt.txt" ] || { echo "derived prompt is empty for $AGENT; refusing to measure it" >&2; exit 2; }
 
+# `--max-turns` bounds TURNS, not TIME, and a child session can stop making progress without
+# exiting: one founder-prototype-agent run sat at 33 turns and 0.6% CPU for 88 minutes and would
+# have blocked the batch indefinitely. There is no `timeout`/`gtimeout` on this host, so the
+# watchdog is hand-rolled. It watches session.jsonl rather than wall clock -- a genuinely slow run
+# that is still emitting events must not be killed for being slow, only for being stuck.
+SESSION_STALL_SECS="${SESSION_STALL_SECS:-600}"
 set +e
 ( cd "$WORK" && CLAUDE_CONFIG_DIR="$CFG" claude -p "$(cat "$EVID/prompt.txt")" \
 	--max-turns "$MAX_TURNS" --output-format stream-json --verbose \
-	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr"
+	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr" &
+SESSION_PID=$!
+(
+	last=-1; still=0
+	while kill -0 "$SESSION_PID" 2>/dev/null; do
+		sleep 30
+		now="$(wc -c <"$EVID/session.jsonl" 2>/dev/null || echo 0)"
+		if [ "$now" = "$last" ]; then
+			still=$((still + 30))
+			if [ "$still" -ge "$SESSION_STALL_SECS" ]; then
+				echo "### WATCHDOG no output for ${still}s — killing stalled session $SESSION_PID" >&2
+				kill "$SESSION_PID" 2>/dev/null
+				break
+			fi
+		else
+			still=0; last="$now"
+		fi
+	done
+) &
+WATCHDOG_PID=$!
+wait "$SESSION_PID"
 SESSION_RC=$?
+kill "$WATCHDOG_PID" 2>/dev/null
+wait "$WATCHDOG_PID" 2>/dev/null
 set -e
 
 git -C "$WORK" add -A >/dev/null 2>&1 || true

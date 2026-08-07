@@ -33,6 +33,7 @@ import argparse
 import json
 import pathlib
 import sys
+from datetime import datetime, timezone
 
 HERE = pathlib.Path(__file__).resolve().parent
 STATE = HERE.parents[1] / ".claude/state/full-self-evaluation"
@@ -274,8 +275,105 @@ def main() -> int:
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(doc, indent=1) + "\n", encoding="utf-8")
     tmp.replace(path)
+    write_summary(state, comps, verdict, total_done, req, req_done)
     print("\nwritten.")
     return 0
+
+
+#: Superseded aliases in component-coverage.json. Each duplicated a canonical key under a second
+#: name, and the two drifted apart (`dynamic_done_required` 58 vs `dynamic_required_done` 307 for
+#: the same quantity). Deleted rather than recomputed: two names for one number is the defect, and
+#: keeping both in sync is the hand-maintenance this writer exists to end.
+SUPERSEDED = (
+    "dynamic_done_required",
+    "dynamic_coverage_required_percent",
+    "dynamic_observed",
+    "dynamic_observed_percent",
+    "dynamic_rubric_version",
+    "derived_by",
+    "reconciliation_note",
+    "derived_from",
+    # Three stamps from three different hands, none of them this writer's. Kept as one
+    # (`summary_written_at`) so a reader can tell staleness from a single field.
+    "derived_at",
+    "reconciled_at",
+    "last_updated_at",
+)
+
+
+def write_summary(state, comps, verdict, total_done, req, req_done) -> None:
+    """Rewrite the derived scalars in component-coverage.json (F-095).
+
+    The per-component flags had a single writer; the summary quoting them had none, so it sat at a
+    pre-re-tiering snapshot (69 / 15.4%) while the flags said 315 / 70.5% -- understating coverage
+    by 55 points, in the safe direction, which is exactly why nobody questioned it. Every number
+    here is recomputed from the verdicts just derived; none is carried forward.
+    """
+    path = state / "component-coverage.json"
+    if not path.is_file():
+        return
+    cov = json.loads(path.read_text(encoding="utf-8"))
+    n = len(comps)
+    static_done = sum(1 for c in comps if c.get("static_done") is True)
+
+    by_type: dict[str, dict[str, int]] = {}
+    for c in comps:
+        row = by_type.setdefault(
+            c["type"], {"total": 0, "static_done": 0, "dynamic_done": 0}
+        )
+        row["total"] += 1
+        row["static_done"] += int(c.get("static_done") is True)
+        row["dynamic_done"] += int(verdict[c["id"]])
+
+    def pct(k: int, d: int) -> float:
+        return round(k / d * 100, 1) if d else 0.0
+
+    cov.update(
+        components_total=n,
+        static_done=static_done,
+        static_coverage_percent=pct(static_done, n),
+        dynamic_done=total_done,
+        dynamic_coverage_percent=pct(total_done, n),
+        dynamic_required_total=len(req),
+        dynamic_required_done=req_done,
+        dynamic_required_coverage_percent=pct(req_done, len(req)),
+        dynamic_no_requirement=n - len(req),
+        by_type=by_type,
+        summary_written_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        summary_written_by=(
+            "reconcile_dynamic.py --apply, from the same verdicts it wrote to the manifest. "
+            "Do not hand-edit: a number with no writer is what F-095 recorded."
+        ),
+    )
+    for k in SUPERSEDED:
+        cov.pop(k, None)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(cov, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    print(
+        f"summary refreshed: {total_done}/{n} = {pct(total_done, n)}%  "
+        f"(required {req_done}/{len(req)} = {pct(req_done, len(req))}%), "
+        f"{len(by_type)} type counters recomputed"
+    )
+
+    # state.json mirrors the same figures for the terminal gate, and had its own hand-maintained
+    # copy -- F-095 one level up. The gate criterion is "100% REQUIRED dynamic coverage", so the
+    # mirror carries the required-only percentage, not the all-components one.
+    spath = state / "state.json"
+    if not spath.is_file():
+        return
+    st = json.loads(spath.read_text(encoding="utf-8"))
+    st["components_total"] = n
+    st["components_completed"] = static_done
+    st["component_static_coverage_percent"] = pct(static_done, n)
+    st["component_dynamic_coverage_percent"] = pct(req_done, len(req))
+    st["coverage_mirrored_from"] = (
+        "component-coverage.json via reconcile_dynamic.py --apply"
+    )
+    tmp = spath.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(st, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(spath)
+    print(f"state.json mirrored: dynamic (required) = {pct(req_done, len(req))}%")
 
 
 if __name__ == "__main__":

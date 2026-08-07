@@ -333,6 +333,23 @@ def main() -> int:
     leaves = build_plans(payload)
     text = shipped_text(payload)
 
+    if a.plant:
+        # A ghost whose name already occurs in the corpus proves itself and reports PROVEN --
+        # the control then says "the checker cannot be fooled" when it simply was not tested.
+        # `ghost-doc.md` is the live example: naming it in this file's own docstring put it in
+        # the corpus, because scripts/ is part of the corpus. Refuse rather than mislead.
+        ghost = pathlib.Path(
+            f"does/not/exist/{a.plant.partition(':')[2] or 'ghost'}"
+        ).name
+        if ghost in text:
+            print(
+                f"refusing to plant {a.plant!r}: {ghost!r} already appears in the shipped "
+                "corpus, so the ghost would prove itself. Use a random token "
+                "(mutation_controls.py generates one per run).",
+                file=sys.stderr,
+            )
+            return 2
+
     rows = [prove(c, installed, leaves, text, payload) for c in tier_c]
     proven = [r for r in rows if r["proven"]]
     unproven = [r for r in rows if not r["proven"]]

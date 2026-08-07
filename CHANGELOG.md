@@ -71,6 +71,36 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   alone ships 30+ documentation placeholders of that shape, and a guard that blocks a compose-file
   example teaches people to work around the guard.
 
+- **Skills that were losing selection now win it.** Ten skills either lost to a plausible neighbour
+  on a restatement of their own description (`api-integration` → `tanstack-react-query-patterns`,
+  `component-design` → `frontend-ui-engineering`, `performance-optimization` →
+  `frontend-ui-engineering`, `smoke-test` → `run`) or fired nothing at all (`load-testing`,
+  `manual-test`, `sprint`, `security-and-hardening`, `security-verification`,
+  `modernization-and-migration`). `CLAUDE.md` gained a **Skill routing** section stating each
+  boundary — what the skill is *not* — plus the four that were simply silent. Measured over 20 runs
+  (10 skills × 2 replicates, serial, prompts fixed up front): **19/20 invoked the target skill by
+  name, against a recorded baseline of 0/10.**
+
+  The section also explains *why* these particular skills need naming: sixteen of them carry
+  `disable-model-invocation: true`, so the picker never volunteers them. That is a deliberate design
+  choice and **not** a prohibition — 13 of the 14 slash-only runs invoked their skill normally once
+  it was named. A drift test pins the list in both directions, so a skill that gains the flag cannot
+  go quietly unroutable and one that loses it cannot keep a rationale that no longer applies.
+
+- **Two repo validators can now fail.** `check_skill_descriptions.py` and
+  `check_cross_references.py` both detected their planted defects but exited 0 by design, so a
+  regression in either shipped silently — and two over-long descriptions had persisted precisely
+  because nothing failed. Both offenders are long since fixed and both checkers are clean, so CI now
+  runs them with `--strict`. Verified two-sided rather than assumed: each exits 1 on a planted
+  defect and 0 on the shipped payload.
+
+- **The release docs no longer describe a manual step that has been automated since 0.57.0.**
+  `CONTRIBUTING.md` and `CLAUDE.md` both told the releaser to "tag the release and push", which
+  `publish.yml`'s `github-release` job has done automatically for eighteen releases. That stale
+  instruction is also why `scripts/backfill-releases.sh` looked like dead code: nothing told anyone
+  to run it. Both sections now state that tagging is automatic and name the script as the recovery
+  path for a published version missing its tag.
+
 ### Added
 
 - **`verify-continuity-writeback.sh`** — a Stop hook that reports when a session changed files but
@@ -107,6 +137,18 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
 
 ### Not adopted (deliberately)
 
+- **A "Persona routing" section in `templates/org/rules/ai-working-agreement.md`.** It was written,
+  and then measurement removed the reason for it. The finding behind it (F-044) reported that three
+  org personas — `founder-prototype-agent`, `internal-tools-builder`, `staff-pm-reviewer` — are
+  never selected for work their own descriptions advertise, and that a generic `Explore` or
+  `general-purpose` agent takes it instead. That was measured 0/6, with the probe's standing
+  deviation of moving `.claude/rules` out of the workspace. Re-run with the rules left in place and
+  **no routing prose at all**, the same personas are selected 5/6. Persona routing is delivered *by*
+  the org rules, so the probe had been deleting the mechanism and then reporting the mechanism
+  missing. The prose was reverted: it addressed a defect that does not exist in a shipped install,
+  and adding payload to close a measurement artefact is the churn this work is supposed to prevent.
+  The harness bugs the exercise surfaced were kept and fixed (F-106 through F-108).
+
 - **Slimming the covenant rules and relocating their detail (Phase 2 of the design spec).** Would
   reach ~78,700 standing context (rules ~8,000) — a further ~14k tokens. It requires rewriting four
   large rules into contracts plus a new `references/` home, with scaffolder, validator and
@@ -133,7 +175,18 @@ shipped default was killed by autocompact thrashing having dispatched *zero* age
   pass the scenario. Both are recorded (F-096, F-097) and neither is touched here: SC-22 is sealed
   by `task-bank-lock.json` and both were found *after* seeing candidate output. Editing a locked
   oracle to fit the implementation is the one move the evaluation contract forbids outright; they
-  belong in a fresh pre-registered lock.
+  belong in a fresh pre-registered lock. **Update:** that fresh lock was authorised and taken, so
+  one of the two is now fixed and the other turned out not to exist. F-096's regex is replaced by
+  `caller_values_never_reach_the_sql_text`, which calls each helper twice with different caller
+  values (including `x' OR '1'='1`) and asserts the SQL *text* is identical across both and free of
+  the injected fragment — shape-agnostic, so it measures the security property however the solution
+  returns its query. F-097's premise was **wrong** and its proposed fix was reverted: both reference
+  solutions return `str` and satisfy the pristine tests, so the scenario was always passable and the
+  exclusions would have been unjustified holes. Re-locked with the two-sided proof re-run. Both
+  replicates now agree — injection check **passes**, contract check **fails** — because the
+  candidate's `(sql, params)` rewrite closes the injection but changes the return type, which
+  silently turns `assert "FROM orders" in orders_for_customer(7)` from a substring search into
+  element equality. A real regression, now legible instead of masked by a broken check.
 - **Scoping the covenant rules too.** Tried, measured, reverted. A path glob is a claim about *when*
   a rule applies; for these seven the honest answer is "always", and globbing them silently exempts
   docs-only, YAML-only and migration-only changes from gate and workflow discipline.

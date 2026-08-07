@@ -91,7 +91,10 @@ class Result:
 
     @property
     def ok(self) -> bool:
-        return all(c["pass"] for c in self.checks)
+        # `pass is None` means the check reported that it proved nothing (F-080). It is neither a
+        # pass nor a failure, so it is excluded rather than counted -- `all()` reads None as falsy
+        # and would fail a run on the strength of a check that never ran.
+        return all(c["pass"] for c in self.checks if c["pass"] is not None)
 
 
 def check_mutation_controls(state: pathlib.Path, sha: str, r: Result) -> None:

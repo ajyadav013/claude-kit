@@ -201,6 +201,42 @@ work; it is not permission to skip the rule.
 
 ---
 
+## Skill routing — the boundaries that decide between overlapping skills
+
+Two failure modes were measured here, and neither is the skill being missing.
+
+**Substitution.** With this many skills installed, a plausible neighbour wins, the work still gets
+done, and it gets done by the wrong playbook. Each pair below was measured selecting the *other*
+one on a restatement of its own description, so the boundary — not the topic — is what decides.
+
+| The work in front of you | Use | Not |
+|---|---|---|
+| wiring the app to an endpoint: fetch layer, loading and error states | `api-integration` | your data-fetching library's own *conventions* skill (query-key factories, cache config) — that applies once the wiring exists |
+| one component's architecture, reuse, accessibility | `component-design` | `frontend-ui-engineering` — that builds whole interfaces; this shapes a single component |
+| a slow page: bundle size, web vitals, render behaviour | `performance-optimization` | `load-testing` — that is API throughput under concurrency |
+| API throughput or latency under load, validating an SLO | `load-testing` | `performance-optimization` — that is the browser side |
+| clicking through a feature the way a user would | `manual-test` | `browser-testing-with-devtools` — that automates the browser; this is a human pass |
+| "is everything up?" before starting or shipping | `smoke-test` | `run` — that starts services; this verifies them |
+
+**Silence.** These four fired nothing at all — the model answered from its own knowledge and no
+sibling fired either. When the request is theirs, invoke them by name: `sprint`,
+`security-and-hardening`, `security-verification`, `modernization-and-migration`.
+
+**Why these particular skills need naming.** Many of them — `api-integration`, `component-design`,
+`performance-optimization`, `manual-test`, `smoke-test`, `security-verification`, `sprint`,
+`unit-test`, `ui-ux-design`, `playwright-verification`, `refresh-docs`, `triage`, `scope`,
+`backlog`, `archive-sprint`, `decision` — carry `disable-model-invocation: true`, which means they
+never surface on their own the way an ordinary skill does. That is a deliberate design choice, not
+a bug, and it is **not** a prohibition: invoke one by name and it runs normally. It only means the
+picker will never volunteer it, so if this section does not name it, nothing will.
+
+**Answering from memory is the failure mode, not a shortcut.** A skill exists precisely because
+this project's way of doing the thing is not the model's default way. A fluent answer that skipped
+the skill is the outcome this table exists to prevent — if a request matches a row above, read the
+skill before you act.
+
+---
+
 ## Project-specific rules
 
 > Add your stack's conventions here (language style, framework patterns, naming, directory

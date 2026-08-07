@@ -2,9 +2,9 @@
 """Warn when a skill/agent ``description`` exceeds the Claude Code ``/skills`` picker preview cap.
 
 The picker truncates each description's preview at ~250 chars, so anything longer hides its trailing
-trigger keywords from the listing. This is a *quality* check, not a correctness gate: by default it
-prints offenders and exits 0 (warn-only). Pass ``--strict`` to make it fail (exit 1) — intended to be
-flipped on in a future release once every description is within the cap.
+trigger keywords from the listing. Bare invocation prints offenders and exits 0, so a local run is
+informational; ``--strict`` exits 1 and is what CI runs, now that every shipped description is
+within the cap. A warn-only check cannot fail, and a check that cannot fail protects nothing.
 
 Separate from the 1024-char *hard* cap (a Claude Code load limit) enforced elsewhere.
 """

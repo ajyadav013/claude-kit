@@ -17,10 +17,17 @@
 #   rules withheld       a default install auto-loads 446KB of rules and dies before doing any work
 #                        (F-014). Every dynamic arm in this run carries this deviation (E-014).
 #
-# Usage: tier-b-probe.sh --label <id> --prompt-file <path> --out <dir> [--max-turns N]
+# `--keep-rules` exists because withholding rules makes one class of question unaskable: a
+# behaviour DELIVERED BY a rule cannot be measured in an arm that deletes the rule. Such a run
+# reproduces the untreated baseline while looking like a test of the treatment -- the checker that
+# cannot fail, in its quietest form. Rule scoping (F-042) also cut the auto-loaded set from 446KB
+# to 73KB, so the cost that motivated the deviation is a seventh of what it was. Runs that keep
+# rules are a DIFFERENT arm and say so in their record; they must never be pooled with withheld ones.
+#
+# Usage: tier-b-probe.sh --label <id> --prompt-file <path> --out <dir> [--max-turns N] [--keep-rules]
 set -Eeuo pipefail
 
-LABEL="" PROMPT_FILE="" OUT="" MAX_TURNS=12 FIXTURE="" PLUGIN=no SCAFFOLD=yes ALLOW_WRITE=no
+LABEL="" PROMPT_FILE="" OUT="" MAX_TURNS=12 FIXTURE="" PLUGIN=no SCAFFOLD=yes ALLOW_WRITE=no KEEP_RULES=no
 while [ $# -gt 0 ]; do
 	case "$1" in
 	--label) LABEL="${2:?}"; shift 2 ;;
@@ -34,6 +41,7 @@ while [ $# -gt 0 ]; do
 	--plugin) PLUGIN=yes; shift ;;
 	--no-scaffold) SCAFFOLD=no; shift ;;
 	--allow-write) ALLOW_WRITE=yes; shift ;;
+	--keep-rules) KEEP_RULES=yes; shift ;;
 	*) echo "unknown arg: $1" >&2; exit 2 ;;
 	esac
 done
@@ -50,6 +58,12 @@ PROMPT_FILE="$(cd "$(dirname "$PROMPT_FILE")" && pwd)/$(basename "$PROMPT_FILE")
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVID="$OUT/$LABEL-$STAMP"
+# Same collision as tier-a-agent-probe.sh (F-107): the stamp is second-resolution, so probes
+# launched together under one label share a directory and overwrite each other's session.jsonl.
+# The survivor still parses and still grades -- it is simply a different run's transcript filed
+# under this run's name. Refuse rather than merge.
+[ -e "$EVID" ] && { echo "evidence dir already exists: $EVID
+another probe is using this label/second; vary --label rather than sharing it" >&2; exit 2; }
 mkdir -p "$EVID"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ck-tierb-$LABEL-XXXXXX")"
 
@@ -98,8 +112,18 @@ echo "### installed $SKILLS_INSTALLED skills"
 # `|| true`: under --no-scaffold there is no .claude/rules yet, and `pipefail` turns that expected
 # absence into a hard exit before the session ever runs. Absent means zero bytes, not a crash.
 RULE_BYTES="$( (cat "$WORK"/.claude/rules/*.md 2>/dev/null || true) | wc -c | tr -d ' ')"
-mv "$WORK/.claude/rules" "$EVID/rules-withheld" 2>/dev/null || true
-echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
+if [ "$KEEP_RULES" = yes ]; then
+	# Copied, not left in place only: the record must be able to prove WHICH rule text the session
+	# saw. "The rules were present" is not evidence about a treatment that landed in one of them.
+	cp -a "$WORK/.claude/rules" "$EVID/rules-retained" 2>/dev/null || true
+	RULES_MODE=retained
+	echo "### DEVIATION rules RETAINED ($RULE_BYTES bytes) — separate arm, do not pool with withheld"
+else
+	mv "$WORK/.claude/rules" "$EVID/rules-withheld" 2>/dev/null || true
+	RULES_MODE=withheld
+	echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
+fi
+export PROBE_RULES_MODE="$RULES_MODE"
 
 # Isolated config: `claude -p` would otherwise inherit the OPERATOR's ~/.claude guard hooks and
 # measure their permission posture instead of the kit's (E-006).
@@ -137,7 +161,7 @@ SESSION_RC=$?
 set -e
 
 python3 - "$EVID/session.jsonl" "$EVID/probe.json" "$LABEL" "$SESSION_RC" "$SKILLS_INSTALLED" "$RULE_BYTES" "$FIXTURE" <<'PY'
-import json, pathlib, sys
+import json, os, pathlib, sys
 jsonl, out, label, rc, installed, rule_bytes = sys.argv[1:7]
 skills, agents, tools, first_cache = [], [], [], None
 for line in open(jsonl, encoding="utf-8", errors="replace"):
@@ -174,9 +198,25 @@ for line in open(jsonl, encoding="utf-8", errors="replace"):
 # but it is true by circumstance, not by construction, and `--no-scaffold` already produces a
 # workspace with no rules to withhold. Deriving it from the measured byte count closes the class
 # rather than the one instrument where it had begun to bite.
+#
+# `--keep-rules` then broke the derivation the other way: a retained-rules run also measures zero
+# WITHHELD bytes, so byte count alone reports "no rules were present" about a run whose whole point
+# was that they were. The mode has to be stated by the arm that chose it, not inferred.
 deviations = ["profile=enterprise"]
 provenance_warning = None
-if int(rule_bytes) > 0:
+mode = os.environ.get("PROBE_RULES_MODE", "withheld")
+if mode == "retained":
+    # Deliberately NOT added to `deviations`: keeping rules is what the PRODUCT does, so filing it
+    # as a deviation would invite exactly the opposite misreading. Same convention as
+    # tier-a-agent-probe.sh, where the keep-rules arm carries no rules deviation either. The
+    # absence of "rules withheld" is the signal, and `rules_mode` states it positively.
+    if int(rule_bytes) == 0:
+        provenance_warning = (
+            "--keep-rules was requested but the workspace had no rules to keep "
+            "(rule_bytes=0); this run measured no rule treatment at all"
+        )
+        print(f"### PROVENANCE {provenance_warning}", file=sys.stderr)
+elif int(rule_bytes) > 0:
     deviations.append("rules withheld (F-014)")
 else:
     provenance_warning = (
@@ -192,7 +232,13 @@ json.dump({
         if (p := pathlib.Path(out).parent / "skills-installed.txt").is_file()
         else []
     ),
-    "rule_bytes_withheld": int(rule_bytes), "first_msg_cache_creation": first_cache,
+    # Two fields, because one number cannot answer both questions a reader has. A retained arm has
+    # zero bytes WITHHELD and 73k bytes PRESENT; collapsing them made it indistinguishable from an
+    # unscaffolded workspace that had nothing either way.
+    "rules_mode": mode,
+    "rule_bytes_withheld": 0 if mode == "retained" else int(rule_bytes),
+    "rule_bytes_present": int(rule_bytes) if mode == "retained" else 0,
+    "first_msg_cache_creation": first_cache,
     "skills_invoked": skills, "agents_spawned": agents, "tool_calls": tools,
     "deviations": deviations, "provenance_warning": provenance_warning,
     "fixture": sys.argv[7] if len(sys.argv) > 7 else "",

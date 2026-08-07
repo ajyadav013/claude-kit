@@ -138,7 +138,8 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
   shellcheck -S warning hooks/scripts/*.sh scripts/*.sh
   python scripts/gen_hooks.py --check          # hooks.json + settings.json drift
   python scripts/check_docs_consistency.py     # version parity + CHANGELOG heading
-  python scripts/check_cross_references.py     # rule/skill/agent refs in prose exist (warn-only)
+  python scripts/check_cross_references.py --strict    # rule/skill/agent refs in prose exist
+  python scripts/check_skill_descriptions.py --strict  # descriptions within the 250-char picker cap
   ```
 - **Stack-leakage guard:** `grep -rInE 'fastapi|sqlalchemy|alembic|docker' rules agents skills` — should
   be clean (balanced multi-framework *example* lists are acceptable; a real leak is agnostic logic
@@ -163,6 +164,8 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
 4. Build: `python3 -m build && python3 -m twine check dist/*`.
 5. Merge to `main` — CI auto-publishes to PyPI (OIDC trusted publishing). Manual `twine upload` is
    the fallback.
-6. Tag the release and push so plugin users get the update.
+6. Nothing to tag by hand — `publish.yml`'s `github-release` job creates the `vX.Y.Z` tag and the
+   GitHub Release on every successful publish (since 0.57.0). `scripts/backfill-releases.sh
+   --dry-run` is the recovery path if a published version is ever missing its tag.
 
 See `CONTRIBUTING.md` for the full contributor workflow.

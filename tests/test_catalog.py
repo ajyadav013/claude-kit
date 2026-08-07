@@ -543,6 +543,42 @@ def test_resolve_rejects_every_planned_backend_entry(payload):
             catalog.resolve(payload, sel)
 
 
+def test_a_planned_framework_under_a_planned_language_still_rejects_by_name(payload):
+    """The masked rejection branch: `express` sits under `node`, and both are planned.
+
+    Every other planned entry is rejected by name, so a user learns which specific choice is
+    unavailable. `express` cannot be reached that way -- the only selection that gets to it sets
+    `backend_language="node"`, and the language check rejects first with "backend language 'node'
+    is planned". Its own branch has therefore never executed (F-033/F-039), which means nothing
+    has ever tested the message a user will see the day `node` goes live.
+
+    Lifting the upstream mask in an in-memory copy exercises it now. The deliberate choice here is
+    to test the branch rather than delete the forward-looking catalog data: removing correct data
+    to make a reachability metric go green would be repairing the measurement, not the code.
+    """
+    stacks = catalog._load(payload, "stacks.yaml")
+    langs = stacks["backend"]["languages"]
+    masked = [
+        (lang_id, fw_id)
+        for lang_id, lang in langs.items()
+        if lang.get("status") == "planned"
+        for fw_id, fw in (lang.get("frameworks") or {}).items()
+        if fw.get("status") == "planned"
+    ]
+    if not masked:
+        pytest.skip("no planned framework currently sits under a planned language")
+
+    for lang_id, fw_id in masked:
+        # Un-mask ONLY the language, so the framework's own branch is the one that must fire.
+        langs[lang_id] = {**langs[lang_id], "status": "live"}
+        with pytest.raises(ValueError, match=r"planned but not yet available") as exc:
+            catalog._backend(stacks, lang_id, fw_id)
+        assert fw_id in str(exc.value), (
+            f"the rejection must name {fw_id!r} so the user learns which framework is unavailable; "
+            f"got: {exc.value}"
+        )
+
+
 def test_resolve_rejects_unknown_profile(payload):
     sel = make_selection(payload, profile="platinum")
     with pytest.raises(ValueError, match="unknown profile"):

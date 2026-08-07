@@ -168,11 +168,16 @@ def check_spec(work: Path, spec: dict, checks: list[dict]) -> None:
         # (SC-13) legitimately deselects the whole fixture suite, and failing the solution for that
         # would be failing it for the wrong reason -- but silently passing would hide that this
         # check contributed no regression signal at all. So: not a failure, and never silent.
+        #
+        # `pass: None` rather than True (F-080). A check that has just printed "this check proved
+        # nothing" must not contribute a PASS to an all-checks-pass verdict exactly as if it had
+        # proved something. None is a third state the aggregator excludes from the tally, so the
+        # verdict is decided only by checks that actually ran.
         vacuous = r.returncode == 5 and bool(excludes)
         checks.append(
             {
                 "check": "pristine_suite_passes",
-                "pass": r.returncode == 0 or vacuous,
+                "pass": None if vacuous else r.returncode == 0,
                 "vacuous": vacuous,
                 "detail": (
                     "VACUOUS -- every pristine test deselected; this check proved nothing. "
@@ -283,13 +288,20 @@ def main() -> int:
 
     checks: list[dict] = []
     check_spec(Path(a.workdir), spec, checks)
-    ok = all(c["pass"] for c in checks)
+    # A check with pass=None reported that it proved nothing (F-080). It is excluded from the
+    # tally rather than counted either way -- but a verdict resting on NO effective check is not
+    # a pass, or "every check was vacuous" would read identically to "every check passed".
+    effective = [c for c in checks if c["pass"] is not None]
+    ok = bool(effective) and all(c["pass"] for c in effective)
+    vacuous = [c["check"] for c in checks if c["pass"] is None]
     print(
         json.dumps(
             {
                 "oracle": "spec_task",
                 "scenario": a.scenario,
                 "pass": ok,
+                "effective_checks": len(effective),
+                "vacuous_checks": vacuous,
                 "checks": checks,
             },
             indent=2,
