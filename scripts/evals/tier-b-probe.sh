@@ -152,18 +152,45 @@ PLUGIN_ARGS=()
 [ "$PLUGIN" = yes ] && PLUGIN_ARGS=(--plugin-dir "$ROOT")
 
 cp "$PROMPT_FILE" "$EVID/prompt.txt"
+# Same stall exposure as tier-a-agent-probe.sh (F-108): --max-turns bounds turns, not time, and a
+# child that stops emitting never ends. Watches output size, not wall clock, so a slow-but-live
+# session survives.
+SESSION_STALL_SECS="${SESSION_STALL_SECS:-600}"
 set +e
 ( cd "$WORK" && CLAUDE_CONFIG_DIR="$CFG" claude -p "$(cat "$PROMPT_FILE")" \
 	"${PLUGIN_ARGS[@]+"${PLUGIN_ARGS[@]}"}" \
 	--max-turns "$MAX_TURNS" --output-format stream-json --verbose \
-	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr"
+	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr" &
+SESSION_PID=$!
+(
+	last=-1; still=0
+	while kill -0 "$SESSION_PID" 2>/dev/null; do
+		sleep 30
+		now="$(wc -c <"$EVID/session.jsonl" 2>/dev/null || echo 0)"
+		if [ "$now" = "$last" ]; then
+			still=$((still + 30))
+			if [ "$still" -ge "$SESSION_STALL_SECS" ]; then
+				echo "### WATCHDOG no output for ${still}s — killing stalled session $SESSION_PID" >&2
+				kill "$SESSION_PID" 2>/dev/null
+				break
+			fi
+		else
+			still=0; last="$now"
+		fi
+	done
+) &
+WATCHDOG_PID=$!
+wait "$SESSION_PID"
 SESSION_RC=$?
+kill "$WATCHDOG_PID" 2>/dev/null
+wait "$WATCHDOG_PID" 2>/dev/null
 set -e
 
 python3 - "$EVID/session.jsonl" "$EVID/probe.json" "$LABEL" "$SESSION_RC" "$SKILLS_INSTALLED" "$RULE_BYTES" "$FIXTURE" <<'PY'
 import json, os, pathlib, sys
 jsonl, out, label, rc, installed, rule_bytes = sys.argv[1:7]
 skills, agents, tools, first_cache = [], [], [], None
+terminal_reason = None
 for line in open(jsonl, encoding="utf-8", errors="replace"):
     line = line.strip()
     if not line:
@@ -172,6 +199,12 @@ for line in open(jsonl, encoding="utf-8", errors="replace"):
         ev = json.loads(line)
     except json.JSONDecodeError:
         continue
+    # Why the session ENDED decides whether an empty skills_invoked is a result or a truncation.
+    # An 18-scenario sweep once read 0/90 as "no skill triggers", when 17 of the 18 sessions had
+    # simply been cut off mid-exploration at max_turns. Without this field the two are identical
+    # in the record, and the wrong one is the more alarming.
+    if ev.get("terminal_reason"):
+        terminal_reason = ev["terminal_reason"]
     if ev.get("type") == "assistant":
         usage = (ev.get("message") or {}).get("usage") or {}
         if first_cache is None and "cache_creation_input_tokens" in usage:
@@ -238,6 +271,7 @@ json.dump({
     "rules_mode": mode,
     "rule_bytes_withheld": 0 if mode == "retained" else int(rule_bytes),
     "rule_bytes_present": int(rule_bytes) if mode == "retained" else 0,
+    "terminal_reason": terminal_reason,
     "first_msg_cache_creation": first_cache,
     "skills_invoked": skills, "agents_spawned": agents, "tool_calls": tools,
     "deviations": deviations, "provenance_warning": provenance_warning,
