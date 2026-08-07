@@ -1,3 +1,20 @@
+---
+paths:
+  - '**/*.py'
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/*.go'
+  - '**/*.rs'
+  - '**/*.java'
+  - '**/*.rb'
+  - '**/pyproject.toml'
+  - '**/package.json'
+  - '**/.eslintrc*'
+  - '**/ruff.toml'
+---
+
 # Linting and Formatting Rules
 
 All code MUST pass the project's linter with **zero warnings and zero errors** before committing. The pre-commit hook (if configured) should enforce this.

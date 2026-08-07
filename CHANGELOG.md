@@ -4,6 +4,204 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.77.0] — 2026-08-04
+
+**The kit stopped fitting in the window it ships into.** Every rule in `.claude/rules/` loaded at
+launch, on every session, whether or not it applied. Measured on a default install: **101,255 tokens
+of rules, 173,750 tokens of standing context — 87% of a 200k window consumed before a single word of
+work.** On the flagship path this was not a slow session, it was a dead one: a `/sdlc` run on the
+shipped default was killed by autocompact thrashing having dispatched *zero* agents.
+
+### Fixed
+
+- **Rules are now split into a covenant and a scoped set.** Seven rules whose trigger is *temporal*
+  — `rarv-cycle`, `risk-classification`, `autonomy-levels`, `quality-gates`, `mandatory-workflow`,
+  `human-in-the-loop`, `continuity` — still load at launch, because "every turn" and "every change"
+  cannot be expressed as a file glob. The other eighteen carry `paths:` frontmatter and load when you
+  touch matching files.
+
+  | | standing context | attributable to rules | % of a 200k window |
+  |---|---:|---:|---:|
+  | before | 173,750 | 101,255 | 87% |
+  | after | 91,511 | 19,016 | 46% |
+
+  **Nothing was moved, renamed, shortened or deleted.** Every rule keeps its full text at its
+  existing path, so all ~668 `.claude/rules/<name>.md` citations across agents, skills and docs still
+  resolve, and any rule remains readable by name at any time.
+
+- **`CLAUDE.md` gained a rule index** — the seven always-on rules and the eighteen on-demand ones,
+  each with a "read it when" trigger, so a scoped rule stays discoverable rather than merely absent.
+
+- **`documentation.md` is scoped to source files, not only markdown.** It mandates headers and
+  docstrings on *source*; scoping it to `**/*.md` would have inverted it, loading the rule when
+  editing docs and hiding it when editing the code it governs.
+
+- **Security- and observability-sensitive work now reaches a specialist regardless of which
+  workflow it routed to.** Across fifteen shipped-default scenario runs, `agents_spawned` and
+  `skills_invoked` were both empty — the entire agent and skill layer was dormant. Two structural
+  causes: pipeline stages are written as bracketed role *labels* (`[Developer]`), which read as a
+  hat the main session puts on rather than an agent to spawn; and anything that is not a new feature
+  routes to a six-step bug-fix flow with no specialist step, so a SQL-injection fix bypassed the
+  security stage by construction. `mandatory-workflow.md` gained a **Specialist routing** block keyed
+  on the *surface the change touches*, an explicit statement that a bracketed label names an agent,
+  and a proportionality clause. Measured: baseline 0 spawns; with the block, `security-reviewer` in
+  2/2 runs (one fanning out to all four sub-scanners), while a docs-only task still spawns nothing
+  and passes.
+
+- **The learnings hook no longer tells every session that capture is automatic.**
+  `load-learnings.sh` injected "New learnings are captured automatically" unconditionally, but
+  0.76.0 consent-gated the capture hooks *off* by default — so in a default install the kit asserted
+  a falsehood into context on every session, and a self-defeating one: an agent told its learnings
+  are already recorded has no reason to record them. It now reads the installed `settings.json` and
+  states which of the two worlds the project is in.
+
+- **Reference solutions, fixtures and holdouts are excluded from `ruff`.** They are data, not this
+  project's code — spec behaviours match against their source *text*, so import-sorting or
+  reformatting them could silently change what a check matches. Mirrors the existing
+  `collect_ignore_glob` in the eval conftest.
+
+- **The commit secret-guard now catches URI-embedded credentials and AWS secret access keys.**
+  `hooks/scripts/guard-secrets.sh` matched only vendor-*prefixed* tokens (`AKIA…`, `sk_live_…`,
+  `ghp_…`) and PEM headers, so `postgresql://svc:<real-password>@db/warehouse` and
+  `AWS_SECRET_ACCESS_KEY=<40 chars>` — neither of which carries a distinguishing prefix — committed
+  cleanly. Both are detected now, and the hook's values-not-names rule is preserved: the AWS key
+  matches only when the variable name sits *adjacent to* a 40-character value, so a CI binding or a
+  prose mention still passes. URI credentials require a high-entropy password (≥16 characters,
+  excluding placeholder shapes such as `user:pass`, `<REDACTED>`, `${VAR}` and `YOUR_*`) — this repo
+  alone ships 30+ documentation placeholders of that shape, and a guard that blocks a compose-file
+  example teaches people to work around the guard.
+
+- **Skills that were losing selection now win it.** Ten skills either lost to a plausible neighbour
+  on a restatement of their own description (`api-integration` → `tanstack-react-query-patterns`,
+  `component-design` → `frontend-ui-engineering`, `performance-optimization` →
+  `frontend-ui-engineering`, `smoke-test` → `run`) or fired nothing at all (`load-testing`,
+  `manual-test`, `sprint`, `security-and-hardening`, `security-verification`,
+  `modernization-and-migration`). `CLAUDE.md` gained a **Skill routing** section stating each
+  boundary — what the skill is *not* — plus the four that were simply silent. Measured over 20 runs
+  (10 skills × 2 replicates, serial, prompts fixed up front): **19/20 invoked the target skill by
+  name, against a recorded baseline of 0/10.**
+
+  The section also explains *why* these particular skills need naming: sixteen of them carry
+  `disable-model-invocation: true`, so the picker never volunteers them. That is a deliberate design
+  choice and **not** a prohibition — 13 of the 14 slash-only runs invoked their skill normally once
+  it was named. A drift test pins the list in both directions, so a skill that gains the flag cannot
+  go quietly unroutable and one that loses it cannot keep a rationale that no longer applies.
+
+- **Two repo validators can now fail.** `check_skill_descriptions.py` and
+  `check_cross_references.py` both detected their planted defects but exited 0 by design, so a
+  regression in either shipped silently — and two over-long descriptions had persisted precisely
+  because nothing failed. Both offenders are long since fixed and both checkers are clean, so CI now
+  runs them with `--strict`. Verified two-sided rather than assumed: each exits 1 on a planted
+  defect and 0 on the shipped payload.
+
+- **The release docs no longer describe a manual step that has been automated since 0.57.0.**
+  `CONTRIBUTING.md` and `CLAUDE.md` both told the releaser to "tag the release and push", which
+  `publish.yml`'s `github-release` job has done automatically for eighteen releases. That stale
+  instruction is also why `scripts/backfill-releases.sh` looked like dead code: nothing told anyone
+  to run it. Both sections now state that tagging is automatic and name the script as the recovery
+  path for a published version missing its tag.
+
+### Added
+
+- **`verify-continuity-writeback.sh`** — a Stop hook that reports when a session changed files but
+  never wrote back to `CONTINUITY.md`. `rarv-cycle.md` step 4 ("update `CONTINUITY.md` with what
+  passed") was observed 0/12 across every measured arm *including the arm where `rarv-cycle` was the
+  only rule loaded*: a rule that cannot cause its behaviour even alone is not weak prose but an
+  unkept contract, so it gets a mechanism — the Stop-hook mirror of the SessionStart hook that
+  already carries the read half. The signal is mtime ordering rather than "was the file touched",
+  because the rule asks for a write-back *after* the work and a stale file must not be credited.
+  Whether the content is any good is deliberately not graded: that is an LLM judgement, and this
+  kit's own rules forbid substituting one for a deterministic oracle. Never blocks; every unknown
+  (no git, no jq, unreadable mtime) degrades to silence.
+- `scripts/evals/grade_covenant.py` — grades the covenant dilution sweep, refuses to score a run
+  that produced no oracle verdict, and prints the specificity control beside the result so a
+  prompt-length effect cannot be read as a rule effect.
+- Nine hook-script tests: six two-sided ones for the write-back hook (it must *fire* on a planted
+  defect and stay *silent* on the compliant control, a clean tree, its own `.claude/` output, a stop
+  chain, and outside a git repo) and three pinning both arms of the capture-state wording.
+- `scripts/evals/measure-standing-context.sh` — reproducible standing-context measurement
+  (`input + cache_creation + cache_read`), with an empty-directory control so the kit's cost is
+  reported as a *difference* and never as a raw session total.
+- Four new payload pins in `tests/test_rule_frontmatter.py`: the covenant is frontmatter-free, every
+  other core rule carries valid globs, covenant membership is exhaustive (a new rule must make a
+  deliberate covenant-or-scoped choice rather than joining the always-on set by omission), and
+  `documentation.md` matches source.
+- Eight `guard-secrets.sh` scenarios in `tests/evals/hooks/hook-scenarios.json` — three proving the
+  new detections fire, five as false-positive controls. All five controls also pass against the
+  *pre-fix* hook, so the change is measured to add catches without adding noise.
+- A `pentest-scanner` entry in `docs/KNOWN_LIMITATIONS.md`. The agent is enterprise-only, opt-in and
+  preflight-gated, so a default install correctly reports `SKIPPED`; separately, a request phrased as
+  a general "run a penetration test" can be refused by the model platform under its cyber-content
+  policy before the agent's own gate is reached. That is a platform response the kit cannot suppress,
+  and users should know it rather than meet it as a surprise.
+
+### Not adopted (deliberately)
+
+- **A "Persona routing" section in `templates/org/rules/ai-working-agreement.md`.** It was written,
+  and then measurement removed the reason for it. The finding behind it (F-044) reported that three
+  org personas — `founder-prototype-agent`, `internal-tools-builder`, `staff-pm-reviewer` — are
+  never selected for work their own descriptions advertise, and that a generic `Explore` or
+  `general-purpose` agent takes it instead. That was measured 0/6, with the probe's standing
+  deviation of moving `.claude/rules` out of the workspace. Re-run with the rules left in place and
+  **no routing prose at all**, the same personas are selected 5/6. Persona routing is delivered *by*
+  the org rules, so the probe had been deleting the mechanism and then reporting the mechanism
+  missing. The prose was reverted: it addressed a defect that does not exist in a shipped install,
+  and adding payload to close a measurement artefact is the churn this work is supposed to prevent.
+  The harness bugs the exercise surfaced were kept and fixed (F-106 through F-108).
+
+- **Slimming the covenant rules and relocating their detail (Phase 2 of the design spec).** Would
+  reach ~78,700 standing context (rules ~8,000) — a further ~14k tokens. It requires rewriting four
+  large rules into contracts plus a new `references/` home, with scaffolder, validator and
+  upgrade-path work. Phase 1 already captures ~90% of the available reduction and is the difference
+  between exceeding a 200k window and fitting inside it; the rest is a separate release. The plan
+  stands in `docs/rules-context-budget.md`. **Update:** Phase 2's premise has since been measured
+  and does not hold. It rested on the covenant rules diluting each other (F-073) — but that
+  hypothesis was formed when 25 rules loaded and the prompt ran ~163k tokens. Re-taken at 7 rules,
+  the shipped arm is indistinguishable from the isolated one (severity labelled 5/5 vs 5/5; blocking
+  verdict 3/5 vs 4/5, Fisher one-sided p=0.50). The specificity control also showed
+  `severity_classified` never discriminated at all — 3/3 for a rule with no severity ladder — so
+  part of F-073's original evidence rested on a check that could not fail. Phase 2 is now a
+  token-cost optimisation with no measured behavioural defect behind it.
+
+- **Splitting `mandatory-workflow.md`.** At 25,307 B it is a third of the always-on budget and the
+  obvious first cut. It is not being cut: Phase 1 already removed the failure it would have
+  addressed (three scenarios that died with "Prompt is too long" now complete), and with no live
+  defect the split is churn against a 668-citation surface.
+
+- **Fixing the two SC-22 oracle defects found while measuring the specialist routing.** One check
+  flags an f-string in an *error message* as SQL injection, penalising a session for adding input
+  validation; the other demands a parameterised rewrite while also requiring the pristine tests —
+  which assert the un-parameterised return type — to keep passing, so no correct implementation can
+  pass the scenario. Both are recorded (F-096, F-097) and neither is touched here: SC-22 is sealed
+  by `task-bank-lock.json` and both were found *after* seeing candidate output. Editing a locked
+  oracle to fit the implementation is the one move the evaluation contract forbids outright; they
+  belong in a fresh pre-registered lock. **Update:** that fresh lock was authorised and taken, so
+  one of the two is now fixed and the other turned out not to exist. F-096's regex is replaced by
+  `caller_values_never_reach_the_sql_text`, which calls each helper twice with different caller
+  values (including `x' OR '1'='1`) and asserts the SQL *text* is identical across both and free of
+  the injected fragment — shape-agnostic, so it measures the security property however the solution
+  returns its query. F-097's premise was **wrong** and its proposed fix was reverted: both reference
+  solutions return `str` and satisfy the pristine tests, so the scenario was always passable and the
+  exclusions would have been unjustified holes. Re-locked with the two-sided proof re-run. Both
+  replicates now agree — injection check **passes**, contract check **fails** — because the
+  candidate's `(sql, params)` rewrite closes the injection but changes the return type, which
+  silently turns `assert "FROM orders" in orders_for_customer(7)` from a substring search into
+  element equality. A real regression, now legible instead of masked by a broken check.
+- **Scoping the covenant rules too.** Tried, measured, reverted. A path glob is a claim about *when*
+  a rule applies; for these seven the honest answer is "always", and globbing them silently exempts
+  docs-only, YAML-only and migration-only changes from gate and workflow discipline.
+- **Moving rule text out of `.claude/rules/` (Direction B).** Byte-identical moves look clean, but
+  they break ~668 citations and leave two homes for "rules" permanently.
+- **Putting every agent on `opus`.** The three-tier policy in `rules/model-tiers.md` is a cost
+  control, not an oversight; collapsing it would also leave that rule contradicting the payload.
+- **Rewording `pentest-scanner` so the platform stops refusing it.** Tuning wording until a safety
+  control stops firing is evading it, not fixing anything. The refusal is documented as the platform
+  behaviour it is; the agent's preflight gate, which is strict and correct, is left alone.
+- **Blocking low-entropy passwords in connection URIs** (`://svc:hunter2@db`). They are not
+  distinguishable from the `user:pass` placeholders that fill real compose files, CI configs and
+  docs; the false positives would cost more than the catch, and a guard people route around protects
+  nothing. The `secret-scanner` agent remains the deeper, non-blocking net for those.
+
 ## [0.76.0] — 2026-08-01
 
 **The Trust Release — enforcement catches up with the promise.** The kit has always *claimed* that
@@ -62,6 +260,42 @@ protect them, and a learning-capture job that ran before anyone consented to it.
   both now anchored in `scripts/check_docs_consistency.py`; `docs/rules-context-budget.md`'s
   numbers are annotated as the 2026-07-07 measurement snapshot; `docs/launch/posts.md` gains a
   historical-snapshot banner.
+
+### Fixed (adversarial review of this release, pre-merge)
+
+A 6-lens adversarial review of the release branch (37 findings, every one reproduced live before
+being accepted) hardened the new surfaces before they shipped:
+
+- **Ledger integrity:** a `--force` re-record no longer poisons later `validate` runs (an
+  `overridden` entry is exempt from the monotonic-order check — it is the *documented* exception,
+  not tampering); the resume position is anchored at the **max** of all recorded gates so a forced
+  backfill can never rewind it; the snapshot lock now covers the whole read-modify-write (two
+  concurrent closes: one wins, one gets a clean refusal instead of silently overwriting), with a
+  60 s stale-lock steal so a crashed run can't wedge the pipeline; `close-gate` / `skip-gate`
+  refuse to record onto an **aborted** run; a skip records `verification: "agent"` (running the
+  CLI is not human attestation — `human` stays reserved for #74's explicit sign-off).
+- **Evidence portability:** evidence paths are resolved against the **project root** (never the
+  caller's CWD) and stored project-relative, so a different checkout location or a CI runner can
+  still re-hash the ledger; `validate` warns (not fails) on history entries from a different
+  profile's gate set.
+- **Gate order corrected:** `contract-clear` closes at the merge-review join (MR2) — **before**
+  test-coverage and security-clear, matching the orchestrator's Gate ↔ Stage map; the profile gate
+  lists and the ordered-resolution tests now pin the execution order exactly.
+- **Consent edges:** a non-TTY `init` (piped stdin / EOF) can never self-answer the capture
+  question into "on"; `capture_mode: on`/`true` in a config file is a hard error naming the real
+  modes (YAML 1.1 parses bare `on` as a boolean — a silent no-op before); `upgrade` prints a
+  notice when it preserves a pre-0.76 install's enabled capture; `privacy-report` matches hook
+  commands by exact basename (a look-alike script can no longer spoof an "OK" line).
+- **Wiring:** the orchestrator, the `/sdlc` skill, `rules/quality-gates.md` §2.5, and
+  `rules/continuity.md` now instruct agents to record verdicts **through the CLI ledger** when
+  `claude-kit` is on PATH — the enforcement layer is reachable from the pipeline that needs it,
+  not just from a human at a terminal.
+
+**Migration note (pre-0.76 installs):** upgrades never change your recorded `capture_mode` — a
+mode chosen (or defaulted) before 0.76.0 stays active and the upgrade says so; audit with
+`claude-kit privacy-report`, disable via `CLAUDE_KIT_NO_AUTOCAPTURE=1` or re-init. Existing
+pipeline snapshots without `gate_history` remain valid; the ledger starts recording from the next
+`close-gate`, anchoring wherever the run currently stands.
 
 ### Not adopted (deliberately)
 

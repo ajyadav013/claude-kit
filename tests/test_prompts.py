@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from claude_kit import catalog, prompts
@@ -119,6 +121,15 @@ def _feed(monkeypatch, answers: list[str]) -> None:
     monkeypatch.setattr("builtins.input", fake_input)
 
 
+def _tty(monkeypatch, is_tty: bool) -> None:
+    """Make the capture consent gate see (or not see) a real terminal on stdin.
+
+    The interactive capture preselection is `off` unless stdin is a tty (EOF/piped answers are
+    not consent) — tests that emulate a human at a terminal must say so explicitly.
+    """
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: is_tty)
+
+
 def test_ask_strips_and_defaults(monkeypatch):
     _feed(monkeypatch, ["  spaced  ", ""])
     assert prompts._ask("q", "dflt") == "spaced"
@@ -206,6 +217,9 @@ def test_interactive_full_flow_numbers_and_ids(monkeypatch, payload):
     Live menu numbering (planned lanes get no number): frontend 1) none 2) react;
     backend 1) none 2) python 3) go.
     """
+    _tty(
+        monkeypatch, True
+    )  # a human at a terminal — the capture default is the recommendation
     _feed(
         monkeypatch,
         [
@@ -234,6 +248,9 @@ def test_interactive_full_flow_numbers_and_ids(monkeypatch, payload):
 
 def test_interactive_none_frontend_skips_language_question(monkeypatch, payload):
     """The `none` lane declares no languages, so no language question consumes an answer."""
+    _tty(
+        monkeypatch, True
+    )  # pin the `off` below to the LEAN branch, not the non-tty branch
     _feed(
         monkeypatch,
         [
@@ -281,3 +298,101 @@ def test_interactive_organization_scope_asks_the_org_questions(monkeypatch, payl
     assert sel.autonomy == "autonomous-pr"
     assert sel.review_strictness == "regulated"
     assert sel.org_packs is False
+
+
+# --- capture consent (0.76.0): EOF/piped stdin is not consent -------------------------------
+
+
+def test_interactive_non_tty_stdin_defaults_capture_off(monkeypatch, payload):
+    """Accepting the capture default without a real terminal must mean OFF.
+
+    A piped/EOF stdin self-answers every prompt with its default — if the default were the
+    recommendation, an unattended `init` would grant capture consent nobody gave.
+    """
+    _tty(monkeypatch, False)
+    _feed(
+        monkeypatch,
+        [
+            "2",  # frontend -> react
+            "typescript",
+            "2",  # backend -> python
+            "",  # framework -> fastapi
+            "postgres",
+            "enterprise",  # a profile whose tty default WOULD be the recommendation
+            "",  # capture -> default, which must now be off
+            "",  # MCP -> none
+            "individual",
+        ],
+    )
+    sel = prompts.interactive(payload)
+    assert sel.capture_mode == "off"
+
+
+def test_interactive_non_tty_explicit_mode_is_still_honored(monkeypatch, payload):
+    """Only the *default* flips off a tty — an explicitly named mode is a recorded choice."""
+    _tty(monkeypatch, False)
+    _feed(
+        monkeypatch,
+        [
+            "2",
+            "typescript",
+            "2",
+            "",
+            "postgres",
+            "standard",
+            "session-end",  # explicit selection, not a default fallback
+            "",
+            "individual",
+        ],
+    )
+    sel = prompts.interactive(payload)
+    assert sel.capture_mode == "session-end"
+
+
+def test_config_capture_mode_true_is_rejected_as_ambiguous(tmp_path, payload):
+    """YAML 1.1 parses bare `on`/`true` as booleans — there is no mode named True, and guessing
+    one would be manufactured consent. from_config must fail loudly and name the real modes."""
+    cfg = _write(tmp_path, "capture_mode: on\n")
+    with pytest.raises(ValueError, match="ambiguous"):
+        prompts.from_config(cfg, payload)
+
+
+def test_config_capture_mode_bare_off_means_off(tmp_path, payload):
+    """Bare `off` also parses as a boolean (False) — but its intent is unambiguous: off."""
+    cfg = _write(tmp_path, "capture_mode: off\n")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.capture_mode == "off"
+
+
+# --- --config parsing: a malformed config must fail loudly, never resolve to a guess -------------
+
+
+def test_as_list_rejects_a_list_with_non_string_members():
+    with pytest.raises(ValueError, match="must be a list of strings"):
+        prompts._as_str_list(["github", 7], "mcp")
+
+
+def test_as_list_rejects_a_value_that_is_neither_string_nor_list():
+    with pytest.raises(ValueError, match="string or list of strings"):
+        prompts._as_str_list({"github": True}, "mcp")
+
+
+def test_as_list_accepts_none_a_bare_string_and_a_list():
+    assert prompts._as_str_list(None, "mcp") == []
+    assert prompts._as_str_list("github", "mcp") == ["github"]
+    assert prompts._as_str_list(["github", "context7"], "mcp") == ["github", "context7"]
+
+
+def test_config_that_is_not_a_mapping_is_rejected(tmp_path, payload):
+    cfg = tmp_path / "ckit.yaml"
+    cfg.write_text("- just\n- a list\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="did not parse to a mapping"):
+        prompts.from_config(cfg, payload)
+
+
+def test_config_with_a_non_mapping_org_block_falls_back_to_defaults(tmp_path, payload):
+    """`org:` written as a scalar is treated as absent rather than crashing the whole init."""
+    cfg = tmp_path / "ckit.yaml"
+    cfg.write_text("org: organization\n", encoding="utf-8")
+    sel = prompts.from_config(cfg, payload)
+    assert sel.scope == catalog.defaults(payload).scope

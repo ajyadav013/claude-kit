@@ -59,8 +59,34 @@ BAD_FILES=$(git diff --cached --name-only 2>/dev/null \
 #    SECRET_KEY, API_KEY, or *PASSWORD* are not themselves secrets -- flagging the names
 #    false-positives on legitimate config/security documentation and code that merely
 #    references env-var names or CI secret bindings. Actual leaked credentials are values.
+#    The AWS secret key has no distinguishing prefix, so it is matched by its variable name
+#    ADJACENT TO a 40-char value -- the pair is a value-shaped match, and the name alone (a CI
+#    binding, a doc mention, a `<your-secret>` placeholder) still passes.
 BAD_CONTENT=$(git diff --cached -U0 2>/dev/null \
-  | grep -iE '^\+.*(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{16,}|xox[baprs]-[0-9A-Za-z-]{10,}|gh[ps]_[0-9A-Za-z]{30,})')
+  | grep -iE '^\+.*(-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{16,}|xox[baprs]-[0-9A-Za-z-]{10,}|gh[ps]_[0-9A-Za-z]{30,}|aws_secret_access_key[^0-9A-Za-z]{1,10}[0-9A-Za-z/+=]{40}([^0-9A-Za-z/+=]|$))')
+
+# 3) Credentials embedded in a connection URI (scheme://user:secret@host) -- a VALUE shape, so it
+#    is within the names-vs-values rule above, not against it. Only HIGH-ENTROPY passwords count:
+#    real projects are full of `://user:pass@db` documentation placeholders (this repo ships 30+),
+#    and a guard that blocks a compose-file example teaches people to bypass the guard. So require
+#    >=16 chars, then drop the placeholder shapes. POSIX ERE has no lookahead, hence the second,
+#    negating grep -- same idiom as the .env.example sparing above.
+#    DELIBERATELY NOT COVERED, stated precisely because an earlier version of this comment
+#    understated it (F-093): the `[a-z._-]+` alternative below is ENTROPY-BLIND. Any password made
+#    only of letters, dots, underscores and hyphens passes, at any length -- a 32-character random
+#    alphabetic string and a diceware passphrase both pass, while either one with a single digit
+#    added is blocked. Passwords shorter than 16 chars never reach this grep at all; the `{16,}`
+#    floor above already dropped them, so they are not what this carve-out is for.
+#    Why it stays: the alternative is blocking `://user:passwordplaceholder@db`, and this repo
+#    alone ships 30+ such lines. A guard that blocks documentation is one people route around, and
+#    a bypassed guard catches nothing. Narrowing the class (a length bound, or requiring a
+#    separator-free run) needs its own false-positive controls before it can ship.
+#    The secret-scanner agent is the deeper, non-blocking net for this class.
+BAD_URI=$(git diff --cached -U0 2>/dev/null \
+  | grep -E '^\+.*://[^/:@[:space:]"]+:[^/:@[:space:]"]{16,}@' \
+  | grep -ivE '://[^/:@[:space:]"]+:([a-z._-]+|<[^@]*>|\$\{[^@]*\}|\$[A-Za-z_]+|\*+|your[_a-z0-9]*|changeme[_a-z0-9]*|redacted|example[_a-z0-9]*)@')
+
+BAD_CONTENT=$(printf '%s\n%s\n' "$BAD_CONTENT" "$BAD_URI" | grep -v '^[[:space:]]*$')
 
 if [ -n "$BAD_FILES" ] || [ -n "$BAD_CONTENT" ]; then
   echo "BLOCKED: this commit appears to include secrets." >&2

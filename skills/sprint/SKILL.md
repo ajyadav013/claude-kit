@@ -1,6 +1,6 @@
 ---
 name: sprint
-description: Generate a sprint plan from a scoped backlog item, breaking it into parallelizable tasks for agent teams.
+description: Turn a scoped backlog item into a sprint plan, broken into parallelisable tasks for agent teams. Use when asked to plan a sprint, break work down into tasks, or work out what can run in parallel.
 argument-hint: [backlog item number]
 disable-model-invocation: true
 ---

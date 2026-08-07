@@ -1,0 +1,37 @@
+Implement a tiered order-pricing engine for this project.
+
+Create a new module `billing` at src/billing.py (importable as `import billing`) exposing exactly this public function:
+
+    price_order(quantity, unit_price_cents, tier="standard", promo_code=None) -> dict
+
+All monetary amounts are integer cents everywhere (inputs and outputs). quantity and unit_price_cents are ints; tier is a string; promo_code is None or a string.
+
+ROUNDING RULE (used wherever a rule below says "rounded"): round to the nearest whole cent, with exact halves (.5) rounding UP (away from zero; every amount in this engine is >= 0). Python's built-in round() is banker's rounding and produces WRONG results for this spec (e.g. round(142.5) == 142; this spec requires 143). Use exact integer or decimal.Decimal arithmetic, not binary floats.
+
+RULES, applied in exactly this order:
+
+1. Validation - raise ValueError if any of: quantity < 1; unit_price_cents < 0; tier not one of "standard", "silver", "gold"; promo_code is not None and not one of "SAVE15", "FLAT500" (codes are case-sensitive; e.g. "save15" is invalid).
+
+2. subtotal_cents - graduated volume pricing over per-unit bands (like tax brackets, NOT flat tiers):
+   - units 1-10: 100% of unit_price_cents
+   - units 11-50: 90% of unit_price_cents
+   - units 51 and up: 75% of unit_price_cents
+   Each band line is computed as units_in_band * unit_price_cents * band_percent / 100 and rounded (half up) AS ONE LINE - do not round per unit, and do not defer rounding to the summed subtotal. subtotal_cents = sum of the rounded band lines. Example: quantity=60, unit_price_cents=100 -> 10*100 + 40*90 + 10*75 = 5350 (a flat-tier implementation would wrongly give 4500). Example: quantity=11, unit_price_cents=25 -> 250 + round_half_up(22.5) = 273.
+
+3. tier_discount_cents - a percentage of subtotal_cents, rounded: "standard" 0%, "silver" 5%, "gold" 10%.
+
+4. promo_discount_cents - computed on the post-tier remainder R = subtotal_cents - tier_discount_cents:
+   - promo_code None -> 0.
+   - "FLAT500" -> min(500, R), so the total never goes below zero. FLAT500 combines with every tier.
+   - "SAVE15" -> 15% of R, rounded, then capped at 2000 cents: promo_discount_cents = min(rounded_value, 2000).
+   - EXCEPTION - "SAVE15" cannot be combined with tier "gold". When tier == "gold" and promo_code == "SAVE15", evaluate two mutually exclusive options: (a) tier-only: tier_discount_cents = 10% of subtotal_cents rounded, promo_discount_cents = 0; (b) promo-only: tier_discount_cents = 0, promo_discount_cents = 15% of subtotal_cents rounded then capped at 2000. Apply whichever option yields the LOWER total_cents; if the two totals are equal, apply the tier-only option. The returned fields must reflect the applied option (the other discount field is 0).
+
+5. total_cents = subtotal_cents - tier_discount_cents - promo_discount_cents.
+
+Return a dict containing at least the keys "subtotal_cents", "tier_discount_cents", "promo_discount_cents", "total_cents", all Python ints (extra keys are allowed).
+
+Worked examples to self-check:
+- price_order(quantity=10, unit_price_cents=100, tier="silver", promo_code="SAVE15") -> subtotal 1000, tier 50, promo 143 (15% of 950 = 142.5 rounds up), total 807.
+- price_order(quantity=10, unit_price_cents=2000, tier="gold", promo_code="SAVE15") -> tie between gold (2000) and capped SAVE15 (2000): the tier option applies -> tier 2000, promo 0, total 18000.
+
+Also: keep the existing calc.add / calc.subtract behaviour unchanged, and add pytest tests for the new module under tests/ (at least 5 new test functions).

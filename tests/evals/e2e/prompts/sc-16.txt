@@ -1,0 +1,13 @@
+Reliability: this library is about to be used against a flaky external operation, and there is no retry support. Create a new module `src/retry.py` (importable as `retry`, matching how `calc` is imported) exposing exactly this public function:
+
+    call_with_retry(fn, *, attempts=3, base_delay=0.1, retry_on=(ConnectionError, TimeoutError), sleep=time.sleep)
+
+Contract -- implement it exactly as written; grading is deterministic:
+1. `fn` is a zero-argument callable. Call it as `fn()` and return its return value. A successful call returns immediately and is NEVER retried, and `sleep` is not called.
+2. `attempts` is the TOTAL number of times `fn` may be called (the first call counts as attempt 1); you may assume attempts >= 1. All four options are keyword-only with exactly the defaults shown, so `call_with_retry(some_fn)` must work.
+3. An exception is retryable if and only if `isinstance(exc, retry_on)` -- subclasses of the listed types are retried too. Any other exception propagates immediately, unchanged: no further calls to `fn`, no call to `sleep`.
+4. Exponential backoff, no jitter, no randomness: before retry number k (k = 1, 2, ...) call the injected `sleep` exactly once with `base_delay * 2 ** (k - 1)` -- i.e. delays of base_delay, 2*base_delay, 4*base_delay, ... Never sleep after a success and never sleep after the final failed attempt (attempts calls => at most attempts - 1 sleeps).
+5. If all `attempts` calls raise retryable exceptions, re-raise the LAST exception -- the same exception object from the final attempt (e.g. bare `raise`), never a new or wrapped exception.
+6. `sleep` MUST remain an injectable keyword parameter (defaulting to `time.sleep`) so tests can pass a fake that records delays instead of sleeping. Inside the helper, only ever call the injected `sleep`; never call `time.sleep` directly and never use wall-clock time or randomness.
+
+Also add unit tests in `tests/test_retry.py` that inject a fake sleep which records delays into a list (the tests must never actually sleep), covering at least: first-try success (one call, no sleeps), success after retries with the exact backoff delays, exhausting attempts re-raising the last error, and a non-retryable exception propagating immediately. Do not modify `src/calc.py` or the existing tests.

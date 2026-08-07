@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+# One Tier B batched trigger probe: does a set of skills fire on the right input and not the wrong one?
+#
+# Tier B exists because demanding a full SDLC scenario for a one-line skill made 100% dynamic
+# coverage arithmetically impossible (E-031). What Tier B claims is narrow and stated in
+# dynamic-tiering.md: criterion 1 (selects/triggers correctly), plus 2, 9, 11, 13, 14 and the
+# triggering half of 7. It CONCEDES 3, 4, 5, 6, 8-beyond-triggering, 10 and 12.
+#
+# The measurement that makes it worth anything is the NEGATIVE case. A probe that only shows a
+# skill firing when it should cannot see false triggering, and dynamic-tiering.md says in terms:
+# "A probe without negative cases is not a Tier B measurement." Each batch therefore carries decoy
+# requests that must match nothing, and every other batch's targets act as further negatives.
+#
+# Two deviations from the shipped product, both recorded in the probe record, neither optional:
+#   profile=enterprise   64 of the 117 Tier B components install only in the enterprise profile.
+#                        A default install cannot trigger a skill it did not lay down.
+#   rules withheld       a default install auto-loads 446KB of rules and dies before doing any work
+#                        (F-014). Every dynamic arm in this run carries this deviation (E-014).
+#
+# `--keep-rules` exists because withholding rules makes one class of question unaskable: a
+# behaviour DELIVERED BY a rule cannot be measured in an arm that deletes the rule. Such a run
+# reproduces the untreated baseline while looking like a test of the treatment -- the checker that
+# cannot fail, in its quietest form. Rule scoping (F-042) also cut the auto-loaded set from 446KB
+# to 73KB, so the cost that motivated the deviation is a seventh of what it was. Runs that keep
+# rules are a DIFFERENT arm and say so in their record; they must never be pooled with withheld ones.
+#
+# Usage: tier-b-probe.sh --label <id> --prompt-file <path> --out <dir> [--max-turns N] [--keep-rules]
+set -Eeuo pipefail
+
+LABEL="" PROMPT_FILE="" OUT="" MAX_TURNS=12 FIXTURE="" PLUGIN=no SCAFFOLD=yes ALLOW_WRITE=no KEEP_RULES=no
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--label) LABEL="${2:?}"; shift 2 ;;
+	--prompt-file) PROMPT_FILE="${2:?}"; shift 2 ;;
+	--out) OUT="${2:?}"; shift 2 ;;
+	--max-turns) MAX_TURNS="${2:?}"; shift 2 ;;
+	--fixture) FIXTURE="${2:?}"; shift 2 ;;
+	# Slash commands ship ONLY with the plugin -- `init` does not install commands/ -- so the only
+	# place they can be measured is a plugin-loaded session, and `/claude-kit:init` must run on a
+	# workspace this probe has NOT already scaffolded.
+	--plugin) PLUGIN=yes; shift ;;
+	--no-scaffold) SCAFFOLD=no; shift ;;
+	--allow-write) ALLOW_WRITE=yes; shift ;;
+	--keep-rules) KEEP_RULES=yes; shift ;;
+	*) echo "unknown arg: $1" >&2; exit 2 ;;
+	esac
+done
+[ -n "$LABEL" ] && [ -n "$PROMPT_FILE" ] && [ -n "$OUT" ] || { echo "missing required arg" >&2; exit 2; }
+
+# The session runs from inside $WORK, so a RELATIVE prompt path stops resolving there. It failed
+# silently in the worst possible way: `cat` wrote nothing, `claude -p ""` refused to start, and
+# 40 skills were graded MISSED because the harness never asked them anything. Resolve up front,
+# and refuse to run on an empty prompt rather than measuring one.
+[ -f "$PROMPT_FILE" ] || { echo "prompt file not found: $PROMPT_FILE" >&2; exit 2; }
+PROMPT_FILE="$(cd "$(dirname "$PROMPT_FILE")" && pwd)/$(basename "$PROMPT_FILE")"
+[ -s "$PROMPT_FILE" ] || { echo "prompt file is empty: $PROMPT_FILE" >&2; exit 2; }
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+EVID="$OUT/$LABEL-$STAMP"
+# Same collision as tier-a-agent-probe.sh (F-107): the stamp is second-resolution, so probes
+# launched together under one label share a directory and overwrite each other's session.jsonl.
+# The survivor still parses and still grades -- it is simply a different run's transcript filed
+# under this run's name. Refuse rather than merge.
+[ -e "$EVID" ] && { echo "evidence dir already exists: $EVID
+another probe is using this label/second; vary --label rather than sharing it" >&2; exit 2; }
+mkdir -p "$EVID"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/ck-tierb-$LABEL-XXXXXX")"
+
+echo "### workspace $WORK"
+# An EMPTY workspace cannot distinguish "the skill failed to trigger" from "the skill correctly
+# declined because there is nothing to work on" (E-047). Five of six silences in the first batch
+# were the latter -- skills naming their own missing prerequisite and refusing to invent work.
+# A fixture with real code removes that confound for every skill whose job needs a codebase.
+if [ -n "$FIXTURE" ]; then
+	cp -a "$ROOT/tests/evals/e2e/fixtures/$FIXTURE/." "$WORK/"
+	echo "### fixture $FIXTURE materialised"
+else
+	printf 'placeholder\n' >"$WORK/README.md"
+fi
+git -C "$WORK" init -q
+git -C "$WORK" add -A
+git -C "$WORK" -c user.email=eval@local -c user.name=eval commit -qm baseline
+
+# enterprise profile so every Tier B component is actually installed
+cat >"$WORK/.ck-selection.yaml" <<'YAML'
+profile: enterprise
+scope: organization
+backend: none
+frontend: none
+database: none
+mcp: []
+YAML
+
+if [ "$SCAFFOLD" = yes ]; then
+	echo "### scaffold (Docker; the host never runs project code)"
+	"$ROOT/scripts/evals/run-in-docker.sh" --service python --label "tierb-$LABEL-scaffold" \
+		--mount "$WORK:/work" --workdir /repo --timeout 600 -- \
+		env PYTHONPATH=/repo/src python -m claude_kit.cli init /work --config /work/.ck-selection.yaml
+else
+	echo "### scaffold SKIPPED (--no-scaffold)"
+fi
+
+# The SET, not just the count. A MISSED verdict is only admissible if the skill was installed in
+# THIS workspace, and a count cannot answer that -- checking it against a list captured by some
+# other run is the `absent != false` trap with extra steps.
+(find "$WORK/.claude/skills" -name SKILL.md -exec sh -c 'for f; do basename "$(dirname "$f")"; done' _ {} + \
+	2>/dev/null || true) | sort >"$EVID/skills-installed.txt"
+SKILLS_INSTALLED="$(wc -l <"$EVID/skills-installed.txt" | tr -d ' ')"
+echo "### installed $SKILLS_INSTALLED skills"
+
+# `|| true`: under --no-scaffold there is no .claude/rules yet, and `pipefail` turns that expected
+# absence into a hard exit before the session ever runs. Absent means zero bytes, not a crash.
+RULE_BYTES="$( (cat "$WORK"/.claude/rules/*.md 2>/dev/null || true) | wc -c | tr -d ' ')"
+if [ "$KEEP_RULES" = yes ]; then
+	# Copied, not left in place only: the record must be able to prove WHICH rule text the session
+	# saw. "The rules were present" is not evidence about a treatment that landed in one of them.
+	cp -a "$WORK/.claude/rules" "$EVID/rules-retained" 2>/dev/null || true
+	RULES_MODE=retained
+	echo "### DEVIATION rules RETAINED ($RULE_BYTES bytes) — separate arm, do not pool with withheld"
+else
+	mv "$WORK/.claude/rules" "$EVID/rules-withheld" 2>/dev/null || true
+	RULES_MODE=withheld
+	echo "### DEVIATION rules withheld ($RULE_BYTES bytes) — F-014"
+fi
+export PROBE_RULES_MODE="$RULES_MODE"
+
+# Isolated config: `claude -p` would otherwise inherit the OPERATOR's ~/.claude guard hooks and
+# measure their permission posture instead of the kit's (E-006).
+CFG="$EVID/claude-config"
+mkdir -p "$CFG"
+# A command whose whole job is to WRITE a scaffold cannot be measured with Write denied: it would
+# be graded on a permission this probe imposed, not on anything the command does.
+if [ "$ALLOW_WRITE" = yes ]; then
+	WRITE_ALLOW='"Write", "Edit", "Bash(mkdir:*)", "Bash(cp:*)",'
+	WRITE_DENY=""
+else
+	WRITE_ALLOW=""
+	WRITE_DENY='"Write", "Edit",'
+fi
+cat >"$CFG/settings.json" <<JSON
+{
+  "permissions": {
+    "allow": [$WRITE_ALLOW "Read", "Glob", "Grep", "Skill", "TaskCreate", "TaskList", "TaskUpdate",
+              "Bash(ls:*)", "Bash(cat:*)", "Bash(pwd)"],
+    "deny": [$WRITE_DENY "Bash(rm:*)", "Bash(git push:*)", "WebFetch", "WebSearch"]
+  }
+}
+JSON
+
+PLUGIN_ARGS=()
+[ "$PLUGIN" = yes ] && PLUGIN_ARGS=(--plugin-dir "$ROOT")
+
+cp "$PROMPT_FILE" "$EVID/prompt.txt"
+# Same stall exposure as tier-a-agent-probe.sh (F-108): --max-turns bounds turns, not time, and a
+# child that stops emitting never ends. Watches output size, not wall clock, so a slow-but-live
+# session survives.
+SESSION_STALL_SECS="${SESSION_STALL_SECS:-600}"
+set +e
+( cd "$WORK" && CLAUDE_CONFIG_DIR="$CFG" claude -p "$(cat "$PROMPT_FILE")" \
+	"${PLUGIN_ARGS[@]+"${PLUGIN_ARGS[@]}"}" \
+	--max-turns "$MAX_TURNS" --output-format stream-json --verbose \
+	--permission-mode acceptEdits ) >"$EVID/session.jsonl" 2>"$EVID/session.stderr" &
+SESSION_PID=$!
+(
+	last=-1; still=0
+	while kill -0 "$SESSION_PID" 2>/dev/null; do
+		sleep 30
+		now="$(wc -c <"$EVID/session.jsonl" 2>/dev/null || echo 0)"
+		if [ "$now" = "$last" ]; then
+			still=$((still + 30))
+			if [ "$still" -ge "$SESSION_STALL_SECS" ]; then
+				echo "### WATCHDOG no output for ${still}s — killing stalled session $SESSION_PID" >&2
+				kill "$SESSION_PID" 2>/dev/null
+				break
+			fi
+		else
+			still=0; last="$now"
+		fi
+	done
+) &
+WATCHDOG_PID=$!
+wait "$SESSION_PID"
+SESSION_RC=$?
+kill "$WATCHDOG_PID" 2>/dev/null
+wait "$WATCHDOG_PID" 2>/dev/null
+set -e
+
+python3 - "$EVID/session.jsonl" "$EVID/probe.json" "$LABEL" "$SESSION_RC" "$SKILLS_INSTALLED" "$RULE_BYTES" "$FIXTURE" <<'PY'
+import json, os, pathlib, sys
+jsonl, out, label, rc, installed, rule_bytes = sys.argv[1:7]
+skills, agents, tools, first_cache = [], [], [], None
+terminal_reason = None
+for line in open(jsonl, encoding="utf-8", errors="replace"):
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        ev = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    # Why the session ENDED decides whether an empty skills_invoked is a result or a truncation.
+    # An 18-scenario sweep once read 0/90 as "no skill triggers", when 17 of the 18 sessions had
+    # simply been cut off mid-exploration at max_turns. Without this field the two are identical
+    # in the record, and the wrong one is the more alarming.
+    if ev.get("terminal_reason"):
+        terminal_reason = ev["terminal_reason"]
+    if ev.get("type") == "assistant":
+        usage = (ev.get("message") or {}).get("usage") or {}
+        if first_cache is None and "cache_creation_input_tokens" in usage:
+            first_cache = usage["cache_creation_input_tokens"]
+        for block in (ev.get("message") or {}).get("content") or []:
+            if block.get("type") != "tool_use":
+                continue
+            name = block.get("name", "")
+            tools.append(name)
+            inp = block.get("input") or {}
+            if name == "Skill":
+                # `skill` is the documented field; absent means the call carried no skill name,
+                # which is NOT the same as "no skill invoked" and must not read as one.
+                if "skill" in inp:
+                    skills.append(inp["skill"])
+                else:
+                    skills.append(f"<Skill call with no `skill` field: {sorted(inp)}>")
+            if name == "Agent":
+                agents.append(inp.get("subagent_type", "<unspecified>"))
+# Provenance, not decoration: the deviations list decides whether a result may be quoted as the
+# shipped default or must be discounted as a deviating arm. The tier-A probe hardcoded this string
+# and started lying the moment keeping rules became a usable arm (F-074). This probe withholds rules
+# unconditionally, so the string is true of every run recorded so far (0 of 149 contradict it) --
+# but it is true by circumstance, not by construction, and `--no-scaffold` already produces a
+# workspace with no rules to withhold. Deriving it from the measured byte count closes the class
+# rather than the one instrument where it had begun to bite.
+#
+# `--keep-rules` then broke the derivation the other way: a retained-rules run also measures zero
+# WITHHELD bytes, so byte count alone reports "no rules were present" about a run whose whole point
+# was that they were. The mode has to be stated by the arm that chose it, not inferred.
+deviations = ["profile=enterprise"]
+provenance_warning = None
+mode = os.environ.get("PROBE_RULES_MODE", "withheld")
+if mode == "retained":
+    # Deliberately NOT added to `deviations`: keeping rules is what the PRODUCT does, so filing it
+    # as a deviation would invite exactly the opposite misreading. Same convention as
+    # tier-a-agent-probe.sh, where the keep-rules arm carries no rules deviation either. The
+    # absence of "rules withheld" is the signal, and `rules_mode` states it positively.
+    if int(rule_bytes) == 0:
+        provenance_warning = (
+            "--keep-rules was requested but the workspace had no rules to keep "
+            "(rule_bytes=0); this run measured no rule treatment at all"
+        )
+        print(f"### PROVENANCE {provenance_warning}", file=sys.stderr)
+elif int(rule_bytes) > 0:
+    deviations.append("rules withheld (F-014)")
+else:
+    provenance_warning = (
+        "no rules were present to withhold (rule_bytes_withheld=0); this arm is NOT the "
+        "rules-withheld deviation and must not be pooled with runs that are"
+    )
+    print(f"### PROVENANCE {provenance_warning}", file=sys.stderr)
+
+json.dump({
+    "label": label, "session_rc": int(rc), "skills_installed": int(installed),
+    "skills_installed_names": sorted(
+        p.read_text(encoding="utf-8").split()
+        if (p := pathlib.Path(out).parent / "skills-installed.txt").is_file()
+        else []
+    ),
+    # Two fields, because one number cannot answer both questions a reader has. A retained arm has
+    # zero bytes WITHHELD and 73k bytes PRESENT; collapsing them made it indistinguishable from an
+    # unscaffolded workspace that had nothing either way.
+    "rules_mode": mode,
+    "rule_bytes_withheld": 0 if mode == "retained" else int(rule_bytes),
+    "rule_bytes_present": int(rule_bytes) if mode == "retained" else 0,
+    "terminal_reason": terminal_reason,
+    "first_msg_cache_creation": first_cache,
+    "skills_invoked": skills, "agents_spawned": agents, "tool_calls": tools,
+    "deviations": deviations, "provenance_warning": provenance_warning,
+    "fixture": sys.argv[7] if len(sys.argv) > 7 else "",
+}, open(out, "w"), indent=2)
+print(f"skills_invoked={skills}")
+PY
+
+echo "### evidence $EVID"

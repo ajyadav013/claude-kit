@@ -1,0 +1,7 @@
+`src/calc.py` has `add` and `subtract`. The pricing work needs one more helper.
+
+Add a `percentage_off(amount: int, percent: int) -> int` function to `src/calc.py` that returns the
+amount reduced by the given percentage, rounded down to a whole number. Cover it with tests in
+`tests/test_calc.py` alongside the existing ones, including the 0% and 100% boundaries.
+
+Run the test suite with `sh scripts/test.sh` and make sure it passes before you finish.

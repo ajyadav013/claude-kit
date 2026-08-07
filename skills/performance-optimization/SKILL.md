@@ -1,6 +1,6 @@
 ---
 name: performance-optimization
-description: Analyze and optimize application performance covering web vitals, bundle size, code splitting, chunking strategy, and rendering best practices for web frontends.
+description: Make a slow web frontend faster — web vitals, bundle size, code splitting, chunking, render behaviour. Use when a page is slow, the bundle grew, or web vitals regressed. API throughput and latency belong to load-testing.
 argument-hint: [page, component, or "bundle"]
 disable-model-invocation: true
 ---

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-code-kit"
-version = "0.76.0"
+version = "0.77.0"
 description = "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker). Asks ordered questions and installs CLAUDE.md + .claude/ (rules, the chosen profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with a tamper-evident gate ledger, working memory, and a self-improving learnings loop."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -73,6 +73,15 @@ pythonpath = ["."]
 
 [tool.ruff]
 target-version = "py39"
+# Scenario fixtures, sealed holdouts and reference solutions are DATA, not this project's code. They
+# are copied into a scenario workspace and executed there, and spec behaviours match against their
+# source TEXT — so reformatting or import-sorting them could silently change what a check matches.
+# Same reasoning as `collect_ignore_glob` in tests/evals/e2e/conftest.py.
+extend-exclude = [
+  "tests/evals/e2e/fixtures",
+  "tests/evals/e2e/holdouts",
+  "tests/evals/e2e/solutions",
+]
 
 [tool.ruff.lint]
 # Deliberately conservative: pyflakes (F) + the actionable pycodestyle subsets (E4/E7/E9, W) +

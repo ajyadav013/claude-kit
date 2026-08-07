@@ -78,3 +78,22 @@ def test_org_scope_without_packs_drops_the_governance_pointer(tmp_path, payload)
     text = (tmp_path / "README.claude-sdlc.md").read_text(encoding="utf-8")
     assert ".claude/org-packs/README.md" not in text
     assert not (tmp_path / ".claude" / "org-packs").exists()
+
+
+def test_readme_privacy_reflects_capture_off_default(tmp_path, payload):
+    """The scaffolded README states THIS install's capture state — a default install says OFF
+    (the generic 'on by default' claim was the 0.76.0 truth-in-advertising defect)."""
+    install(payload, tmp_path)
+    text = (tmp_path / "README.claude-sdlc.md").read_text(encoding="utf-8")
+    assert "Learning capture is **OFF for this install**" in text
+    assert "ON for this install" not in text
+    assert "{%" not in text and "{{" not in text  # no unrendered Jinja leaked
+
+
+def test_readme_privacy_reflects_enabled_capture(tmp_path, payload):
+    """An install that chose a mode gets the ON wording, the mode, and the audit pointer."""
+    install(payload, tmp_path, capture_mode="session-end-catchup")
+    text = (tmp_path / "README.claude-sdlc.md").read_text(encoding="utf-8")
+    assert "Learning capture is **ON for this install**" in text
+    assert "session-end-catchup" in text
+    assert "privacy-report" in text

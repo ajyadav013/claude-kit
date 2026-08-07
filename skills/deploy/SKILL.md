@@ -1,12 +1,6 @@
 ---
 name: deploy
-description: >-
-  Deploy-and-verify loop: commit in the project's format → trigger the deployment → watch the
-  pipeline → verify the running instances → test → fix findings → repeat until clean. On first
-  use it interviews you for your delivery setup (integration branch, commit format, deploy
-  trigger, pipeline monitor, runtime verification) and persists the answers to
-  .claude/config/deploy.yaml so later runs never re-ask. Use when the user says "deploy",
-  "ship this", "commit and deploy", or "run the ship loop".
+description: Deploy-and-verify loop — commit, trigger the deployment, watch the pipeline, verify the running instances, test, fix, repeat until clean. Interviews you once for your delivery setup. Use when asked to deploy, ship, or run the ship loop.
 argument-hint: '<commit message | "commit-only" | "no-deploy" | "setup" | "loop">'
 ---
 

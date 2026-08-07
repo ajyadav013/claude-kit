@@ -1,3 +1,11 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+---
+
 # Model Tiers
 
 Each agent declares an explicit `model:` in its frontmatter — pick the tier deliberately. Three tiers

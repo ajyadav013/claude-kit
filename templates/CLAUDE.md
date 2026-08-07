@@ -157,6 +157,86 @@ one left off.
 
 ---
 
+## Rule index — the seven that always apply, and the rest on demand
+
+Seven rules load every session because they apply to *every* turn regardless of which files you
+touch. The other eighteen carry `paths:` frontmatter and load when you work on matching files —
+they keep their full text at `.claude/rules/<name>.md`, so **you can open any of them by name at
+any time**, and every citation elsewhere in this config still resolves.
+
+**If a task touches one of these areas and the rule is not already in context, read it before you
+act.** On-demand is what keeps the standing baseline small enough to leave room for the actual
+work; it is not permission to skip the rule.
+
+| Always-on (7) | What it governs |
+|---|---|
+| `rarv-cycle.md` | Reason → Act → Reflect → Verify: the loop every task runs |
+| `risk-classification.md` | How much caution, review, and approval this change needs |
+| `autonomy-levels.md` | How far you may act before a human decides |
+| `quality-gates.md` | Severity model, gate-pass contract, evidence rule |
+| `mandatory-workflow.md` | Pipeline phases, ordering, who runs what, the defect loop |
+| `human-in-the-loop.md` | When to stop and ask a human |
+| `continuity.md` | The resume contract — read/write working memory every turn |
+
+| On-demand (18) | Read it when |
+|---|---|
+| `testing.md` | writing or judging tests, coverage thresholds |
+| `linting-and-formatting.md` | lint/format config or a style disagreement |
+| `code-organization.md` | adding files/modules, deciding where code lives |
+| `design-patterns.md` | choosing a structure or refactoring toward one |
+| `resilience-engineering.md` | timeouts, retries, fallback, degradation in service code |
+| `frontend-best-practices.md` | any frontend component or client-state work |
+| `responsive-and-accessibility.md` | layout, breakpoints, a11y, keyboard/screen-reader paths |
+| `devops-observability.md` | CI, build, release, logging, metrics, health checks, SLOs |
+| `documentation.md` | writing any source file (headers, docstrings) or docs |
+| `wave-orchestration.md` | program-scale work spanning many lanes or waves |
+| `agent-guardrails.md` | building or constraining an agent |
+| `agent-memory.md` | persisting learnings across sessions |
+| `agent-resilience.md` | an agent that must survive failure or timeout |
+| `tool-design.md` | designing a tool or MCP surface for an agent |
+| `evals.md` | measuring whether a change actually helped |
+| `model-tiers.md` | choosing a model for a task or subagent |
+| `reasoning-techniques.md` | a task that needs structured reasoning |
+| `goal-setting-and-monitoring.md` | defining success criteria or tracking progress |
+
+---
+
+## Skill routing — the boundaries that decide between overlapping skills
+
+Two failure modes were measured here, and neither is the skill being missing.
+
+**Substitution.** With this many skills installed, a plausible neighbour wins, the work still gets
+done, and it gets done by the wrong playbook. Each pair below was measured selecting the *other*
+one on a restatement of its own description, so the boundary — not the topic — is what decides.
+
+| The work in front of you | Use | Not |
+|---|---|---|
+| wiring the app to an endpoint: fetch layer, loading and error states | `api-integration` | your data-fetching library's own *conventions* skill (query-key factories, cache config) — that applies once the wiring exists |
+| one component's architecture, reuse, accessibility | `component-design` | `frontend-ui-engineering` — that builds whole interfaces; this shapes a single component |
+| a slow page: bundle size, web vitals, render behaviour | `performance-optimization` | `load-testing` — that is API throughput under concurrency |
+| API throughput or latency under load, validating an SLO | `load-testing` | `performance-optimization` — that is the browser side |
+| clicking through a feature the way a user would | `manual-test` | `browser-testing-with-devtools` — that automates the browser; this is a human pass |
+| "is everything up?" before starting or shipping | `smoke-test` | `run` — that starts services; this verifies them |
+
+**Silence.** These four fired nothing at all — the model answered from its own knowledge and no
+sibling fired either. When the request is theirs, invoke them by name: `sprint`,
+`security-and-hardening`, `security-verification`, `modernization-and-migration`.
+
+**Why these particular skills need naming.** Many of them — `api-integration`, `component-design`,
+`performance-optimization`, `manual-test`, `smoke-test`, `security-verification`, `sprint`,
+`unit-test`, `ui-ux-design`, `playwright-verification`, `refresh-docs`, `triage`, `scope`,
+`backlog`, `archive-sprint`, `decision` — carry `disable-model-invocation: true`, which means they
+never surface on their own the way an ordinary skill does. That is a deliberate design choice, not
+a bug, and it is **not** a prohibition: invoke one by name and it runs normally. It only means the
+picker will never volunteer it, so if this section does not name it, nothing will.
+
+**Answering from memory is the failure mode, not a shortcut.** A skill exists precisely because
+this project's way of doing the thing is not the model's default way. A fluent answer that skipped
+the skill is the outcome this table exists to prevent — if a request matches a row above, read the
+skill before you act.
+
+---
+
 ## Project-specific rules
 
 > Add your stack's conventions here (language style, framework patterns, naming, directory

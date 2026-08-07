@@ -130,7 +130,7 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 | 🤖 **Agent roster** | **29** tiered agents led by an Orchestrator that never writes code, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
 | 📐 **Rules & skills** | **25** stack-agnostic core rules + **115** context-activated skills (58 core + 57 stack-collection), pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **13** overlay rule files (React · FastAPI · Go · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
-| 🛠️ **Hooks & guards** | **19** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
+| 🛠️ **Hooks & guards** | **20** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
 | 📊 **Traceability & live board** | A git-native ticket per story with a work-log and commit linkage, plus `claude-kit tickets` — a terminal chart and a browser Kanban board showing each lane's status, agent, model, tokens and elapsed time ([below](#parallel-lanes-and-the-live-ticket-board)) |
 | 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **24** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
 
@@ -185,7 +185,7 @@ flowchart TD
 | Profile | Gates that run |
 |---|---|
 | **lean** | code-review · build-green |
-| **standard** | spec-complete · em-approved · code-review · build-green · test-coverage · security-clear · contract-clear\* |
+| **standard** | spec-complete · em-approved · code-review · build-green · contract-clear\* · test-coverage · security-clear |
 | **enterprise** | standard + pipeline-green · observability-ready · acceptance |
 
 \* `contract-clear` (API breaking-change diff) self-skips when the stack exposes no API surface.

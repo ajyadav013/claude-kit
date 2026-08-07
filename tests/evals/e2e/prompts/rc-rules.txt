@@ -1,0 +1,2 @@
+Update `reorder_quantity` in `src/inventory.py` to use the company's standard reorder multiplier
+instead of the current one.

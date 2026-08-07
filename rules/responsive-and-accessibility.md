@@ -1,3 +1,14 @@
+---
+paths:
+  - '**/*.tsx'
+  - '**/*.jsx'
+  - '**/*.vue'
+  - '**/*.svelte'
+  - '**/*.css'
+  - '**/*.scss'
+  - '**/components/**'
+---
+
 # Responsive & Accessibility
 
 All new and modified UI components MUST be responsive and usable on mobile devices (375px+), tablets (768px+), and desktop (1024px+), and MUST meet accessibility standards.

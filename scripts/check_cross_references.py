@@ -7,9 +7,11 @@ file that no longer lands in user projects. This gardener extracts every such re
 shipped prose (payload + repo docs) and checks a matching file exists in the core payload, a stack
 overlay, or the org overlay.
 
-Warn-only by default (exit 0), mirroring ``check_skill_descriptions.py``: a reference can be a
-deliberate *example* of a user-created file rather than a kit component, so a human judges the
-report. Pass ``--strict`` to exit 1 on offenders once the report is clean.
+Bare invocation exits 0 and just prints the report, mirroring ``check_skill_descriptions.py``: a
+reference can be a deliberate *example* of a user-created file rather than a kit component, so a
+human judges a fresh offender. ``--strict`` exits 1 and is what CI runs, now that the report is
+clean — if a legitimate example ever trips it, add it to the allowlist rather than reverting to a
+check that cannot fail.
 """
 
 from __future__ import annotations

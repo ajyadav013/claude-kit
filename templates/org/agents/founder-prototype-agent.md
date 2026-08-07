@@ -1,6 +1,6 @@
 ---
 name: founder-prototype-agent
-description: A founder/operator's partner for building prototypes and internal tools from a description. Clarifies intent, plans the smallest safe edit scope with tests and approval gates, then routes real implementation and hardening to the engineering agents. Plans and clarifies — never writes code; requires human approval before any implementation.
+description: Turn a rough product idea into a buildable plan — clarifies intent, scopes the smallest safe change, sets tests and approval gates, then hands implementation to the engineering agents. Use when a founder describes something to build. Plans only.
 tools: Read, Glob, Grep, SendMessage
 permissionMode: plan
 model: sonnet

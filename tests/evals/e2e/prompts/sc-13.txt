@@ -1,0 +1,13 @@
+Orders are currently readable across tenants: src/store.py builds order-lookup SQL with no tenant boundary at all (recent_orders_by_status is fully global, and orders_for_customer lets any caller read any customer's orders). Introduce a tenant boundary so every order lookup is scoped to the calling tenant, and make it impossible to build an unscoped orders query.
+
+Required public API in src/store.py (exact names; keep the module's pure-string style - functions return the final SQL string, no live database, no new dependencies):
+1. class UnscopedQueryError(Exception) - raised whenever a lookup would be built without a tenant.
+2. orders_for_customer(customer_id: int, *, tenant_id: int) -> str - tenant_id is required and keyword-only; the returned SQL must constrain BOTH tenant_id AND customer_id in its WHERE clause on the orders table.
+3. customer_order_totals(customer_ids: list, *, tenant_id: int) -> list - still one SQL string per customer, in the same order; every query tenant-scoped.
+4. recent_orders_by_status(status: str, limit: int = 100, *, tenant_id: int) -> str - still newest-first (ORDER BY placed_at DESC) with a LIMIT, now additionally constrained to the tenant.
+5. class TenantScope - TenantScope(tenant_id) with instance methods orders_for_customer(customer_id), customer_order_totals(customer_ids), and recent_orders_by_status(status, limit=100), producing the same tenant-scoped SQL. TenantScope(None) raises UnscopedQueryError.
+6. Passing tenant_id=None to any module-level lookup raises UnscopedQueryError. Calling a module-level lookup without tenant_id must fail loudly (the TypeError from the required keyword-only parameter is acceptable) - it must never fall back to a global query.
+
+Schema: add a NEW migration file migrations/0002_add_tenant_id.sql that ALTERs the orders table to add a tenant_id BIGINT NOT NULL column (an index on it is recommended). Do NOT modify migrations/0001_create_orders.sql.
+
+Tests: update tests/test_store.py to the new API (the old unscoped calls must now raise), preserving the existing behavioural assertions: lookups still target the orders table, one query per requested customer, and recent orders are still newest-first.

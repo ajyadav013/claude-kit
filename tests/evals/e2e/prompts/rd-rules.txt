@@ -1,0 +1,4 @@
+Review `src/inventory.py` for correctness and write your findings to `REVIEW.md` in the repository
+root.
+
+Do not change any source code — this is a review, not a fix.

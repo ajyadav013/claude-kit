@@ -44,8 +44,10 @@ they are already embodied in its rules, agents, skills, and the orchestration mo
 
 The book's recurring thesis — *treat agents as complex software* — pointed at one coherent layer the
 kit under-specified: how the **agents themselves** reason, stay safe, and recover (as opposed to how
-the **product** they build is secured and tested, which was already strong). Five always-on rules were
-added (shipped to every profile, since core rules are not profile-gated):
+the **product** they build is secured and tested, which was already strong). Five rules were added,
+shipped to every profile because core rules are not profile-gated. They are **not** always loaded:
+since 0.76.0 most carry `paths:` frontmatter and load on matching turns only — see
+`docs/rules-context-budget.md` for which rules are in the always-loaded covenant and why.
 
 - `rules/reasoning-techniques.md` — Chain-of-Thought, ReAct, Tree-of-Thought / self-consistency,
   step-back, extended-thinking budget, and resource-aware model-tier selection (Ch. 17, App. A, Ch. 16).
@@ -81,7 +83,7 @@ agent-harness write-ups, security post-mortems, context-engineering essays) for 
 book's framework didn't cover. Only genuine gaps were filled — everything else was already present and
 was left alone (golden rule #1: don't dilute description-based selection with redundant rules).
 
-**New always-on rules:**
+**New core rules** (path-scoped since 0.76.0, not always loaded):
 
 - `rules/evals.md` — eval-driven development for AI/agent features: build a small graded set before
   iterating, **grade outcomes not paths**, calibrate LLM-as-judge against human labels, report

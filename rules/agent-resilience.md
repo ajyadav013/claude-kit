@@ -1,3 +1,11 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+---
+
 # Agent Resilience
 
 **Every retry is bounded; every recovery tells the truth about what's left.**

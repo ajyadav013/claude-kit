@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-claude-kit is pre-1.0. Only the latest released version (currently **0.76.0**) receives security fixes.
+claude-kit is pre-1.0. Only the latest released version (currently **0.77.0**) receives security fixes.
 
 ## Reporting a vulnerability
 
@@ -35,7 +35,10 @@ runs **only** when you explicitly choose a capture mode at `claude-kit init` (th
 question) or set `capture_mode` in a config file. Every non-interactive path stays off: the plugin
 channel and the no-pip starter ship no capture hooks, and `--defaults` installs none. The recall
 half of the loop (reading your own `agent-memory/MEMORY.md` into context) has no such exposure and
-stays on.
+stays on. **This opt-in applies to fresh installs**: a project initialized before 0.76.0 keeps the
+capture mode recorded at its own init across upgrades (an upgrade never silently changes your
+selection — it prints a notice when capture is on); check yours with `claude-kit privacy-report`
+and re-run `init` or set `CLAUDE_KIT_NO_AUTOCAPTURE=1` to turn it off.
 
 When enabled, the job skips secret-bearing files (`.env`, `*.pem`/`*.key`, `credentials.*`) and
 redacts secret-shaped values (private keys, `AKIA…`, `sk_live_…`, Slack/GitHub tokens) before

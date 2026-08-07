@@ -1,0 +1,96 @@
+# Evaluation harness image — NOT part of the plugin payload, the pip wheel, or any generated
+# project. It exists only so the self-evaluation program can run every test, linter, type check,
+# scanner, build, and coverage command inside a container instead of on the host.
+#
+# Stage `python-eval` is the Claude Kit verification environment: the product's runtime deps plus
+# its dev toolchain, installed into a world-readable venv so the container can run as any UID.
+# The repository itself is never COPYed in — it is bind-mounted at run time, so one built image
+# serves both the immutable baseline and the mutating candidate checkout.
+
+FROM python:3.12-slim AS python-eval
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+
+# The suite skips whole families of tests when a tool is absent, so a missing binary silently
+# shrinks coverage instead of failing: without `jq`, 129 hook-guard tests skip and measured line
+# coverage was 88.89%. git/bash/ruff/jsonschema are likewise probed by skipif guards.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates jq bash \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv "$VIRTUAL_ENV" \
+    && pip install --upgrade pip setuptools wheel
+
+# Runtime deps + the `dev` extra from pyproject.toml, plus coverage tooling the evaluation gate
+# needs (line AND branch coverage). Pinned to majors that match the project's declared floors.
+# hatchling is present so `python -m build --no-isolation` works on a network-less container: the
+# default isolated build would try to download the backend from PyPI mid-run.
+RUN pip install \
+    "typer>=0.12" \
+    "jinja2>=3.1" \
+    "pyyaml>=6.0" \
+    "jsonschema>=4.0" \
+    "pytest>=8.0" \
+    "pytest-cov>=5.0" \
+    "coverage[toml]>=7.5" \
+    "build>=1.2" \
+    "hatchling>=1.25" \
+    "twine>=5.0" \
+    "ruff>=0.6" \
+    "mypy>=1.10" \
+    "shellcheck-py>=0.10" \
+    && chmod -R a+rX "$VIRTUAL_ENV"
+
+# Writable scratch for arbitrary UIDs (coverage data, build temp dirs, HOME-less pip).
+ENV HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
+RUN mkdir -p /repo /out /tmp/.cache && chmod 0777 /out /tmp/.cache
+
+WORKDIR /repo
+
+
+# --- declared-floor and declared-ceiling interpreters (finding F-001) -------------------------------
+# pyproject declares requires-python >=3.9 and CI runs the 3.9-3.13 matrix, so validating on 3.12
+# alone cannot see a version-specific regression at either end. These stages carry the test runner
+# only; linting and type checking stay on the 3.12 stage, which is what CI lints with.
+
+FROM python:3.9-slim AS python39-eval
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq bash \
+    && apt-get clean && find /var/lib/apt/lists -type f -delete
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
+    HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
+RUN python -m venv "$VIRTUAL_ENV" && pip install --upgrade pip \
+    && pip install "typer>=0.12" "jinja2>=3.1" "pyyaml>=6.0" "jsonschema>=4.0" \
+       "pytest>=8.0" "pytest-cov>=5.0" "coverage[toml]>=7.5" \
+    && chmod -R a+rX "$VIRTUAL_ENV" \
+    && mkdir -p /repo /out /tmp/.cache && chmod 0777 /out /tmp/.cache
+WORKDIR /repo
+
+FROM python:3.13-slim AS python313-eval
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates jq bash \
+    && apt-get clean && find /var/lib/apt/lists -type f -delete
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$PATH \
+    HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
+RUN python -m venv "$VIRTUAL_ENV" && pip install --upgrade pip \
+    && pip install "typer>=0.12" "jinja2>=3.1" "pyyaml>=6.0" "jsonschema>=4.0" \
+       "pytest>=8.0" "pytest-cov>=5.0" "coverage[toml]>=7.5" \
+    && chmod -R a+rX "$VIRTUAL_ENV" \
+    && mkdir -p /repo /out /tmp/.cache && chmod 0777 /out /tmp/.cache
+WORKDIR /repo
+
+
+# --- pentest toolbox ------------------------------------------------------------------------------
+# Runs only on the `pentest-isolated` network, which is declared `internal: true`, so these tools
+# have no route to the internet, the host, or the LAN — they can reach the vulnerable fixture and
+# nothing else. Deliberately minimal: HTTP probing and port discovery against one owned target.
+
+FROM alpine:3.20 AS pentest-tools
+RUN apk add --no-cache curl nmap nmap-scripts jq bind-tools \
+    && mkdir -p /out && chmod 0777 /out
+WORKDIR /out

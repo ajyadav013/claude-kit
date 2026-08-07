@@ -1,0 +1,1278 @@
+{
+  "version": 5,
+  "note": "Deterministic fire / no-fire scenarios for the stdin-driven hook scripts. Expectations are derived from each script's own documented contract, not guessed. Blockers exit 2 and write BLOCKED to stderr; advisories always exit 0 and emit a hookSpecificOutput JSON object on stdout only when they fire. Several no-fire cases are the NEAR MISSES a script's header explicitly claims to spare -- those are the false-positive controls (measure 7), and they are the cases most likely to be wrong.",
+  "scenarios": [
+    {
+      "id": "guard-push-main/fire-plain",
+      "script": "guard-push-main.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git push origin main"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-push-main/fire-force-refspec",
+      "script": "guard-push-main.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git push origin HEAD:refs/heads/master"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-push-main/fire-global-opts-quoted",
+      "script": "guard-push-main.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git -c user.name=x push origin \"+main\""
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-push-main/nofire-substring-branch",
+      "script": "guard-push-main.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git push origin feature/main-ui"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-push-main/nofire-not-a-push",
+      "script": "guard-push-main.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git log --oneline main"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-destructive-git/fire-reset-hard",
+      "script": "guard-destructive-git.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --hard HEAD~1"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-destructive-git/fire-clean-f",
+      "script": "guard-destructive-git.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git clean -f"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-destructive-git/nofire-soft-reset",
+      "script": "guard-destructive-git.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git reset --soft HEAD~1"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-destructive-git/nofire-clean-dry-run",
+      "script": "guard-destructive-git.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git clean -n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-kubectl-delete/fire",
+      "script": "guard-kubectl-delete.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl delete pod my-pod -n prod"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-kubectl-delete/nofire-get",
+      "script": "guard-kubectl-delete.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl get pods -n prod"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-kubectl-delete/nofire-scale-zero",
+      "script": "guard-kubectl-delete.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "kubectl scale --replicas=0 deploy/api"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "validate-settings/fire-malformed",
+      "script": "validate-settings.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/.claude/settings.json",
+          "content": "{ \"hooks\": [ , ] }"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "validate-settings/nofire-valid",
+      "script": "validate-settings.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/.claude/settings.json",
+          "content": "{\"hooks\": {}}"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "validate-settings/nofire-other-path",
+      "script": "validate-settings.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/app.py",
+          "content": "not json at all {{{"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "validate-frontmatter/fire-agent-missing-name",
+      "script": "validate-frontmatter.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/.claude/agents/foo.md",
+          "content": "---\ndescription: does a thing\n---\n\nbody"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "missing 'name:'"
+      }
+    },
+    {
+      "id": "validate-frontmatter/fire-skill-no-frontmatter",
+      "script": "validate-frontmatter.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/.claude/skills/bar/SKILL.md",
+          "content": "# Bar\n\nno frontmatter here"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "no YAML frontmatter"
+      }
+    },
+    {
+      "id": "validate-frontmatter/nofire-complete-agent",
+      "script": "validate-frontmatter.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/.claude/agents/foo.md",
+          "content": "---\nname: foo\ndescription: does a thing\n---\n\nbody"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "validate-frontmatter/nofire-unrelated-path",
+      "script": "validate-frontmatter.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/docs/notes.md",
+          "content": "no frontmatter"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "warn-large-edits/fire-over-threshold",
+      "script": "warn-large-edits.sh",
+      "kind": "fire",
+      "stdin_template": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/big.py",
+          "content": "@@LINES:200@@"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "large edit"
+      }
+    },
+    {
+      "id": "warn-large-edits/nofire-under-threshold",
+      "script": "warn-large-edits.sh",
+      "kind": "nofire",
+      "stdin_template": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/small.py",
+          "content": "@@LINES:10@@"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "warn-llm-io/fire-anthropic-sdk",
+      "script": "warn-llm-io.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/chat.py",
+          "content": "client.messages.create(model='x')"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "LLM/AI feature"
+      }
+    },
+    {
+      "id": "warn-llm-io/nofire-plain-code",
+      "script": "warn-llm-io.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/math_utils.py",
+          "content": "def add(a, b):\n    return a + b\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "warn-sensitive-files/fire-auth-path",
+      "script": "warn-sensitive-files.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/auth/session.py",
+          "content": "x = 1"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "AUTH"
+      }
+    },
+    {
+      "id": "warn-sensitive-files/fire-migration",
+      "script": "warn-sensitive-files.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/db/migrations/0001_init.sql",
+          "content": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "DATABASE MIGRATION"
+      }
+    },
+    {
+      "id": "warn-sensitive-files/nofire-ordinary",
+      "script": "warn-sensitive-files.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/widget.py",
+          "content": "x = 1"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "warn-shared-modules/fire-pyproject",
+      "script": "warn-shared-modules.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/pyproject.toml",
+          "content": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "project-wide config"
+      }
+    },
+    {
+      "id": "warn-shared-modules/nofire-ordinary-source",
+      "script": "warn-shared-modules.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/widget.py",
+          "content": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "warn-missing-tests/nofire-non-source",
+      "script": "warn-missing-tests.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/README.md",
+          "content": "docs"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "audit-log/nofire-exit-zero-always",
+      "script": "audit-log.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "/proj/src/widget.py"
+        }
+      },
+      "expect": {
+        "exit": 0
+      }
+    },
+    {
+      "id": "load-continuity/fire-live-memory",
+      "script": "load-continuity.sh",
+      "kind": "fire",
+      "emits_plain_context": true,
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          ".claude/CONTINUITY.md": "# CONTINUITY\n\n## Current Phase\nRefactoring the widget pipeline.\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "Refactoring the widget pipeline"
+      }
+    },
+    {
+      "id": "load-continuity/nofire-no-memory",
+      "script": "load-continuity.sh",
+      "kind": "nofire",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "load-autonomy/fire-level-recorded",
+      "script": "load-autonomy.sh",
+      "kind": "fire",
+      "emits_plain_context": true,
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          ".claude/config/init-options.json": "{\"selection\": {\"autonomy\": \"assisted\"}}"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "Active autonomy level: assisted"
+      }
+    },
+    {
+      "id": "load-autonomy/nofire-no-level",
+      "script": "load-autonomy.sh",
+      "kind": "nofire",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          ".claude/config/init-options.json": "{\"selection\": {}}"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "load-learnings/fire-index-with-entries",
+      "script": "load-learnings.sh",
+      "kind": "fire",
+      "emits_plain_context": true,
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n\n- [Touch targets](ux/t.md) - pad icons | applies when: buttons\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "Accumulated learnings"
+      }
+    },
+    {
+      "id": "load-learnings/nofire-empty-index",
+      "script": "load-learnings.sh",
+      "kind": "nofire",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n\n<!-- none yet -->\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "audit-log/fire-writes-record",
+      "script": "audit-log.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/proj/src/widget.py"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          ".claude/state/.gitkeep": ""
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_contains": {
+          "path": ".claude/state/audit.log",
+          "substring": "Write"
+        }
+      }
+    },
+    {
+      "id": "warn-missing-tests/fire-no-sibling-test",
+      "script": "warn-missing-tests.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "@@FIXTURE@@/src/widget.py"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "src/widget.py": "def f():\n    return 1\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "hookSpecificOutput"
+      }
+    },
+    {
+      "id": "warn-missing-tests/nofire-has-sibling-test",
+      "script": "warn-missing-tests.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "@@FIXTURE@@/src/widget.py"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "src/widget.py": "def f():\n    return 1\n",
+          "src/test_widget.py": "def test_f():\n    assert True\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/fire-staged-dotenv",
+      "script": "guard-secrets.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'add config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          ".env": "API_TOKEN=abc123\n",
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-dotenv-example",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'add sample config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          ".env.example": "API_TOKEN=\n",
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-not-a-commit",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git status --short"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          ".env": "API_TOKEN=abc123\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/fire-aws-secret-access-key",
+      "script": "guard-secrets.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "app/settings.py": "AWS_SECRET_ACCESS_KEY = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\"\n"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-secrets/fire-uri-credential-postgres",
+      "script": "guard-secrets.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "app/settings.py": "DATABASE_URL = \"postgresql://svc_user:8Kd2mQx7Lp0vRt3Z@db.internal:5432/warehouse\"\n"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-secrets/fire-uri-credential-redis",
+      "script": "guard-secrets.sh",
+      "kind": "fire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  REDIS_URL: redis://default:aG9yc2ViYXR0ZXJ5c3RhcGxl123@cache.prod:6379\n"
+        }
+      },
+      "expect": {
+        "exit": 2,
+        "stderr_contains": "BLOCKED"
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-user-pass",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  DATABASE_URL: postgresql://user:pass@db:5432/app\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-same-word",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  POSTGRES_DB_URL: postgresql+asyncpg://postgres:postgres@localhost/mydb\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-interpolated",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/compose.yml": "  DATABASE_URL: postgresql://user:${DB_PASSWORD}@host/db\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-uri-placeholder-redacted",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "docs/runbook.md": "Connection string: postgresql://admin:<REDACTED>@app-postgres:5432/app_db\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "guard-secrets/nofire-aws-secret-name-only",
+      "script": "guard-secrets.sh",
+      "kind": "nofire",
+      "stdin": {
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git commit -m 'update config'"
+        }
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "git": true,
+        "files": {
+          "deploy/ci.yml": "  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "lint-fix/nofire-no-tooling",
+      "script": "lint-fix.sh",
+      "kind": "nofire",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "type-check/nofire-no-tooling",
+      "script": "type-check.sh",
+      "kind": "nofire",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "capture-learnings/nofire-optout",
+      "script": "capture-learnings.sh",
+      "kind": "nofire",
+      "argv": [
+        "end"
+      ],
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@",
+          "CLAUDE_KIT_NO_AUTOCAPTURE": "1"
+        },
+        "files": {
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "capture-ticket-telemetry/nofire-no-transcript",
+      "script": "capture-ticket-telemetry.sh",
+      "kind": "nofire",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "lint-fix/fire-reformats-changed-python",
+      "script": "lint-fix.sh",
+      "kind": "fire",
+      "note": "git 'init' (no add) so the file is UNTRACKED -- that is the path lint-fix scopes to.",
+      "stdin": {},
+      "fixture": {
+        "git": "init",
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[project]\nname = 'fx'\nversion = '0'\n",
+          "messy.py": "x = {  'a' :1,'b': 2 }\ndef  f( a ):\n    return   a\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_contains": {
+          "path": "messy.py",
+          "substring": "x = {\"a\": 1, \"b\": 2}"
+        }
+      }
+    },
+    {
+      "id": "lint-fix/nofire-already-clean",
+      "script": "lint-fix.sh",
+      "kind": "nofire",
+      "note": "An already-formatted file must come back byte-identical -- a formatter that rewrites clean files is a false positive against the user's diff.",
+      "stdin": {},
+      "fixture": {
+        "git": "init",
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[project]\nname = 'fx'\nversion = '0'\n",
+          "tidy.py": "x = {\"a\": 1, \"b\": 2}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_contains": {
+          "path": "tidy.py",
+          "substring": "x = {\"a\": 1, \"b\": 2}\n"
+        }
+      }
+    },
+    {
+      "id": "type-check/fire-mypy-error",
+      "script": "type-check.sh",
+      "kind": "fire",
+      "note": "mypy branch needs BOTH a pyproject.toml mentioning mypy and a real type error.",
+      "stdin": {},
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[tool.mypy]\nignore_missing_imports = true\n",
+          "bad.py": "def f(a: int) -> str:\n    return a\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": "Type checker found issues"
+      }
+    },
+    {
+      "id": "type-check/nofire-stop-chain-active",
+      "script": "type-check.sh",
+      "kind": "nofire",
+      "note": "Same broken project, but the stop chain already nudged once: one nudge per chain, or an unfixable error ping-pongs the session.",
+      "stdin": {
+        "stop_hook_active": true
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "files": {
+          "pyproject.toml": "[tool.mypy]\nignore_missing_imports = true\n",
+          "bad.py": "def f(a: int) -> str:\n    return a\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true
+      }
+    },
+    {
+      "id": "capture-learnings/fire-end-spawns-detached-capture",
+      "script": "capture-learnings.sh",
+      "kind": "fire",
+      "argv": [
+        "end"
+      ],
+      "note": "`claude` is replaced by a recording shim -- running the real one would spawn a live model call per scenario.",
+      "stdin": {
+        "transcript_path": "@@FIXTURE@@/sess-fire.jsonl",
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> @@FIXTURE@@/shim-claude.txt\n"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n",
+          "sess-fire.jsonl": "{\"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"Edit\", \"input\": {\"file_path\": \"/proj/src/app.py\"}}]}}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "wait_for": {
+          "path": "shim-claude.txt",
+          "substring": "--permission-mode bypassPermissions",
+          "timeout_s": 30
+        }
+      }
+    },
+    {
+      "id": "capture-learnings/nofire-only-sensitive-edits",
+      "script": "capture-learnings.sh",
+      "kind": "nofire",
+      "argv": [
+        "end"
+      ],
+      "note": "A turn that touched only .env must not hand that path to a background agent writing into a COMMITTED store.",
+      "stdin": {
+        "transcript_path": "@@FIXTURE@@/sess-secret.jsonl",
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> @@FIXTURE@@/shim-claude.txt\n"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n",
+          "sess-secret.jsonl": "{\"message\": {\"content\": [{\"type\": \"tool_use\", \"name\": \"Edit\", \"input\": {\"file_path\": \"/proj/.env\"}}]}}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": "shim-claude.txt",
+          "settle_s": 5
+        }
+      }
+    },
+    {
+      "id": "capture-learnings/nofire-chat-only-session",
+      "script": "capture-learnings.sh",
+      "kind": "nofire",
+      "argv": [
+        "end"
+      ],
+      "note": "No file edits, nothing to learn from -- a chat-only turn must cost nothing.",
+      "stdin": {
+        "transcript_path": "@@FIXTURE@@/sess-chat.jsonl",
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude": "#!/bin/sh\nprintf '%s\\n' \"$*\" >> @@FIXTURE@@/shim-claude.txt\n"
+        },
+        "files": {
+          ".claude/agent-memory/MEMORY.md": "# Agent Memory Index\n",
+          "sess-chat.jsonl": "{\"message\": {\"content\": [{\"type\": \"text\", \"text\": \"just talking\"}]}}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": "shim-claude.txt",
+          "settle_s": 5
+        }
+      }
+    },
+    {
+      "id": "capture-ticket-telemetry/fire-writes-snapshot",
+      "script": "capture-ticket-telemetry.sh",
+      "kind": "fire",
+      "stdin": {
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude-kit": "#!/bin/sh\ncase \"$*\" in\n  *--json*) echo '{\"SHIMWROTE\": true, \"tickets\": []}' ;;\n  *--html*) : ;;\nesac\nexit 0\n"
+        },
+        "files": {
+          "docs/project/tickets/T-1.md": "# T-1\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "wait_for": {
+          "path": ".claude/state/ticket-telemetry.json",
+          "substring": "SHIMWROTE",
+          "timeout_s": 30
+        }
+      }
+    },
+    {
+      "id": "capture-ticket-telemetry/nofire-no-ticket-store",
+      "script": "capture-ticket-telemetry.sh",
+      "kind": "nofire",
+      "note": "No docs/project/tickets means nothing to attribute telemetry to.",
+      "stdin": {
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@"
+        },
+        "bin": {
+          "claude-kit": "#!/bin/sh\ncase \"$*\" in\n  *--json*) echo '{\"SHIMWROTE\": true, \"tickets\": []}' ;;\n  *--html*) : ;;\nesac\nexit 0\n"
+        },
+        "files": {
+          "README.md": "x"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": ".claude/state/ticket-telemetry.json",
+          "settle_s": 5
+        }
+      }
+    },
+    {
+      "id": "capture-ticket-telemetry/nofire-throttled-by-fresh-snapshot",
+      "script": "capture-ticket-telemetry.sh",
+      "kind": "nofire",
+      "note": "A snapshot younger than the interval must be left alone -- the throttle is what stops a burst of short turns re-scanning every transcript.",
+      "stdin": {
+        "cwd": "@@FIXTURE@@"
+      },
+      "fixture": {
+        "env": {
+          "CLAUDE_PROJECT_DIR": "@@FIXTURE@@",
+          "CLAUDE_KIT_TELEMETRY_INTERVAL": "600"
+        },
+        "bin": {
+          "claude-kit": "#!/bin/sh\ncase \"$*\" in\n  *--json*) echo '{\"SHIMWROTE\": true, \"tickets\": []}' ;;\n  *--html*) : ;;\nesac\nexit 0\n"
+        },
+        "files": {
+          "docs/project/tickets/T-1.md": "# T-1\n",
+          ".claude/state/ticket-telemetry.json": "{\"ORIGINAL\": true}\n"
+        }
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_empty": true,
+        "file_absent": {
+          "path": ".claude/state/ticket-telemetry.json",
+          "substring": "SHIMWROTE",
+          "settle_s": 5
+        }
+      }
+    }
+  ]
+}

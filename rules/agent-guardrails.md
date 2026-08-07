@@ -1,3 +1,11 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+---
+
 # Agent Guardrails
 
 Safe operation of the **agents themselves** — distinct from securing the product they build. The

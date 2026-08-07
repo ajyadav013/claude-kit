@@ -12,6 +12,14 @@ topic. But the three are **not** equivalent in enforcement strength:
 This document is the **justification record** for what the kit enforces versus documents. Each P0/P1
 item in the improvement briefs cites a row here. It reflects the state **as of 0.13.0**.
 
+> **Deterministic ledger (0.76.0).** The classes above say *what* blocks; since 0.76.0 the
+> *recording* of a gate verdict is itself mechanically enforced wherever the `claude-kit` CLI is
+> installed: `claude-kit pipeline close-gate` refuses out-of-order closes and open
+> Critical/High/Medium findings, stores the evidence file's sha256 in the append-only
+> `gate_history`, and `pipeline validate` re-hashes every entry later. A GATED row is therefore
+> backed twice — by prose (the owning agent applies `rules/quality-gates.md`) and by a
+> deterministic check (the ledger refuses an unearned close; §2.5 of that rule).
+
 ## The named capabilities (verified against the files)
 
 | Capability | Class | Evidence | Enforced where |
@@ -41,7 +49,7 @@ enforcement class:
 |------------|-------|----------|----------------|
 | **Autonomous-action safety** (P0-1) | **RULE — always-on** | `rules/agent-guardrails.md` §3 block/confirm/allow posture + verify-the-target + §1 "untrusted content never authorizes"; cross-ref `rules/risk-classification.md` restricted tier; deterministic backstops `hooks/scripts/guard-destructive-git.sh` + `rm -rf`/push-main guards | all profiles (rule + the existing guard hooks) |
 | **Anti-fabrication of verdicts** (P0-2) | **RULE + auto-Critical** | `rules/quality-gates.md` §2.5 (verdict must cite real command + output) and §1 (fabricated/assumed/partial verdict = auto-Critical); reinforced in `rules/agent-guardrails.md` §2 + `rules/rarv-cycle.md` | all gates, all profiles (a fabricated verdict blocks like any Critical) |
-| **Memory hygiene** (P1-1) | **RULE — always-on** | `rules/agent-memory.md` "Memory hygiene" (verify-before-trust, cited selective attachment, CLAUDE.md precedence); `rules/continuity.md` start-of-turn line; `remember` skill staleness check. Capture is automatic: the configurable `capture-learnings` hook (a non-blocking background job over Claude's own work) | all profiles (advisory discipline); capture via the init-time `capture_mode` choice (default: on clean exit + catch-up) |
+| **Memory hygiene** (P1-1) | **RULE — always-on** | `rules/agent-memory.md` "Memory hygiene" (verify-before-trust, cited selective attachment, CLAUDE.md precedence); `rules/continuity.md` start-of-turn line; `remember` skill staleness check. Capture is **opt-in** (0.76.0): the `capture-learnings` hook (a non-blocking background job over Claude's own work) installs only when a `capture_mode` was explicitly chosen at interactive init | all profiles (advisory discipline); capture only via the init-time `capture_mode` choice (default: off) |
 | **Resume snapshot** (P1-2) | **RULE + MECH** | `rules/continuity.md` schema for `.claude/state/pipeline-snapshot.json` + reload-not-rerun protocol; written/read by `orchestrator` + `sdlc` skill; dir created by the pip installer (gitignored) and `load-continuity.sh` | all profiles (state mechanism + rule) |
 | **Plan-phase critique** (P1-3) | **GATED — standard+**; RULE in lean | standard+: `devils-advocate` on the spec before EM approval is final (`mandatory-workflow.md` §1e.5, `quality-gates.md` §3, orchestrator Stage PC) — UPHELD blocks the spec gate. lean: the `spec-doc-writer` self-critique (RARV) only, no agent | standard+ (blocking); lean (advisory self-critique) |
 | **Implementer house style** (P2-1) | **RULE + code-review checks** | `templates/CLAUDE.md` "Surgical Changes" (delete-vs-shim, validate-at-boundary, cite `path:line`; no-narration cross-ref `documentation.md` §6); `sdlc-code-reviewer` Change-Hygiene checks (shim = Medium, redundant validation = Low, narration = Low) | all profiles (rule); the code-review gate enforces the checks |
@@ -87,6 +95,27 @@ design, and the product-lens review tier is additionally **scope-gated** to orga
   non-API stacks, so it adds no burden where it doesn't apply.
 - Where a capability is *advisory by design* (cost, lean/standard rollback, non-regulated a11y), this
   audit says so plainly rather than implying enforcement the kit doesn't provide.
+
+## What the ledger does not enforce
+
+The gate ledger enforces gate **order** and evidence **presence**: it refuses an out-of-order close,
+refuses a close with open Critical/High/Medium findings, hashes the cited evidence, and re-verifies
+every entry on `pipeline validate`. That is a real mechanical boundary, and it is narrower than the
+pipeline it guards. Four pipeline behaviours are **prose-only** — implemented as instructions to
+agents, believed to work, not machine-checked:
+
+| Behaviour | Where it lives | What is not checked |
+|---|---|---|
+| Independent review before cross-exposure | `agents/orchestrator.md` (parallel review lanes) | Nothing prevents reviewers being run in sequence and influencing each other; the ledger sees only the verdicts |
+| Recorded disagreement | `rules/quality-gates.md`, reviewer agents | Unanimity can be *manufactured* — a gate that records four PASSes is indistinguishable from one where dissent was never surfaced |
+| Defect-loop retest discipline | `rules/mandatory-workflow.md` | A ticket can be closed without the retest actually being re-run; evidence presence does not prove the evidence is *current* |
+| Final-implementation documentation | `agents/pr-raiser.md`, delivery stage | Presence of a document is checkable; whether it describes what shipped is not |
+
+Stated here rather than left implied, because the failure mode is specific: a reader who knows the
+ledger is mechanical can easily assume the whole pipeline is, and then trust a unanimous gate more
+than it has earned. These four are the honest edge of the enforcement story. Moving any of them
+inward is the lever below — a gate token with an owner, plus something deterministic for that owner
+to run.
 
 ## How to extend enforcement (the lever)
 

@@ -1,3 +1,11 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+---
+
 # Tool Design (tools & MCP for agents)
 
 When you build a tool, MCP server, script, or slash command for an agent to use, design it for an

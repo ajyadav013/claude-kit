@@ -201,6 +201,9 @@ def _build_context(
         "profile": sel.profile,
         "profile_label": str(profile_label),
         "mcp_list": ", ".join(sel.mcp) if sel.mcp else "none",
+        # Lets the scaffolded README state this install's ACTUAL capture state (consent must
+        # be legible in the artifact, not asserted generically — capture is opt-in since 0.76.0).
+        "capture_mode": sel.capture_mode,
         "frontend_overlay_rule": (frontend.get("overlay_rules") or [""])[0],
         "backend_overlay_rule": (backend_fw.get("overlay_rules") or [""])[0],
         "db_overlay_rule": (database.get("overlay_rules") or [""])[0],

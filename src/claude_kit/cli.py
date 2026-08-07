@@ -190,6 +190,17 @@ def _dry_run_doc(src: Path, target: Path, plan: ResolvedPlan) -> dict:
     }
 
 
+def _fs_failure(what: str, target: Path, exc: OSError) -> typer.Exit:
+    """Report a filesystem failure the way every other command does, and stop.
+
+    An OSError that escapes ``init`` reaches the user as a traceback, which reads as a crash rather
+    than a refusal. The distinction matters because the two demand different responses: a crash
+    invites a bug report, a refusal tells you to fix the path and retry.
+    """
+    typer.echo(f"error: cannot {what} {target} — {exc.strerror or exc}", err=True)
+    return typer.Exit(1)
+
+
 @app.command()
 def init(
     path: Optional[str] = typer.Argument(
@@ -264,7 +275,10 @@ def init(
             ):
                 typer.echo("aborted.")
                 raise typer.Exit(0)
-            target.mkdir(parents=True, exist_ok=True)
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise _fs_failure("create", target, exc) from exc
 
         # 2) Existing .claude handling: merge / overwrite / backup / abort.
         mode = "fresh"
@@ -292,7 +306,10 @@ def init(
                 n = 1
                 while (target / f".claude.bak-{n}").exists():
                     n += 1
-                (target / ".claude").rename(target / f".claude.bak-{n}")
+                try:
+                    (target / ".claude").rename(target / f".claude.bak-{n}")
+                except OSError as exc:
+                    raise _fs_failure("back up .claude/ in", target, exc) from exc
                 typer.echo(f"  • backed up existing .claude/ -> .claude.bak-{n}")
 
         # 3) Resolve the selection.
@@ -302,19 +319,25 @@ def init(
 
         # 4) Install. Merge mode reconciles non-destructively (preserving the user's own files);
         # fresh / overwrite / backup all go through the destructive install spine.
-        if mode == "merge":
-            typer.echo(
-                f"\nclaude-kit: merging into {target} (your files are preserved)"
-            )
-            ok, messages = upgrader.merge_install(src, target, plan, force=force)
-            for line in messages:
-                typer.echo(line)
-            if not ok:
-                raise typer.Exit(1)
-        else:
-            typer.echo(f"\nclaude-kit: installing into {target}")
-            for line in scaffold.install_sdlc(src, target, plan, force=overwrite):
-                typer.echo(line)
+        # The guard covers the whole install, not just the initial mkdir: an existing target that
+        # cannot be written into never reaches that mkdir, and the OSError surfaced from deep
+        # inside install_sdlc instead (F-087).
+        try:
+            if mode == "merge":
+                typer.echo(
+                    f"\nclaude-kit: merging into {target} (your files are preserved)"
+                )
+                ok, messages = upgrader.merge_install(src, target, plan, force=force)
+                for line in messages:
+                    typer.echo(line)
+                if not ok:
+                    raise typer.Exit(1)
+            else:
+                typer.echo(f"\nclaude-kit: installing into {target}")
+                for line in scaffold.install_sdlc(src, target, plan, force=overwrite):
+                    typer.echo(line)
+        except OSError as exc:
+            raise _fs_failure("write into", target, exc) from exc
 
     typer.echo(
         "\nDone. Open the project in Claude Code and run `/sdlc <your task>` to start the pipeline."

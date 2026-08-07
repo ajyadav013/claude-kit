@@ -1,0 +1,1 @@
+Every lookup filters orders by status and placed_at, and there is no index for it. Add the migration that creates one.

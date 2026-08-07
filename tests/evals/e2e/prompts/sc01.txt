@@ -1,0 +1,6 @@
+The README documents the `add` function but not `subtract`, even though `subtract` exists in
+`src/calc.py` and is covered by the test suite.
+
+Update the documentation so `subtract` is documented to the same standard as `add`.
+
+This is a documentation-only change: do not modify source code or tests.

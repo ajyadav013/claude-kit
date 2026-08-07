@@ -1,3 +1,23 @@
+---
+paths:
+  - '.github/**'
+  - '**/Dockerfile*'
+  - '**/docker-compose*'
+  - '**/*.tf'
+  - '**/k8s/**'
+  - '**/deploy/**'
+  - '**/Makefile'
+  - '**/*.py'
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/*.go'
+  - '**/*.rs'
+  - '**/*.java'
+  - '**/*.rb'
+---
+
 # DevOps & Observability Phases
 
 Two delivery-side phases that run **after** the test-coverage merge gate (MR3 VERIFIED) and **before** the PR Raiser, so that pipeline and observability artifacts ship *inside* the same PR as the code. They are owned by dedicated agents and each has its own quality gate.

@@ -1,6 +1,6 @@
 ---
 name: api-integration
-description: Integrate APIs with proper caching, error handling, type safety, and loading states using the project's data-fetching patterns.
+description: Wire the app to a backend API — data fetching, caching, error handling, loading states. Use when connecting to an endpoint, adding a fetch layer, or fixing API error and loading behaviour. React-query detail lives in tanstack-react-query-patterns.
 argument-hint: [API endpoint or feature name]
 disable-model-invocation: true
 ---

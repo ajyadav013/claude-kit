@@ -45,7 +45,7 @@ Schema (keep it small and truthful — omit a field rather than guess it):
     {
       "gate": "<gate token>",
       "status": "passed | skipped | overridden",
-      "evidence_path": "<path, null for skipped>",
+      "evidence_path": "<path relative to the project root (portable across checkouts); null for skipped>",
       "evidence_sha256": "<sha256 of the evidence file at close time>",
       "verification": "agent | mechanical | human | override",
       "recorded_at": "<UTC ISO timestamp>",
@@ -86,8 +86,12 @@ may anchor anywhere so a run can be adopted mid-flight), a conditional gate that
 recorded `skipped` with a reason (`claude-kit pipeline skip-gate`), and each closed entry carries
 the evidence file's **sha256** — `validate` re-hashes every entry, so evidence cannot silently
 change after its gate closed. `verification` records *how* the evidence was checked: `agent`
-(a reviewer agent cited it), `mechanical` / `human` (reserved for parsed evidence and explicit
-human sign-off), `override` (force-closed). Old snapshots without `gate_history` stay valid.
+(a reviewer agent cited it — also the level for CLI-recorded skips), `mechanical` / `human`
+(reserved for parsed evidence and explicit human sign-off), `override` (force-closed). Old
+snapshots without `gate_history` stay valid. **Write ledger entries through the CLI whenever it
+is on PATH** (`claude-kit pipeline close-gate <gate> --evidence <file>` / `skip-gate <gate>
+--reason '<why>'`) — it enforces the order, refuses blocking findings, and hashes the evidence;
+hand-append an entry per this schema only when the CLI is not installed.
 
 **Resume by reloading, not by re-running.** On resume, read the snapshot as *context* to decide where to continue — then continue from there. Do **not** re-run setup that already ran, re-apply edits already committed, or re-open a gate already PASSed. Re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes. The snapshot records what was *true when written*, so the verify-before-trust check still applies (`.claude/rules/agent-memory.md`): if a "passed" gate's artifact is gone, treat it as not passed. If the snapshot is absent or unparseable, fall back to the freeform CONTINUITY state (back-compatible) and proceed.
 

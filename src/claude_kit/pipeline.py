@@ -14,13 +14,21 @@ Trust model (0.76.0):
   ``verification`` level (``agent`` today; ``mechanical`` / ``human`` are reserved for the evidence
   parsers of issue #74), and a UTC timestamp. ``last_gate_passed`` + ``gate_evidence`` are still
   mirrored for older tooling.
-- **Order is enforced.** The run's position is the furthest gate recorded in the ledger (or, for
-  legacy snapshots, ``last_gate_passed``); only the next gate in the installed ordered list may be
-  closed or skipped. The very first record may anchor anywhere (a run adopted mid-flight), after
-  which order applies. ``--force --override-reason`` bypasses and is recorded as ``overridden``.
-- **Evidence is content-addressed.** ``validate`` re-hashes every historical entry, so evidence
-  cannot silently change after its gate closed.
-- **Writes are atomic** (temp file + ``os.replace``) under a short-lived ``O_EXCL`` lockfile.
+- **Order is enforced.** The run's position is the furthest gate recorded in the ledger or the
+  legacy ``last_gate_passed`` anchor (whichever is further — the position never moves backwards);
+  only the next gate in the installed ordered list may be closed or skipped. The very first record
+  may anchor anywhere (a run adopted mid-flight), after which order applies.
+  ``--force --override-reason`` bypasses and is recorded as ``overridden`` — ``validate`` surfaces
+  overridden entries as WARNs for review but does not treat the sanctioned bypass as tampering.
+- **Evidence is content-addressed and portable.** ``validate`` re-hashes every historical entry, so
+  evidence cannot silently change after its gate closed. Evidence paths are resolved against the
+  **project root** (never the process CWD) and stored project-relative when inside it, so a ledger
+  survives a different checkout path (CI).
+- **Writes are atomic** (temp file + ``os.replace``) under an ``O_EXCL`` lockfile held across the
+  whole read-modify-write, so concurrent writers serialize instead of losing entries; a stale lock
+  left by a crashed writer is reclaimed after ``_LOCK_STALE_S``.
+- **Aborted runs are closed.** Once ``stage`` is ``aborted``, no further gate may be recorded —
+  reset by starting a new run (delete the runtime snapshot) rather than writing over the record.
 - **Strict mode fails closed**: with ``strict=True`` a missing/unreadable install snapshot is an
   error, not a warning (for CI; the lenient default keeps mid-run human use workable).
 """
@@ -59,6 +67,9 @@ BLOCKING_FINDINGS = ("critical", "high", "medium")
 
 #: How long a writer waits for the snapshot lockfile before giving up.
 _LOCK_TIMEOUT_S = 5.0
+#: A lock older than this is presumed leaked by a crashed writer and reclaimed (writes take
+#: milliseconds; nothing legitimate holds the lock for a minute).
+_LOCK_STALE_S = 60.0
 
 
 def _snapshot_path(target: str | Path) -> Path:
@@ -151,24 +162,28 @@ def _position(
 ) -> int | None:
     """Return the run's furthest recorded gate index, or ``None`` when nothing anchors it yet.
 
-    The ledger wins; a legacy snapshot with only ``last_gate_passed`` anchors there. ``None`` means
-    the first record may open at any gate (a run adopted mid-flight) — order applies afterwards.
+    The position is the **max** of the ledger and the legacy ``last_gate_passed`` anchor — a
+    backfilled (forced) early entry must never rewind the run's position. ``None`` means the first
+    record may open at any gate (a run adopted mid-flight) — order applies afterwards.
     """
-    recorded = [
+    anchors = [
         gates.index(e["gate"])
         for e in history
         if e.get("status") in GATE_STATUSES and e.get("gate") in gates
     ]
-    if recorded:
-        return max(recorded)
     if isinstance(last_gate_passed, str) and last_gate_passed in gates:
-        return gates.index(last_gate_passed)
-    return None
+        anchors.append(gates.index(last_gate_passed))
+    return max(anchors) if anchors else None
 
 
 @contextmanager
-def _snapshot_lock(path: Path) -> Iterator[None]:
-    """Hold an ``O_EXCL`` lockfile next to the snapshot (raises ``TimeoutError`` after 5s)."""
+def _snapshot_lock(path: Path, msgs: list[str] | None = None) -> Iterator[None]:
+    """Hold an ``O_EXCL`` lockfile next to the snapshot for a whole read-modify-write.
+
+    The holder's pid is written into the lockfile for diagnostics. A lock older than
+    :data:`_LOCK_STALE_S` is presumed leaked by a crashed writer and reclaimed (with a WARN in
+    ``msgs``); live contention raises ``TimeoutError`` after :data:`_LOCK_TIMEOUT_S`.
+    """
     lock = path.with_name(path.name + ".lock")
     deadline = time.monotonic() + _LOCK_TIMEOUT_S
     while True:
@@ -176,6 +191,18 @@ def _snapshot_lock(path: Path) -> Iterator[None]:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
         except FileExistsError:
+            try:
+                age = time.time() - lock.stat().st_mtime
+            except OSError:
+                continue  # the holder just released — retry immediately
+            if age > _LOCK_STALE_S:
+                if msgs is not None:
+                    msgs.append(
+                        f"WARN  reclaimed a stale snapshot lock (age {age:.0f}s — a previous "
+                        "writer likely crashed)"
+                    )
+                lock.unlink(missing_ok=True)
+                continue
             if time.monotonic() >= deadline:
                 raise TimeoutError(
                     f"could not lock {lock} within {_LOCK_TIMEOUT_S:g}s — another claude-kit "
@@ -183,20 +210,20 @@ def _snapshot_lock(path: Path) -> Iterator[None]:
                 ) from None
             time.sleep(0.05)
     try:
+        os.write(fd, str(os.getpid()).encode("ascii"))
         yield
     finally:
         os.close(fd)
         lock.unlink(missing_ok=True)
 
 
-def _write_snapshot(target: str | Path, snap: dict[str, Any]) -> None:
-    """Atomically persist the snapshot (temp file + ``os.replace``) under the lock."""
+def _write_snapshot_locked(target: str | Path, snap: dict[str, Any]) -> None:
+    """Atomically persist the snapshot (temp file + ``os.replace``); the caller holds the lock."""
     path = _snapshot_path(target)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _snapshot_lock(path):
-        tmp = path.with_name(path.name + f".tmp{os.getpid()}")
-        tmp.write_text(json.dumps(snap, indent=2) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+    tmp = path.with_name(path.name + f".tmp{os.getpid()}")
+    tmp.write_text(json.dumps(snap, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _gate_set_preamble(
@@ -240,11 +267,17 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
     """
     msgs: list[str] = []
     ok = True
+    root = Path(target).expanduser().resolve()
 
     def fail(m: str) -> None:
         nonlocal ok
         ok = False
         msgs.append(f"FAIL  {m}")
+
+    def resolve_evidence(ev: str) -> Path:
+        """Non-absolute recorded evidence paths are project-relative, never CWD-relative."""
+        p = Path(ev).expanduser()
+        return p if p.is_absolute() else root / p
 
     snap, err = _load_snapshot(target)
     if err:
@@ -334,14 +367,19 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
             )
         if gates and name in gates:
             idx = gates.index(name)
-            if idx <= last_index:
+            if idx <= last_index and status != "overridden":
+                # A sanctioned --force re-record/backfill lands as "overridden" and is already
+                # WARNed below — only an unforced regression is order incoherence.
                 fail(
                     f"{label} ({name}) is out of the installed gate order "
                     f"(after {gates[last_index]!r})"
                 )
             last_index = max(last_index, idx)
         elif gates:
-            fail(f"{label} ({name}) is not a gate of this profile ({gates})")
+            msgs.append(
+                f"WARN  {label} ({name}) is not a gate of the installed profile "
+                f"({', '.join(gates)}) — recorded under a different profile? review"
+            )
         if status == "skipped":
             if not (isinstance(entry.get("reason"), str) and entry["reason"].strip()):
                 msgs.append(f"WARN  {label} ({name}) is skipped without a reason")
@@ -350,7 +388,7 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
         if not (isinstance(ev, str) and ev):
             fail(f"{label} ({name}) has no evidence_path")
             continue
-        ev_path = Path(ev).expanduser()
+        ev_path = resolve_evidence(ev)
         if not ev_path.is_file():
             fail(f"{label} ({name}) evidence file is missing: {ev}")
             continue
@@ -379,7 +417,7 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
         evidence_map = snap.get("gate_evidence")
         if isinstance(evidence_map, dict) and gate in evidence_map:
             ev_val = evidence_map[gate]
-            if not (isinstance(ev_val, str) and Path(ev_val).expanduser().is_file()):
+            if not (isinstance(ev_val, str) and resolve_evidence(ev_val).is_file()):
                 fail(
                     f"last_gate_passed {gate!r} is recorded passed but its evidence file is "
                     f"missing: {ev_val!r}"
@@ -497,15 +535,29 @@ def close_gate(
     and mirrors ``last_gate_passed``/``gate_evidence`` for older tooling. Seeds a minimal snapshot
     (profile/scope from the install snapshot) if no run snapshot exists yet.
 
-    A forced close (``force=True`` with a non-empty ``override_reason``) bypasses the
+    A relative ``evidence`` path is resolved against the **project root** (never the process CWD)
+    and stored project-relative, so the ledger survives a different checkout location (CI). A
+    forced close (``force=True`` with a non-empty ``override_reason``) bypasses the
     blocking-findings and gate-order rules but records the entry as ``overridden`` (and the reason
     under ``gate_overrides[gate]``) so ``validate``/``status`` surface it for human review.
     ``strict=True`` fails closed when the install snapshot is missing or unreadable.
     """
     msgs: list[str] = []
-    evidence_path = Path(evidence).expanduser().resolve()
+    root = Path(target).expanduser().resolve()
+    raw_evidence = Path(evidence).expanduser()
+    evidence_path = (
+        raw_evidence if raw_evidence.is_absolute() else root / raw_evidence
+    ).resolve()
     if not evidence_path.is_file():
         return False, [f"FAIL  evidence file not found: {evidence}"]
+    try:
+        stored_evidence = str(evidence_path.relative_to(root))
+    except ValueError:
+        stored_evidence = str(evidence_path)
+        msgs.append(
+            f"WARN  evidence {evidence_path} is outside the project — recorded as an "
+            "absolute path, which will not survive a different checkout location"
+        )
 
     gates, preamble_ok = _gate_set_preamble(target, strict=strict, msgs=msgs)
     if not preamble_ok:
@@ -515,98 +567,129 @@ def close_gate(
             f"FAIL  {gate!r} is not a gate of this profile (choices: {', '.join(gates)})"
         ]
 
-    snap, err = _load_snapshot(target)
-    if err:
-        return False, [f"FAIL  {err}"]
-    if snap is None:
-        sel = _selection(target)
-        snap = {
-            "schema": 1,
-            "task": "(recorded via claude-kit pipeline close-gate)",
-            "profile": sel.get("profile"),
-            "scope": sel.get("scope"),
-            "stage": gate,
-        }
-
-    overridden = False
-
-    def _require_reason(problem: str) -> tuple[bool, list[str]] | None:
-        """Force path: demand a reason; return the failure tuple when it's absent."""
-        if not force:
-            return False, [f"FAIL  {problem}"]
-        if not (override_reason and override_reason.strip()):
-            return False, [
-                f"FAIL  --force requires --override-reason '<why>' explaining the bypass: {problem}"
-            ]
-        return None
-
-    blocking = _blocking_findings(snap)
-    if blocking:
-        rendered = ", ".join(f"{sev}={count}" for sev, count in blocking.items())
-        problem = (
-            f"cannot close {gate!r}: {rendered} open finding(s) must be resolved first "
-            "(critical/high/medium block a gate per quality-gates.md). "
-            "Re-run with --force --override-reason '<why>' to record a deliberate override."
-        )
-        if not force:
-            return False, [f"FAIL  {problem}"]
-        if not (override_reason and override_reason.strip()):
-            return False, [
-                "FAIL  --force requires --override-reason '<why>' explaining why the open "
-                f"finding(s) ({rendered}) are being bypassed"
-            ]
-        overridden = True
-        msgs.append(
-            f"WARN  gate {gate!r} force-closed with open findings ({rendered}): "
-            f"{override_reason.strip()}"
-        )
-
-    order_problem = _order_check(gates, snap, gate, action="close")
-    if order_problem:
-        failure = _require_reason(order_problem)
-        if failure is not None:
-            return failure
-        overridden = True
-        msgs.append(f"WARN  gate {gate!r} force-closed out of order: {override_reason}")
-
-    if overridden and override_reason:
-        overrides = snap.get("gate_overrides")
-        if not isinstance(overrides, dict):
-            overrides = {}
-        overrides[gate] = override_reason.strip()
-        snap["gate_overrides"] = overrides
-
-    entry: dict[str, Any] = {
-        "gate": gate,
-        "status": "overridden" if overridden else "passed",
-        "evidence_path": str(evidence_path),
-        "evidence_sha256": _sha256(evidence_path),
-        "verification": "override" if overridden else "agent",
-        "recorded_at": _utc_now(),
-        "override": override_reason.strip() if overridden and override_reason else None,
-    }
-    history = snap.get("gate_history")
-    if not isinstance(history, list):
-        history = []
-    history.append(entry)
-    snap["gate_history"] = history
-
-    snap["last_gate_passed"] = gate
-    evidence_map = snap.get("gate_evidence")
-    if not isinstance(evidence_map, dict):
-        evidence_map = {}
-    evidence_map[gate] = str(evidence_path)
-    snap["gate_evidence"] = evidence_map
-
+    snap_path = _snapshot_path(target)
+    snap_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        _write_snapshot(target, snap)
+        with _snapshot_lock(snap_path, msgs=msgs):
+            snap, err = _load_snapshot(target)
+            if err:
+                return False, [f"FAIL  {err}"]
+            if snap is None:
+                sel = _selection(target)
+                snap = {
+                    "schema": 1,
+                    "task": "(recorded via claude-kit pipeline close-gate)",
+                    "profile": sel.get("profile"),
+                    "scope": sel.get("scope"),
+                    "stage": gate,
+                }
+            if snap.get("stage") == "aborted":
+                return False, [
+                    "FAIL  this run is aborted — no further gates can be recorded; start a "
+                    f"new run (delete {SNAPSHOT_REL} to reset)"
+                ]
+
+            overridden = False
+
+            def _require_reason(problem: str) -> tuple[bool, list[str]] | None:
+                """Force path: demand a reason; return the failure tuple when it's absent."""
+                if not force:
+                    return False, [f"FAIL  {problem}"]
+                if not (override_reason and override_reason.strip()):
+                    return False, [
+                        "FAIL  --force requires --override-reason '<why>' explaining the "
+                        f"bypass: {problem}"
+                    ]
+                return None
+
+            blocking = _blocking_findings(snap)
+            if blocking:
+                rendered = ", ".join(
+                    f"{sev}={count}" for sev, count in blocking.items()
+                )
+                problem = (
+                    f"cannot close {gate!r}: {rendered} open finding(s) must be resolved first "
+                    "(critical/high/medium block a gate per quality-gates.md). "
+                    "Re-run with --force --override-reason '<why>' to record a deliberate override."
+                )
+                if not force:
+                    return False, [f"FAIL  {problem}"]
+                if not (override_reason and override_reason.strip()):
+                    return False, [
+                        "FAIL  --force requires --override-reason '<why>' explaining why the open "
+                        f"finding(s) ({rendered}) are being bypassed"
+                    ]
+                overridden = True
+                msgs.append(
+                    f"WARN  gate {gate!r} force-closed with open findings ({rendered}): "
+                    f"{override_reason.strip()}"
+                )
+
+            order_problem = _order_check(gates, snap, gate, action="close")
+            if order_problem:
+                failure = _require_reason(order_problem)
+                if failure is not None:
+                    return failure
+                overridden = True
+                msgs.append(
+                    f"WARN  gate {gate!r} force-closed out of order: {override_reason}"
+                )
+
+            if overridden and override_reason:
+                overrides = snap.get("gate_overrides")
+                if not isinstance(overrides, dict):
+                    overrides = {}
+                overrides[gate] = override_reason.strip()
+                snap["gate_overrides"] = overrides
+
+            entry: dict[str, Any] = {
+                "gate": gate,
+                "status": "overridden" if overridden else "passed",
+                "evidence_path": stored_evidence,
+                "evidence_sha256": _sha256(evidence_path),
+                "verification": "override" if overridden else "agent",
+                "recorded_at": _utc_now(),
+                "override": override_reason.strip()
+                if overridden and override_reason
+                else None,
+            }
+            history = snap.get("gate_history")
+            if not isinstance(history, list):
+                history = []
+            history.append(entry)
+            snap["gate_history"] = history
+
+            # The mirror never moves backwards: a forced backfill of an earlier gate must not
+            # rewind the resume anchor (rules/continuity.md re-enters AFTER last_gate_passed).
+            prev = snap.get("last_gate_passed")
+            regresses = (
+                bool(gates)
+                and isinstance(prev, str)
+                and prev in gates
+                and gate in gates
+                and gates.index(gate) < gates.index(prev)
+            )
+            if regresses:
+                msgs.append(
+                    f"WARN  last_gate_passed stays {prev!r} — the resume anchor never moves "
+                    f"backwards ({gate!r} was backfilled)"
+                )
+            else:
+                snap["last_gate_passed"] = gate
+            evidence_map = snap.get("gate_evidence")
+            if not isinstance(evidence_map, dict):
+                evidence_map = {}
+            evidence_map[gate] = stored_evidence
+            snap["gate_evidence"] = evidence_map
+
+            _write_snapshot_locked(target, snap)
+        msgs.append(
+            f"OK    gate {gate!r} recorded {'overridden' if overridden else 'passed'} "
+            f"(evidence: {stored_evidence}, sha256: {entry['evidence_sha256'][:12]}…)"
+        )
+        return True, msgs
     except TimeoutError as exc:
         return False, [f"FAIL  {exc}"]
-    msgs.append(
-        f"OK    gate {gate!r} recorded {'overridden' if overridden else 'passed'} "
-        f"(evidence: {evidence_path}, sha256: {entry['evidence_sha256'][:12]}…)"
-    )
-    return True, msgs
 
 
 def skip_gate(
@@ -620,7 +703,9 @@ def skip_gate(
 
     A skip needs a non-empty ``reason``, must name a real gate of the installed profile, and — like
     a close — may only target the **next** gate in order (the first record may anchor anywhere).
-    The skip is a ledger entry (``status: skipped``); it never sets ``last_gate_passed``.
+    The skip is a ledger entry (``status: skipped``, ``verification: agent`` — a skip is recorded
+    by whoever runs the CLI, usually the orchestrator agent; it is *not* a human attestation); it
+    never sets ``last_gate_passed``.
     """
     msgs: list[str] = []
     if not (reason and reason.strip()):
@@ -636,59 +721,78 @@ def skip_gate(
             f"FAIL  {gate!r} is not a gate of this profile (choices: {', '.join(gates)})"
         ]
 
-    snap, err = _load_snapshot(target)
-    if err:
-        return False, [f"FAIL  {err}"]
-    if snap is None:
-        sel = _selection(target)
-        snap = {
-            "schema": 1,
-            "task": "(recorded via claude-kit pipeline skip-gate)",
-            "profile": sel.get("profile"),
-            "scope": sel.get("scope"),
-            "stage": gate,
-        }
-
-    order_problem = _order_check(gates, snap, gate, action="skip")
-    if order_problem:
-        return False, [f"FAIL  {order_problem}"]
-
-    history = snap.get("gate_history")
-    if not isinstance(history, list):
-        history = []
-    history.append(
-        {
-            "gate": gate,
-            "status": "skipped",
-            "evidence_path": None,
-            "evidence_sha256": None,
-            "verification": "human",
-            "recorded_at": _utc_now(),
-            "override": None,
-            "reason": reason.strip(),
-        }
-    )
-    snap["gate_history"] = history
-
+    snap_path = _snapshot_path(target)
+    snap_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        _write_snapshot(target, snap)
+        with _snapshot_lock(snap_path, msgs=msgs):
+            snap, err = _load_snapshot(target)
+            if err:
+                return False, [f"FAIL  {err}"]
+            if snap is None:
+                sel = _selection(target)
+                snap = {
+                    "schema": 1,
+                    "task": "(recorded via claude-kit pipeline skip-gate)",
+                    "profile": sel.get("profile"),
+                    "scope": sel.get("scope"),
+                    "stage": gate,
+                }
+            if snap.get("stage") == "aborted":
+                return False, [
+                    "FAIL  this run is aborted — no further gates can be recorded; start a "
+                    f"new run (delete {SNAPSHOT_REL} to reset)"
+                ]
+
+            order_problem = _order_check(gates, snap, gate, action="skip")
+            if order_problem:
+                return False, [f"FAIL  {order_problem}"]
+
+            history = snap.get("gate_history")
+            if not isinstance(history, list):
+                history = []
+            history.append(
+                {
+                    "gate": gate,
+                    "status": "skipped",
+                    "evidence_path": None,
+                    "evidence_sha256": None,
+                    "verification": "agent",
+                    "recorded_at": _utc_now(),
+                    "override": None,
+                    "reason": reason.strip(),
+                }
+            )
+            snap["gate_history"] = history
+
+            _write_snapshot_locked(target, snap)
+        msgs.append(f"OK    gate {gate!r} recorded skipped: {reason.strip()}")
+        return True, msgs
     except TimeoutError as exc:
         return False, [f"FAIL  {exc}"]
-    msgs.append(f"OK    gate {gate!r} recorded skipped: {reason.strip()}")
-    return True, msgs
 
 
 def abort(target: str | Path) -> tuple[bool, list[str]]:
-    """Mark the current pipeline run aborted (stage=aborted); no run is not an error."""
-    snap, err = _load_snapshot(target)
-    if err:
-        return False, [f"FAIL  {err}"]
-    if snap is None:
+    """Mark the current pipeline run aborted (stage=aborted); no run is not an error.
+
+    Aborting is terminal for the ledger: ``close-gate`` and ``skip-gate`` refuse to record on an
+    aborted run — reset by deleting the runtime snapshot and starting a new run.
+    """
+    msgs: list[str] = []
+    snap_path = _snapshot_path(target)
+    if not snap_path.is_file():
         return True, ["OK    no pipeline run in progress — nothing to abort"]
-    snap["stage"] = "aborted"
-    snap["next"] = "(run aborted via claude-kit pipeline abort)"
+    snap_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        _write_snapshot(target, snap)
+        with _snapshot_lock(snap_path, msgs=msgs):
+            snap, err = _load_snapshot(target)
+            if err:
+                return False, [f"FAIL  {err}"]
+            if snap is None:
+                return True, ["OK    no pipeline run in progress — nothing to abort"]
+            snap["stage"] = "aborted"
+            snap["next"] = "(run aborted via claude-kit pipeline abort)"
+            _write_snapshot_locked(target, snap)
+        msgs.append("OK    pipeline run marked aborted")
+        return True, msgs
     except TimeoutError as exc:
         return False, [f"FAIL  {exc}"]
-    return True, ["OK    pipeline run marked aborted"]

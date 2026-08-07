@@ -53,9 +53,11 @@ user ever choosing. Pick the path that matches what the user gave you:
    3. Database (default: PostgreSQL; MongoDB also live)
    4. SDLC profile (`lean` · `standard` default · `enterprise`)
    5. Optional MCP integrations (default: none; ids via `claude-kit list-options`)
-   6. Learning capture (`session-end-catchup` default · `session-end` · `per-task` · `off`) — tell
-      the user the background job reads session transcripts + changed files, and that
-      `CLAUDE_KIT_NO_AUTOCAPTURE=1` disables it
+   6. Learning capture (`off` default · `session-end-catchup` recommended · `session-end` ·
+      `per-task`) — capture is **opt-in**: tell the user the background job reads session
+      transcripts + changed files before they choose, that `CLAUDE_KIT_NO_AUTOCAPTURE=1` disables
+      it at runtime, and that `claude-kit privacy-report` audits what got installed. Only record a
+      non-`off` mode when the user explicitly picks one.
    7. Usage scope (`individual` · `team` default · `organization`; organization adds teams,
       autonomy level, review strictness, and org packs)
 
@@ -68,7 +70,7 @@ user ever choosing. Pick the path that matches what the user gave you:
    database: postgres
    profile:  standard
    mcp:      []                          # e.g. [github, playwright]
-   capture_mode: session-end-catchup
+   capture_mode: "off"                   # or the mode the user explicitly chose (keep it quoted)
    scope:    team
    ```
 

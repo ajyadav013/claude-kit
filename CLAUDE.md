@@ -42,7 +42,7 @@ The kit's central data flow is **Selection → catalog.resolve() → ResolvedPla
 
 | Module | Role |
 |--------|------|
-| `cli.py` | Typer app — all CLI commands (`init`, `validate`, `doctor`, `diff`, `export`, `upgrade`, `pipeline`, `list-options`, `status`). Experimental/planned commands are hidden unless `CLAUDE_KIT_EXPERIMENTAL=1`. |
+| `cli.py` | Typer app — all CLI commands (`init`, `validate`, `doctor`, `diff`, `export`, `upgrade`, `pipeline`, `list-options`, `status`, `privacy-report`). Experimental/planned commands are hidden unless `CLAUDE_KIT_EXPERIMENTAL=1`. |
 | `models.py` | Dataclass contracts: `Selection`, `ResolvedPlan`, `OrgPlan`, `InitOptions`, `FileRecord`, `UpgradeJournal`. The typed seam between prompts → resolver → installer → upgrader. |
 | `catalog.py` | The resolver — converts a `Selection` into a `ResolvedPlan` by reading the catalog YAML files. Must stay branch-free. |
 | `prompts.py` | Interactive `init` question flow (stack, profile, MCP, org scope, …). |
@@ -52,7 +52,7 @@ The kit's central data flow is **Selection → catalog.resolve() → ResolvedPla
 | `upgrader.py` | Safe, edit-preserving upgrade: checksum comparison, transactional journal, sidecar fallback for user-edited files. |
 | `validator.py` | Structural validation of an installed config (`validate` + `--strict` mode). |
 | `schemas.py` | JSON Schema definitions for catalog integrity checks (`validate --strict`). |
-| `pipeline.py` | Deterministic `/sdlc` state-file ops (validate, status, close-gate, abort) — inspects the state files, does **not** run the pipeline. |
+| `pipeline.py` | Deterministic `/sdlc` state-file ops (validate, status, close-gate, skip-gate, abort) — owns the append-only `gate_history` ledger (order enforcement, evidence sha256, atomic locked writes); inspects/records state, does **not** run the pipeline. |
 | `export.py` | Projection into Cursor / AGENTS.md / Copilot formats. |
 | `detect.py` | Stack detection from a target repo (heuristic-based; non-blocking). |
 | `report.py` | Human-readable reporting for `doctor` and `status` commands. |
@@ -138,7 +138,8 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
   shellcheck -S warning hooks/scripts/*.sh scripts/*.sh
   python scripts/gen_hooks.py --check          # hooks.json + settings.json drift
   python scripts/check_docs_consistency.py     # version parity + CHANGELOG heading
-  python scripts/check_cross_references.py     # rule/skill/agent refs in prose exist (warn-only)
+  python scripts/check_cross_references.py --strict    # rule/skill/agent refs in prose exist
+  python scripts/check_skill_descriptions.py --strict  # descriptions within the 250-char picker cap
   ```
 - **Stack-leakage guard:** `grep -rInE 'fastapi|sqlalchemy|alembic|docker' rules agents skills` — should
   be clean (balanced multi-framework *example* lists are acceptable; a real leak is agnostic logic
@@ -163,6 +164,8 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
 4. Build: `python3 -m build && python3 -m twine check dist/*`.
 5. Merge to `main` — CI auto-publishes to PyPI (OIDC trusted publishing). Manual `twine upload` is
    the fallback.
-6. Tag the release and push so plugin users get the update.
+6. Nothing to tag by hand — `publish.yml`'s `github-release` job creates the `vX.Y.Z` tag and the
+   GitHub Release on every successful publish (since 0.57.0). `scripts/backfill-releases.sh
+   --dry-run` is the recovery path if a published version is ever missing its tag.
 
 See `CONTRIBUTING.md` for the full contributor workflow.

@@ -1,3 +1,16 @@
+---
+paths:
+  - '**/*.py'
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/*.go'
+  - '**/*.rs'
+  - '**/*.java'
+  - '**/*.rb'
+---
+
 # Design Patterns
 
 Mandatory design patterns for backend and frontend code. Apply the appropriate pattern whenever the described situation arises.

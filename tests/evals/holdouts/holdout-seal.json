@@ -1,0 +1,18 @@
+{
+  "suite": "tests/evals/holdouts/accepted_changes.py",
+  "sha256": "f1db98fe6f74fbdba39b6f768fa394d21e584aaed3ab008dc68a35daee9c7122",
+  "sealed_at": "2026-08-05",
+  "reason": "instrument bug: git ls-files returns nothing inside a Docker copy of a worktree, so the glob corpus was empty and 18 rules were falsely accused. Replaced with a filesystem walk plus a COULD-NOT-RUN guard. No expectation changed -- the expectation was and remains 'no scoped rule has only dead globs'.",
+  "history": [
+    {
+      "sha256": "052ac057d4b73036a5395de4169c7b159e65187a6ca04a911c3fe241034f39e1",
+      "sealed_at": "2026-08-05",
+      "superseded_by": "lint fix (import formatting) applied before the suite had ever run; no expectation changed"
+    },
+    {
+      "sha256": "df117fd9cdb10c79004de22c16a9d3e9b6a9b5361e4159543413f6ebbd251687",
+      "sealed_at": "2026-08-05",
+      "superseded_by": "instrument bug: git ls-files returns nothing inside a Docker copy of a worktree, so the glob corpus was empty and 18 rules were falsely accused. Replaced with a filesystem walk plus a COULD-NOT-RUN guard. No expectation changed -- the expectation was and remains 'no scoped rule has only dead globs'."
+    }
+  ]
+}

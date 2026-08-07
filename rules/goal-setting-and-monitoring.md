@@ -1,3 +1,11 @@
+---
+paths:
+  - '.claude/agents/**'
+  - '.claude/skills/**'
+  - '**/agents/**'
+  - '**/skills/**'
+---
+
 # Goal Setting & Monitoring
 
 **If you can't say what "done" looks like and measure whether you're getting there, you're drifting.**

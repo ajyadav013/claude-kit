@@ -11,7 +11,7 @@
       "displayName": "Claude Kit SDLC",
       "source": "./",
       "description": "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker): install CLAUDE.md + .claude/ (rules, the profile's agents/skills, hooks, artifact templates) + optional .mcp.json, then run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with a tamper-evident gate ledger, working memory, and a self-improving learnings loop.",
-      "version": "0.76.0",
+      "version": "0.77.0",
       "license": "MIT",
       "keywords": ["sdlc", "agents", "orchestration", "quality-gates", "workflow", "scaffold", "cookiecutter"]
     }

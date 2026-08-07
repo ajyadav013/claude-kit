@@ -11,6 +11,7 @@ monkeypatching ``builtins.input``.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -174,9 +175,13 @@ def interactive(payload_root: str | Path) -> Selection:
     # Learning-capture mode (the token-cost knob). This explicit question IS the consent gate for
     # the background capture job (it reads session transcript content) — every non-interactive
     # path stays `off` (capture.yaml `default`). The interactive preselection is the catalog's
-    # `recommended` pick; lean preselects off (intentionally minimal).
+    # `recommended` pick; lean preselects off (intentionally minimal). When stdin is not a TTY
+    # (an agent's shell, a heredoc, EOF) nobody actually *saw* this question, so the
+    # answer-yourself default must be off too — consent needs eyes on the prompt.
     cap = catalog.capture_mode_options(payload_root)
-    capture_default = "off" if profile == "lean" else cap["recommended"]
+    capture_default = (
+        "off" if profile == "lean" or not sys.stdin.isatty() else cap["recommended"]
+    )
     capture_mode = _choose_one("Learning capture", cap["modes"], capture_default)
 
     mcp = _choose_many("Optional MCP integrations", opts["mcp"])
@@ -257,10 +262,19 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     if not isinstance(org, dict):
         org = {}
     # YAML 1.1 parses bare off/no -> False and on/yes -> True; map an unquoted `capture_mode: off`
-    # back to the "off" mode rather than letting `or dflt` silently restore the default.
+    # back to the "off" mode. A bare `on`/`true` is REJECTED, not guessed: since 0.76.0 the
+    # default is off, so silently mapping True to the default would turn an explicit opt-IN into
+    # a silent opt-OUT — the inverse consent failure.
     cap_mode = data.get("capture_mode")
     if isinstance(cap_mode, bool):
-        cap_mode = "off" if cap_mode is False else dflt.capture_mode
+        if cap_mode is False:
+            cap_mode = "off"
+        else:
+            raise ValueError(
+                "config 'capture_mode: on/true' is ambiguous — name the mode you consent to "
+                "(session-end, session-end-catchup, per-task) or 'off'; note unquoted on/off "
+                "parse as YAML booleans"
+            )
     # Normalise list-typed fields up front so a bare string (mcp: github) becomes ["github"] and a
     # wrong shape fails loudly here rather than being char-iterated inside catalog.resolve().
     mcp = _as_str_list(data.get("mcp"), "mcp")

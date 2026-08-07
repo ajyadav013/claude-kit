@@ -1,0 +1,4 @@
+`src/calc.py` has `add` and `subtract`. The pricing work needs one more arithmetic helper.
+
+Add a `multiply(a: int, b: int) -> int` function to `src/calc.py` that returns the product of the
+two integers.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -299,3 +300,116 @@ def test_agent_only_entry_is_not_treated_as_empty(tmp_path):
 
     assert not entry.empty
     assert entry.requests == 0 and entry.agents == ["unit-tester"]
+
+
+# --- transcript-directory resolution: the slug fast path and its guards -------------------------
+
+
+def test_transcript_dir_takes_the_slug_fast_path_when_it_matches(tmp_path):
+    """The slug guess is used directly when its transcripts confirm the cwd — no directory scan."""
+    project = tmp_path / "myproject"
+    project.mkdir()
+    projects_root = tmp_path / "projects"
+    slug = telemetry.slugify_project(project.resolve())
+    (projects_root / slug).mkdir(parents=True)
+    (projects_root / slug / "s.jsonl").write_text(
+        json.dumps({"cwd": str(project.resolve())}) + "\n", encoding="utf-8"
+    )
+
+    found = telemetry.transcript_dir(project, projects_root)
+    assert found is not None and found.name == slug
+
+
+def test_collect_aggregates_from_a_resolved_transcript_dir(tmp_path):
+    project = tmp_path / "myproject"
+    project.mkdir()
+    projects_root = tmp_path / "projects"
+    slug = telemetry.slugify_project(project.resolve())
+    (projects_root / slug).mkdir(parents=True)
+    (projects_root / slug / "s.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"cwd": str(project.resolve())}),
+                json.dumps(_record("req-1", branch="feat/telemetry")),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    by_branch = telemetry.collect(project, projects_root)
+    assert by_branch["feat/telemetry"].requests == 1
+
+
+def test_read_cwd_stops_after_the_scan_budget(tmp_path):
+    """A huge transcript must not be read end to end just to find a cwd that isn't near the top."""
+    path = tmp_path / "s.jsonl"
+    filler = [json.dumps({"type": "noise", "i": i}) for i in range(200)]
+    filler.append(json.dumps({"cwd": "/late/and/ignored"}))
+    path.write_text("\n".join(filler) + "\n", encoding="utf-8")
+
+    assert telemetry._read_cwd(path) is None
+
+
+def test_read_cwd_skips_unparseable_and_non_string_entries(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                "{ not json",
+                json.dumps(["a", "list", "not", "an", "object"]),
+                json.dumps({"cwd": 7}),
+                json.dumps({"cwd": ""}),
+                json.dumps({"cwd": "/the/real/one"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert telemetry._read_cwd(path) == "/the/real/one"
+
+
+def test_dir_matches_keeps_looking_past_transcripts_with_no_cwd(tmp_path):
+    """A transcript that records no cwd is uninformative, not a rejection of the directory."""
+    project = tmp_path / "mine"
+    project.mkdir()
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    silent = candidate / "a.jsonl"
+    silent.write_text(json.dumps({"type": "noise"}) + "\n", encoding="utf-8")
+    speaking = candidate / "b.jsonl"
+    speaking.write_text(
+        json.dumps({"cwd": str(project.resolve())}) + "\n", encoding="utf-8"
+    )
+    os.utime(silent, (2, 2))  # newest first → the silent one is examined first
+    os.utime(speaking, (1, 1))
+
+    assert telemetry._dir_matches(candidate, project.resolve())
+
+
+def test_scan_skips_records_whose_message_is_not_an_object(tmp_path):
+    """A non-mapping `message` must be skipped, not crash the scan (F-034).
+
+    `record.get("message", {})` guards the key being absent and not its holding the wrong type, so
+    a line like {"message": 3} used to raise AttributeError out of a read-only reporting command --
+    in a module whose contract for this file is to skip anything unreadable.
+    """
+    path = tmp_path / "s.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"message": 3, "gitBranch": "feat/x"}),
+                json.dumps({"message": "a string", "gitBranch": "feat/x"}),
+                json.dumps({"message": [1, 2], "gitBranch": "feat/x"}),
+                json.dumps(_record("req-1", branch="feat/x")),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    by_branch = telemetry.scan([path])
+
+    # the one well-formed record still lands, and the three malformed ones are simply not counted
+    assert by_branch["feat/x"].requests == 1

@@ -323,3 +323,207 @@ def test_to_dict_is_json_serialisable(tmp_path):
     store = tickets.load_store(tmp_path)
     tickets.attach_telemetry(store, {"feat/x": telemetry.Telemetry(requests=1)})
     json.dumps(store.tickets["PROJ-1"].to_dict())  # must not raise
+
+
+# --- git graph, detail and blocker rendering -----------------------------------------------------
+# These renderers were the module's largest uncovered region (F-016). `render_git_graph`'s whole
+# annotation loop had never executed, because every existing test ran against a tmp_path that is
+# not a git repository, so `git_commits` returned [] and the function short-circuited on its
+# friendly "no git history" branch. Faking the commit list exercises the loop deterministically and
+# without a git binary; `git_commits` itself is covered separately by faking `subprocess.run`, so
+# the shell-out and the rendering are tested independently rather than through each other.
+
+
+def test_git_graph_annotates_each_commit_with_its_ticket(tmp_path, monkeypatch):
+    write_store(tmp_path, [("PROJ-7", "add export", "IN_PROGRESS")])
+    monkeypatch.setattr(
+        tickets,
+        "git_commits",
+        lambda root, limit=40: [
+            ("abc1234", "HEAD -> main", "feat: add export [PROJ-7]"),
+            ("def5678", "", "chore: unrelated tidy-up"),
+        ],
+    )
+    store = tickets.load_store(tmp_path)
+    text = "\n".join(tickets.render_git_graph(store, tmp_path))
+
+    assert "* abc1234  (HEAD -> main)" in text, "a decorated commit must show its refs"
+    assert "* def5678" in text and "(HEAD" not in text.split("def5678")[1]
+    assert "[PROJ-7]" in text, "the matched commit must be annotated with its ticket"
+    # The unmatched commit falls back to its subject rather than being dropped or mis-attributed.
+    assert "chore: unrelated tidy-up" in text
+
+
+def test_git_commits_parses_the_record_separator_format(tmp_path, monkeypatch):
+    class _Proc:
+        returncode = 0
+        stdout = "abc1234\x1fHEAD -> main\x1ffeat: one\ndef5678\x1f\x1ffix: two\nmalformed-line\n"
+
+    monkeypatch.setattr(tickets.subprocess, "run", lambda *a, **k: _Proc())
+    got = tickets.git_commits(tmp_path)
+    assert got == [
+        ("abc1234", "HEAD -> main", "feat: one"),
+        ("def5678", "", "fix: two"),
+    ], (
+        "a line without two separators is not a commit record and must be skipped, not padded"
+    )
+
+
+def test_git_commits_degrades_to_empty_when_git_is_missing(tmp_path, monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("git: not found")
+
+    monkeypatch.setattr(tickets.subprocess, "run", _boom)
+    assert tickets.git_commits(tmp_path) == []
+
+
+def test_git_commits_treats_a_nonzero_exit_as_no_history(tmp_path, monkeypatch):
+    class _Proc:
+        returncode = 128
+        stdout = "fatal: not a git repository"
+
+    monkeypatch.setattr(tickets.subprocess, "run", lambda *a, **k: _Proc())
+    assert tickets.git_commits(tmp_path) == []
+
+
+def test_a_commit_matching_no_ticket_returns_none(tmp_path):
+    write_store(tmp_path, [("PROJ-1", "t", "OPEN")])
+    store = tickets.load_store(tmp_path)
+    assert tickets._ticket_for_commit("chore: tidy", "0000000", {}, store) is None
+
+
+def test_detail_lists_links_relations_and_commits(tmp_path):
+    write_store(
+        tmp_path,
+        [("PROJ-1", "the feature", "OPEN"), ("PROJ-2", "the blocker", "OPEN")],
+        index={
+            "tickets": {
+                "PROJ-1": {
+                    "commits": ["abc1234"],
+                    "relations": {
+                        "depends_on": ["PROJ-2"],
+                        "relates_to": ["PROJ-9"],
+                    },
+                }
+            }
+        },
+    )
+    store = tickets.load_store(tmp_path)
+    text = "\n".join(tickets.render_detail(store, "PROJ-1", tmp_path))
+
+    assert "Spec      docs/specs/thing_spec.md" in text
+    assert "Blocked   depends_on PROJ-2" in text
+    assert "Commits   abc1234" in text
+    # A non-gating relation is listed under its own kind, never reported as a blocker.
+    assert "relates_to PROJ-9" in text
+    assert "depends_on PROJ-9" not in text
+
+
+def test_detail_accepts_a_lowercase_ticket_id(tmp_path):
+    write_store(tmp_path, [("PROJ-1", "the feature", "OPEN")])
+    store = tickets.load_store(tmp_path)
+    assert "PROJ-1" in "\n".join(tickets.render_detail(store, "proj-1", tmp_path))
+
+
+def test_graph_marks_a_blocker_and_names_its_state(tmp_path):
+    write_store(
+        tmp_path,
+        [("PROJ-1", "the feature", "OPEN"), ("PROJ-2", "the blocker", "OPEN")],
+        index={
+            "tickets": {"PROJ-1": {"relations": {"depends_on": ["PROJ-2", "PROJ-404"]}}}
+        },
+    )
+    store = tickets.load_store(tmp_path)
+    text = "\n".join(tickets.render_graph(store))
+    assert "depends_on PROJ-2  (open - gates this)" in text
+    # An unknown blocker still gates, and says it is unknown rather than silently vanishing.
+    assert "depends_on PROJ-404  (missing - gates this)" in text
+
+
+def test_a_ticket_that_exists_only_in_the_index_is_still_loaded(tmp_path):
+    """The index is a source of tickets, not merely of metadata for tickets found on disk.
+
+    A ticket recorded in `index.json` with no matching markdown file must still appear -- otherwise
+    a store whose markdown has not been written yet reads as empty, and `exists` stays False, which
+    the CLI renders as "no ticket store here" rather than as the one open ticket it has.
+    """
+    directory = tmp_path / tickets.TICKETS_REL
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "index.json").write_text(
+        json.dumps(
+            {"tickets": {"PROJ-9": {"status": "in_progress", "title": "index only"}}}
+        ),
+        encoding="utf-8",
+    )
+    store = tickets.load_store(tmp_path)
+    assert store.exists, "an index-only store exists"
+    assert "PROJ-9" in store.tickets
+    assert store.tickets["PROJ-9"].status == "IN_PROGRESS", "status is upper-cased"
+    assert store.tickets["PROJ-9"].title == "index only"
+
+
+# --- parser and index tolerance ------------------------------------------------------------------
+# The store reads two hand-editable files. Both are written by humans, so the interesting cases are
+# the shapes a human plausibly produces: a field the template does not show, a relation given as a
+# bare string rather than a list, and an index entry that is not an object at all.
+
+
+def test_design_field_is_parsed_and_shown_in_detail(tmp_path):
+    directory = tmp_path / tickets.TICKETS_REL
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "PROJ-1-slug.md").write_text(
+        "# PROJ-1: the feature\n\n"
+        "- **Status:** OPEN\n"
+        "- **Design:** docs/design/thing.md          (visual - screens & states)\n",
+        encoding="utf-8",
+    )
+    store = tickets.load_store(tmp_path)
+    # The trailing parenthetical annotation is an editor's note, not part of the path.
+    assert store.tickets["PROJ-1"].design == "docs/design/thing.md"
+    assert "Design    docs/design/thing.md" in "\n".join(
+        tickets.render_detail(store, "PROJ-1", tmp_path)
+    )
+
+
+def test_a_relation_given_as_a_bare_string_is_accepted(tmp_path):
+    write_store(
+        tmp_path,
+        [("PROJ-1", "t", "OPEN"), ("PROJ-2", "t", "OPEN")],
+        index={"tickets": {"PROJ-1": {"relations": {"depends_on": "PROJ-2"}}}},
+    )
+    store = tickets.load_store(tmp_path)
+    assert store.tickets["PROJ-1"].related("depends_on") == ["PROJ-2"]
+    assert store.is_blocked(store.tickets["PROJ-1"]), "a string edge still gates"
+
+
+def test_an_index_without_the_tickets_envelope_is_read_as_flat(tmp_path):
+    write_store(
+        tmp_path,
+        [("PROJ-1", "t", "OPEN")],
+        index={"PROJ-1": {"commits": ["abc1234"]}, "schema": 1},
+    )
+    store = tickets.load_store(tmp_path)
+    # The flat fallback keeps object entries and drops the scalar `schema` key rather than
+    # treating it as a ticket.
+    assert store.tickets["PROJ-1"].commits == ["abc1234"]
+    assert "schema" not in store.tickets
+
+
+def test_a_non_object_index_entry_is_skipped_not_loaded(tmp_path):
+    write_store(
+        tmp_path,
+        [("PROJ-1", "t", "OPEN")],
+        index={"tickets": {"PROJ-1": {"commits": ["abc"]}, "PROJ-2": "not an object"}},
+    )
+    store = tickets.load_store(tmp_path)
+    assert "PROJ-2" not in store.tickets
+
+
+def test_a_ticket_with_no_branch_shares_telemetry_with_nobody(tmp_path):
+    directory = tmp_path / tickets.TICKETS_REL
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "PROJ-1-slug.md").write_text(
+        "# PROJ-1: no branch\n\n- **Status:** OPEN\n", encoding="utf-8"
+    )
+    store = tickets.load_store(tmp_path)
+    assert store.branch_sharers(store.tickets["PROJ-1"]) == []

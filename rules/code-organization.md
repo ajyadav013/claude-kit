@@ -1,3 +1,16 @@
+---
+paths:
+  - '**/*.py'
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/*.go'
+  - '**/*.rs'
+  - '**/*.java'
+  - '**/*.rb'
+---
+
 # Code Structure & Conventions
 
 **Match the codebase that exists — new code follows established patterns, it never invents parallel ones.**

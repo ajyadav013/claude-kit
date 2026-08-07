@@ -64,6 +64,42 @@ def test_contract_clear_gate_in_standard_and_enterprise_not_lean(payload):
     assert "contract-clear" not in lean.gates
 
 
+def test_gates_resolve_in_execution_order(payload):
+    """Gate ORDER is load-bearing: `claude-kit pipeline close-gate` enforces the resolved list as
+    execution order, so pin the exact sequences (a set-equal reorder must fail this test). The
+    order mirrors the orchestrator's Gate ↔ Stage map — contract-clear closes at MR2, before the
+    test/security stages."""
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    std = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    ent = catalog.resolve(payload, make_selection(payload, profile="enterprise"))
+    assert lean.gates == ["code-review", "build-green"]
+    assert std.gates == [
+        "spec-complete",
+        "em-approved",
+        "code-review",
+        "build-green",
+        "contract-clear",
+        "test-coverage",
+        "security-clear",
+    ]
+    assert ent.gates == std.gates + [
+        "pipeline-green",
+        "observability-ready",
+        "acceptance",
+    ]
+
+
+def test_resolver_keeps_child_gate_order_and_gap_fills_inherited(payload):
+    """A child profile's declared gate order wins outright; gates only the parent declares are
+    appended after (gap-fill), never interleaved ahead of the child's own order."""
+    std = catalog.resolve(payload, make_selection(payload, profile="standard"))
+    lean = catalog.resolve(payload, make_selection(payload, profile="lean"))
+    # Standard inherits lean (code-review, build-green) yet neither leads the resolved list —
+    # the child's declared execution order wins.
+    assert std.gates[:2] == ["spec-complete", "em-approved"]
+    assert set(lean.gates) < set(std.gates)
+
+
 def test_sentry_mcp_is_opt_in_and_resolves(payload):
     """sentry (error-monitoring MCP for the incident-responder/observability roles) is opt-in only."""
     # Not installed unless explicitly selected.
@@ -439,3 +475,175 @@ def test_resolve_rejects_unknown_scope(payload):
     sel = make_selection(payload, scope="galaxy")
     with pytest.raises(ValueError, match="scope"):
         catalog.resolve(payload, sel)
+
+
+# --- Rejection paths: unknown ids and not-yet-shipped ("planned") catalog entries ----------------
+# A planned entry is advertised by `list-options` but must never resolve into an install: the
+# overlay files behind it do not exist yet, so a silent acceptance would scaffold a broken project.
+
+
+def _planned_ids(payload):
+    """Every planned frontend framework / backend language+framework in the shipped catalog."""
+    opts = catalog.list_options(payload)
+    fe = [f["id"] for f in opts["frontend"] if f["status"] == "planned"]
+    be_lang = [b["id"] for b in opts["backend"] if b["status"] == "planned"]
+    be_fw = [
+        (b["id"], fw["id"])
+        for b in opts["backend"]
+        if b["status"] != "planned"
+        for fw in b["frameworks"]
+        if fw["status"] == "planned"
+    ]
+    return fe, be_lang, be_fw
+
+
+def test_resolve_rejects_unknown_frontend_framework(payload):
+    sel = make_selection(payload, frontend_framework="jquery")
+    with pytest.raises(ValueError, match="unknown frontend framework"):
+        catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_every_planned_frontend_framework(payload):
+    planned, _, _ = _planned_ids(payload)
+    if not planned:
+        pytest.skip("the catalog currently ships no planned frontend framework")
+    for fid in planned:
+        sel = make_selection(payload, frontend_framework=fid)
+        with pytest.raises(ValueError, match="planned but not yet available"):
+            catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_unknown_backend_language(payload):
+    sel = make_selection(payload, backend_language="cobol", backend_framework="cics")
+    with pytest.raises(ValueError, match="unknown backend language"):
+        catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_unknown_backend_framework(payload):
+    sel = make_selection(payload, backend_framework="not-a-framework")
+    with pytest.raises(ValueError, match="unknown backend framework"):
+        catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_every_planned_backend_entry(payload):
+    _, planned_langs, planned_fws = _planned_ids(payload)
+    if not planned_langs and not planned_fws:
+        pytest.skip("the catalog currently ships no planned backend entry")
+    for lang in planned_langs:
+        opts = catalog.list_options(payload)
+        fws = [b["frameworks"] for b in opts["backend"] if b["id"] == lang][0]
+        sel = make_selection(
+            payload, backend_language=lang, backend_framework=fws[0]["id"]
+        )
+        with pytest.raises(ValueError, match="planned but not yet available"):
+            catalog.resolve(payload, sel)
+    for lang, fw in planned_fws:
+        sel = make_selection(payload, backend_language=lang, backend_framework=fw)
+        with pytest.raises(ValueError, match="planned but not yet available"):
+            catalog.resolve(payload, sel)
+
+
+def test_a_planned_framework_under_a_planned_language_still_rejects_by_name(payload):
+    """The masked rejection branch: `express` sits under `node`, and both are planned.
+
+    Every other planned entry is rejected by name, so a user learns which specific choice is
+    unavailable. `express` cannot be reached that way -- the only selection that gets to it sets
+    `backend_language="node"`, and the language check rejects first with "backend language 'node'
+    is planned". Its own branch has therefore never executed (F-033/F-039), which means nothing
+    has ever tested the message a user will see the day `node` goes live.
+
+    Lifting the upstream mask in an in-memory copy exercises it now. The deliberate choice here is
+    to test the branch rather than delete the forward-looking catalog data: removing correct data
+    to make a reachability metric go green would be repairing the measurement, not the code.
+    """
+    stacks = catalog._load(payload, "stacks.yaml")
+    langs = stacks["backend"]["languages"]
+    masked = [
+        (lang_id, fw_id)
+        for lang_id, lang in langs.items()
+        if lang.get("status") == "planned"
+        for fw_id, fw in (lang.get("frameworks") or {}).items()
+        if fw.get("status") == "planned"
+    ]
+    if not masked:
+        pytest.skip("no planned framework currently sits under a planned language")
+
+    for lang_id, fw_id in masked:
+        # Un-mask ONLY the language, so the framework's own branch is the one that must fire.
+        langs[lang_id] = {**langs[lang_id], "status": "live"}
+        with pytest.raises(ValueError, match=r"planned but not yet available") as exc:
+            catalog._backend(stacks, lang_id, fw_id)
+        assert fw_id in str(exc.value), (
+            f"the rejection must name {fw_id!r} so the user learns which framework is unavailable; "
+            f"got: {exc.value}"
+        )
+
+
+def test_resolve_rejects_unknown_profile(payload):
+    sel = make_selection(payload, profile="platinum")
+    with pytest.raises(ValueError, match="unknown profile"):
+        catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_unknown_mcp_server(payload):
+    sel = make_selection(payload, mcp=["not-a-server"])
+    with pytest.raises(ValueError, match="unknown MCP server"):
+        catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_unknown_autonomy_level(payload):
+    sel = make_selection(payload, scope="organization", autonomy="omnipotent")
+    with pytest.raises(ValueError, match="unknown autonomy level"):
+        catalog.resolve(payload, sel)
+
+
+def test_resolve_rejects_unknown_review_strictness(payload):
+    sel = make_selection(payload, scope="organization", review_strictness="paranoid")
+    with pytest.raises(ValueError, match="unknown review strictness"):
+        catalog.resolve(payload, sel)
+
+
+def test_load_rejects_a_missing_catalog_file(tmp_path):
+    (tmp_path / "catalog").mkdir()
+    with pytest.raises(FileNotFoundError, match="catalog file not found"):
+        catalog._load(tmp_path, "stacks.yaml")
+
+
+def test_load_rejects_a_catalog_file_that_is_not_a_mapping(tmp_path):
+    (tmp_path / "catalog").mkdir()
+    (tmp_path / "catalog" / "stacks.yaml").write_text("- a\n- b\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="did not parse to a mapping"):
+        catalog._load(tmp_path, "stacks.yaml")
+
+
+def test_resolve_profile_rejects_an_unknown_name(payload):
+    profiles = catalog._load(payload, "profiles.yaml")
+    avail = catalog.available(payload)
+    with pytest.raises(ValueError, match="unknown profile"):
+        catalog._resolve_profile(profiles, "ghost", avail)
+
+
+def test_child_profile_inherits_every_key_it_omits(payload):
+    """`inherit:` fills each key the child leaves unset — the lean ⊂ standard invariant needs it.
+
+    The shipped profiles all declare every key explicitly (a deliberate readability choice), so the
+    omission path is exercised against a synthetic table rather than left untested.
+    """
+    avail = catalog.available(payload)
+    profiles = {
+        "profiles": {
+            "base": {
+                "agents": ["orchestrator"],
+                "skills": ["sdlc"],
+                "gates": ["spec-complete", "code-review"],
+                "hooks": ["load-continuity"],
+            },
+            # declares only `agents` — the other three must come from `base` verbatim
+            "child": {"inherit": "base", "agents": ["orchestrator", "developer"]},
+        }
+    }
+    base = catalog._resolve_profile(profiles, "base", avail)
+    child = catalog._resolve_profile(profiles, "child", avail)
+    for key in ("skills", "gates", "hooks"):
+        assert child[key] == base[key], key
+    assert set(base["agents"]) < set(child["agents"])

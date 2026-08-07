@@ -1,6 +1,6 @@
 ---
 name: technical-architect
-description: Reviews specs and developer documentation from an architecture perspective. Validates system design, scalability, integration patterns, and technical feasibility after senior developer review and before EM review.
+description: Reviews a spec or design for architectural soundness — system design, scalability, integration patterns, feasibility, failure modes. Use when a design needs an architecture review before it is built.
 tools: Read, Glob, Grep, SendMessage
 permissionMode: plan
 model: sonnet

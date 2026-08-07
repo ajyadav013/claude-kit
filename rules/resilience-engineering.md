@@ -1,3 +1,16 @@
+---
+paths:
+  - '**/*.py'
+  - '**/*.ts'
+  - '**/*.tsx'
+  - '**/*.js'
+  - '**/*.jsx'
+  - '**/*.go'
+  - '**/*.rs'
+  - '**/*.java'
+  - '**/*.rb'
+---
+
 # Resilience Engineering
 
 **A distributed system is a set of failure modes that occasionally computes something. Design for the

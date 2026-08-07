@@ -1,0 +1,1 @@
+The order-lookup helpers build SQL by interpolating caller-supplied values into the query string. Fix the injection risk.

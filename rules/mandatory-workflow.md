@@ -26,6 +26,30 @@ If unclear whether a task is a bug fix or feature, ask the user.
 > still decides the contract; see `.claude/rules/wave-orchestration.md` → "Native dynamic
 > workflows as the wave substrate".
 
+## Specialist routing (both workflows)
+
+The workflow you picked decides the *stages*. What the change **touches** decides which
+specialists run — independently. A one-line bug fix that rewrites a SQL string still needs the
+security pass a feature would get; routing it to the Bug Fix Workflow does not exempt it.
+
+| When the change touches | Spawn | By |
+|---|---|---|
+| query/SQL construction, auth or authorization, secrets, sessions and cookies, input parsing, file paths, deserialization, dependency versions | `security-reviewer` — it fans out to `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` itself | before the change is reported done |
+| health or readiness checks, logging, metrics, tracing, alerting, SLOs, or a new runtime dependency on a deployable surface | `observability-engineer` | before the change is reported done |
+
+**A bracketed role label in this file — `[Developer]`, `[Orchestrator]`, `[Code Reviewer]` — names
+an agent in `.claude/agents/`, not a hat the main session puts on.** Running the pipeline means
+spawning them with the Agent tool.
+
+**The main session stays the coordinator.** It gathers context, runs commands, and hands a
+specialist exactly the scope it needs — that division is the point, not a workaround. What it must
+not do is substitute its own judgement for the specialist's on the two rows above: those are the
+surfaces where a partial fix reads as a complete one, and a self-review cannot see what it missed.
+
+**Proportionality.** A docs-only or comment-only edit spawns nothing. The two rows above trigger on
+the surface touched, never on task size; everything else scales with the workflow you routed to.
+Spawning a coordinator for a single-file edit is waste, and waste is a defect too.
+
 ---
 ---
 

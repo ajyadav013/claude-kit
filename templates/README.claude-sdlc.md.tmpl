@@ -33,14 +33,21 @@ How Claude Code discovers it: `CLAUDE.md` is loaded as project context; `.claude
 
 ## Privacy — learning capture
 
-Learning capture is **on by default**: a background Claude job reads your session transcript and
-changed files to record durable learnings under `.claude/agent-memory/` (a committed store). It skips
-secret-bearing files (`.env`, `*.pem`/`*.key`, `credentials.*`) and redacts secret-shaped values, but
-transcripts can still hold sensitive context — **review new `agent-memory/` entries before committing
-them**. Controls:
+{% if capture_mode != "off" %}Learning capture is **ON for this install** (`{{capture_mode}}`, chosen at init): a background Claude
+job reads your session transcript and changed files to record durable learnings under
+`.claude/agent-memory/` (a committed store). It skips secret-bearing files (`.env`, `*.pem`/`*.key`,
+`credentials.*`) and redacts secret-shaped values, but transcripts can still hold sensitive context —
+**review new `agent-memory/` entries before committing them**. Controls:
 
 - `CLAUDE_KIT_NO_AUTOCAPTURE=1` — disable capture entirely.
 - `CLAUDE_KIT_CAPTURE_MAX_LINES` / `CLAUDE_KIT_CAPTURE_MAX_BYTES` — bound what each run feeds the job.
+- `claude-kit privacy-report` — audit every installed hook: what it reads/writes, whether a
+  background job spawns, and how to disable it.
+{% else %}Learning capture is **OFF for this install** (capture is opt-in — no background job reads your
+session transcripts). Recall still works: learnings already in `.claude/agent-memory/` load at
+session start. To enable capture, re-run `claude-kit init` interactively (or set `capture_mode:` in
+a `--config` file), then audit the result with `claude-kit privacy-report`.
+{% endif %}
 
 ## Start the workflow
 

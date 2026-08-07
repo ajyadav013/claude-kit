@@ -364,20 +364,13 @@ def _apply(
             _copy_ref(act.rel)
             msgs.append(f"  + {act.rel}")
         elif act.kind == "update":
+            # A user-modified user-editable file is classified "keep", never "update"
+            # (_diff_actions), so the sidecar decision belongs to that branch alone. The invariant
+            # is pinned by test_update_actions_never_carry_a_user_modified_user_editable_file.
             if act.user_modified:
                 _backup(act.rel)
-            if act.owner == "user-editable" and act.user_modified and not force:
-                # Protect: keep the user's file, drop the kit's copy beside it.
-                shutil.copy2(
-                    ref_root / act.rel, live.with_name(live.name + _SIDECAR_SUFFIX)
-                )
-                sidecars_written += 1
-                msgs.append(
-                    f"  ~ {act.rel} (kept; kit's version -> {live.name}{_SIDECAR_SUFFIX})"
-                )
-            else:
-                _copy_ref(act.rel)
-                msgs.append(f"  ✓ {act.rel}")
+            _copy_ref(act.rel)
+            msgs.append(f"  ✓ {act.rel}")
         elif act.kind == "keep":
             if force:
                 # --force: the documented contract is "overwrite user-modified user-editable
@@ -430,6 +423,20 @@ def _apply(
         msgs.append(
             "INFO  a .claude-kit sidecar holds the kit's copy of each kept file: "
             "`diff <file> <file>.claude-kit`, merge what you want, then delete the sidecar"
+        )
+    # Consent transparency (0.76.0): upgrade re-renders the RECORDED selection, so an install
+    # whose capture_mode predates the opt-in flip keeps its background capture silently — say so
+    # every time rather than assume the original choice was informed (pre-0.76 --defaults wasn't).
+    recorded_capture = (
+        getattr(cmp.old.selection, "capture_mode", "off") if cmp.old else "off"
+    )
+    if journal and recorded_capture and recorded_capture != "off":
+        msgs.append(
+            f"WARN  background learning capture is ON for this install (capture_mode: "
+            f"{recorded_capture}, recorded at init and preserved by upgrade). Since 0.76.0 "
+            "capture is opt-in on fresh installs. Audit what runs with `claude-kit "
+            "privacy-report`; disable by re-running init and choosing Off, or by removing the "
+            "capture entries from .claude/settings.json"
         )
     msgs.append("OK    upgrade complete" if journal else "OK    merge complete")
     return True, msgs

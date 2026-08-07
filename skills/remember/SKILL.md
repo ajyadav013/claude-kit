@@ -9,7 +9,7 @@ Turn a one-off correction or insight into a permanent, reusable learning. This i
 
 ## When to invoke this skill
 
-**This is now automatic.** The `capture-learnings` hook runs in the *background* — on the schedule chosen at init (`capture_mode`: when a session ends, on the next launch for sessions closed abruptly, and/or after each task) — spawning a detached `claude` job that records what Claude learned from its *own* work into `.claude/agent-memory/`, without ever blocking your session or next prompt (and records nothing when the work was routine). You do not need to type `/remember` — though you still can to force a capture. Invoke proactively whenever any of these happen:
+**Automatic only when capture was chosen at init.** On installs where a `capture_mode` was explicitly selected, the `capture-learnings` hook runs in the *background* — on the chosen schedule (when a session ends, on the next launch for sessions closed abruptly, and/or after each task) — spawning a detached `claude` job that records what Claude learned from its *own* work into `.claude/agent-memory/`, without ever blocking your session or next prompt (and records nothing when the work was routine). On those installs you do not need to type `/remember` — though you still can to force a capture. On installs without capture (the default), this skill is the only capture path. Invoke proactively whenever any of these happen:
 
 - The user **corrects** something Claude did ("no, buttons should be 44px touch targets", "always validate at the boundary").
 - The user states a **preference or rule** for how work should be done (UX, design, naming, architecture, testing, tone).

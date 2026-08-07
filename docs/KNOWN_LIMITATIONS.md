@@ -24,12 +24,33 @@ you, that's useful signal — open an issue.
 
 ## Learning capture reads session content (when enabled)
 
-- With `capture_mode` enabled (the default is `session-end-catchup`), a sandboxed background job reads
+- With `capture_mode` enabled (**off by default since 0.76.0** — it turns on only when you choose a
+  mode at interactive init or set one in a `--config` file), a sandboxed background job reads
   **changed files and the session transcript tail** to distil learnings into `.claude/agent-memory/`.
   It runs with file tools only (no Bash), **skips sensitive files** (`.env`, `*.pem`, `*.key`,
   `id_rsa`, `credentials*`, `secrets/`, `.ssh/`, `.aws/`, …), **redacts secret-shaped values**, and
-  **caps the transcript** by lines and bytes. It still summarizes your working context — disable it
-  with `--capture-mode off` if that's not acceptable. `doctor` warns when capture is on.
+  **caps the transcript** by lines and bytes. It still summarizes your working context — controls:
+  `capture_mode: off` in your init config, `CLAUDE_KIT_NO_AUTOCAPTURE=1` at runtime, and
+  `claude-kit privacy-report` to audit what is installed. `doctor` warns when capture is on, and
+  installs made before 0.76.0 keep their recorded choice across upgrades (the upgrade prints a
+  notice when capture is on).
+
+## `pentest-scanner` may be refused at the platform level, and needs more than an install
+
+- The agent is **enterprise-profile only, opt-in, and preflight-gated**: it runs nothing without an
+  explicit request, a concrete **authorized non-production** target, and an installed tool (Strix,
+  Shannon, PentesterFlow or ZAP) with its runtime. A default install has none of those, so out of the
+  box it reports `SKIPPED` — by design. It never edits code and never blocks the Security Clear gate.
+- Separately, and outside claude-kit's control: **a request phrased as a general "run a penetration
+  test" can be refused by the model platform itself** under its cyber-content usage policy, ending the
+  session before the agent's own preflight gate is ever reached. Measured twice; the refusal is a
+  platform response to the request, not a kit malfunction, and the kit cannot suppress it.
+- Practical consequence: treat this agent as available only inside a genuine, authorized engagement
+  where you can state the target and the authorization. If you need static coverage instead, the four
+  scanners that always run (`secret-scanner`, `dependency-scanner`, `owasp-reviewer`,
+  `policy-validator`) read code and stand on their own.
+- We have deliberately **not** reworded the agent to make the refusal go away. Tuning wording until a
+  safety control stops firing would be evading it, not fixing anything.
 
 ## MCP servers are third-party
 

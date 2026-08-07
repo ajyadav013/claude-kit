@@ -1,3 +1,14 @@
+---
+paths:
+  - '**/*.tsx'
+  - '**/*.jsx'
+  - '**/*.vue'
+  - '**/*.svelte'
+  - '**/*.css'
+  - '**/*.scss'
+  - '**/components/**'
+---
+
 # Frontend Best Practices
 
 These rules are enforced on all code generated or modified by Claude agents in this project.

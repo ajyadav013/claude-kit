@@ -747,3 +747,242 @@ def test_every_hook_declares_data_access():
             f"hook {hid!r} has no data_access note — privacy-report would render a blank "
             "for it; describe what it reads/writes/spawns in HOOK_REGISTRY"
         )
+
+
+def test_hook_matcher_rejects_lookalike_commands():
+    """The privacy-report matcher requires an exact script basename token — a lookalike file
+    (`.sh.bak`, a directory named after the script) must not inherit a kit hook's identity."""
+    from claude_kit.hooks import _hook_id_for_command
+
+    assert _hook_id_for_command("bash /tmp/hooks/load-learnings.sh.bak") is None
+    assert _hook_id_for_command("bash /tmp/load-learnings.sh-evil/run.sh") is None
+    assert _hook_id_for_command("bash /tmp/evil-load-learnings.sh.disabled") is None
+
+
+def test_hook_matcher_maps_plugin_root_paths_and_args():
+    """${CLAUDE_PLUGIN_ROOT} paths still map (their basename IS the registry script), and the
+    trigger arg disambiguates the three capture hooks that share one script."""
+    from claude_kit.hooks import _hook_id_for_command
+
+    assert (
+        _hook_id_for_command(
+            'bash "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/load-learnings.sh"'
+        )
+        == "load-learnings"
+    )
+    assert (
+        _hook_id_for_command(
+            'bash "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/capture-learnings.sh" catchup'
+        )
+        == "capture-learnings-catchup"
+    )
+
+
+def test_every_hook_script_is_executable(payload: Path) -> None:
+    """Every shipped hook script must carry the executable bit, not just most of them.
+
+    `guard-push-main.sh` shipped as 100644 while its 18 siblings were 100755. Both hook channels
+    invoke `bash "<path>"`, so the guard still fired and nothing failed — which is exactly why the
+    drift survived. The costs are real but quiet: the file cannot be run directly, and
+    `scaffold.py` chmods 0o755 on install, so the repo and the installed copy disagree.
+    """
+    scripts = sorted((payload / "hooks" / "scripts").glob("*.sh"))
+    assert scripts, "hook script glob looks broken"
+    non_exec = [p.name for p in scripts if not (p.stat().st_mode & 0o111)]
+    assert not non_exec, (
+        f"hook scripts missing the executable bit: {', '.join(non_exec)}"
+    )
+
+
+def test_installed_hook_scripts_are_executable(tmp_path: Path, payload: Path) -> None:
+    """The scaffolded copy must be executable regardless of the payload's mode."""
+    from tests._helpers import install
+
+    install(payload, tmp_path)
+    installed = sorted((tmp_path / ".claude" / "hooks").glob("*.sh"))
+    assert installed, "no hook scripts were installed"
+    non_exec = [p.name for p in installed if not (p.stat().st_mode & 0o111)]
+    assert not non_exec, f"installed hook scripts not executable: {', '.join(non_exec)}"
+
+
+def _writeback_repo(tmp_path: Path) -> Path:
+    """A git repo with a committed source file and a seeded CONTINUITY.md."""
+    repo = tmp_path / "wb"
+    (repo / ".claude").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "src.py").write_text("x = 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "base",
+        ],
+        check=True,
+    )
+    (repo / ".claude" / "CONTINUITY.md").write_text("# CONTINUITY\n", encoding="utf-8")
+    return repo
+
+
+@_NEED_GIT
+@_NEED_JQ
+def test_writeback_hook_fires_when_work_outran_continuity(tmp_path: Path) -> None:
+    """THE PLANTED DEFECT. Source edited after CONTINUITY.md was last written.
+
+    This is the F-019 condition: the session did work and never recorded it. If the hook stays
+    quiet here it is not measuring anything, so this half of the control is what makes the silent
+    half below meaningful.
+    """
+    repo = _writeback_repo(tmp_path)
+    time.sleep(1.1)  # 1s mtime granularity on some filesystems
+    (repo / "src.py").write_text("x = 2\n", encoding="utf-8")
+
+    proc = _run("verify-continuity-writeback.sh", payload={}, project_dir=repo)
+    assert proc.returncode == 0, proc.stderr
+    ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "RARV step 4" in ctx
+    assert "src.py" in ctx
+
+
+@_NEED_GIT
+@_NEED_JQ
+def test_writeback_hook_silent_when_continuity_written_after_work(
+    tmp_path: Path,
+) -> None:
+    """THE PRISTINE CONTROL. Same repo, same edit, but the write-back happened afterwards.
+
+    A hook that fired here would nag every compliant session into an 8-continuation stop chain,
+    which is worse than the missing behaviour it replaces.
+    """
+    repo = _writeback_repo(tmp_path)
+    (repo / "src.py").write_text("x = 2\n", encoding="utf-8")
+    time.sleep(1.1)
+    (repo / ".claude" / "CONTINUITY.md").write_text(
+        "# CONTINUITY\nverified\n", encoding="utf-8"
+    )
+
+    proc = _run("verify-continuity-writeback.sh", payload={}, project_dir=repo)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == "", proc.stdout
+
+
+@_NEED_GIT
+def test_writeback_hook_silent_on_clean_tree(tmp_path: Path) -> None:
+    """No changes means no claim to record — absence of work is not a violation."""
+    repo = _writeback_repo(tmp_path)
+    subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-q",
+            "-m",
+            "all",
+        ],
+        check=True,
+    )
+    proc = _run("verify-continuity-writeback.sh", payload={}, project_dir=repo)
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+@_NEED_GIT
+@_NEED_JQ
+def test_writeback_hook_ignores_its_own_state_dir(tmp_path: Path) -> None:
+    """Kit runtime state under .claude/ must not count as the session's work.
+
+    Without the exclusion the hook triggers on the CONTINUITY.md write it just asked for, which
+    is a self-sustaining nag loop rather than a check.
+    """
+    repo = _writeback_repo(tmp_path)
+    time.sleep(1.1)
+    (repo / ".claude" / "scratch.md").write_text("noise\n", encoding="utf-8")
+    proc = _run("verify-continuity-writeback.sh", payload={}, project_dir=repo)
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+@_NEED_GIT
+@_NEED_JQ
+def test_writeback_hook_stays_quiet_in_a_stop_chain(tmp_path: Path) -> None:
+    """stop_hook_active means one nudge already went out; a second would ping-pong the session."""
+    repo = _writeback_repo(tmp_path)
+    time.sleep(1.1)
+    (repo / "src.py").write_text("x = 3\n", encoding="utf-8")
+    proc = _run(
+        "verify-continuity-writeback.sh",
+        payload={"stop_hook_active": True},
+        project_dir=repo,
+    )
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+def test_writeback_hook_noop_outside_a_git_repo(tmp_path: Path) -> None:
+    """No git means the changed-file set is unknowable; unknown must degrade to silence."""
+    proc = _run("verify-continuity-writeback.sh", payload={}, project_dir=tmp_path)
+    assert proc.returncode == 0
+    assert proc.stdout == ""
+
+
+def _memory_project(tmp_path: Path, settings: str | None) -> Path:
+    mem = tmp_path / ".claude" / "agent-memory"
+    mem.mkdir(parents=True)
+    (mem / "MEMORY.md").write_text(
+        "# Index\n\n- [Lesson one](patterns/one.md) — hook\n", encoding="utf-8"
+    )
+    if settings is not None:
+        (tmp_path / ".claude" / "settings.json").write_text(settings, encoding="utf-8")
+    return tmp_path
+
+
+def test_load_learnings_says_capture_is_off_when_no_capture_hook(
+    tmp_path: Path,
+) -> None:
+    """The default install since 0.76.0. The old text promised automatic capture unconditionally.
+
+    That promise is false with capture consent-gated off, and it is self-defeating: an agent told
+    its learnings are already being recorded has no reason to record them. This is the half of the
+    pair that the previous wording got wrong, so it is the half worth pinning hardest.
+    """
+    proj = _memory_project(tmp_path, settings='{"hooks": {"Stop": []}}')
+    proc = _run("load-learnings.sh", project_dir=proj)
+    assert proc.returncode == 0
+    assert "Automatic capture is OFF" in proc.stdout
+    assert "/remember" in proc.stdout
+    assert "captured automatically" not in proc.stdout
+
+
+def test_load_learnings_says_capture_is_on_when_the_hook_is_installed(
+    tmp_path: Path,
+) -> None:
+    """The opposite arm: a project that DID opt in must not be told to record by hand."""
+    proj = _memory_project(
+        tmp_path,
+        settings='{"hooks": {"SessionEnd": [{"hooks": [{"command": "bash .claude/hooks/capture-learnings.sh end"}]}]}}',
+    )
+    proc = _run("load-learnings.sh", project_dir=proj)
+    assert proc.returncode == 0
+    assert "captured automatically" in proc.stdout
+    assert "Automatic capture is OFF" not in proc.stdout
+
+
+def test_load_learnings_assumes_capture_off_without_settings(tmp_path: Path) -> None:
+    """No settings.json means no capture hook can be running; claiming otherwise would be a guess."""
+    proc = _run("load-learnings.sh", project_dir=_memory_project(tmp_path, None))
+    assert proc.returncode == 0
+    assert "Automatic capture is OFF" in proc.stdout
