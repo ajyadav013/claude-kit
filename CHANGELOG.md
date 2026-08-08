@@ -4,6 +4,71 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.78.0] — 2026-08-08
+
+**Two decisions carried out of the 0.77.0 evaluation, one of which only half works.** Both are
+prose changes to shipped payload — no code, no schema, no CLI surface. They are released together
+because they answer the same question from opposite directions: what a rule is *for* when a hook
+already does the job, and what routing prose can make a session do.
+
+### Added
+
+- **`templates/CLAUDE.md` now says: do not perform a coordinator's role yourself — spawn the
+  coordinator.** The failure this addresses is not idleness but a convincing imitation. Measured on
+  the same task with the same agents installed, a session asked directly spawned `developer` and
+  `sdlc-code-reviewer` in sequence — the right leaf work, in the right order — but never spawned
+  `orchestrator`; asked for a security review it dispatched all four sub-scanners in parallel but
+  never spawned `security-reviewer`. The designed behaviour happened; the agent that owns the gate
+  ledger, stage order, lane/wave state and resume snapshot did not. **This works for one of the two
+  coordinators** (F-036, recorded `partially_fixed`, not `fixed`):
+
+  | coordinator | spawned itself | baseline | verdict |
+  |---|---|---|---|
+  | `security-reviewer` | 6/8 | 0/1 | works |
+  | `orchestrator` | 1/8 | 0/1 | does not — still ad-hoc |
+
+  Two wordings, 8 runs each. The combined 4/8 vs 3/8 is one run on n=4 and is noise; the per-agent
+  split is stable across both wordings. The `orchestrator` result reproduces E-060's conclusion —
+  the probe hands the session the orchestrator's own job description and then asks for the work, so
+  adopting the role is close to the reasonable reading of the prompt. Through `/sdlc` it dispatches
+  correctly. **If you want the pipeline, invoke `/claude-kit:sdlc`; do not rely on this paragraph to
+  route you there.**
+
+### Changed
+
+- **`rules/continuity.md` now states why it restates what the hook already does.** Ablation shows
+  `load-continuity.sh` is both necessary *and* sufficient for the file-observable half of the
+  continuity protocol: with the hook on, the behaviour happens whether or not the rule is loaded.
+  That makes the overlap read as dead weight — and deleting it would be wrong. Hooks are opt-out,
+  can be disabled per project, are skipped by harnesses that do not run `SessionStart`, and are the
+  first thing removed when someone is debugging. An install with no hooks still needs the resume
+  contract stated somewhere. The rule is now explicit that the prose is the contract and the hook is
+  one implementation of it, so neither may be deleted on the grounds that the other covers it
+  (E-020) — which is exactly the inference the ablation invites.
+
+### Not adopted (deliberately)
+
+- **A wording that routes through the `sdlc` skill instead of naming the agent.** It fired **0/8** —
+  with the skill installed (125 in the workspace), the `Skill` tool allow-listed, and the paragraph
+  verified present in the workspace `CLAUDE.md`. This is F-110 reproducing inside a fix for a
+  different finding: routing prose cannot delegate to a skill that will not trigger on task-shaped
+  work. It bounds what any instruction of this shape can achieve, so the shipped wording names the
+  agent directly. The skill-shaped variant is not a worse sentence, it is a sentence with no
+  mechanism behind it.
+
+- **Rewording until `orchestrator` self-spawns.** Two wordings at 8 runs each moved
+  `security-reviewer` to 6/8 and left `orchestrator` at 1/8; the split held across both. A third
+  wording was not attempted, because the per-agent stability says the variable is not the wording —
+  it is that the probe's prompt *is* the orchestrator's job description, and E-060 already reached
+  that conclusion once. Shipping a partial fix with the gap named is honest; iterating prose against
+  a probe artefact until the number moves is how a measurement becomes a target. F-036 stays open.
+
+- **F-110 itself.** Skills fire 19/20 on prompts that restate their own description and **0/90** on
+  realistic task-shaped work. Whether skills *ought* to surface unprompted, or are reference
+  material a session reads on demand, is a product decision rather than a defect to patch, and it is
+  unchanged by this release. The 19/20 figure should continue to be read as the easiest possible
+  case.
+
 ## [0.77.0] — 2026-08-04
 
 **The kit stopped fitting in the window it ships into.** Every rule in `.claude/rules/` loaded at
