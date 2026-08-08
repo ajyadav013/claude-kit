@@ -235,6 +235,24 @@ this project's way of doing the thing is not the model's default way. A fluent a
 the skill is the outcome this table exists to prevent — if a request matches a row above, read the
 skill before you act.
 
+**Do not perform a coordinator's role yourself — spawn the coordinator.** When the request is to
+build, change, or ship a feature, spawn `orchestrator` and let it drive; when it is to security-
+review a change, spawn `security-reviewer` and let it dispatch its own sub-scanners. Run
+`/claude-kit:sdlc` when you want the full pipeline. The failure this prevents is not idleness but a
+*convincing imitation*: measured on the same task with the same agents installed, a session asked
+directly spawned `developer` and `sdlc-code-reviewer` in sequence — the right leaf work, in the
+right order — but never spawned `orchestrator`; asked for a security review it dispatched all four
+sub-scanners in parallel but never spawned `security-reviewer`. The designed behaviour happened;
+the agent that owns it did not.
+
+That is fine until it isn't. The coordinator holds the gate ledger, the stage order, the lane and
+wave state, and the resume snapshot. A main session reconstructing those from context drifts first
+at the boundaries — a gate closed out of order, a stage skipped because its output already looked
+present, state lost across a compaction. Short tasks hide the difference; long ones do not.
+
+Reach for an individual pipeline agent directly only for a genuinely single-stage request — review
+this diff, scan this dependency.
+
 ---
 
 ## Project-specific rules
