@@ -4,6 +4,76 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.80.0] — 2026-08-14
+
+**Django is selectable.** The second Python framework goes live as a pure catalog change plus
+overlay content — no branch in `catalog.resolve()`, no `django-react` combo axis, no application
+code. `backend: {language: python, framework: django}` now resolves to a path-scoped overlay rule,
+six Django skills, and seven canonical commands including both migration verbs.
+
+Builds on [#85](https://github.com/ajyadav013/claude-kit/pull/85) by
+[@mohamedmenaa892-eng](https://github.com/mohamedmenaa892-eng), whose catalog flip and first draft
+of `django-patterns.md` are preserved in this branch's history.
+
+### Added
+
+- **Python/Django is a live stack** (`catalog/stacks.yaml`). Six skills install with it —
+  `django-service-patterns`, `django-rest-framework-patterns`, `django-rest-framework-packages`,
+  `django-migrations`, `django-async-patterns`, `django-react-integration` — alongside the shared
+  `api-and-interface-design`, `backend-repo-architecture`, `testing-conventions`, and
+  `dockerfile-backend`. Targets **Django 6.1**; every claim newer than the 5.2 LTS names the
+  release it landed in, so a project on the LTS can tell what does not yet apply.
+- **`django-patterns.md` overlay rule**, path-scoped to `**/*.py`: two-tier
+  `config/settings/{base,local,production}` layering with django-environ, a custom user model from
+  the first migration, the view → service → manager → model ladder, the WSGI-vs-ASGI decision
+  table, N+1 fixed in `get_queryset()`, and `makemigrations --check --dry-run` as a CI gate.
+- **Both migration command keys are populated.** `migrate` and `make_migration` were already in
+  `_BACKEND_CMD_KEYS`, but no live stack had used them — FastAPI leaves migrations to Alembic.
+  Django owns them through `manage.py`, so they now surface in the rendered `CLAUDE.md` Commands
+  block.
+- **`async-python-patterns` is deliberately absent from the Django lane.** `django-async-patterns`
+  supersedes it here (ASGI, the `a`-prefixed ORM, `CONN_MAX_AGE`), and the generic one is
+  FastAPI-owned.
+- **Tests:** `test_django_backend_is_live_and_resolves`; a `django` bucket in `_STACK_SKILLS` with
+  the arrival assertion parametrised over both Python frameworks (they are mutually exclusive
+  selections, so a single plan cannot prove both lanes); and a `django` entry in the Tier-A
+  `OVERLAY` eval whose "off" arm is **FastAPI**, not another language — that is what proves the
+  gate keys on the framework axis rather than merely on `backend_language`. `live_matrix()` is
+  catalog-driven, so Django joins the full profile × stack × scope sweep with no test edit.
+
+### Fixed
+
+- **Three transcription defects in the contributed `django-patterns.md`**: an unclosed ` ```bash `
+  fence that swallowed the end of the file, a `\Vert{}` LaTeX artifact where grep's `\|`
+  alternation belonged, and a missing trailing newline.
+
+### Not adopted (deliberately)
+
+- **A `django-react` combo stack, combo axis, or resolver branch.** The React+Django topology is
+  real, and it is exactly what `django-react-integration` documents — but a skill that
+  self-describes "when a React/SPA frontend is present" costs nothing, while a combo axis
+  multiplies the catalog by every frontend × backend pair and puts the first stack-specific branch
+  into a resolver whose whole value is being branch-free. The skill installs on the Django
+  selection alone and simply has nothing to say when there is no frontend.
+- **`django-ninja` as its own catalog framework entry.** It is async-first on Pydantic v2 and a
+  genuine alternative to DRF, so it is documented as one inside `django-rest-framework-patterns`
+  and `django-async-patterns`. A catalog entry would mean a third Python framework with its own
+  overlay rule and skill set, to serve a choice most projects make once — and make *inside* Django
+  rather than instead of it.
+- **`mcp_suggested: postgres` on the Django entry.** Added, then removed: the key is only ever set
+  on *database* entries, and Django + MongoDB is a valid selection the live matrix exercises.
+  Suggesting a database from the framework axis would be incoherent, not merely redundant.
+- **Django Channels / WebSockets beyond a pointer.** `django-async-patterns` names
+  `database_sync_to_async` and why a long-lived consumer needs it, which is the part that bites
+  people who are not otherwise doing Channels. The routing/consumer/layer surface is a topic of its
+  own and would go mostly unread by the projects installing this stack.
+- **MySQL, deployment targets, and generated application code.** Out of scope by the same rule as
+  every other stack: the kit ships configuration, never an app skeleton and never a Dockerfile it
+  did not have to.
+- **Teaching `detect.py` to recognise Django** (`manage.py` plus a `django` dependency). A
+  worthwhile heuristic, but detection is advisory and non-blocking, so it does not gate this
+  release and belongs in its own change rather than riding along with a catalog flip.
+
 ## [0.79.0] — 2026-08-08
 
 **Two ways the installer could destroy a file it had no business touching, and the escape hatch

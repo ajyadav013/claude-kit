@@ -96,9 +96,14 @@ Medium. Requires understanding the Svelte ecosystem (Svelte 4/5, TypeScript, Sve
 
 ---
 
-## Issue 3: Add Django Stack Overlay (Backend, Python)
+## Issue 3: Add Django Stack Overlay (Backend, Python) — ✅ SHIPPED in 0.80.0
 
 **Labels:** `good first issue`, `stack`, `help wanted`
+
+> **Closed.** Django went live in 0.80.0: the catalog entry dropped `status: planned`,
+> `templates/stacks/backend/python/django/rules/django-patterns.md` ships as a path-scoped overlay
+> rule, and six `django-*` skills install with the stack. The original brief is kept below as the
+> template for the remaining stack issues.
 
 ### Context
 

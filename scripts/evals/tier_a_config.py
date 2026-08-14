@@ -302,9 +302,6 @@ def fam_strictness(tmp: pathlib.Path) -> tuple[list[dict], dict[str, str]]:
 PLANNED = {
     "stack:frontend:vue": dict(frontend_framework="vue"),
     "stack:frontend:svelte": dict(frontend_framework="svelte"),
-    "stack:backend:python-django": dict(
-        backend_language="python", backend_framework="django"
-    ),
     "stack:backend-language:node": dict(
         backend_language="node", backend_framework="express"
     ),
@@ -382,6 +379,12 @@ OVERLAY = {
     "react": (
         dict(frontend_framework="react", frontend_language="typescript"),
         dict(frontend_framework="none"),
+    ),
+    # The "off" arm is the sibling Python framework, not a different language: that is what
+    # proves the gate keys on the framework axis rather than merely on `backend_language`.
+    "django": (
+        dict(backend_language="python", backend_framework="django"),
+        dict(backend_language="python", backend_framework="fastapi"),
     ),
 }
 

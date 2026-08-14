@@ -14,17 +14,17 @@ This document catalogues the gaps, explains why each matters, and defines what "
 
 ### 1. Stack coverage
 
-**The gap:** Only **React**, **Python/FastAPI**, **Go/net-http**, **PostgreSQL**, and **MongoDB** have shipped overlay content (rules, agents, skills) and are selectable. **Vue**, **Svelte**, **Django**, and **Node/Express** are listed in `catalog/stacks.yaml` with `status: planned` — they appear as "coming soon" but cannot be chosen; no overlay rules exist under `templates/stacks/` for them.
+**The gap:** Only **React**, **Python/FastAPI**, **Python/Django**, **Go/net-http**, **PostgreSQL**, and **MongoDB** have shipped overlay content (rules, agents, skills) and are selectable. **Vue**, **Svelte**, and **Node/Express** are listed in `catalog/stacks.yaml` with `status: planned` — they appear as "coming soon" but cannot be chosen; no overlay rules exist under `templates/stacks/` for them.
 
-**Why it matters:** A stack-agnostic scaffolder that only supports five stacks is misleading. The current catalog is honest (planned entries are marked and gates block their selection), but a 1.0 should either ship the common stacks or prune the planned list to reflect realistic scope.
+**Why it matters:** A stack-agnostic scaffolder that only supports six stacks is misleading. The current catalog is honest (planned entries are marked and gates block their selection), but a 1.0 should either ship the common stacks or prune the planned list to reflect realistic scope.
 
 **What "done" looks like:**
 
 - The standard web/API combinations (React/Vue/Svelte × FastAPI/Django/Express × Postgres/MongoDB) are selectable and have overlay rules that pass the `pytest` profile × stack × scope matrix, OR
 - The planned entries are removed from the catalog with a documented rationale (e.g., "focused on React + Python/Go; other frameworks via generic core rules only"), OR
-- A documented hybrid: React + Python/Go + Postgres/MongoDB are first-class (full overlays); Vue/Svelte/Django/Express remain planned and are explicitly listed as future additions with a public tracker.
+- A documented hybrid: React + Python/Go + Postgres/MongoDB are first-class (full overlays); Vue/Svelte/Express remain planned and are explicitly listed as future additions with a public tracker.
 
-Current status: **5 of 9** catalogued stacks are live.
+Current status: **6 of 9** catalogued stacks are live (Django shipped in 0.80.0).
 
 ### 2. Enforcement honesty: agent protocols vs. mechanical gates
 
@@ -115,7 +115,7 @@ Current status: `upgrade` preserves edits and is convergent; the `init-options.j
 
 ### 7. Test and CI surface: keep the matrix green and grow it as stacks land
 
-**The gap:** The `pytest` suite runs a **profile × stack × scope self-test matrix** — it scaffolds into temp directories, asserts the no-Docker invariant, checks profile subset inclusion, validates MCP gating, and verifies upgrade safety. The test surface is solid; it needs to **grow as stacks are added** (currently React, Python/FastAPI, Go/net-http, Postgres, Mongo are tested; Vue/Svelte/Django/Express will need tests when they ship).
+**The gap:** The `pytest` suite runs a **profile × stack × scope self-test matrix** — it scaffolds into temp directories, asserts the no-Docker invariant, checks profile subset inclusion, validates MCP gating, and verifies upgrade safety. The test surface is solid; it needs to **grow as stacks are added** (currently React, Python/FastAPI, Python/Django, Go/net-http, Postgres, Mongo are tested; Vue/Svelte/Express will need tests when they ship).
 
 **Why it matters:** A green CI suite that only tests five stacks is insufficient when the catalog advertises nine. Each new stack overlay must be mechanically verified to not leak Docker/app-code and to compose with all three profiles.
 
@@ -129,7 +129,7 @@ Current status: `upgrade` preserves edits and is convergent; the `init-options.j
   - Upgrade convergence (run `upgrade` twice; second is a no-op).
 - A `CONTRIBUTING.md` note that states: "Adding a stack requires a pytest case; CI will fail without it."
 
-Current status: the pytest self-test matrix (`tests/_helpers.py::live_matrix`) sweeps every live stack combination — React × {FastAPI, Go/net-http} × {Postgres, MongoDB} — across all three profiles (lean/standard/enterprise) and the team + organization scopes, install-and-validating each. All five live stacks are exercised. CI is green. No Vue/Svelte/Django/Express tests (those stacks are planned but not shipped).
+Current status: the pytest self-test matrix (`tests/_helpers.py::live_matrix`) sweeps every live stack combination — React × {FastAPI, Django, Go/net-http} × {Postgres, MongoDB} — across all three profiles (lean/standard/enterprise) and the team + organization scopes, install-and-validating each. All six live stacks are exercised; `live_matrix` is catalog-driven, so a stack joins the sweep the moment it goes live. CI is green. No Vue/Svelte/Express tests (those stacks are planned but not shipped).
 
 ---
 
@@ -148,7 +148,7 @@ Being honest about scope is as important as closing gaps. A 1.0 release will **n
 
 Contributions that close the above gaps are welcome. High-value areas:
 
-1. **Ship the planned stacks** (Vue, Svelte, Django, Node/Express) — overlay rules + pytest case. See [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
+1. **Ship the planned stacks** (Vue, Svelte, Node/Express) — overlay rules + pytest case. See [`CONTRIBUTING.md`](../../CONTRIBUTING.md).
 2. **Capture more real runs** across stacks/profiles/scopes. Run `/sdlc` on a real feature, then `scripts/capture-sdlc-run.sh`. Document the provenance (stack, profile, verdict, defect if any). See [`docs/capture-a-real-run.md`](../capture-a-real-run.md).
 3. **Improve hook portability** — pure-Python guard equivalents or a bundled minimal JSON parser for Windows.
 4. **Expand mechanical enforcement** — parse test-runner output (exit codes, JUnit XML, coverage JSON) and merge it with agent verdicts.
@@ -156,7 +156,7 @@ Contributions that close the above gaps are welcome. High-value areas:
 
 Issues tracking these gaps (map 1:1 to the numbered gaps above):
 
-1. Ship the planned stacks — [Vue #67](https://github.com/ajyadav013/claude-kit/issues/67) · [Svelte #68](https://github.com/ajyadav013/claude-kit/issues/68) · [Django #69](https://github.com/ajyadav013/claude-kit/issues/69) · [Express #70](https://github.com/ajyadav013/claude-kit/issues/70)
+1. Ship the planned stacks — [Vue #67](https://github.com/ajyadav013/claude-kit/issues/67) · [Svelte #68](https://github.com/ajyadav013/claude-kit/issues/68) · [Express #70](https://github.com/ajyadav013/claude-kit/issues/70) *(Django [#69](https://github.com/ajyadav013/claude-kit/issues/69) shipped in 0.80.0)*
 2. [Capture three real /sdlc runs across stacks/profiles/scopes — #72](https://github.com/ajyadav013/claude-kit/issues/72)
 3. [Improve hook portability (Windows, pure-Python guards) — #73](https://github.com/ajyadav013/claude-kit/issues/73)
 4. [Expand mechanical gate enforcement (parse test-runner output) — #74](https://github.com/ajyadav013/claude-kit/issues/74)

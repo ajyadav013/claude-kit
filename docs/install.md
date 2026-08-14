@@ -122,8 +122,8 @@ README.claude-sdlc.md
 
 - **Stack-agnostic core** — the pipeline assumes no language or framework; it never writes your app
   code and never needs Docker.
-- **13 stack overlay rule files** layer matching guidance on top — React, FastAPI, Go/net-http,
-  PostgreSQL, MongoDB — wired to your exact lint/test/build commands. Overlays are **path-scoped**
+- **14 stack overlay rule files** layer matching guidance on top — React, FastAPI, Django,
+  Go/net-http, PostgreSQL, MongoDB — wired to your exact lint/test/build commands. Overlays are **path-scoped**
   (`paths:` frontmatter) so they enter context only when Claude touches matching files; MongoDB's
   stays always-on (a document store has no reliable file signal to scope by).
 - **Installs are stack-true** — every lane offers `none` (backend-only, frontend-only, no-database
