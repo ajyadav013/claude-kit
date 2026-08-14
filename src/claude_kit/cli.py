@@ -215,7 +215,11 @@ def init(
     force: bool = typer.Option(
         False,
         "--force",
-        help="overwrite existing CLAUDE.md / settings.json / .mcp.json",
+        help=(
+            "overwrite mode: replace CLAUDE.md / settings.json / .mcp.json and rebuild the "
+            "kit-owned trees (rules/, skills/, templates/). Your own files in those trees are "
+            "moved to .claude-kit.bak-N/, not deleted. Omit --force to merge instead."
+        ),
     ),
     dry_run: bool = typer.Option(
         False,

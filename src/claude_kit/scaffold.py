@@ -19,7 +19,7 @@ import tempfile
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import yaml
 
@@ -79,11 +79,100 @@ def payload_dir(stack: ExitStack) -> Path:
 # --- small fs helpers ------------------------------------------------------------------------------
 
 
-def _copy_tree(src: Path, dest: Path) -> None:
-    """Replace ``dest`` with a copy of ``src`` (directory)."""
+class _Rescue(NamedTuple):
+    """Where to preserve user files a directory-replacing install would otherwise delete.
+
+    Attributes:
+        root: The ``.claude-kit.bak-N/`` directory (created lazily, on the first rescue).
+        target: Project root, used to mirror each rescued file's project-relative path.
+    """
+
+    root: Path
+    target: Path
+
+
+def next_backup_dir(target: Path) -> Path:
+    """Return a fresh, non-existing ``.claude-kit.bak-N/`` directory under ``target``."""
+    n = 1
+    while (target / f".claude-kit.bak-{n}").exists():
+        n += 1
+    return target / f".claude-kit.bak-{n}"
+
+
+def _rescue_extraneous(
+    src: Path,
+    dest: Path,
+    rescue: _Rescue | None,
+    also_shipped: frozenset[str],
+) -> list[Path]:
+    """Move files in ``dest`` that this install will not rewrite into the rescue directory.
+
+    ``_copy_tree`` replaces a whole directory, which is right for kit-owned trees but would also
+    take anything the user added to them — a hand-written ``.claude/rules/team-conventions.md``, an
+    extra artifact template. Those files are not tracked in ``init-options.json`` (the kit never
+    wrote them), so no other safety net covers them. Moving them aside preserves the clean-replace
+    semantics for kit content while making the operation recoverable.
+
+    Args:
+        src: The reference tree about to be copied over ``dest``.
+        dest: The live directory being replaced.
+        rescue: Where to move rescued files, and the project root to mirror paths against.
+            ``None`` disables rescue (used when ``dest`` is a throwaway render sandbox, where
+            every file is kit-written by definition).
+        also_shipped: Names the *caller* writes into ``dest`` after the replace — overlay and org
+            rules land in ``.claude/rules/`` one file at a time, after the core tree is copied, so
+            without this they would look like user additions on every re-install.
+
+    Returns:
+        The rescued paths, relative to ``dest``, for the caller to log.
+    """
+    if rescue is None or not dest.is_dir():
+        return []
+    rescued: list[Path] = []
+    for live in sorted(dest.rglob("*")):
+        if not live.is_file():
+            continue
+        rel = live.relative_to(dest)
+        if (src / rel).is_file() or rel.as_posix() in also_shipped:
+            continue  # this install rewrites the path — a normal refresh, not a loss
+        # Mirror the project-relative path so a rescued file is unambiguous, matching the layout
+        # `upgrade` already uses for .claude-kit.bak-N/.
+        try:
+            keep = rescue.root / dest.relative_to(rescue.target) / rel
+        except ValueError:  # pragma: no cover - dest is always under target in practice
+            keep = rescue.root / dest.name / rel
+        keep.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(live), str(keep))
+        rescued.append(rel)
+    return rescued
+
+
+def _copy_tree(
+    src: Path,
+    dest: Path,
+    *,
+    rescue: _Rescue | None = None,
+    log: list[str] | None = None,
+    also_shipped: frozenset[str] = frozenset(),
+) -> None:
+    """Replace ``dest`` with a copy of ``src`` (directory), rescuing files this install won't rewrite.
+
+    Args:
+        src: Reference directory to copy.
+        dest: Directory to replace.
+        rescue: When set, files unique to ``dest`` are moved there instead of being deleted.
+        log: Optional install log to append a line to when anything was rescued.
+        also_shipped: Paths (relative to ``dest``) the caller writes after the replace.
+    """
+    rescued = _rescue_extraneous(src, dest, rescue, also_shipped)
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src, dest)
+    if rescued and log is not None and rescue is not None:
+        shown = ", ".join(str(r) for r in rescued[:3])
+        more = f" (+{len(rescued) - 3} more)" if len(rescued) > 3 else ""
+        where = rescue.root.name
+        log.append(f"  • kept your {dest.name}/ additions -> {where}/: {shown}{more}")
 
 
 def _copy_user_file(
@@ -160,10 +249,28 @@ def _find_overlay(
 # --- install steps ---------------------------------------------------------------------------------
 
 
-def _install_rules(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:
+def _install_rules(
+    src: Path,
+    dest: Path,
+    plan: ResolvedPlan,
+    log: list[str],
+    rescue: _Rescue | None = None,
+) -> None:
     """Install all core rules plus the selected overlay rules into ``.claude/rules/``."""
     rules_dest = dest / "rules"
-    _copy_tree(src / "rules", rules_dest)
+    # Overlay rules (and org rules, installed later by _install_org) are written into this same
+    # directory file-by-file after the core tree is replaced. Declaring them keeps a re-install
+    # from mistaking last run's overlay rules for the user's own additions.
+    later = set(plan.overlay_rules)
+    if plan.org is not None:
+        later |= set(plan.org.org_rules)
+    _copy_tree(
+        src / "rules",
+        rules_dest,
+        rescue=rescue,
+        log=log,
+        also_shipped=frozenset(later),
+    )
     log.append(f"  • rules/ ({sum(1 for _ in rules_dest.glob('*.md'))} core)")
     for name in plan.overlay_rules:
         found = _find_overlay(src, plan.stack_dirs, "rules", name)
@@ -196,7 +303,13 @@ def _install_agents(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -
             log.append(f"  ! overlay agent missing (skipped): {name}")
 
 
-def _install_skills(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:
+def _install_skills(
+    src: Path,
+    dest: Path,
+    plan: ResolvedPlan,
+    log: list[str],
+    rescue: _Rescue | None = None,
+) -> None:
     """Install the profile's skill subset into ``.claude/skills/``."""
     skills_dest = dest / "skills"
     skills_dest.mkdir(parents=True, exist_ok=True)
@@ -204,7 +317,7 @@ def _install_skills(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -
     for name in plan.skills:
         srcd = src / "skills" / name
         if (srcd / "SKILL.md").is_file():
-            _copy_tree(srcd, skills_dest / name)
+            _copy_tree(srcd, skills_dest / name, rescue=rescue, log=log)
             installed += 1
         else:
             log.append(f"  ! skill missing (skipped): {name}")
@@ -213,11 +326,17 @@ def _install_skills(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -
     # files link into .claude/skills/_references/…; copy it so those "See Also" links resolve.
     refs_src = src / "skills" / "_references"
     if refs_src.is_dir():
-        _copy_tree(refs_src, skills_dest / "_references")
+        _copy_tree(refs_src, skills_dest / "_references", rescue=rescue, log=log)
         log.append("  • skills/_references/ (shared deep-dive references)")
 
 
-def _install_org(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> None:
+def _install_org(
+    src: Path,
+    dest: Path,
+    plan: ResolvedPlan,
+    log: list[str],
+    rescue: _Rescue | None = None,
+) -> None:
     """Install the org capability layer (only when ``plan.org`` is present — organization scope).
 
     The new skills/agents/rules install into the standard auto-discovered ``.claude/`` dirs (so Claude
@@ -232,7 +351,7 @@ def _install_org(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> N
     for name in org.org_skills:
         srcd = org_src / "skills" / name
         if (srcd / "SKILL.md").is_file():
-            _copy_tree(srcd, dest / "skills" / name)
+            _copy_tree(srcd, dest / "skills" / name, rescue=rescue, log=log)
         else:
             log.append(f"  ! org skill missing (skipped): {name}")
     for name in org.org_agents:
@@ -262,7 +381,7 @@ def _install_org(src: Path, dest: Path, plan: ResolvedPlan, log: list[str]) -> N
         for pack in org.packs:
             srcd = org_src / "packs" / pack
             if (srcd / "pack.yaml").is_file():
-                _copy_tree(srcd, packs_dest / pack)
+                _copy_tree(srcd, packs_dest / pack, rescue=rescue, log=log)
                 installed += 1
             else:
                 log.append(f"  ! org pack missing (skipped): {pack}")
@@ -291,13 +410,15 @@ def _install_hooks_and_settings(
     )
 
 
-def _install_artifact_templates(src: Path, dest: Path, log: list[str]) -> None:
+def _install_artifact_templates(
+    src: Path, dest: Path, log: list[str], rescue: _Rescue | None = None
+) -> None:
     """Install the artifact markdown templates into ``.claude/templates/``."""
     srcd = src / "templates" / "artifacts"
     if not srcd.is_dir():
         return
     tdest = dest / "templates"
-    _copy_tree(srcd, tdest)
+    _copy_tree(srcd, tdest, rescue=rescue, log=log)
     log.append(
         f"  • templates/ ({sum(1 for _ in tdest.glob('*.md'))} artifact templates)"
     )
@@ -634,17 +755,23 @@ def install_sdlc(
             log.append(f"  • detected commands: {', '.join(sorted(overrides))}")
         plan.detected_commands = overrides
 
-    _install_rules(src, dest, plan, log)
+    # Directory installs replace whole trees. Anything the user added to one of those trees is not
+    # tracked in init-options.json (the kit never wrote it), so it gets moved here instead of
+    # deleted. The directory is created lazily by the first rescue — a fresh install, and the
+    # sandbox render used by merge/upgrade, never create one because there is nothing to rescue.
+    rescue = _Rescue(root=next_backup_dir(target), target=target)
+
+    _install_rules(src, dest, plan, log, rescue)
     _write_claude_md(src, target, plan, force=force, log=log)
     shutil.copy2(
         src / "templates" / "CONTINUITY.template.md", dest / "CONTINUITY.template.md"
     )
     _install_agents(src, dest, plan, log)
-    _install_skills(src, dest, plan, log)
-    _install_org(src, dest, plan, log)
+    _install_skills(src, dest, plan, log, rescue)
+    _install_org(src, dest, plan, log, rescue)
     _seed_agent_memory(src, dest, log)
     _install_hooks_and_settings(src, dest, plan, force=force, log=log)
-    _install_artifact_templates(src, dest, log)
+    _install_artifact_templates(src, dest, log, rescue)
     _install_loop_script(src, dest, log)
     _write_mcp(target, plan, force=force, log=log)
     _write_readme(src, target, plan, force=force, log=log)

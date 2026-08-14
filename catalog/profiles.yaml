@@ -3,7 +3,13 @@
 #
 # Each profile lists agents / skills / gates / hooks. `inherit: <profile>` composes on top of
 # another profile (this profile's lists are unioned with the inherited ones). The special value
-# `all` means "every available item discovered in the payload" (agents/, skills/, hooks/).
+# `all` means "every available item discovered in the payload".
+#
+# `all` is appropriate for `hooks:` — the hook registry is small, closed, and every hook is
+# stack-neutral, so "all of them" is a real statement of intent. It is NOT appropriate for
+# `skills:`: skills are numerous and many are stack-flavored, so `all` silently turned every new
+# directory in skills/ into an enterprise install and put it in the skill picker. Enumerate skills;
+# gate the stack-specific ones through catalog/stacks.yaml's `skills:` union instead.
 #
 # ORDER CONVENTION for `gates:` — gates are the one list where order is data: the resolved list
 # lands execution-ordered in stack-catalog.snapshot.yaml and `claude-kit pipeline close-gate`
@@ -128,6 +134,70 @@ profiles:
       - auditor
       - incident-responder
       - risk-classifier
-    skills: all
+    # ENUMERATED, not `all`. `skills: all` used to mean "every directory in skills/", which made the
+    # richest profile the least targeted one: a Go service with no frontend and no database still
+    # received React, FastAPI and Alembic skills — ~55k lines of content for a stack the project
+    # does not use, all of it competing in the skill picker. Everything stack-flavored now rides
+    # catalog/stacks.yaml's `skills:` union instead (installed only when that stack is selected),
+    # and what remains here is what an enterprise pipeline needs regardless of stack.
+    #
+    # Adding a skill to the payload therefore no longer installs it by default — name it in a
+    # profile (stack-agnostic) or in a stacks.yaml union (stack-specific). That is the point:
+    # membership is a decision, not a side effect of creating a directory.
+    skills:
+      # Operate / run: the stages enterprise adds over standard (pipeline-green, observability-ready).
+      - ci-cd-and-automation
+      - observability-and-logging
+      - otel-tracing
+      - grafana-dashboards-and-alerts
+      - kubectl-operations
+      - kubernetes-workload-hardening
+      - containerization-and-deployment
+      - docker-compose
+      - docker-shared
+      - gcp-cloud-run-github-actions
+      - cron-and-scheduled-jobs
+      # Design / architecture reference used by technical-architect and the auditor.
+      - design-patterns-and-conventions
+      - distributed-systems-patterns
+      - object-oriented-design
+      - system-design-patterns
+      - safety-critical-patterns
+      - multi-tenancy-patterns
+      - edge-to-service-trust-boundary
+      - auth-and-rbac
+      - api-pagination-filtering-sorting
+      - graphql-patterns
+      - redis-caching-patterns
+      - notifications-and-messaging
+      - file-export-and-reporting
+      # Change management: the auditor / risk-classifier surface.
+      - dependency-verification
+      - deprecation-and-migration
+      - modernization-and-migration
+      - library-review
+      - shell-review
+      # Data / eventing platforms.
+      - kafka-config-driven
+      - temporal-config-driven
+      - temporal-developer
+      - data-engineering-bigquery-gcs
+      - gcs-file-storage-patterns
+      # LLM-product engineering.
+      - anthropic-vertex-integration
+      - langfuse-llm-tracing
+      - llm-caching-strategies
+      - llm-gateway-and-routing
+      - llm-inference-optimization
+      - rag-and-model-tuning
+      # Delivery workflow.
+      - sprint
+      - backlog
+      - archive-sprint
+      - triage
+      - shipping-and-launch
+      - consolidate-learnings
+      - doc-consolidation
+      - playwright-verification
     gates: [spec-complete, em-approved, code-review, build-green, contract-clear, test-coverage, security-clear, pipeline-green, observability-ready, acceptance]
     hooks: all

@@ -270,13 +270,31 @@ def test_corrupt_init_options_is_distinguished_from_a_missing_one(tmp_path, payl
     cfg.write_text("{not json", encoding="utf-8")
     ok, messages = upgrader.upgrade(tmp_path)
     assert not ok
-    assert any("unreadable (invalid JSON)" in m for m in messages), messages
+    assert any("unreadable" in m and "not valid JSON" in m for m in messages), messages
 
     cfg.unlink()
     ok, messages = upgrader.upgrade(tmp_path)
     assert not ok
     assert any("predates upgrade tracking" in m for m in messages), messages
-    assert not any("invalid JSON" in m for m in messages)
+    assert not any("not valid JSON" in m for m in messages)
+
+
+def test_a_manifest_path_escaping_the_project_reads_as_corrupt(tmp_path, payload):
+    """Well-formed JSON is still an unreadable manifest when a recorded path leaves the root.
+
+    The remedy the operator needs is the same as for malformed JSON (repair or re-init), so it
+    shares that message — but it must be *reached*, not silently obeyed, since the upgrader
+    resolves recorded paths against the project and deletes orphans among them.
+    """
+    install(payload, tmp_path)
+    cfg = tmp_path / ".claude" / "config" / "init-options.json"
+    doc = json.loads(cfg.read_text(encoding="utf-8"))
+    doc["files"].append({"path": "../escape.md", "sha256": "0" * 64, "owner": "kit"})
+    cfg.write_text(json.dumps(doc), encoding="utf-8")
+
+    ok, messages = upgrader.upgrade(tmp_path)
+    assert not ok
+    assert any("project-relative" in m for m in messages), messages
 
 
 def test_orphan_the_user_already_deleted_is_not_planned_for_removal(tmp_path, payload):
@@ -336,7 +354,10 @@ def test_explain_error_covers_every_compare_failure_code(tmp_path):
         seen[code] = msgs[0]
     assert len({*seen.values()}) == 3, f"two codes share a message: {seen}"
     assert "claude-kit init" in seen["not-installed"]
-    assert "invalid JSON" in seen["corrupt-options"]
+    # The corrupt case now has two causes — malformed JSON and a path that escapes the project —
+    # and the message must name both, since the fix differs even though the remedy does not.
+    assert "not valid JSON" in seen["corrupt-options"]
+    assert "project-relative" in seen["corrupt-options"]
     assert "predates upgrade tracking" in seen["no-options"]
 
 
