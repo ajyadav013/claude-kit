@@ -84,7 +84,10 @@ The following technologies were **absent** in the analyzed production codebases 
 1. **SQLModel** — Not used in any service; all services use SQLAlchemy ORM + Pydantic schemas separately.
 2. **Tortoise ORM** — Not used in any service; SQLAlchemy is the standard ORM.
 3. **beanie / motor (async MongoDB)** — Only one service uses MongoDB, which uses **sync pymongo** with a static-class DAO. No async MongoDB drivers detected.
-4. **Django** — Not used; FastAPI is the standard framework.
+4. **Django** — Not used; FastAPI is the standard framework. *(Still true of the analyzed
+   codebases. Since 0.80.0 the kit ships six `django-*` skills anyway — written against upstream
+   Django 6.1, DRF, and cookiecutter-django, not extracted from these repos. This entry records
+   what the analysis saw, not what the kit covers.)*
 5. **Flask** — Not used; FastAPI is the standard framework.
 6. **Celery** — Not used; async work is delegated to **Temporal** or **Kafka**, not Celery queues.
 7. **RabbitMQ / AWS SQS** — Not used; Kafka is the standard message broker.

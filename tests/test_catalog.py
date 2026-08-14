@@ -171,6 +171,36 @@ def test_go_backend_is_live_and_resolves(payload):
     )
 
 
+def test_django_backend_is_live_and_resolves(payload):
+    """Django is a live, selectable second Python framework: its overlay rule, its own skills,
+    and both migration command keys resolve — without disturbing the FastAPI lane."""
+    plan = catalog.resolve(
+        payload,
+        make_selection(payload, backend_language="python", backend_framework="django"),
+    )
+    assert "django-patterns.md" in plan.overlay_rules
+    assert "fastapi-patterns.md" not in plan.overlay_rules
+    # Django owns migrations through manage.py, so both command keys are populated — unlike
+    # FastAPI, which leaves them to Alembic and declares neither.
+    assert plan.context["backend_migrate_cmd"] == "uv run python manage.py migrate"
+    assert (
+        plan.context["backend_make_migration_cmd"]
+        == "uv run python manage.py makemigrations"
+    )
+    # The Django-owned skills arrive; the FastAPI-owned ones stay behind.
+    assert "django-service-patterns" in plan.skills
+    assert "django-migrations" in plan.skills
+    assert "alembic-migrations" not in plan.skills
+    assert "async-python-patterns" not in plan.skills
+    # It is offered as a live (not planned) framework by list-options.
+    python = next(
+        b for b in catalog.list_options(payload)["backend"] if b["id"] == "python"
+    )
+    assert any(
+        fw["id"] == "django" and fw["status"] == "live" for fw in python["frameworks"]
+    )
+
+
 def test_mongo_selection_swaps_db_overlays(payload):
     plan = catalog.resolve(payload, make_selection(payload, database="mongodb"))
     assert "mongodb-patterns.md" in plan.overlay_rules

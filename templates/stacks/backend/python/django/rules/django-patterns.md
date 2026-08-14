@@ -10,54 +10,112 @@ when the **Python · Django** stack is selected. It complements the generic rule
 `.claude/rules/code-organization.md`, `.claude/rules/design-patterns.md`, and
 `.claude/rules/testing.md` first; this file makes them concrete for Django.
 
+Depth lives in the skills this stack installs: `django-service-patterns` (layout, settings,
+services), `django-rest-framework-patterns` (the API layer), `django-migrations`,
+`django-async-patterns`, and `django-react-integration`. This rule carries only the decisions that
+must not be got wrong, and points at the skill for the rest.
+
 ## Stack
 
-- **Python 3.11+**, **Django 4.2+ / 5.0+**, **Django REST Framework (DRF)** (or standard Django views), and **Django ORM** as the data layer.
-- Tests: Django built-in test runner (`django.test.TestCase`) or **pytest-django**.
-- Tooling: **black** (formatting), **flake8** (linting) or **ruff**.
+- **Python 3.12+**, **Django 6.1**, **Django REST Framework (DRF)**, and the **Django ORM** as the
+  data layer. Version-sensitive advice below names the release it landed in, so a project pinned to
+  the **5.2 LTS** can tell what does not yet apply.
+- Dependencies: **uv**. Tests: **pytest-django**. Lint/format: **ruff** (+ **mypy**).
 
 Run the project's own commands for these tasks (see the **Commands** section of `CLAUDE.md`):
-install, run/dev, test, lint, format, migrate.
+install, run/dev, test, lint, format, migrate, make-migration.
+
+## Project layout
+
+Two tiers, and do not collapse them:
+
+```
+config/            project package — settings/, urls.py, wsgi.py, asgi.py
+  settings/
+    base.py        everything shared
+    local.py       DEBUG, dev-only apps           } each imports from base
+    production.py  hardened, secrets from env     }
+<project>/         your apps live here, one directory per domain unit
+  users/           models.py managers.py services.py serializers.py views.py urls.py tests/
+  orders/
+```
+
+- **Split settings, never one `settings.py` with `if DEBUG:` branches.** The branchy single file is
+  how a dev-only default reaches production.
+- **Read config through `django-environ`**, and only inside `config/settings/`. No `os.environ`
+  anywhere else — a setting read at import time in an app module is unmockable in tests and
+  invisible to `check --deploy`.
+- **An app is a domain unit**, not a layer. `orders/`, not `models/`.
+
+## Define a custom user model in the first migration
+
+```python
+# users/models.py
+class User(AbstractUser): ...
+
+# config/settings/base.py
+AUTH_USER_MODEL = "users.User"
+```
+
+Swapping `AUTH_USER_MODEL` after the initial migration is one of the genuinely painful migrations in
+Django — it is a hard dependency of `auth`, `admin`, and every `ForeignKey` already pointing at it.
+Do it on day one even when the model is empty. Reference the user model as
+`settings.AUTH_USER_MODEL` in FKs and `get_user_model()` at runtime; never import `User` directly.
 
 ## Layered architecture (never skip a layer)
 
 ```
 view/viewset (app/views.py)   HTTP only: validate/deserialize via Serializer, call service/manager, map errors → HTTP
-→ service (app/services.py) optional business logic; raises domain errors; no DRF/HTTP imports
+→ service (app/services.py) business logic; raises domain errors; no DRF/HTTP imports
 → manager (app/managers.py) custom QuerySets and database query scopes
-→ model (app/models.py)   Django ORM models & database schemas
-serializer (app/serializers.py) DRF serializer models — the API contract
-urls (app/urls.py)            explicit URL routing mapping endpoints to Views
+→ model (app/models.py)     Django ORM models & database schemas
+serializer (app/serializers.py) DRF serializer — the API contract
+urls (app/urls.py)            explicit URL routing mapping endpoints to views
 ```
 
 Rules of thumb:
-- **Views stay thin.** No raw database queries or complex business logic. Translate domain exceptions to DRF's `APIException` or HTTP status-specific exceptions.
-- **Services/Managers never import DRF views.** They raise domain errors (e.g. `ObjectDoesNotExist`); the view decides the HTTP response status code.
-- **Use transactions explicitly.** Django auto-commits transactions by default. Use `transaction.atomic` block wrappers in your services or views for multiple dependent database writes.
-- **Serializers are separate from raw database outputs.** Always validate inbound data and sanitize outbound response shapes through DRF Serializers.
+
+- **Views stay thin.** No raw database queries and no business logic. Translate domain exceptions
+  into DRF's `APIException` subclasses.
+- **Services and managers never import DRF or views.** They raise domain errors; the view alone
+  decides the status code. This is what keeps the logic callable from a management command, a
+  Celery task, or a test without an HTTP request.
+- **Fat models, thin views.** Behaviour belongs on the model, a custom `QuerySet`/manager, or
+  `services.py` — reach for `services.py` once the logic spans more than one model.
+- **Transactions are explicit.** Django autocommits per query. Wrap multi-write operations in
+  `transaction.atomic`, and use `transaction.on_commit()` for anything with an external side effect
+  (email, task enqueue, webhook) so it cannot fire for a rolled-back write.
+- **Serializers are the boundary.** Validate everything inbound and shape everything outbound
+  through them; never return a model `__dict__` or `values()` straight to the client.
 
 ## Adding a new resource (the recipe)
 
 To add `<thing>`:
 
-1. **Model** — Declare class `<Thing>` in `app/models.py` (or `app/models/<thing>.py`).
-2. **Serializer** — Define `<Thing>Serializer` in `app/serializers.py` with explicit fields.
-3. **Manager / QuerySet** — (Optional) Add custom `<Thing>QuerySet` for encapsulated query scopes.
-4. **View / ViewSet** — Define `<Thing>ViewSet` (or view functions) in `app/views.py`.
-5. **URLs** — Map route in `app/urls.py` using DRF `DefaultRouter` or standard `path()`.
-6. **Migration** — Generate database migration via `python manage.py makemigrations` and review it.
-7. **Tests** — Create unit/integration tests in `app/tests/` covering serialization, business logic, and API HTTP responses.
+1. **Model** — declare `<Thing>` in `app/models.py` (or `app/models/<thing>.py`).
+2. **Manager / QuerySet** — add `<Thing>QuerySet` for any query scope used more than once.
+3. **Service** — put the business rules in `app/services.py` if they span models or have side effects.
+4. **Serializer** — define `<Thing>Serializer` with an **explicit** `fields` tuple.
+5. **View / ViewSet** — define `<Thing>ViewSet` in `app/views.py`; select/prefetch in `get_queryset()`.
+6. **URLs** — register on the router in `app/urls.py`.
+7. **Migration** — generate it, then **read it** before committing.
+8. **Tests** — `app/tests/` covering the service, the serializer, and the endpoint's status codes.
 
 ## Conventions
 
 - **Type everything.** Annotate public functions and methods per `.claude/rules/documentation.md`.
-- **Settings via env.** Rely on `django-environ` or `python-decouple` in `settings.py`; never call `os.environ` directly outside settings.
-- **Errors:** Raise standard Django exceptions (`ValidationError`, `ObjectDoesNotExist`) or domain-specific exceptions, then map them properly in your views to avoid leaking internal tracebacks.
-- **Migrations are reviewed, not trusted.** Always run `makemigrations` and inspect the generated migration file before running `migrate`. Look closely at defaults, column renames, and nullable constraints.
+- **Errors:** raise Django or domain exceptions (`ValidationError`, `ObjectDoesNotExist`,
+  `PermissionDenied`), then map them in the view. Never let a traceback reach a client.
+- **Migrations are reviewed, not trusted.** `makemigrations` guesses, and it guesses worst at
+  renames — a field rename frequently emits as a drop plus an add, which is silent data loss. Read
+  every generated file. See the `django-migrations` skill.
+- **`makemigrations --check --dry-run` runs in CI.** Non-zero exit means a model change was
+  committed without its migration. Without this gate, that surfaces at deploy time on someone
+  else's branch.
 
 ## HTTP status & error mapping
 
-This is the concrete mapping the view applies when translating domain results/errors to HTTP:
+The concrete mapping the view applies when translating domain results and errors to HTTP:
 
 **Method → success status:**
 
@@ -66,54 +124,103 @@ This is the concrete mapping the view applies when translating domain results/er
 | Create | `POST` | `201 Created` |
 | Read / list | `GET` | `200 OK` |
 | Full/partial update | `PUT` / `PATCH` | `200 OK` (return the updated resource) |
-| Delete | `DELETE` | `204 No Content` or `200 OK` |
+| Delete | `DELETE` | `204 No Content` |
 
 **Domain exception → status:**
 
 | Domain exception | Status |
 |---|---|
 | `ObjectDoesNotExist` / `<Thing>NotFoundError` | `404 Not Found` |
-| `ValidationError` (e.g. bad inputs) | `400 Bad Request` / `422 Unprocessable Entity` |
+| `ValidationError` (bad inputs) | `400 Bad Request` |
 | `PermissionDenied` | `403 Forbidden` |
-| Conflict / IntegrityError | `409 Conflict` |
+| `IntegrityError` / domain conflict | `409 Conflict` |
 
-## Service-layer & ORM conventions
+## ORM conventions
 
-- **Avoid N+1 Queries.** When fetching related data, always use:
-  * `select_related(*fields)` for forward Foreign Key and One-to-One relationships.
-  * `prefetch_related(*fields)` for Many-to-Many and reverse Foreign Key relations.
-- **Fat Models, Thin Views.** Enforce business logic inside Model methods, Custom QuerySets, or dedicated Service files. Keep Views focused only on request parsing and response mapping.
-- **Soft delete.** If soft-deleting, use a custom Manager (e.g. `ActiveManager`) that filters out `is_deleted=True` by default.
+- **Fix N+1 in `get_queryset()`, not in the serializer.** A nested serializer issues one query per
+  row, and the serializer is the wrong place to notice:
+  - `select_related(*fields)` — forward `ForeignKey` and `OneToOne` (SQL join).
+  - `prefetch_related(*fields)` — `ManyToMany` and reverse `ForeignKey` (second query).
+- **Assert the query count** with `django_assert_num_queries`. An N+1 that is only slow does not
+  fail a test; a pinned count does.
+- **`.only()` / `.defer()` are a trap without care** — a deferred field touched later triggers a
+  per-row query, which is the N+1 you were avoiding.
+- **Soft delete via a custom manager** (e.g. `ActiveManager`) filtering `is_deleted=True` by
+  default. Keep an unfiltered manager available for admin and data repair.
+- **`bulk_create` / `bulk_update` skip `save()` and signals.** That is the point, and it is also
+  the bug when something downstream depended on a signal.
 
 ## Naming on the wire
 
-Keep field names **`snake_case` end to end** across models, serializers, and JSON outputs to match Django and Python ecosystem defaults.
+Keep field names **`snake_case` end to end** across models, serializers, and JSON, matching the
+Django and Python ecosystem default. Do not camel-case at the serializer boundary just to suit a
+JavaScript client — see `django-react-integration` for generating a typed client instead.
 
-## Reading live database state
+## WSGI or ASGI
 
-When inspecting live database states, always use Django’s official tools:
-* Use the Django interactive shell: `python manage.py shell`.
-* Never run raw external scripts that bypass Django's configuration wrapper.
+Pick deliberately; it constrains everything downstream.
+
+| Workload | Deploy under |
+|---|---|
+| CRUD over a database, server-rendered or JSON | **WSGI** — gunicorn sync workers. Simpler, and correct. |
+| WebSockets, SSE, long-lived connections | **ASGI** — WSGI cannot express these. |
+| A view fanning out to several slow third-party APIs | **ASGI** for concurrency on that path. |
+| High volume, all database-bound | **WSGI** — the ceiling is the connection pool, and async does not raise it. |
+
+Under ASGI, **`CONN_MAX_AGE` must be `0`** — persistent connections bind to a thread that the async
+request path does not guarantee, so the pool leaks under load and only under load. DRF is sync-only;
+see `django-async-patterns` before converting anything.
 
 ## Which tests to run for a change
 
-Route by what changed:
+Route by what changed (`pytest` scoped to the area; see `CLAUDE.md` Commands):
 
 | Changed | Run |
 |---|---|
-| a model/manager | `python manage.py test app.tests.test_models` |
-| a serializer | `python manage.py test app.tests.test_serializers` |
-| a view / URL | `python manage.py test app.tests.test_views` |
-| cross-cutting changes | the full test suite via `python manage.py test` |
+| a model / manager | that app's `tests/test_models.py` |
+| a service | that app's `tests/test_services.py` |
+| a serializer | serializer tests **and** the API tests — the serializer is the wire contract |
+| a view / URL | that app's `tests/test_views.py` |
+| settings, middleware, or cross-cutting | the full suite |
+
+Use `pytest.mark.django_db` deliberately: a test that does not need the database should not take
+it, and one that does should say so rather than relying on a fixture side effect.
+
+## Reading live database state
+
+Use Django's own entry points, so settings, apps, and connection routing are loaded:
+
+```bash
+uv run python manage.py shell        # or shell_plus with django-extensions
+uv run python manage.py dbshell      # raw SQL, through Django's configured credentials
+```
+
+Never point an ad-hoc script at the database URL directly — it bypasses database routers, the
+connection settings, and any test-database guard.
+
+## The `:3000` trap (projects with a bundled frontend pipeline)
+
+If the project was generated with a cookiecutter-django frontend pipeline (Gulp or Webpack),
+`npm run dev` runs the asset build and Django together and the URL to open is
+**`http://localhost:3000`**. Opening `:8000` serves pages — Django is up — but unstyled with every
+static asset 404ing, which reads as a broken install. Check the port before reinstalling anything.
+With no frontend pipeline, `:8000` is correct. See `django-react-integration`.
 
 ## Pre-removal search recipe
 
-Before deleting any symbol or endpoint, run grep checks to clean up references across the project:
+Before deleting a symbol or endpoint, sweep every surface:
 
 ```bash
 SYM=TheSymbolOrPath           # e.g. OrderViewSet  or  /api/v1/orders/
 
-grep -rn "$SYM" app/                       # views, models, serializers, urls
-grep -rn "$SYM" app/tasks/                 # background tasks or Celery workers
-grep -rn "$SYM" app/migrations/            # migration history references
-grep -rn "patch(.*$SYM\Vert{}from .*import.*$SYM" app/tests/   # test mocks and import patches
+grep -rn "$SYM" <project>/                     # views, models, services, serializers, urls
+grep -rn "$SYM" <project>/*/tasks.py           # Celery tasks and management commands
+grep -rn "$SYM" <project>/*/migrations/        # migration history references
+grep -rn "$SYM" config/                        # settings, root urls, middleware paths
+grep -rn "patch(.*$SYM\|from .*import.*$SYM" <project>/*/tests/   # test mocks and import patches
+```
+
+Two Django-specific ways a removal fails silently: a `unittest.mock.patch("...OrderService")`
+target that no longer resolves patches nothing and the test still passes, and a migration
+referencing a deleted model breaks history for anyone who has not applied it yet. Remove one symbol
+at a time and run that area's tests.

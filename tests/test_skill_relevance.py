@@ -14,6 +14,7 @@ competed in the skill picker. These tests pin the replacement contract:
 
 from __future__ import annotations
 
+import pytest
 import yaml
 
 from claude_kit import catalog
@@ -45,6 +46,17 @@ _STACK_SKILLS = {
         "async-python-patterns",
         "configargparse-yaml-env-layering",
         "testing-conventions",
+    },
+    # Only the Django-owned skills. `testing-conventions` and the two api/repo-architecture
+    # skills are shared with the fastapi lane, and a bucket asserts *ownership*, not the
+    # whole installed set — see test_enterprise_on_a_go_backend_gets_no_python_or_react_skills.
+    "django": {
+        "django-service-patterns",
+        "django-rest-framework-patterns",
+        "django-rest-framework-packages",
+        "django-migrations",
+        "django-async-patterns",
+        "django-react-integration",
     },
     "express": {"node-express-service", "node-objection-knex"},
 }
@@ -93,20 +105,30 @@ def test_enterprise_on_a_go_backend_gets_no_python_or_react_skills(payload):
         )
 
 
-def test_stack_skills_arrive_when_that_stack_is_chosen(payload):
-    """Gating must not mean losing: choosing the stack still brings its skills."""
+@pytest.mark.parametrize(
+    ("backend_framework", "buckets"),
+    [("fastapi", ("react", "fastapi")), ("django", ("react", "django"))],
+)
+def test_stack_skills_arrive_when_that_stack_is_chosen(
+    payload, backend_framework, buckets
+):
+    """Gating must not mean losing: choosing the stack still brings its skills.
+
+    The two Python frameworks are mutually exclusive selections, so each needs its own plan —
+    a single react+fastapi plan cannot prove the django lane is wired.
+    """
     plan = _resolve(
         payload,
         profile="enterprise",
         frontend_framework="react",
         backend_language="python",
-        backend_framework="fastapi",
+        backend_framework=backend_framework,
     )
     installed = set(plan.skills)
-    for stack in ("react", "fastapi"):
+    for stack in buckets:
         missing = sorted(_STACK_SKILLS[stack] - installed)
         assert not missing, (
-            f"{stack} skills missing from a react+fastapi enterprise plan: {missing}"
+            f"{stack} skills missing from a react+{backend_framework} enterprise plan: {missing}"
         )
 
 
