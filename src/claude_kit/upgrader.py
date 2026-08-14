@@ -73,6 +73,23 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _inside(target: Path, rel: str) -> bool:
+    """Return True when ``target / rel`` still resolves inside ``target``.
+
+    :func:`claude_kit.models.contained_relpath` already rejects ``..`` and absolute paths when the
+    manifest is parsed, which stops the textual attack. This is the second half: a *symlinked*
+    directory inside the project (say ``.claude/rules`` pointing at ``~``) makes an innocent-looking
+    relative path resolve outside the root anyway. Since :func:`_apply` unlinks orphans, that is
+    worth a check at the moment of use rather than trusting the parse alone.
+    """
+    root = target.resolve()
+    try:
+        candidate = (target / rel).resolve()
+    except OSError:  # pragma: no cover - unresolvable path is equally untrustworthy
+        return False
+    return candidate == root or root in candidate.parents
+
+
 def _diff_actions(
     ref: dict[str, "FileRecord"],
     old_map: dict[str, "FileRecord"],
@@ -117,8 +134,13 @@ def _diff_actions(
             actions.append(_Action(rel, "update", rrec.owner, user_modified))
 
     # Orphans: recorded kit/overlay files the current kit no longer ships for this selection.
+    # This is the only branch that *deletes*, and its paths come from the on-disk manifest rather
+    # than from the reference render — so containment is re-checked here even though the manifest
+    # was already validated at parse time (see _inside).
     for rel, orec in sorted(old_map.items()):
         if rel in ref or orec.owner == "user-editable":
+            continue
+        if not _inside(target, rel):
             continue
         if (target / rel).is_file():
             actions.append(_Action(rel, "remove", orec.owner))
@@ -450,8 +472,10 @@ def _explain_error(code: str, target: str | Path) -> tuple[bool, list[str]]:
         ]
     if code == "corrupt-options":
         return False, [
-            "FAIL  .claude/config/init-options.json is unreadable (invalid JSON) — repair it "
-            "or re-run `claude-kit init --force` to re-create it"
+            "FAIL  .claude/config/init-options.json is unreadable — it is not valid JSON, or a "
+            "recorded file path is not project-relative (a path containing '..' or a leading '/' "
+            "is refused, since upgrade resolves recorded paths against this project and may "
+            "delete them). Repair it, or re-run `claude-kit init --force` to re-create it"
         ]
     return False, [
         "FAIL  no .claude/config/init-options.json — this install predates upgrade tracking; "

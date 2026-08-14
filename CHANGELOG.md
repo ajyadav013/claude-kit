@@ -4,6 +4,98 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.79.0] — 2026-08-08
+
+**Two ways the installer could destroy a file it had no business touching, and the escape hatch
+that made the richest profile the least targeted one.** All three came out of an external audit of
+the repo. The first two are the kind of bug a scaffolder must not have: it writes into other
+people's projects, so "we only delete our own files" has to be true by construction, not by
+convention.
+
+### Fixed
+
+- **A recorded path in `init-options.json` could reach outside the project root.** The manifest
+  lives *inside* the project being upgraded, which makes it untrusted input — and `upgrade` joins
+  its `files[].path` entries onto the project root before copying, overwriting, and `unlink()`-ing
+  the result. A manifest containing `{"path": "../VICTIM.txt", "owner": "kit"}` made
+  `claude-kit upgrade` delete a file *above* the project, reporting it as
+  `- ../VICTIM.txt (orphan removed)`. `init --defaults` shared the same `_diff_actions` path.
+
+  Paths are now validated where the manifest is parsed (`models.contained_relpath`): absolute,
+  drive-qualified, and `..`-containing paths are refused, and backslashes are normalised first so a
+  Windows-style `..\..\x` cannot slip past a POSIX segment check and then be re-read as a separator
+  by `pathlib`. A rejected path surfaces through the existing corrupt-manifest route, so the
+  operator gets a `FAIL` with a remedy rather than a silent deletion. The orphan loop — the only
+  branch that deletes — additionally re-checks containment at the moment of use
+  (`upgrader._inside`), because a *symlinked* directory inside the project can make a perfectly
+  innocent relative path resolve outside it. Threat model: clone a repo, run `claude-kit upgrade`.
+
+- **`--force` silently deleted user files from kit-owned directories.** `_copy_tree` did an
+  unconditional `shutil.rmtree(dest)` before copying, and it is called on `.claude/rules/`,
+  `.claude/templates/`, `.claude/skills/<name>/` and `.claude/org-packs/<pack>/`. A hand-written
+  `.claude/rules/team-conventions.md` was gone after a `--force` re-init — no backup, no log line,
+  and no coverage from the upgrader's checksum/sidecar machinery, which only protects files the kit
+  itself recorded. The `--force` help text promised only to "overwrite existing CLAUDE.md /
+  settings.json / .mcp.json".
+
+  Files a directory-replacing install will not rewrite are now **moved** into `.claude-kit.bak-N/`
+  — the same convention `upgrade` already uses — mirroring their project-relative path, and the
+  install log names them. The backup directory is created lazily, so a fresh install and the
+  sandbox render used by merge/upgrade still produce none. Overlay and org rules are declared as
+  `also_shipped` because they are written into `.claude/rules/` *after* the core tree is replaced;
+  without that they read as user additions on every re-install, which would fill the backup with
+  kit files and tell the user their content was preserved when none of it was theirs. `--force`'s
+  help text now describes what it actually does.
+
+### Changed
+
+- **`enterprise` enumerates its skills instead of declaring `skills: all`.** `all` meant "every
+  directory under `skills/`", which made the richest profile the least targeted one: resolving
+  **Go + no frontend + no database + enterprise** installed 115 skills / 6.1 MB, among them
+  `alembic-migrations`, `fastapi-service-patterns`, `react-hook-form-zod-patterns` and
+  `dockerfile-frontend` — ~55k lines of content for stacks the project does not use, every one of
+  them competing in the skill picker. 67 skills were reachable *only* through `all`.
+
+  The 25 stack-flavored skills now ride `catalog/stacks.yaml`'s `skills:` union — the mechanism the
+  react and fastapi entries already used — so they install only when that stack is selected. No
+  files moved, no resolver change, and `resolve()` stays branch-free. That same Go selection now
+  resolves to 92 skills with **zero** stack-irrelevant ones; react + fastapi + postgres still gets
+  113. `lean ⊂ standard ⊂ enterprise` still holds, and every skill in the payload is still
+  reachable by some live selection (the two Node ones are gated behind `status: planned`, as
+  intended). This is the "stack-aware skill filter" `docs/skill-audit.md` recommended and then
+  deferred; that document now records the outcome.
+
+  **This changes what an enterprise install contains.** Adding a directory to `skills/` no longer
+  installs it by default — name it in a profile (stack-agnostic) or a `stacks.yaml` union
+  (stack-specific). Existing installs pick the new set up on `claude-kit upgrade`, which backs up
+  anything you edited.
+
+- **The corrupt-manifest message names both causes** — malformed JSON, or a path that is not
+  project-relative — since the fix differs even though the remedy (repair or re-init) does not.
+
+### Added
+
+- `tests/test_containment.py`, `tests/test_scaffold_rescue.py`, `tests/test_skill_relevance.py` —
+  regression coverage for all three, including a guard that no profile may reintroduce
+  `skills: all` and a check that enumerating orphaned no skill.
+
+### Not adopted (deliberately)
+
+- **Removing `object-oriented-design` (464 KB) and `system-design-patterns` (599 KB) from
+  enterprise.** They are interview-prep and engineering-blog digests — ~1 MB, ~17% of the payload —
+  and they are the strongest remaining argument that the skill corpus has drifted from "SDLC kit".
+  But they are stack-agnostic, so the relevance gating this release adds does not reach them, and
+  cutting them is a scope decision about what claude-kit *is*, not a bug fix. Left installed and
+  flagged; the `license-note: ideas absorbed in own words` provenance line appears 278 times across
+  them and deserves a separate look.
+- **`hooks: all`.** Kept. The hook registry is small, closed, and every hook is stack-neutral, so
+  "all of them" is a real statement of intent rather than an accident of directory creation. The
+  header comment in `profiles.yaml` now says why the token is right there and wrong for skills.
+- **Making the gate ledger tamper-evident.** `gate_history` entries are unchained, so a deleted or
+  reordered entry is undetectable, and `_blocking_findings()` reads `open_findings` from the
+  snapshot the agent itself wrote. Both are real, both are out of scope for a fix release, and
+  neither is what the ledger is currently sold as doing.
+
 ## [0.78.0] — 2026-08-08
 
 **Two decisions carried out of the 0.77.0 evaluation, one of which only half works.** Both are

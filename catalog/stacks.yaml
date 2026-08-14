@@ -34,7 +34,25 @@ frontend:
       # frontend-specific (component/hook tests, client-side data fetching, headed-browser QA), so
       # they install only when a frontend exists. Backend testing is covered by the universal
       # test-driven-development core skill.
-      skills: [frontend-ui-engineering, component-design, ui-ux-design, unit-test, api-integration, manual-test]
+      #
+      # The library-specific patterns below follow the same rule: a project with no React frontend
+      # has no use for Zustand or TanStack Query docs, so they are gated here rather than named by a
+      # profile. This is what keeps the profiles stack-agnostic while the skills stay concrete.
+      skills:
+        - frontend-ui-engineering
+        - component-design
+        - ui-ux-design
+        - unit-test
+        - api-integration
+        - manual-test
+        - frontend-repo-architecture
+        - design-system-ops
+        - radix-tailwind-component-patterns
+        - react-hook-form-zod-patterns
+        - tanstack-react-query-patterns
+        - vitest-rtl-msw-patterns
+        - zustand-state-patterns
+        - dockerfile-frontend
       stack_dir: frontend/react
       commands:
         install: "npm install"
@@ -71,7 +89,20 @@ backend:
           label: "FastAPI"
           overlay_rules: [fastapi-patterns.md]
           overlay_agents: []
-          skills: [api-and-interface-design]
+          # Python/FastAPI-specific skills are gated here, not named by a profile: a Go or Node
+          # project has no use for Alembic migrations or Pydantic schema patterns, and shipping
+          # them anyway is what made `skills: all` install ~55k lines of irrelevant content.
+          skills:
+            - api-and-interface-design
+            - backend-repo-architecture
+            - fastapi-service-patterns
+            - pydantic-schema-patterns
+            - python-dao-and-database
+            - alembic-migrations
+            - async-python-patterns
+            - configargparse-yaml-env-layering
+            - testing-conventions
+            - dockerfile-backend
           stack_dir: backend/python/fastapi
           commands:
             install: "pip install -e '.[dev]'"
@@ -91,6 +122,7 @@ backend:
         express:
           label: "Express"
           status: planned
+          skills: [backend-repo-architecture, node-express-service, node-objection-knex, dockerfile-backend]
           stack_dir: backend/node/express
     go:
       label: "Go"
@@ -100,7 +132,7 @@ backend:
           label: "net/http (stdlib)"
           overlay_rules: [go-patterns.md]
           overlay_agents: []
-          skills: [api-and-interface-design]
+          skills: [api-and-interface-design, backend-repo-architecture, dockerfile-backend]
           stack_dir: backend/go/net-http
           commands:
             install: "go mod download"

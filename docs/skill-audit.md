@@ -62,7 +62,22 @@ Measured on a `react + fastapi + postgres` project with `--scope individual`:
 
 ## Finding: Enterprise Over-Install of Stack-Collection Skills
 
-The enterprise profile uses `skills: all` in `catalog/profiles.yaml`, which installs **every skill in the payload** — including all 51 stack-collection skills, regardless of whether the project selected those stacks.
+> **Status: resolved.** `skills: all` is gone. The enterprise profile now enumerates its skills, and
+> the stack-flavored ones are gated through `catalog/stacks.yaml`'s `skills:` union — the
+> "stack-aware skill filter" this audit recommended below, built on the mechanism the react and
+> fastapi stacks already used rather than a new `stack-relevant` token. Measured after the change:
+>
+> | selection | skills | on-disk |
+> |---|---|---|
+> | enterprise, react + fastapi + postgres | 113 | ~5.6 MB |
+> | enterprise, Go, no frontend, no database | 92 | ~4.6 MB |
+>
+> The Go project no longer receives React, FastAPI, Alembic, Pydantic, Zustand or TanStack content
+> — 0 stack-irrelevant skills, down from 32. `tests/test_skill_relevance.py` pins this, including a
+> guard that no profile may reintroduce `skills: all`. The rest of this section is the original
+> finding, kept as the record of why the change was made.
+
+The enterprise profile used `skills: all` in `catalog/profiles.yaml`, which installed **every skill in the payload** — including all 51 stack-collection skills, regardless of whether the project selected those stacks.
 
 **Impact:**
 
@@ -107,13 +122,21 @@ The following skills are candidates for **review** (not deletion). They plausibl
 
 ## Recommendations
 
-### Default (this audit takes)
+### Default (this audit took) — since superseded
 
 **Leave `catalog/profiles.yaml` as-is and document the trade-off.**
 
 - The enterprise profile installs all skills; that is a deliberate choice for organizations spanning many stacks. This audit does not overturn it.
 - The on-demand activation model bounds the context cost of the extra files.
 - Document the enterprise skill footprint in the profile description so the trade-off is visible before a user picks it.
+
+> **Superseded.** Option 1 below ("stack-aware skill filter") was implemented instead, in the form
+> the constraints already allowed: no new `stack-relevant` token and no resolver change — the
+> stack-flavored skills simply moved into the `skills:` unions in `catalog/stacks.yaml` that the
+> react and fastapi entries were already using, and enterprise enumerates the rest. The
+> "deliberate choice for multi-stack orgs" argument did not survive contact with the numbers: the
+> cost fell on every *single*-stack enterprise user, which is most of them, and a multi-stack org
+> can still name any skill it wants in a profile.
 
 ### Optional (recommend evaluating, not implemented here)
 

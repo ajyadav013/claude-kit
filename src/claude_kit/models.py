@@ -9,6 +9,7 @@ documentation rule and keeps ``init-options.json`` round-trippable for ``validat
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 
 #: Schema version of the persisted ``.claude/config/init-options.json`` document.
@@ -194,12 +195,56 @@ class ResolvedPlan:
     detected_commands: dict[str, str] | None = None
 
 
+def contained_relpath(raw: str) -> str:
+    """Validate ``raw`` as a project-relative POSIX path and return it normalised.
+
+    ``init-options.json`` lives inside the project being upgraded, so its ``files[].path`` entries
+    are untrusted input: :mod:`claude_kit.upgrader` joins them onto the project root and then
+    copies, overwrites, and *unlinks* the result. A path that escapes the root (``../../id_rsa``)
+    or is absolute (``/etc/passwd``) would let a hand-edited — or hostile — manifest reach files
+    outside the project. Rejecting them here means every consumer (``validate``, ``diff``,
+    ``upgrade``, ``doctor``) inherits the guarantee from one place, at parse time, before any
+    filesystem call. ``_read_init_options`` already renders the resulting :class:`ValueError` as a
+    ``corrupt: <detail>`` manifest, which is the correct signal.
+
+    Backslashes are normalised to ``/`` first so a Windows-style ``..\\..\\x`` cannot slip past a
+    POSIX-only segment check and then be re-interpreted as a separator by ``pathlib`` on Windows.
+
+    Args:
+        raw: The candidate path string as read from the manifest.
+
+    Returns:
+        The path in normalised POSIX form.
+
+    Raises:
+        ValueError: If the path is empty, absolute, drive-qualified, or contains a ``..`` segment.
+    """
+    text = str(raw).replace("\\", "/").strip()
+    if not text:
+        raise ValueError("file record has an empty path")
+    pure = PurePosixPath(text)
+    if pure.is_absolute() or text.startswith("/"):
+        raise ValueError(
+            f"file record path must be project-relative, got absolute {raw!r}"
+        )
+    if len(text) > 1 and text[1] == ":":
+        raise ValueError(
+            f"file record path must be project-relative, got drive-qualified {raw!r}"
+        )
+    if ".." in pure.parts:
+        raise ValueError(f"file record path escapes the project root: {raw!r}")
+    return pure.as_posix()
+
+
 @dataclass
 class FileRecord:
     """A single installed file tracked in ``init-options.json`` for safe upgrades.
 
+    The ``path`` is validated on construction by :func:`contained_relpath` — it must stay inside
+    the project root, because the upgrader resolves it against that root and may delete the result.
+
     Attributes:
-        path: Path relative to the project root (POSIX separators).
+        path: Path relative to the project root (POSIX separators, no ``..``).
         sha256: Hex SHA-256 of the file contents at install time.
         owner: One of ``"kit"`` (refreshed on upgrade), ``"overlay"`` (follows the selection),
             or ``"user-editable"`` (never clobbered).
@@ -208,6 +253,10 @@ class FileRecord:
     path: str
     sha256: str
     owner: str
+
+    def __post_init__(self) -> None:
+        """Normalise and containment-check :attr:`path`."""
+        self.path = contained_relpath(self.path)
 
     def to_dict(self) -> dict[str, str]:
         """Return a JSON-serialisable mapping of this record."""
