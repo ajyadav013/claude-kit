@@ -1,7 +1,7 @@
 ---
 description: Run the full autonomous SDLC pipeline on a task via the orchestrator
 argument-hint: "<feature or task description>"
-allowed-tools: Skill, Agent, Read, Glob, Grep, TaskCreate, TaskGet, TaskList, TaskUpdate
+allowed-tools: Skill, Agent, Bash, Read, Glob, Grep, TaskCreate, TaskGet, TaskList, TaskUpdate
 ---
 
 Run the claude-kit autonomous SDLC pipeline for:

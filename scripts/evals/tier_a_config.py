@@ -84,7 +84,7 @@ def fam_gates(tmp: pathlib.Path) -> list[dict]:
     out-of-order bug would manufacture a false positive against documented behaviour.
     """
     d = install(sel(profile="enterprise"), tmp, "gates")
-    gates = pipeline._installed_gates(d)
+    gates = pipeline.installed_gates(d)
     if not gates:
         return [
             row("gate:*", False, "no gates in the install snapshot -- nothing to walk")
@@ -597,7 +597,7 @@ def fam_schemas(tmp: pathlib.Path) -> list[dict]:
     d = install(sel(), tmp, "schema")
     ev = d / "e.txt"
     ev.write_text("x\n", encoding="utf-8")
-    gates = pipeline._installed_gates(d)
+    gates = pipeline.installed_gates(d)
     seeded, why = pipeline.close_gate(d, gates[0], str(ev))
     if not seeded:
         return [

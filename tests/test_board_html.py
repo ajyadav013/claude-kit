@@ -168,6 +168,145 @@ def test_card_renders_sparse_telemetry_without_empty_fragments(tmp_path):
     assert "<span></span>" not in html
 
 
+def test_each_ticket_gets_a_target_addressable_issue_view(tmp_path):
+    """The click-through contract: a card links to an anchor, and that anchor is a real section.
+
+    A card whose href points at no element is a dead link that still *looks* clickable, which is
+    the failure this pins — the two halves are generated separately.
+    """
+    _, html = _render(tmp_path, [("PROJ-1", "a thing", "OPEN")])
+
+    assert '<a class="card" href="#PROJ-1"' in html
+    assert '<section class="issue" id="PROJ-1"' in html
+    # The reveal is CSS, not script — without this rule every issue view renders permanently open.
+    assert ".issue:target" in html
+    assert '<a class="close" href="#">' in html
+
+
+def test_issue_view_carries_what_only_the_terminal_detail_used_to_show(tmp_path):
+    directory = tmp_path / tickets.TICKETS_REL
+    directory.mkdir(parents=True)
+    (directory / "PROJ-1-x.md").write_text(
+        "# PROJ-1: Wire the thing\n"
+        "- **Status:** IN PROGRESS\n"
+        "- **Spec:** docs/specs/thing.md\n"
+        "- **Design:** docs/design/thing.md\n"
+        "- **Branch:** feat/thing\n"
+        "- **Files:** src/a.py, src/b.py\n"
+        "\n## Work log\n"
+        "- 09:12 spec approved\n",
+        encoding="utf-8",
+    )
+    html = board_html.render_html(tickets.load_store(tmp_path), generated_at=FIXED)
+
+    for expected in (
+        "docs/specs/thing.md",
+        "docs/design/thing.md",
+        "src/a.py, src/b.py",
+        "09:12 spec approved",
+        "Work log",
+    ):
+        assert expected in html, f"{expected!r} missing from the issue view"
+
+
+def test_sparse_ticket_renders_no_labels_without_values(tmp_path):
+    """A ticket with only a status must not show empty Spec / Design / Files rows.
+
+    Written by hand rather than through ``write_store``: that helper always emits a spec, files
+    and a work-log line, so a ticket built with it is never actually sparse.
+    """
+    directory = tmp_path / tickets.TICKETS_REL
+    directory.mkdir(parents=True)
+    (directory / "PROJ-1-x.md").write_text(
+        "# PROJ-1: bare\n- **Status:** OPEN\n", encoding="utf-8"
+    )
+    html = board_html.render_html(tickets.load_store(tmp_path), generated_at=FIXED)
+
+    assert "<dt>Status</dt>" in html, "the one field it does have should still render"
+    for absent in (
+        "<dt>Spec</dt>",
+        "<dt>Design</dt>",
+        "<dt>Files</dt>",
+        "<dt>Commits</dt>",
+        "<dt>Branch</dt>",
+    ):
+        assert absent not in html, f"{absent} rendered with nothing beside it"
+
+
+def test_work_log_and_spec_are_escaped(tmp_path):
+    """Work-log lines are untrusted: they are written by agents mid-run, not by this module."""
+    directory = tmp_path / tickets.TICKETS_REL
+    directory.mkdir(parents=True)
+    (directory / "PROJ-1-x.md").write_text(
+        "# PROJ-1: t\n- **Status:** OPEN\n\n## Work log\n- <script>alert(1)</script>\n",
+        encoding="utf-8",
+    )
+    html = board_html.render_html(tickets.load_store(tmp_path), generated_at=FIXED)
+
+    assert "&lt;script&gt;" in html
+    assert "<script" not in html
+
+
+def test_agent_avatars_are_text_not_images(tmp_path):
+    """Initials in a CSS ring — an <img> would break the self-contained guarantee."""
+    write_store(tmp_path, [("PROJ-1", "t", "OPEN")], branch="feat/x")
+    store = tickets.load_store(tmp_path)
+    tickets.attach_telemetry(
+        store,
+        {
+            "feat/x": telemetry.Telemetry(
+                requests=2,
+                output_tokens=100,
+                agents=["developer", "sdlc-code-reviewer"],
+            )
+        },
+    )
+    html = board_html.render_html(store, generated_at=FIXED)
+
+    assert '<span class="pip" title="developer">DE</span>' in html
+    assert '<span class="pip" title="sdlc-code-reviewer">SR</span>' in html
+    assert "<img" not in html
+
+
+def test_initials_handle_one_word_and_hyphenated_names():
+    assert board_html._initials("developer") == "DE"
+    assert board_html._initials("sdlc-code-reviewer") == "SR"
+    assert board_html._initials("") == "?"
+
+
+def test_status_strip_marks_the_current_gate(tmp_path):
+    _, _ = _render(tmp_path, [("PROJ-1", "t", "OPEN")])
+    store = tickets.load_store(tmp_path)
+    html = board_html.render_html(
+        store,
+        generated_at=FIXED,
+        stage={"stage": "build-green", "last_gate_passed": "spec-approved"},
+        gates=["spec-approved", "build-green", "tests-green"],
+    )
+
+    assert 'class="gate passed"' in html
+    assert 'class="gate here"' in html
+    assert "gate 1/3" in html
+
+
+def test_status_strip_is_absent_when_no_run_is_active(tmp_path):
+    """A repo between runs is a normal state — it must not render an empty pipeline widget."""
+    _, html = _render(tmp_path, [("PROJ-1", "t", "OPEN")])
+    assert 'class="strip"' not in html
+
+
+def test_aborted_run_says_so_rather_than_naming_a_gate(tmp_path):
+    _, _ = _render(tmp_path, [("PROJ-1", "t", "OPEN")])
+    html = board_html.render_html(
+        tickets.load_store(tmp_path),
+        generated_at=FIXED,
+        stage={"stage": "aborted", "last_gate_passed": "spec-approved"},
+        gates=["spec-approved", "build-green"],
+    )
+    assert "run aborted" in html
+    assert 'class="gate here"' not in html
+
+
 def test_card_lists_short_commit_shas(tmp_path):
     write_store(tmp_path, [("PROJ-1", "t", "DONE")], branch="feat/x")
     index = {
