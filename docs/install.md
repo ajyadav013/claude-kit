@@ -132,6 +132,19 @@ README.claude-sdlc.md
 - **A full React design system** — picking React installs design tokens, UX patterns, and
   mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
 
+## Watching a run
+
+`/sdlc` opens the ticket board for you. At Stage TK — after the stories are approved and the
+tickets are written, before any implementation agent starts — the orchestrator runs `claude-kit
+tickets --open`, which writes `.claude/state/ticket-board.html` and launches your browser. From
+then on the `capture-ticket-telemetry` Stop hook refreshes that file after every turn, so the page
+tracks the run live with nothing daemonised. The board is a single self-contained file: no
+JavaScript, no network requests, no server.
+
+Outside a run, `claude-kit tickets` renders the same store as a terminal chart, `--html` writes the
+board without opening it, and `claude-kit tickets <PREFIX>-<N>` prints one ticket's detail. If no
+browser can be launched (SSH, CI, a container), `--open` prints the `file://` URL and exits 0.
+
 ## Memory & continuous learning
 
 - **Working memory across sessions** — `CONTINUITY.md` survives context compaction so the pipeline

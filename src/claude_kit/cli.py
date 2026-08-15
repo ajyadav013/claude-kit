@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import time
+import webbrowser
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Optional
@@ -636,8 +637,29 @@ def write_board_html(store: "tickets_mod.Store", target: Path, refresh: int) -> 
     """Write the HTML board under the project's gitignored state dir; return the path."""
     out = target / board_html.BOARD_REL
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(board_html.render_html(store, refresh=refresh), encoding="utf-8")
+    out.write_text(
+        board_html.render_html(
+            store,
+            refresh=refresh,
+            stage=tickets_mod.pipeline_stage(target),
+            gates=pipeline.installed_gates(target),
+        ),
+        encoding="utf-8",
+    )
     return out
+
+
+def _launch_browser(url: str) -> bool:
+    """Open ``url`` in the default browser. Never raises — a dashboard is not worth an exit code.
+
+    Headless CI, an SSH session, and a container with no browser all land here, and all three are
+    normal ways to run this. ``webbrowser.open`` reports failure by returning ``False`` on some
+    platforms and by raising on others, so both are treated as the same soft miss.
+    """
+    try:
+        return webbrowser.open(url)
+    except Exception:  # noqa: BLE001 - any browser-launch failure degrades to the printed URL
+        return False
 
 
 def _render_tickets(
@@ -677,6 +699,11 @@ def tickets(
         "--html",
         help=f"write a self-contained Kanban board to {board_html.BOARD_REL} and print its URL",
     ),
+    open_browser: bool = typer.Option(
+        False,
+        "--open",
+        help="write the board (implies --html) and open it in the default browser, once",
+    ),
     refresh: int = typer.Option(
         10,
         "--refresh",
@@ -694,14 +721,25 @@ def tickets(
         typer.echo("--graph and --graph-git are alternatives; pass only one.")
         raise typer.Exit(2)
     mode = "git" if graph_git else "deps" if graph else ""
+    # --open is a way of asking for the board, so it implies --html rather than erroring without it.
+    write_html = html or open_browser
+    # Under --watch, emit() runs every interval; the browser must be launched by the first pass
+    # only, or a board left watching all afternoon opens a window every few seconds.
+    opened = False
 
     def emit() -> int:
         """Render once. Returns a process exit code so an unknown id is detectable by scripts."""
+        nonlocal opened
         store = _load_ticket_view(target, transcript_dir)
-        if html:
+        if write_html:
             out = write_board_html(store, target, refresh)
+            url = f"file://{out}"
             typer.echo(f"wrote {out}")
-            typer.echo(f"open file://{out}")
+            typer.echo(f"open {url}")
+            if open_browser and not opened:
+                opened = True
+                if not _launch_browser(url):
+                    typer.echo("could not open a browser here — use the path above")
             if refresh > 0:
                 typer.echo(
                     f"the page reloads every {refresh}s; the Stop hook keeps the file current"

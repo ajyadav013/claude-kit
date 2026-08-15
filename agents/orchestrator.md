@@ -360,6 +360,14 @@ starting work" discipline. Using `ticketing-and-traceability`:
 - **Fast-track (Mode D)**: collapse to a single ticket for the change rather than one per story.
 - **Not installed**: if `ticketing-and-traceability` isn't in the active profile (e.g. lean), skip
   this stage and note the skip in CONTINUITY.md — the pipeline proceeds unchanged.
+- **Open the board — once, here.** With the tickets written, run
+  `claude-kit tickets --open` and report the printed `file://` path in chat. This is the
+  right moment: the tickets exist and no implementation has started, so the human gets a live
+  view of the whole run before any of it happens. From then on the `capture-ticket-telemetry`
+  Stop hook refreshes that file after every turn — **its opt-in signal is the file existing**, so
+  this one command is what makes the rest of the run visible. Do not re-run it per stage; the page
+  reloads itself. If the CLI is unavailable, say so once and continue — the board is an
+  observability aid and never a gate.
 
 The ticket id assigned here rides with the work: implementation lanes append work-log entries to it
 (VALIDATE / JOIN below), and the PR stage links its commits and closes it.

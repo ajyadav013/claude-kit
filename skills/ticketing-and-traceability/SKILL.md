@@ -179,6 +179,10 @@ configured is fully functional on the local store alone.
 
 - **Ticket creation** happens after the personas approve the plan and the story breakdown passes its
   coverage gate, and *before* implementation agents are spawned — one OPEN ticket per story.
+- **The board opens once, here.** `claude-kit tickets --open` at ticket creation gives the human a
+  live browser view before any work starts. It also switches on the `capture-ticket-telemetry` Stop
+  hook's refresh, whose opt-in signal is simply that the file exists — so this one command is what
+  makes the rest of the run watchable. Never a gate: if the CLI is missing, say so and carry on.
 - **Work-log entries** are appended as each implementation lane is validated and lanes join.
 - **Closure** happens at the PR stage: commits linked, status set to DONE.
 

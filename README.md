@@ -131,7 +131,7 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 | 📐 **Rules & skills** | **25** stack-agnostic core rules + **121** context-activated skills (58 core + 63 stack-collection), pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **14** overlay rule files (React · FastAPI · Django · Go · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
 | 🛠️ **Hooks & guards** | **20** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
-| 📊 **Traceability & live board** | A git-native ticket per story with a work-log and commit linkage, plus `claude-kit tickets` — a terminal chart and a browser Kanban board showing each lane's status, agent, model, tokens and elapsed time ([below](#parallel-lanes-and-the-live-ticket-board)) |
+| 📊 **Traceability & live board** | A git-native ticket per story with a work-log and commit linkage, plus `claude-kit tickets` — a terminal chart and a click-through browser Kanban board (gate strip, per-ticket issue view, agent/model/token/timing figures) that `/sdlc` opens for you when it creates the tickets ([below](#parallel-lanes-and-the-live-ticket-board)) |
 | 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **24** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
 
 Profiles (`lean` · `standard` · `enterprise`), team scopes, autonomy levels, and org capability
@@ -242,13 +242,21 @@ claude-kit tickets --graph        # dependency DAG — what is blocked by what
 claude-kit tickets --graph-git    # the commit graph with each commit's ticket attached
 claude-kit tickets CKIT-74        # one ticket: full work log + per-lane telemetry
 claude-kit tickets --html         # a Kanban board in your browser
+claude-kit tickets --open         # the same board, opened for you
 ```
 
-`--html` writes a self-contained page to `.claude/state/ticket-board.html` and prints a `file://` URL.
-It is a **file, not a server** — the page refreshes itself and the `capture-ticket-telemetry` Stop hook
-rewrites it after each turn, so an open tab tracks a running pipeline live with nothing daemonised:
+`--html` writes a self-contained page to `.claude/state/ticket-board.html` and prints a `file://` URL;
+`--open` does that and launches your browser (and quietly falls back to the printed path on a headless
+box). **`/sdlc` runs `--open` for you** the moment it creates the tickets, before any implementation
+agent starts — so you watch the run rather than reading chat for status.
 
-![The claude-kit ticket board — Kanban columns for in progress, in review, actionable, blocked and done, each card showing model, tokens, cache, elapsed time and commit](docs/images/ticket-board.png)
+It is a **file, not a server** — the page refreshes itself and the `capture-ticket-telemetry` Stop hook
+rewrites it after each turn, so an open tab tracks a running pipeline live with nothing daemonised.
+A header strip shows which gate the pipeline is on, and clicking any card opens a full issue view —
+spec, design, stage, files, commits, per-agent telemetry and the work log — all with **no JavaScript
+at all**, so the page makes zero network requests and leaks nothing:
+
+![The claude-kit ticket board — a pipeline gate strip above Kanban columns for in progress, in review, actionable, blocked and done, each card showing model, tokens, cache, elapsed time, branch, commits and the acting agent's initials; below the board, one ticket's issue view is open with its status, spec, design, stage, files, commits, per-agent telemetry and work log](docs/images/ticket-board.png)
 
 Token counts are **deduplicated by request id** — streaming rewrites the same usage block many times,
 and a naive sum overstates output by ~3× — and cache reads are counted separately from fresh input
