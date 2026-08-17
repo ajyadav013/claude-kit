@@ -328,6 +328,11 @@ When making significant changes, add a brief note to the spec file or a changelo
 - Schema/migration change → migration documentation + spec update
 - Breaking change → note in PR description + README
 
+A changelog note is one line; **executed evidence never lands in the spec** — command output,
+measurement prose, and gate proofs live at their `.claude/state/` or artifact path, cited by path
+(`.claude/rules/quality-gates.md` §2.5). Requirement and decision updates are always welcome in the
+spec; run logs are not.
+
 ---
 
 ## Enforcement

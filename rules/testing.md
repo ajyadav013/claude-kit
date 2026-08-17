@@ -534,6 +534,17 @@ As a suite grows, two things matter beyond correctness: it must run **fast** and
 > Apache-2.0 [`google/gtest-parallel`](https://github.com/google/gtest-parallel). Re-derived in prose;
 > not vendored.
 
+## Keep Shared Test Services Warm Across Iterations
+
+When the suite depends on long-lived shared services (a database, a queue, a browser runtime, an
+app server), start them **once per run** and reuse them across test iterations and defect-loop
+cycles — cold-starting the environment on every cycle taxes exactly the loop the pipeline iterates
+most. Reuse combines with, never replaces, the isolation rules above: pair the warm service with
+**per-test state reset** (truncate/flush/rollback), or the reuse licenses the shared mutable state
+this file forbids. And it never waives the delivery gate: Pipeline Green still verifies a **clean
+cold start** brings everything up healthy (`.claude/rules/devops-observability.md`). Suite-scoped
+fixtures are the per-stack mechanism — see the project's testing conventions for the concrete form.
+
 ## Deterministic Simulation Testing (concurrency & distributed-system bugs)
 
 Fuzzing and property-based testing explore *inputs*; they don't reliably find **concurrency and

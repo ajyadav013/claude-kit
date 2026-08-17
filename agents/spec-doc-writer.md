@@ -264,6 +264,9 @@ Before marking the spec complete, verify:
 - [ ] Non-functional requirements are addressed (performance, security, accessibility)
 - [ ] Implementation steps are in dependency order (step N doesn't depend on step N+1)
 - [ ] Open questions are flagged for human resolution
+- [ ] No executed evidence pasted in — command output and measurement blocks live at their
+      `.claude/state/` or artifact path and are **cited by path**; the spec stays
+      requirements-sized because every agent reads it
 - [ ] No hardcoded values — reference the project's config/constants
 
 ## Multi-Stack Guidance
