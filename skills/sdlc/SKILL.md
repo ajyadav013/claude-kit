@@ -106,9 +106,14 @@ and the stack selection. Instruct it to:
    planned model tier with one trivial spawn and fall back per `.claude/rules/model-tiers.md` →
    "Probe before fan-out".
 4. **Run each active phase with its gate**, in order, using only the profile's agents:
-   spec & dev-docs → story planning → (design, if UI) → senior/architect/EM review →
-   implementation (one worktree per lane) → code review → unit + e2e tests → test-coverage merge →
-   security clear → pipeline-green + observability-ready (enterprise) → acceptance (enterprise) → PR.
+   spec & dev-docs → story planning → **ticket creation + open the board** → (design, if UI) →
+   senior/architect/EM review → implementation (one worktree per lane) → code review →
+   unit + e2e tests → test-coverage merge → security clear → pipeline-green +
+   observability-ready (enterprise) → acceptance (enterprise) → PR.
+   At ticket creation the orchestrator runs `claude-kit tickets --open` **once** and reports the
+   `file://` path, so the human can watch the run in a browser instead of reading chat for status.
+   The `capture-ticket-telemetry` Stop hook keeps that page current for the rest of the run —
+   creating the file is what switches the hook on.
 5. **Enforce gates** with the `quality-gates.md` severity model and a green RARV Verify before each
    handoff. On a unanimous PASS, run the `devils-advocate` agent before the gate counts.
 6. **Run the defect loop** when a gate fails: document, re-run only the affected lane(s), re-merge,
@@ -143,6 +148,10 @@ enterprise profile, the **acceptance** gate hands off to a human before the PR i
 When the active gates are green: summarize what shipped, list any open issues by severity, ensure
 `.claude/CONTINUITY.md` reflects the final state, and promote any durable lessons with the
 `remember` skill (into `.claude/agent-memory/`).
+
+Re-print the board path (`.claude/state/ticket-board.html`) in that summary. By the end of a long
+run the link from Stage TK is far up the scroll-back, and the finished board — every ticket DONE,
+with its commits, files and per-agent token cost — is the artifact worth keeping.
 
 Begin by confirming your classification, the active profile + gate set, and the stage plan — then
 proceed.

@@ -470,7 +470,7 @@ def c_pipeline_abort(tmp: pathlib.Path, neg: bool) -> dict:
     d, _ = fresh(tmp, "ab")
     ev = d / "e.txt"
     ev.write_text("x\n", encoding="utf-8")
-    gates = pipeline._installed_gates(d)
+    gates = pipeline.installed_gates(d)
     pipeline.close_gate(d, gates[0], str(ev))
     ok, msgs = pipeline.abort(d)
     snap = json.loads(read(pipeline._snapshot_path(d)) or "{}")

@@ -106,7 +106,7 @@ def _read_install_snapshot(
     return data, None
 
 
-def _installed_gates(target: str | Path) -> list[str]:
+def installed_gates(target: str | Path) -> list[str]:
     """Read the execution-ordered gate list from the install snapshot ([] if absent/unreadable)."""
     data, _err = _read_install_snapshot(target)
     gates = (data or {}).get("gates")
@@ -332,7 +332,7 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
                     fail(f"open_findings[{sev!r}] must be an integer, got {count!r}")
 
     gate = snap.get("last_gate_passed")
-    gates = _installed_gates(target)
+    gates = installed_gates(target)
     if gate is not None and gates and gate not in gates:
         fail(f"last_gate_passed {gate!r} is not a gate of this profile ({gates})")
 

@@ -64,6 +64,70 @@ throughput = stories-per-window × concurrent-windows.
 - **Project-specific story merges / scope cuts** — the general forms (batching, slice-early
   sequencing) are adopted; the specific calls stay with the projects.
 
+## [0.81.0] — 2026-08-15
+
+**The board shows up on its own, and it shows the whole ticket.** Two things were wrong with
+`claude-kit tickets --html`: nothing in a `/sdlc` run ever created it, and a card carried far less
+than the terminal detail view already knew. Both are fixed — `/sdlc` opens a browser board at
+ticket creation, and clicking a card now opens a full issue view.
+
+### Added
+
+- **`/sdlc` opens the board at Stage TK.** The orchestrator runs `claude-kit tickets --open` right
+  after the tickets are written and before the first implementation agent spawns — tickets exist,
+  work is about to start, the human wants to watch. This is also what switches the live refresh on:
+  the `capture-ticket-telemetry` Stop hook's opt-in signal is simply that the file exists
+  (`[ -f "$BOARD" ]`), so one command at Stage TK makes the rest of the run watchable. Never a
+  gate — a missing CLI is reported and the pipeline carries on.
+- **`claude-kit tickets --open`** writes the board and launches the default browser. It **implies
+  `--html`** rather than erroring without it, opens **once** under `--watch` rather than once per
+  tick, and fails soft: a raising or `False`-returning `webbrowser.open` prints the `file://` URL
+  and still exits 0, so SSH, CI and containers get the path instead of a broken exit code.
+- **A per-ticket issue view.** Every ticket now renders a full panel below the board carrying what
+  the terminal `render_detail` already knew and the browser did not: status, branch, spec, design,
+  pipeline stage and last gate passed, blockers, non-gating lineage (`child_of`/`parent_of`),
+  commits, declared files, per-agent telemetry with the shared-branch caveat, and the work log.
+  Cards are anchors to it; a `× close` anchor dismisses it; the browser back button works.
+- **A sprint-style status strip** across the top — the gate chain with the current position marked
+  and an `N/M` tally — rendered from `pipeline_stage()` and `installed_gates()`. It is omitted
+  entirely when there is no active run, rather than rendering an empty chain.
+- **Text avatars.** Each card carries the acting agent's initials in a CSS circle
+  (`developer` → DE, `sdlc-code-reviewer` → SR). Text, not an image — see below.
+
+### Changed
+
+- `pipeline.installed_gates()` is public (was `_installed_gates`). Three eval scripts already
+  reached into the private name; naming it honestly beat adding a wrapper around it.
+- `render_html()` takes optional `stage=` and `gates=`, following the existing injectable
+  `generated_at=` convention so the renderer stays pure and testable.
+- `commands/sdlc.md` gains `Bash` in `allowed-tools`. The orchestrator has its own, so the normal
+  path already worked; this closes the latent gap in the skill's documented fallback ("if the
+  `orchestrator` agent is unavailable, act as the orchestrator yourself"), which could not shell
+  out.
+
+### Not adopted (deliberately)
+
+- **No JavaScript — so no filter-as-you-type and no drag-to-reorder.** Both were on the table and
+  both were dropped. `tests/test_board_html.py` asserts `"<script" not in html`, and that single
+  line is doing double duty: it is the self-containment guard *and* the XSS guard. A board with no
+  script tag at all cannot execute an injected one, whatever a ticket title contains. Adding one
+  `<script>` for filtering would demote that absolute into a per-sink review of every interpolated
+  string. The interactivity that survived is CSS-only (`:target` reveal, anchors as click targets),
+  which costs nothing to audit. Avatars are text in a circle for the same reason: `<img>` is pinned
+  out alongside `http://`, `<link>` and `@import` so the file stays one artifact you can email.
+- **No two-pane layout.** A persistent detail rail would mean either a fixed viewport split (bad at
+  1280px with five columns) or JS-driven resizing. Click-through gives the full width to whichever
+  view you are actually reading.
+- **No real JIRA integration.** This is a rendering of the local git-native store, not a client.
+  Pushing tickets to an external tracker stays `task-tracker-sync` plus the opt-in Atlassian MCP
+  server; the local store remains the source of truth in both directions.
+- **No assignee field.** The board attributes work from transcript telemetry (`agentName`), which
+  is a record of who *did* act. There is no assignment model in the ticket store, and inventing an
+  assignee dropdown would show a field that nothing writes and nothing reads.
+- **No hook change.** The refresh already keys off the file existing; creating it once at Stage TK
+  flips that switch for the whole run. Editing a hook would have meant regenerating `hooks.json`
+  and `settings.json` for no behavioural gain.
+
 ## [0.80.0] — 2026-08-14
 
 **Django is selectable.** The second Python framework goes live as a pure catalog change plus

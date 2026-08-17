@@ -600,6 +600,101 @@ def test_tickets_html_refresh_zero_produces_a_static_page(tmp_path):
     assert 'http-equiv="refresh"' not in html
 
 
+def test_tickets_open_implies_html_and_launches_once(tmp_path, monkeypatch):
+    """`--open` is a way of asking for the board, so it writes one without needing --html too."""
+    from claude_kit import board_html
+
+    calls: list[str] = []
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: calls.append(url) or True)
+
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--open",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert (tmp_path / board_html.BOARD_REL).is_file()
+    assert len(calls) == 1, f"expected exactly one browser launch, got {calls}"
+    assert calls[0].startswith("file://")
+
+
+def test_tickets_open_survives_a_browser_that_cannot_launch(tmp_path, monkeypatch):
+    """Headless CI, SSH and containers all land here — a dashboard must not fail the command.
+
+    Both failure shapes are covered: ``webbrowser.open`` raising, and it returning False.
+    """
+    from claude_kit import board_html
+
+    def explode(url):
+        raise RuntimeError("no browser on this box")
+
+    monkeypatch.setattr(cli.webbrowser, "open", explode)
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--open",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "could not open a browser" in result.stdout
+    assert "file://" in result.stdout, (
+        "the path is the fallback, so it must still be printed"
+    )
+    assert (tmp_path / board_html.BOARD_REL).is_file(), (
+        "the board is written either way"
+    )
+
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: False)
+    assert (
+        runner.invoke(
+            app,
+            [
+                "tickets",
+                "--path",
+                str(tmp_path),
+                "--open",
+                "--transcript-dir",
+                str(tmp_path),
+            ],
+        ).exit_code
+        == 0
+    )
+
+
+def test_tickets_html_without_open_never_launches_a_browser(tmp_path, monkeypatch):
+    """The Stop hook re-runs `--html` after every turn; if that opened a window it would be a pest."""
+    calls: list[str] = []
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: calls.append(url) or True)
+
+    _ticket_store(tmp_path)
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--html",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert calls == []
+
+
 def test_privacy_report_default_install_capture_off(tmp_path):
     """privacy-report on a --defaults install: capture OFF, recall listed, exit 0."""
     target = tmp_path / "proj"
