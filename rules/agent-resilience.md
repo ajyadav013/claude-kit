@@ -48,7 +48,7 @@ Operation fails
 |-----------|-----------|-----------|
 | **Bounded retry + backoff** | Transient failure (timeout, rate-limit, flake) | Cap retries (≈3). Space them out. Retrying forever is a hang, not resilience. |
 | **No blind retry of deterministic failures** | Bad input, missing dependency, auth denied | The same call fails the same way. Change something or escalate — don't loop. |
-| **Fallback** | A primary tool/source/path is unavailable | Have a defined alternative (another source, a simpler method, manual steps) and say you used it. |
+| **Fallback** | A primary tool/source/path is unavailable | Have a defined alternative (another source, a simpler method, manual steps) and say you used it. A planned model tier that fails its pre-fan-out probe falls back one tier, recorded (`.claude/rules/model-tiers.md` → Probe before fan-out). |
 | **Circuit-breaker** | Repeated failures on one path | Stop hammering it after the budget; mark it down and move on or escalate, so one broken path doesn't stall everything. |
 | **Graceful degradation** | Can't fully succeed | Deliver the part that works + a clear statement of what's missing and why — never a fake "done." |
 | **Idempotency awareness** | Before retrying a side-effecting action | Re-running a commit/write/deploy/API-POST can double-apply. Check state first; make the retry safe. |

@@ -41,6 +41,19 @@ tier — they are focused specialists/personas, not deep-reasoning orchestrators
 - **Re-map when names/prices change.** Keep the tier *intent* (Critical / Default / Fast); swap the
   concrete alias if Anthropic's model lineup shifts.
 
+## Probe before fan-out
+
+Tier availability is a property of the *deployment*, not the payload — an alias in frontmatter can
+name a model the provider account doesn't serve, and the failure signature is an **instant,
+zero-token spawn death**, easily mistaken for an agent bug. So before a run's **first** fan-out:
+probe-spawn one trivial agent (a one-word reply) per model tier the run plans to use. A tier whose
+probe dies instantly is unavailable here: **fall back one tier** (Fast → Default → Critical),
+record the override in `CONTINUITY.md`, and keep it for the rest of the run — don't re-discover the
+same failure lane by lane. The probe also doubles as the credential-freshness check for long runs:
+verify auth by the probe's *behavior*, never by reading secrets or `.env`
+(`.claude/rules/agent-guardrails.md`). Deployment-neutral by design — probe tiers, not provider
+names.
+
 ## When to escalate a tier
 
 The table above is the *default* assignment. Mid-task, an agent may want to **escalate** to a more
