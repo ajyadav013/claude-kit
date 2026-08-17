@@ -24,6 +24,17 @@ authentication · authorization · payments / billing · secrets & credentials �
 migrations · infrastructure / IaC / CI-CD · security controls · compliance-sensitive code (PII, audited
 flows) · destructive operations · dependency upgrades · changes that touch many files at once.
 
+## Story-level routing (inside a feature run)
+
+Once a spec is broken into stories, the tier also allocates **ceremony per story**: a **low**-risk
+story (tagged by the story planner) routes through the reduced chain — developer → code reviewer →
+tester — while its siblings keep the full chain. Three things never move with the tier: run-level
+gates still apply to the merged output (zero Critical/High/Medium — `.claude/rules/quality-gates.md`);
+specialist routing in `.claude/rules/mandatory-workflow.md` still triggers on the **surface
+touched, never story size** (a "low-risk" story that edits a query, auth, or secrets is at least
+**high** — see the sensitive areas above); and code review itself is never skipped. This is not a
+lowered bar: the tier decides **which agents spawn for the story**, never what passes a gate.
+
 ## High-risk protocol (high or restricted)
 
 1. **Plan** — write the change down before editing; list affected files and blast radius.
