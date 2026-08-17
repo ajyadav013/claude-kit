@@ -59,6 +59,23 @@ same defect is not reintroduced on retry. Read-only gate agents don't write it t
 **return the miss in their handoff** and the Orchestrator records it (the scribe pattern — the
 same handoff that carries the evidence, §2.5).
 
+**Total planning-chain budget.** The retry budgets above are per reviewer; runs die by the tail, not
+the caps. Across the whole planning chain (stages 1c–1e.5 — spec, dev docs, EM review, plan
+critique), allow at most **2 full re-review generations**: after the second full pass over the
+chain's findings, do not start a third. Late rounds tend to close every earlier finding and mint new
+ones from their own new prose — the budget converts that tail into a human decision
+(`.claude/rules/human-in-the-loop.md`, exhausted budgets).
+
+**At escalation, the human's options are explicit.** Route a fix (re-open the lane) — or accept a
+residual **Medium** as a recorded known gap through the audited override that already exists:
+`claude-kit pipeline close-gate <gate> --force --override-reason '<finding>: accepted known gap —
+owner: <role>, revisit: <trigger>'`. The override is loud by design: the ledger records status
+`overridden` and `claude-kit pipeline validate` / `status` WARN on it forever after. Name an owner
+and a revisit trigger in the reason — the CONFIRMED-WITH-COSTS cost-record shape (§3); a waiver with
+neither is a hedge, not a decision. **Critical and High findings are never waived this way.** None
+of this changes gate semantics: an autonomous PASS still requires zero Critical/High/Medium — the
+waiver is a human decision recorded as an override, never a new kind of PASS.
+
 ---
 
 ## 2.5. Evidence Requirement — a verdict must be backed by real output
@@ -70,6 +87,25 @@ A gate result is a claim about reality, so it must be grounded in reality. A PAS
 - **The proof travels with the handoff.** When an agent hands a verdict to the Orchestrator — or the Orchestrator records one in `CONTINUITY.md` — the command + output (or the finding list) goes with it. An uncited verdict is treated as unproven and the gate stays closed.
 
 A fabricated, assumed, or partial-output-based verdict is an **auto-Critical** finding (§1): it defeats every downstream gate that trusts it. This is the gate-level form of the RARV rule "Verify means run it, not imagine it" (`.claude/rules/rarv-cycle.md`).
+
+**Bounded handoff — the header is what the Orchestrator reads.** Every reviewer/tester/scanner
+handoff leads with a bounded header: the verdict line, severity counts, the findings table
+(`file:line` per finding), and the evidence citations — the command with its captured exit/summary
+line, or the path to an evidence file under `.claude/state/`. The full report body follows below a
+`--- FULL REPORT ---` marker: the Orchestrator persists it verbatim to its canonical path (the
+scribe pattern) and does **not** re-read or re-analyze it — gate reasoning happens on the header.
+Evidence cited by persisted path still satisfies "the proof travels with the handoff": the ledger
+hashes the file, so the verdict stays provable without the full output transiting a second context.
+
+**The Orchestrator's independent VALIDATE is mechanical — and nothing more.** The VALIDATE step
+([4v] in the pipeline) is exactly: the project's test/lint/build commands the Orchestrator re-ran
+itself (exit codes captured), `git diff --name-only` compared against the story's declared file
+scope, and *recording* the coverage number when the suite already prints one (recording — never a
+second coverage gate). Re-deriving the reviewer's work — reading diffs line by line, hand-built
+content proofs, independent correctness analysis — is a routing error, not extra rigor: diff-level
+correctness belongs to the Code Reviewer, and duplicating it spends the pipeline's scarcest
+resource (the Orchestrator's context) to catch nothing the reviewer doesn't. This bounds *depth*,
+never *effort*: the independent re-run itself and this section's evidence rule stand unchanged.
 
 **Record the verdict in the deterministic ledger.** Probe for the *subcommand you are about to run*, not for the binary: `claude-kit pipeline close-gate --help >/dev/null 2>&1`. `command -v claude-kit` succeeds for a binary of any age, and a CLI pip-installed once while the plugin moved on is the ordinary case rather than an exotic one — presence-testing a stale binary is how a run comes to announce that a command "doesn't exist in this version" when it exists in the version the project actually has. Where the subcommand answers, a passed gate is recorded with `claude-kit pipeline close-gate <gate> --evidence <evidence-file>` — and a conditional gate that provably does not apply with `claude-kit pipeline skip-gate <gate> --reason '<why>'` — never by hand-editing `gate_history`. The CLI refuses out-of-order closes and open Critical/High/Medium findings, resolves the evidence path against the project root, stores its sha256, and `claude-kit pipeline validate` re-verifies every entry later. When the subcommand is missing, append the `gate_history` entry yourself per the schema in `.claude/rules/continuity.md`, keep the cited evidence file in the repo so a later `validate` can still check it, and say which subcommand was missing and what `claude-kit --version` reports — so the gap is attributed to the binary on PATH and not to the product.
 

@@ -26,12 +26,19 @@ dependency, so the orchestrator can fan work out across lanes and worktrees.
 A story breakdown (write it where the spec lives, or to `.claude/state/` for the run), containing:
 
 1. **Stories** — each with a stable id, a one-line goal, the acceptance criteria it satisfies, and
-   the files/modules it touches. Keep each story small enough for one focused implementation pass.
+   the files/modules it touches, plus two routing tags: **risk** (`low` | `standard` — `low` only
+   when the story is local, reversible, and touches no sensitive area per
+   `.claude/rules/risk-classification.md`; when in doubt, `standard`) and **batchable** (`true`
+   only for mechanical low-risk stories — docs, changelog, packaging, examples, version bumps).
+   Keep each story small enough for one focused implementation pass — each story is the unit of
+   **one dispatch**.
 2. **Dependency graph** — `blockedBy` / `blocks` between stories; the graph must be acyclic.
 3. **Parallelizable set** — which stories have no unmet dependencies and can start immediately, and
    along which lanes (e.g. backend vs frontend) per `.claude/rules/mandatory-workflow.md`.
 4. **Sequencing** — a suggested order for the rest, with the join points where a Merge Reviewer is
-   needed (shared API contract, shared data model).
+   needed (shared API contract, shared data model). Sequence one thin **end-to-end slice early**:
+   every later story then validates against a running system instead of prose — the slice *is* the
+   foundation; build it first, then widen.
 5. **Traceability** — every acceptance criterion in the spec maps to at least one story; flag any
    criterion with no story (a gap) and any story with no criterion (scope creep).
 

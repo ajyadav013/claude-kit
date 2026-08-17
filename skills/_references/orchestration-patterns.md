@@ -336,7 +336,7 @@ An agent that calls `/spec`, then `/plan`, then `/build`, etc. on the user's beh
 - Debugging becomes a multi-level investigation
 - The leaf personas lose context to multiple summarization steps
 
-**What to do instead:** keep the orchestration depth at most 1 (slash command → personas). The merge happens in the main agent.
+**What to do instead:** keep the orchestration depth at most 1 (slash command → personas). The merge happens in the main agent. (Deliberate exception: the `sdlc` pipeline's contract — main session → orchestrator(s) → workers — carries its depth by design; this anti-pattern targets ad-hoc persona trees, not that contract.)
 
 ---
 

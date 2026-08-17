@@ -190,6 +190,7 @@ The spec is a living document, not a one-time artifact:
 - **Update when decisions change** — If you discover the data model needs to change, update the spec first, then implement.
 - **Update when scope changes** — Features added or cut should be reflected in the spec.
 - **Capture substantial changes as a delta, not a rewrite** — once a spec exists, a later change to that system is a `change-proposal.md` (ADDED/MODIFIED/REMOVED against the base R-ids), keeping history legible and the base spec authoritative rather than overwriting it.
+- **Cite evidence, never paste it** — executed output (test runs, measurements, gate proofs) lives at its `.claude/state/` or artifact path; the spec links to it, so it stays requirements-sized for every agent that reads it.
 - **Commit the spec** — The spec belongs in version control alongside the code.
 - **Reference the spec in PRs** — Link back to the spec section that each PR implements.
 

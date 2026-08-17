@@ -77,7 +77,9 @@ and the stack selection. Instruct it to:
    closeout wave. (Where the session has Claude Code's native dynamic-workflows engine
    (≥ 2.1.154), a wave's fan-out may execute as one workflow run — the wave contract, gates, and
    human approvals are unchanged; see that rule's "Native dynamic workflows as the wave
-   substrate".)
+   substrate".) Have the story planner tag each story (risk / batchable); low-risk stories inside
+   a full run route through the reduced chain per `.claude/rules/risk-classification.md` →
+   Story-level routing.
 2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
    survives compaction — update it at every phase transition), and mirror the gate-precise state into
    the structured snapshot `.claude/state/pipeline-snapshot.json`. Gate verdicts go through the
@@ -100,7 +102,9 @@ and the stack selection. Instruct it to:
    build/review, top tier only for orchestration and hard reasoning. Before forking any parallel
    phase (review lanes, test lanes, security scanners, Mode E waves), it states the planned
    lane/agent count and model tiers in chat and records them in `.claude/CONTINUITY.md`, so the
-   human can veto the scale before tokens are spent.
+   human can veto the scale before tokens are spent. Before the run's **first** fan-out, probe each
+   planned model tier with one trivial spawn and fall back per `.claude/rules/model-tiers.md` →
+   "Probe before fan-out".
 4. **Run each active phase with its gate**, in order, using only the profile's agents:
    spec & dev-docs → story planning → **ticket creation + open the board** → (design, if UI) →
    senior/architect/EM review → implementation (one worktree per lane) → code review →
@@ -117,6 +121,21 @@ and the stack selection. Instruct it to:
 
 If the `orchestrator` agent is unavailable in this session, act as the orchestrator yourself,
 following the same steps.
+
+### Story-group fan-out (optional, feature scale)
+
+When the story breakdown yields **two or more immediately-startable story groups** (maximal
+dependency-connected story sets with mutually disjoint file boundaries —
+`.claude/rules/mandatory-workflow.md` §1f) and the run is not program-scale (Mode E), parallelize
+across context windows instead of inside one: spawn **one orchestrator per group**, each in its
+**own git worktree** per `.claude/rules/continuity.md` → Concurrency — each worktree carries its own
+CONTINUITY.md, snapshot, and gate ledger, authoritative for that group's per-story gates. Announce
+the scale first (N orchestrators × model tiers) so the human can veto it. Merge in dependency
+order, one group at a time, with **human approval per mainline merge** (workers propose; humans
+approve), then run the run-level gates — test-coverage across groups, security-clear on the merged
+output — in the primary checkout, recorded in its ledger. A group that fails escalates per the
+normal retry protocol; healthy groups still merge; a failed group's stories return to the backlog —
+never merge a group whose gates didn't pass.
 
 ## 4. Stop for the human where required
 

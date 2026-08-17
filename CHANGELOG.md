@@ -4,6 +4,66 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.82.0] — 2026-08-17
+
+**Pipeline speed.** Three field-feedback sets from live SDLC runs (3 projects, 18 levers) triaged
+into 12 payload adoptions, each adversarially verified against the existing prose before adoption.
+The organizing principle: the orchestrator's context window is the pipeline's scarce resource —
+throughput = stories-per-window × concurrent-windows.
+
+### Added
+- **Bounded handoff contract** (`rules/quality-gates.md` §2.5): reviewer/tester/scanner handoffs
+  lead with a verdict/severity/findings header; the orchestrator persists the full body verbatim
+  without re-analyzing it.
+- **Mechanical VALIDATE bound** (§2.5): the orchestrator's independent VALIDATE is exit codes +
+  scope diff + recorded coverage number — diff-level correctness explicitly belongs to the code
+  reviewer.
+- **Planning-chain total budget + audited waiver wiring** (§2): max 2 full re-review generations,
+  then human escalation; residual Mediums acceptable only via the existing loud
+  `close-gate --force --override-reason` path with owner + revisit trigger. Critical/High never.
+- **Story-level risk routing** (`rules/risk-classification.md`): low-risk stories take the reduced
+  chain (developer → code reviewer → tester); sensitive surfaces override the tier; run-level
+  gates and code review untouched.
+- **Batchable stories + story groups + dispatch sizing** (`rules/mandatory-workflow.md` §1f /
+  Phase 2, `agents/story-planner.md`): ≤3 mechanical stories per shared dispatch (one commit
+  each); story groups defined; one story per dispatch as the default; land one end-to-end slice
+  early.
+- **Story-group fan-out** (`skills/sdlc/SKILL.md`): one orchestrator per disjoint story group in
+  its own worktree; human approval per mainline merge; run-level gates on the merged output.
+- **Tier probe before fan-out** (`rules/model-tiers.md`): probe-spawn each planned tier once per
+  run; instant zero-token death = unavailable → fall back one tier and record.
+- **Question batching** (`rules/human-in-the-loop.md`): non-blocking asks queue to CONTINUITY and
+  surface as one round per gate; blocking stops and 1b interviews unchanged.
+- **Spec evidence hygiene** (`agents/spec-doc-writer.md`, `rules/documentation.md`,
+  `skills/spec-driven-development`): executed evidence is cited by path, never pasted into specs.
+- **Warm shared test services** (`rules/testing.md`): start once per run, reuse across defect-loop
+  cycles; per-test state reset and the clean-cold-start delivery check stand.
+- **Operator playbook** (`docs/pipeline-speed-playbook.md`, repo-only — not bundled): the same
+  levers as paste-ready dispatch instructions for in-flight runs on older installs.
+
+### Changed
+- `agents/orchestrator.md`: developer dispatch input is now the story under implementation (was:
+  the whole approved spec) — fixing an internal inconsistency with VALIDATE's per-story scope
+  check; the scribe persists reports without re-analysis; Stage SP carries the risk/batchable
+  tags. Net size 846 → 853 lines, held deliberately near-flat (F-036).
+- `skills/_references/orchestration-patterns.md`: the depth-≤1 anti-pattern now names the sdlc
+  pipeline's main-session → orchestrator(s) → workers topology as the deliberate exception.
+
+### Not adopted (deliberately)
+- **Enabling specific models on a provider deployment / credential-refresh commands** — user
+  environment, not payload; generalized instead into the tier probe.
+- **Lowering the coverage floor (100% → 97%)** — the kit already ships 90% "or as defined by the
+  project's coverage policy" (`rules/testing.md`); the 100% floor was that project's own spec.
+- **Docker-specific warm-stack guidance** — the core stays container-agnostic; adopted only as
+  stack-agnostic warm-services prose.
+- **Giving read-only reviewers Write access so reports bypass the orchestrator** — write
+  confinement and read-only review are deliberate (least-privilege, authorship bias); bounded
+  handoffs fix the cost instead.
+- **Orchestrator-spawning-orchestrator trees** — fan-out stays in the main session (the `sdlc`
+  entrypoint); depth beyond the pipeline contract remains an anti-pattern.
+- **Project-specific story merges / scope cuts** — the general forms (batching, slice-early
+  sequencing) are adopted; the specific calls stay with the projects.
+
 ## [0.81.0] — 2026-08-15
 
 **The board shows up on its own, and it shows the whole ticket.** Two things were wrong with

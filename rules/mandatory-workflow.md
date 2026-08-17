@@ -220,6 +220,15 @@ to it — see `.claude/skills/task-tracker-sync/SKILL.md`.
 (no scope creep), the graph is acyclic, and the parallel set is genuinely unblocked. Implementation
 CANNOT start until coverage is complete.
 
+The breakdown also drives two throughput decisions. **Story groups:** a *story group* is a maximal
+dependency-connected set of stories whose combined file boundary is disjoint from every other
+group's; two or more immediately-startable groups are the trigger for orchestrator-per-group
+fan-out (`.claude/skills/sdlc/SKILL.md` → Story-group fan-out). **Batching:** up to **3** stories
+tagged `batchable` (mechanical, low-risk — docs, changelog, packaging) sharing a disjoint combined
+boundary may share one developer dispatch and one review pass — same stages, **one commit per
+story**, never stage-skipping. Every story keeps its own risk tag
+(`.claude/rules/risk-classification.md` → Story-level routing) and its own ticket (1g).
+
 ---
 
 ## 1g — Ticket Creation & Traceability `[Orchestrator]`
@@ -245,6 +254,11 @@ This is **advisory discipline**, not a hard gate: where `ticketing-and-traceabil
 ---
 
 # Phase 2 — Development (Stages 4-5)
+
+**Dispatch sizing (default):** prefer **one story per implementation dispatch** — a crash or
+compaction then loses at most one story of un-persisted work, and the CONTINUITY + snapshot writes
+at each stage transition make the resume cheap (`.claude/rules/continuity.md`). Calibrate to story
+size rather than a magic count; batched `batchable` stories (1f) are the deliberate exception.
 
 ## 2a — Read Existing Code & Confirm Scope `[Developer]`
 Work in an **isolated git worktree** (lifecycle: create one per lane → merge after the gates pass →
