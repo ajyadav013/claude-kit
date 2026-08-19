@@ -1,4 +1,4 @@
-# Installing claude-kit — the full detail
+﻿# Installing claude-kit â€” the full detail
 
 The README's [Quick start](../README.md#quick-start) covers the happy path. This page holds
 everything else: prerequisites, Windows, plugin updates, every `init` question, the non-interactive
@@ -7,13 +7,13 @@ config format, and exactly what lands on disk.
 ## Prerequisites
 
 - [Claude Code](https://www.claude.com/product/claude-code)
-- Python ≥ 3.9 for the CLI
+- Python â‰¥ 3.9 for the CLI
 - `jq` to enable the shell hooks (they no-op without it)
 - Node / `npx` only if you enable an MCP (Model Context Protocol) server
 
-**Windows:** the config (agents · skills · rules) and the `claude-kit` CLI work natively. The shell
+**Windows:** the config (agents Â· skills Â· rules) and the `claude-kit` CLI work natively. The shell
 hooks (`guard-*`, `warn-*`) need a POSIX shell + `jq`, so run inside **WSL or Git Bash** to enable
-them — `claude-kit doctor` detects Windows and tells you which case you're in. Without a POSIX shell
+them â€” `claude-kit doctor` detects Windows and tells you which case you're in. Without a POSIX shell
 the hooks silently no-op (the kit still functions; you just lose the deterministic guards).
 
 ## Path A: as a Claude Code plugin
@@ -29,12 +29,12 @@ Then, inside any project you want the pipeline to manage:
 
 ```text
 /claude-kit:init        # Claude asks you the questions in chat, then runs the CLI non-interactively
-# ↻ restart Claude Code so the project's agents, skills & hooks load
+# â†» restart Claude Code so the project's agents, skills & hooks load
 /sdlc Add a CSV export button to the reports page
 ```
 
 > **`/claude-kit:init` requires the Python CLI** (`pipx install claude-code-kit`, or `pip install
-> claude-code-kit`) — it's what resolves your stack/profile/MCP catalog and records `init-options.json`
+> claude-code-kit`) â€” it's what resolves your stack/profile/MCP catalog and records `init-options.json`
 > for safe `upgrade`/`diff`. If the CLI isn't on PATH the command stops and tells you to install it
 > rather than doing a partial install. (A degraded, no-resolution shell scaffolder is available only by
 > explicitly setting `CLAUDE_KIT_BASIC=1`; `upgrade`/`diff` won't work against it.)
@@ -44,7 +44,7 @@ Then, inside any project you want the pipeline to manage:
 
 ### Updating the plugin
 
-The plugin is cached, so a plain `/reload-plugins` won't fetch new code — refresh the marketplace
+The plugin is cached, so a plain `/reload-plugins` won't fetch new code â€” refresh the marketplace
 snapshot first:
 
 ```text
@@ -69,22 +69,22 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 ## What the init flow asks
 
 `claude-kit init` asks an ordered set of questions (all with sensible defaults), then writes the
-config — nothing else:
+config â€” nothing else:
 
-1. **Target path** (default: current dir; if `.claude/` exists → **merge / overwrite / backup / abort**)
-2. **Frontend framework** (default: React; `none` for backend-only projects) → **frontend language** (default: TypeScript; skipped for `none`)
-3. **Backend language** (default: Python; `none` for frontend-only projects) → **backend framework** (default: FastAPI)
-4. **Database** (PostgreSQL · MongoDB · `none`)
-5. **SDLC profile** (`lean` · `standard` · `enterprise`)
-6. **Optional MCP integrations** (GitHub · Jira/Linear · Azure DevOps · Postgres/Mongo · Playwright · Chrome DevTools · Docs/MS Learn · Azure · Wassette · Sentry · Grafana · Repowise · the Google security suite — full list: `claude-kit list-options`) — a
+1. **Target path** (default: current dir; if `.claude/` exists â†’ **merge / overwrite / backup / abort**)
+2. **Frontend framework** (default: React; `none` for backend-only projects) â†’ **frontend language** (default: TypeScript; skipped for `none`)
+3. **Backend language** (default: Python; `none` for frontend-only projects) â†’ **backend framework** (default: FastAPI)
+4. **Database** (PostgreSQL Â· MongoDB Â· `none`)
+5. **SDLC profile** (`lean` Â· `standard` Â· `enterprise`)
+6. **Optional MCP integrations** (GitHub Â· Jira/Linear Â· Azure DevOps Â· Postgres/Mongo Â· Playwright Â· Chrome DevTools Â· Docs/MS Learn Â· Azure Â· Wassette Â· Sentry Â· Grafana Â· Repowise Â· the Google security suite â€” full list: `claude-kit list-options`) â€” a
    project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
-7. **Learning capture** (`off` default · `session-end-catchup` recommended · `session-end` ·
-   `per-task`) — **opt-in**: capture stays off unless you pick a mode here (non-interactive installs —
-   `--defaults`, the plugin, piped stdin — are always off). *Privacy note:* when enabled it reads your
+7. **Learning capture** (`off` default Â· `session-end-catchup` recommended Â· `session-end` Â·
+   `per-task`) â€” **opt-in**: capture stays off unless you pick a mode here (non-interactive installs â€”
+   `--defaults`, the plugin, piped stdin â€” are always off). *Privacy note:* when enabled it reads your
    session transcript + changed files to write `.claude/agent-memory/` entries (secret-bearing files
    skipped, secret-shaped values redacted); disable anytime with `CLAUDE_KIT_NO_AUTOCAPTURE=1` and
    audit with `claude-kit privacy-report`
-8. **Usage scope** (`individual` · `team` · `organization`) — organization scope asks four follow-ups:
+8. **Usage scope** (`individual` Â· `team` Â· `organization`) â€” organization scope asks four follow-ups:
    teams, autonomy level, review strictness, and org capability packs
 
 ### Non-interactive: `--defaults` or `--config init.yaml`
@@ -95,10 +95,10 @@ Flat keys or this nested form:
 frontend: { framework: react, language: typescript }
 backend:  { language: python, framework: fastapi }
 database: postgres
-profile:  standard                     # lean · standard · enterprise
+profile:  standard                     # lean Â· standard Â· enterprise
 mcp:      [github]                     # [] = none; ids from `claude-kit list-options`
-capture_mode: "off"                    # "off" (default) · session-end · session-end-catchup · per-task — quote off
-scope:    team                         # individual · team · organization (org adds org: {teams, autonomy, review_strictness, packs})
+capture_mode: "off"                    # "off" (default) Â· session-end Â· session-end-catchup Â· per-task â€” quote off
+scope:    team                         # individual Â· team Â· organization (org adds org: {teams, autonomy, review_strictness, packs})
 ```
 
 ### What lands on disk
@@ -112,7 +112,7 @@ README.claude-sdlc.md
   agents/                       # the profile's agent subset + DB overlay agents
   skills/  (incl. sdlc/)        # the profile's skill subset; sdlc/ is the /sdlc entrypoint
   hooks/                        # the profile's hook scripts
-  templates/                    # artifact templates (spec, ADR, test-plan, …)
+  templates/                    # artifact templates (spec, ADR, test-plan, â€¦)
   config/                       # init-options.json (checksums) + stack snapshot
   state/  tmp/                  # gitignored runtime
 .mcp.json                       # only if MCP servers were selected
@@ -120,22 +120,22 @@ README.claude-sdlc.md
 
 ## Stacks & overlays
 
-- **Stack-agnostic core** — the pipeline assumes no language or framework; it never writes your app
+- **Stack-agnostic core** â€” the pipeline assumes no language or framework; it never writes your app
   code and never needs Docker.
-- **14 stack overlay rule files** layer matching guidance on top — React, FastAPI, Django,
-  Go/net-http, PostgreSQL, MongoDB — wired to your exact lint/test/build commands. Overlays are **path-scoped**
+- **15 stack overlay rule files** layer matching guidance on top â€” React, FastAPI, Django,
+  Go/net-http, Express, PostgreSQL, MongoDB â€” wired to your exact lint/test/build commands. Overlays are **path-scoped**
   (`paths:` frontmatter) so they enter context only when Claude touches matching files; MongoDB's
   stays always-on (a document store has no reliable file signal to scope by).
-- **Installs are stack-true** — every lane offers `none` (backend-only, frontend-only, no-database
+- **Installs are stack-true** â€” every lane offers `none` (backend-only, frontend-only, no-database
   projects), and a lane you don't have installs nothing: no off-stack rules, skills, agents, or
   commands. Frontend-specific skills ride the React selection, not the profile core.
-- **A full React design system** — picking React installs design tokens, UX patterns, and
+- **A full React design system** â€” picking React installs design tokens, UX patterns, and
   mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
 
 ## Watching a run
 
-`/sdlc` opens the ticket board for you. At Stage TK — after the stories are approved and the
-tickets are written, before any implementation agent starts — the orchestrator runs `claude-kit
+`/sdlc` opens the ticket board for you. At Stage TK â€” after the stories are approved and the
+tickets are written, before any implementation agent starts â€” the orchestrator runs `claude-kit
 tickets --open`, which writes `.claude/state/ticket-board.html` and launches your browser. From
 then on the `capture-ticket-telemetry` Stop hook refreshes that file after every turn, so the page
 tracks the run live with nothing daemonised. The board is a single self-contained file: no
@@ -147,9 +147,10 @@ browser can be launched (SSH, CI, a container), `--open` prints the `file://` UR
 
 ## Memory & continuous learning
 
-- **Working memory across sessions** — `CONTINUITY.md` survives context compaction so the pipeline
+- **Working memory across sessions** â€” `CONTINUITY.md` survives context compaction so the pipeline
   never loses its place.
-- **A learnings loop** — `agent-memory/` captures fixes from your corrections *and*, in a non-blocking
+- **A learnings loop** â€” `agent-memory/` captures fixes from your corrections *and*, in a non-blocking
   background job, from what Claude changed, so the same mistake isn't made twice.
-- **Cost-aware capture** — how aggressively learnings are captured (`capture_mode`: off · on clean
-  exit · + catch-up · per task) is a choice at `init` (see question 7 above for the privacy note).
+- **Cost-aware capture** â€” how aggressively learnings are captured (`capture_mode`: off Â· on clean
+  exit Â· + catch-up Â· per task) is a choice at `init` (see question 7 above for the privacy note).
+
