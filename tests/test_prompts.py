@@ -215,7 +215,7 @@ def test_interactive_full_flow_numbers_and_ids(monkeypatch, payload):
     """Drive the whole question sequence the way a human would: numbers AND ids.
 
     Live menu numbering (planned lanes get no number): frontend 1) none 2) react;
-    backend 1) none 2) python 3) go.
+    backend 1) none 2) python 3) node 4) go.
     """
     _tty(
         monkeypatch, True
@@ -255,7 +255,7 @@ def test_interactive_none_frontend_skips_language_question(monkeypatch, payload)
         monkeypatch,
         [
             "none",  # frontend framework -> the lane-less entry
-            "3",  # backend language -> go (if a language Q leaked in, alignment breaks here)
+            "4",  # backend language -> go (if a language Q leaked in, alignment breaks here)
             "",  # backend framework -> default (net-http)
             "none",  # database
             "lean",  # profile
