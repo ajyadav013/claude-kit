@@ -1145,8 +1145,10 @@ def test_pipeline_record_findings_cli_requires_all_counts_and_repairs_evidence_d
             str(report),
         ],
     )
-    assert incomplete.exit_code != 0
-    assert "--cosmetic" in (incomplete.stdout + incomplete.stderr)
+    # Click's parser exit is stable; Rich's missing-option rendering is not.  Depending
+    # on Click/Typer and terminal width, stderr may be merged, unavailable, or truncate
+    # the option spelling.  The complete five-count invocation below proves success.
+    assert incomplete.exit_code == 2, incomplete.output
 
     recorded, report = _record_pipeline_findings_cli(target)
     assert recorded.exit_code == 0, recorded.stdout

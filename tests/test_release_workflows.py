@@ -42,6 +42,11 @@ def test_ci_runs_official_claude_validator_at_pinned_minimum_and_current():
     assert "actionlint" in CI and "zizmor" in CI
 
 
+def test_ci_exposes_the_pinned_actionlint_binary_to_later_steps():
+    assert 'GOBIN="$workflow_tools" go install' in CI
+    assert 'echo "$workflow_tools" >> "$GITHUB_PATH"' in CI
+
+
 def test_publish_consumes_successful_ci_artifact_and_never_rebuilds():
     assert "workflow_run:" in PUBLISH
     assert "workflows: [CI]" in PUBLISH

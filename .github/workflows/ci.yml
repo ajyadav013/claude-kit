@@ -110,7 +110,10 @@ jobs:
           python-version: "3.12"
       - name: Install pinned workflow analyzers
         run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+          workflow_tools="$RUNNER_TEMP/workflow-tools"
+          mkdir -p "$workflow_tools"
+          GOBIN="$workflow_tools" go install github.com/rhysd/actionlint/cmd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+          echo "$workflow_tools" >> "$GITHUB_PATH"
           python -m pip install zizmor==1.29.0
       - run: actionlint
       - run: zizmor .
