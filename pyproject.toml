@@ -49,12 +49,12 @@ schema = [
   "jsonschema>=4.0",
 ]
 dev = [
-  "pytest>=8.0",
-  "build>=1.2",
-  "twine>=5.0",
-  "ruff>=0.6",
-  "mypy>=1.10",
-  "shellcheck-py>=0.10",
+  "pytest>=9.1.1",
+  "build>=1.5.0",
+  "twine>=7.0.0",
+  "ruff>=0.16.2",
+  "mypy>=2.3.0",
+  "shellcheck-py>=0.11.0.1",
   "jsonschema>=4.0",
 ]
 
