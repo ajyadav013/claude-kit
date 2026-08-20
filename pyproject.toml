@@ -36,17 +36,17 @@ classifiers = [
   "Environment :: Console",
 ]
 dependencies = [
-  "typer>=0.12",
-  "jinja2>=3.1",
-  "pyyaml>=6.0",
-  "jsonschema>=4.0",
+  "typer>=0.27.1",
+  "jinja2>=3.1.6",
+  "pyyaml>=6.0.3",
+  "jsonschema>=4.26.0",
   "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
 # Backward-compatible alias; JSON Schema validation is runtime-required as of 0.83.0.
 schema = [
-  "jsonschema>=4.0",
+  "jsonschema>=4.26.0",
 ]
 dev = [
   "pytest>=8.0",
@@ -55,7 +55,7 @@ dev = [
   "ruff>=0.6",
   "mypy>=1.10",
   "shellcheck-py>=0.10",
-  "jsonschema>=4.0",
+  "jsonschema>=4.26.0",
 ]
 
 [project.urls]
