@@ -5,10 +5,12 @@ claude-kit ships hooks through three channels, but only one should ever be hand-
 
 * the **installed** ``.claude/settings.json`` -- built per-profile by ``hooks.build_settings`` at init;
 * the auto-discovered **plugin** ``hooks/hooks.json`` (``${CLAUDE_PLUGIN_ROOT}`` paths);
-* the thin no-pip **starter** ``templates/settings.json`` (``$CLAUDE_PROJECT_DIR`` paths).
+* the legacy static settings template ``templates/settings.json``
+  (``$CLAUDE_PROJECT_DIR`` paths).
 
 The latter two used to be edited by hand and silently drifted from the registry (and each other).
 This script regenerates both from ``claude_kit.hooks`` so the registry is the single source of truth.
+The static template remains a compatibility artifact; ``scripts/init.sh`` no longer copies it.
 
 Usage::
 

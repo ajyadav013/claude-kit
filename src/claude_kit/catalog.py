@@ -14,7 +14,13 @@ from typing import Any
 import yaml
 
 from claude_kit import hooks as hooks_mod
-from claude_kit.models import OrgPlan, ResolvedPlan, Selection
+from claude_kit.models import (
+    GateDefinition,
+    OrgPlan,
+    ResolvedPlan,
+    Selection,
+    digest_gate_definitions,
+)
 
 #: Canonical backend command keys surfaced in CLAUDE.md (defaulted to "" so templates never break).
 #: ``build`` covers compiled backends (e.g. Go ``go build ./...``); it is empty for interpreted ones.
@@ -166,6 +172,25 @@ def _resolve_profile(
         else:
             out[key] = _dedup(list(base[key]) + list(val))
     return out
+
+
+def _resolve_gate_definitions(
+    profiles: dict[str, Any], gates: list[str]
+) -> dict[str, GateDefinition]:
+    """Resolve policy metadata for ``gates`` without gate-specific branches."""
+    raw = profiles.get("gate_definitions")
+    if not isinstance(raw, dict):
+        raise ValueError("catalog/profiles.yaml has no gate_definitions mapping")
+    definitions: dict[str, GateDefinition] = {}
+    for gate in gates:
+        value = raw.get(gate)
+        if not isinstance(value, dict):
+            raise ValueError(f"gate {gate!r} has no canonical gate_definitions entry")
+        try:
+            definitions[gate] = GateDefinition.from_dict(value)
+        except ValueError as exc:
+            raise ValueError(f"invalid definition for gate {gate!r}: {exc}") from exc
+    return definitions
 
 
 def _build_context(
@@ -397,6 +422,8 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
     hooks = _dedup(prof["hooks"] + (org.added_hooks if org else []))
     hooks = _apply_capture_mode(capture_cfg, hooks, selection.capture_mode)
     gates = _dedup(prof["gates"] + (org.extra_gates if org else []))
+    gate_definitions = _resolve_gate_definitions(profiles, gates)
+    gate_definition_digest = digest_gate_definitions(gates, gate_definitions)
 
     context = _build_context(
         selection, frontend, backend_lang, backend_fw, database, profiles
@@ -413,6 +440,8 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
         overlay_agents=overlay_agents,
         hooks=hooks,
         gates=gates,
+        gate_definitions=gate_definitions,
+        gate_definition_digest=gate_definition_digest,
         mcp_servers=mcp_servers,
         context=context,
         stack_dirs=stack_dirs,

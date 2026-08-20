@@ -102,55 +102,145 @@ else
 fi
 
 # --- 1b. Evidence files the snapshot points at -------------------------------------------------
-# The pipeline snapshot records a `gate_evidence` map of absolute paths. Pull those artifacts into
-# the bundle and rewrite the snapshot to point at the copied, bundle-relative files — so the bundle
-# is self-contained and leaks no local filesystem paths. Needs python3 (json); skipped with a note
-# if it is absent, leaving the snapshot untouched.
+# Pull every v1/v2 evidence reference into the bundle and rewrite the copied snapshot to use
+# bundle-relative paths. This includes findings evidence, passed-gate evidence, conditional
+# not-applicable evidence, accepted-risk evidence, final-summary copies, and terminal archives.
+# Project-relative paths are resolved against --project (never the caller's CWD). A declared
+# artifact that is missing or outside the project makes capture fail: continuing would publish a
+# bundle that falsely claims to be self-contained or leaks a local absolute path.
 snap_copy="$OUT/state/pipeline-snapshot.json"
 if [ -f "$snap_copy" ]; then
   if command -v python3 >/dev/null 2>&1; then
-    printf '\nCollecting gate-evidence referenced by the snapshot:\n'
-    CK_PROJECT="$PROJECT" CK_OUT="$OUT" CK_SNAP="$snap_copy" python3 - <<'PY' || printf '  [skip] could not process gate_evidence (snapshot left as-is)\n'
-import json, os, pathlib, shutil
+    printf '\nCollecting evidence referenced by the snapshot:\n'
+    if ! CK_PROJECT="$PROJECT" CK_OUT="$OUT" CK_SNAP="$snap_copy" python3 - <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shutil
 
 project = pathlib.Path(os.environ["CK_PROJECT"]).resolve()
 out = pathlib.Path(os.environ["CK_OUT"])
 snap = pathlib.Path(os.environ["CK_SNAP"])
-data = json.loads(snap.read_text())
-ev = data.get("gate_evidence")
-if not isinstance(ev, dict):
-    raise SystemExit(0)
+data = json.loads(snap.read_text(encoding="utf-8"))
+if not isinstance(data, dict):
+    raise ValueError("pipeline snapshot root must be an object")
+
+refs = []
+
+
+def add(container, key, label):
+    value = container.get(key)
+    if value is not None:
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"{label} must be a non-empty path string")
+        refs.append((container, key, label, value))
+
+
+def collect(document, prefix="run"):
+    legacy = document.get("gate_evidence")
+    if legacy is not None:
+        if not isinstance(legacy, dict):
+            raise ValueError(f"{prefix}.gate_evidence must be an object")
+        for gate in sorted(legacy):
+            add(legacy, gate, f"{prefix}-legacy-{gate}")
+
+    findings = document.get("findings_evidence")
+    if findings is not None:
+        if not isinstance(findings, dict):
+            raise ValueError(f"{prefix}.findings_evidence must be an object or null")
+        add(findings, "evidence_path", f"{prefix}-findings")
+
+    history = document.get("gate_history", [])
+    if not isinstance(history, list):
+        raise ValueError(f"{prefix}.gate_history must be an array")
+    for index, entry in enumerate(history):
+        if not isinstance(entry, dict):
+            raise ValueError(f"{prefix}.gate_history[{index}] must be an object")
+        gate = entry.get("gate", f"gate-{index}")
+        add(entry, "evidence_path", f"{prefix}-{gate}-gate")
+        add(entry, "condition_evidence_path", f"{prefix}-{gate}-condition")
+
+    risks = document.get("accepted_risks", [])
+    if not isinstance(risks, list):
+        raise ValueError(f"{prefix}.accepted_risks must be an array")
+    for index, risk in enumerate(risks):
+        if not isinstance(risk, dict):
+            raise ValueError(f"{prefix}.accepted_risks[{index}] must be an object")
+        label = risk.get("risk_id") or risk.get("finding_id") or f"risk-{index}"
+        add(risk, "evidence_path", f"{prefix}-{label}-risk")
+
+    summary = document.get("final_summary")
+    if summary is not None:
+        if not isinstance(summary, dict):
+            raise ValueError(f"{prefix}.final_summary must be an object or null")
+        summary_risks = summary.get("accepted_risks", [])
+        if not isinstance(summary_risks, list):
+            raise ValueError(f"{prefix}.final_summary.accepted_risks must be an array")
+        for index, risk in enumerate(summary_risks):
+            if not isinstance(risk, dict):
+                raise ValueError(
+                    f"{prefix}.final_summary.accepted_risks[{index}] must be an object"
+                )
+            label = risk.get("risk_id") or risk.get("finding_id") or f"risk-{index}"
+            add(risk, "evidence_path", f"{prefix}-summary-{label}-risk")
+
+    archives = document.get("run_archives", [])
+    if not isinstance(archives, list):
+        raise ValueError(f"{prefix}.run_archives must be an array")
+    for index, archive in enumerate(archives):
+        if not isinstance(archive, dict) or not isinstance(archive.get("snapshot"), dict):
+            raise ValueError(f"{prefix}.run_archives[{index}] has no snapshot object")
+        collect(archive["snapshot"], f"{prefix}-archive-{index}")
+
+
+collect(data)
 changed = False
-for gate, p in list(ev.items()):
-    if not isinstance(p, str):
+copied = {}
+failures = []
+for container, key, label, recorded in refs:
+    source = pathlib.Path(recorded).expanduser()
+    if not source.is_absolute():
+        source = project / source
+    try:
+        resolved = source.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        failures.append(f"{label}: evidence unavailable ({recorded!r}: {exc})")
         continue
-    src = pathlib.Path(p)
-    if not src.is_file():
-        print(f"  [skip] {gate}: evidence not found ({p})")
-        continue
-    resolved = src.resolve()
     try:
         resolved.relative_to(project)
     except ValueError:
-        print(f"  [skip] {gate}: evidence outside the project ({p})")
+        failures.append(f"{label}: evidence outside the project ({recorded!r})")
         continue
-    # the spec already lives under specs/; point there instead of duplicating it.
-    if resolved.suffix == ".md" and "specs" in resolved.parts:
-        ev[gate] = f"specs/{resolved.name}"
-        changed = True
-        print(f"  [ok]   {gate} -> specs/{resolved.name}")
+    if not resolved.is_file():
+        failures.append(f"{label}: evidence is not a regular file ({recorded!r})")
         continue
-    (out / "evidence").mkdir(parents=True, exist_ok=True)
-    dest_name = f"{gate}{resolved.suffix or '.txt'}"
-    shutil.copyfile(resolved, out / "evidence" / dest_name)
-    ev[gate] = f"evidence/{dest_name}"
+    relative = copied.get(resolved)
+    if relative is None:
+        safe_label = re.sub(r"[^A-Za-z0-9._-]+", "-", str(label)).strip("-._") or "evidence"
+        suffix = resolved.suffix if re.fullmatch(r"\.[A-Za-z0-9]{1,10}", resolved.suffix) else ".bin"
+        token = hashlib.sha256(str(resolved.relative_to(project)).encode()).hexdigest()[:10]
+        dest_name = f"{safe_label[:80]}-{token}{suffix}"
+        relative = f"evidence/{dest_name}"
+        (out / "evidence").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(resolved, out / relative)
+        copied[resolved] = relative
+    container[key] = relative
     changed = True
-    print(f"  [ok]   {gate} -> evidence/{dest_name}")
+    print(f"  [ok]   {label} -> {relative}")
+if failures:
+    for failure in failures:
+        print(f"  [FAIL] {failure}")
+    raise SystemExit("snapshot evidence is not project-contained and complete")
 if changed:
-    snap.write_text(json.dumps(data, indent=2) + "\n")
+    snap.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
+    then
+      die "could not create a self-contained evidence bundle"
+    fi
   else
-    printf '\n  [skip] python3 not found — snapshot keeps absolute gate_evidence paths\n'
+    die "python3 is required to parse and safely collect snapshot evidence"
   fi
 fi
 

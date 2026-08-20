@@ -9,7 +9,7 @@
   ],
   "properties": {
     "schema": {
-      "type": "integer"
+      "const": 1
     },
     "servers": {
       "type": "object",

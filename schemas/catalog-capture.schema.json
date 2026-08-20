@@ -10,7 +10,7 @@
   ],
   "properties": {
     "version": {
-      "type": "integer"
+      "const": 1
     },
     "default": {
       "type": "string"

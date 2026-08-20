@@ -34,7 +34,8 @@ from claude_kit import (
 )
 from claude_kit import export as exporter
 from claude_kit import tickets as tickets_mod
-from claude_kit.models import ResolvedPlan, Selection
+from claude_kit.models import InitOptions, ResolvedPlan
+from claude_kit.secure_fs import ProjectFS
 
 # Planned-but-unimplemented commands are hidden from `--help` by default so they
 # can't be mistaken for working features. Set CLAUDE_KIT_EXPERIMENTAL=1 to surface
@@ -126,7 +127,7 @@ def _resolve_plan(src: Path, *, config: Optional[str], defaults: bool) -> Resolv
         else:
             selection = prompts.interactive(src)
         return catalog.resolve(src, selection)
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc
 
@@ -260,7 +261,12 @@ def init(
                     raw = "."
         else:
             raw = path
-        target = Path(raw).expanduser().resolve()
+        entered_target = Path(raw).expanduser()
+        try:
+            project_fs = ProjectFS(entered_target)
+        except OSError as exc:
+            raise _fs_failure("use", entered_target, exc) from exc
+        target = project_fs.root
 
         # --dry-run: resolve + preview only. Never create the target or write anything; skip the
         # existing-.claude handling and the install spine entirely.
@@ -280,15 +286,15 @@ def init(
             ):
                 typer.echo("aborted.")
                 raise typer.Exit(0)
-            try:
-                target.mkdir(parents=True, exist_ok=True)
-            except OSError as exc:
-                raise _fs_failure("create", target, exc) from exc
 
         # 2) Existing .claude handling: merge / overwrite / backup / abort.
         mode = "fresh"
         overwrite = force
-        if (target / ".claude").exists():
+        try:
+            has_claude = project_fs.exists(".claude")
+        except OSError as exc:
+            raise _fs_failure("inspect", target / ".claude", exc) from exc
+        if has_claude:
             if force:
                 mode = "overwrite"
             elif non_interactive:
@@ -307,16 +313,6 @@ def init(
                 raise typer.Exit(0)
             if mode == "overwrite":
                 overwrite = True
-            if mode == "backup":
-                n = 1
-                while (target / f".claude.bak-{n}").exists():
-                    n += 1
-                try:
-                    (target / ".claude").rename(target / f".claude.bak-{n}")
-                except OSError as exc:
-                    raise _fs_failure("back up .claude/ in", target, exc) from exc
-                typer.echo(f"  • backed up existing .claude/ -> .claude.bak-{n}")
-
         # 3) Resolve the selection.
         plan = _resolve_plan(src, config=config, defaults=defaults)
         if detect_commands is not None:
@@ -339,7 +335,13 @@ def init(
                     raise typer.Exit(1)
             else:
                 typer.echo(f"\nclaude-kit: installing into {target}")
-                for line in scaffold.install_sdlc(src, target, plan, force=overwrite):
+                for line in scaffold.install_sdlc(
+                    src,
+                    target,
+                    plan,
+                    force=overwrite,
+                    backup_existing=mode == "backup",
+                ):
                     typer.echo(line)
         except OSError as exc:
             raise _fs_failure("write into", target, exc) from exc
@@ -367,13 +369,14 @@ def _plan_for_export(
     standalone export into a project that never ran ``init``); with neither and no install present, it
     falls back to the interactive prompt via :func:`_resolve_plan`.
     """
-    opts = target_dir / ".claude" / "config" / "init-options.json"
-    if config is None and not defaults and opts.is_file():
+    fs = ProjectFS(target_dir)
+    opts_rel = ".claude/config/init-options.json"
+    if config is None and not defaults and fs.is_file(opts_rel):
         try:
-            data = json.loads(opts.read_text(encoding="utf-8"))
-            selection = Selection.from_dict(data.get("selection", {}))
-            return catalog.resolve(src, selection)
-        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            data = json.loads(fs.read_text(opts_rel))
+            options = InitOptions.from_dict(data)
+            return catalog.resolve(src, options.selection)
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
             typer.echo(f"error: could not read installed selection: {exc}", err=True)
             raise typer.Exit(2) from exc
     return _resolve_plan(src, config=config, defaults=defaults)
@@ -432,11 +435,33 @@ def export(
         raise typer.Exit(2)
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
-        target_dir = Path(path).expanduser().resolve()
-        plan = _plan_for_export(src, target_dir, config=config, defaults=defaults)
-        written, current = exporter.export_targets(
-            src, target_dir, plan, targets, force=force, dry_run=dry_run
-        )
+        entered_target = Path(path).expanduser()
+        try:
+            project_fs = ProjectFS(entered_target)
+            target_dir = project_fs.root
+        except OSError as exc:
+            raise _fs_failure("use", entered_target, exc) from exc
+        try:
+            if dry_run:
+                plan = _plan_for_export(
+                    src, target_dir, config=config, defaults=defaults
+                )
+                written, current = exporter.export_targets(
+                    src, target_dir, plan, targets, force=force, dry_run=True
+                )
+            else:
+                # Read the installed selection and write its projection under one
+                # shared lease. A concurrent lifecycle transaction must finish (or
+                # this command refuses cleanly) before either step can proceed.
+                with project_fs.mutation_lease():
+                    plan = _plan_for_export(
+                        src, target_dir, config=config, defaults=defaults
+                    )
+                    written, current = exporter.export_targets(
+                        src, target_dir, plan, targets, force=force, dry_run=False
+                    )
+        except OSError as exc:
+            raise _fs_failure("export into", target_dir, exc) from exc
 
     if json_out:
         typer.echo(
@@ -478,7 +503,12 @@ def validate(
     ),
 ) -> None:
     """Structurally validate a scaffolded .claude/ configuration."""
-    _emit_report(*validator.validate(path, strict=strict), as_json=json_out)
+    entered_target = Path(path).expanduser()
+    try:
+        result = validator.validate(entered_target, strict=strict)
+    except OSError as exc:
+        raise _fs_failure("inspect", entered_target, exc) from exc
+    _emit_report(*result, as_json=json_out)
 
 
 @app.command()
@@ -494,7 +524,12 @@ def doctor(
     ),
 ) -> None:
     """Run strict validation plus environment/health checks with fix hints."""
-    _emit_report(*validator.doctor(path, mcp=mcp), as_json=json_out)
+    entered_target = Path(path).expanduser()
+    try:
+        result = validator.doctor(entered_target, mcp=mcp)
+    except OSError as exc:
+        raise _fs_failure("inspect", entered_target, exc) from exc
+    _emit_report(*result, as_json=json_out)
 
 
 @app.command()
@@ -505,7 +540,12 @@ def diff(
     ),
 ) -> None:
     """Preview what an upgrade would change (no writes)."""
-    _emit_report(*upgrader.diff(path), as_json=json_out)
+    entered_target = Path(path).expanduser()
+    try:
+        result = upgrader.diff(entered_target)
+    except OSError as exc:
+        raise _fs_failure("inspect", entered_target, exc) from exc
+    _emit_report(*result, as_json=json_out)
 
 
 @app.command()
@@ -516,7 +556,12 @@ def upgrade(
     ),
 ) -> None:
     """Refresh kit-owned files, backing up user-modified ones."""
-    _print_report(*upgrader.upgrade(path, force=force))
+    entered_target = Path(path).expanduser()
+    try:
+        result = upgrader.upgrade(entered_target, force=force)
+    except OSError as exc:
+        raise _fs_failure("upgrade", entered_target, exc) from exc
+    _print_report(*result)
 
 
 @app.command("list-options")
@@ -557,32 +602,58 @@ def status(
     ),
 ) -> None:
     """Show what's installed and the current working memory."""
-    target = Path(path).expanduser().resolve()
+    entered_target = Path(path).expanduser()
+    try:
+        project_fs = ProjectFS(entered_target)
+        target = project_fs.root
+    except OSError as exc:
+        raise _fs_failure("inspect", entered_target, exc) from exc
     dest = target / ".claude"
-    installed = dest.is_dir()
 
-    # Collect the data once, then render as text (byte-identical to before) or JSON.
+    # Collect the data once, then render as text or JSON without another filesystem read.
     components: dict[str, Optional[int]] = {}
     selection: Optional[dict] = None
     continuity = dest / "CONTINUITY.md"
-    if installed:
-        for name in ("rules", "agents", "skills", "hooks"):
-            d = dest / name
-            if not d.is_dir():
-                components[name] = None
-            elif name == "skills":
-                # A skill is a directory holding SKILL.md; skills/_references/ is shared
-                # support content, not a skill — this matches validate's count.
-                components[name] = sum(
-                    1 for p in d.iterdir() if (p / "SKILL.md").is_file()
+    continuity_present = False
+    continuity_lines: list[str] = []
+    try:
+        installed = dest.is_dir()
+        if installed:
+            for name in ("rules", "agents", "skills", "hooks"):
+                d = dest / name
+                if not d.is_dir():
+                    components[name] = None
+                elif name == "skills":
+                    # A skill is a directory holding SKILL.md; skills/_references/ is shared
+                    # support content, not a skill — this matches validate's count.
+                    components[name] = sum(
+                        1 for p in d.iterdir() if (p / "SKILL.md").is_file()
+                    )
+                else:
+                    components[name] = sum(
+                        1 for p in d.iterdir() if p.name != ".gitkeep"
+                    )
+            options = dest / "config" / "init-options.json"
+            if options.is_file():
+                document = json.loads(
+                    project_fs.read_text(".claude/config/init-options.json")
                 )
-            else:
-                components[name] = sum(1 for p in d.iterdir() if p.name != ".gitkeep")
-        options = dest / "config" / "init-options.json"
-        if options.is_file():
-            selection = json.loads(options.read_text(encoding="utf-8")).get(
-                "selection", {}
-            )
+                parsed_options = InitOptions.from_dict(document)
+                with ExitStack() as stack:
+                    catalog.resolve(
+                        scaffold.payload_dir(stack), parsed_options.selection
+                    )
+                selection = parsed_options.selection.to_dict()
+            continuity_present = continuity.is_file()
+            if continuity_present:
+                continuity_lines = continuity.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()[:30]
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        typer.echo(f"error: could not read installed selection: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    except OSError as exc:
+        raise _fs_failure("inspect", entered_target, exc) from exc
 
     if json_out:
         typer.echo(
@@ -592,7 +663,7 @@ def status(
                     "installed": installed,
                     "components": components,
                     "selection": selection,
-                    "continuity": continuity.is_file(),
+                    "continuity": continuity_present,
                 },
                 indent=2,
             )
@@ -613,11 +684,9 @@ def status(
             f"{sel.get('backend_language')}/{sel.get('backend_framework')} + "
             f"{sel.get('database')} · profile={sel.get('profile')} · mcp={sel.get('mcp') or 'none'}"
         )
-    if continuity.is_file():
+    if continuity_present:
         typer.echo("\n  working memory (.claude/CONTINUITY.md):")
-        for line in continuity.read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines()[:30]:
+        for line in continuity_lines:
             typer.echo(f"    {line}")
     else:
         typer.echo("\n  no CONTINUITY.md yet (no pipeline run recorded).")
@@ -635,18 +704,17 @@ def _load_ticket_view(
 
 def write_board_html(store: "tickets_mod.Store", target: Path, refresh: int) -> Path:
     """Write the HTML board under the project's gitignored state dir; return the path."""
-    out = target / board_html.BOARD_REL
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        board_html.render_html(
-            store,
-            refresh=refresh,
-            stage=tickets_mod.pipeline_stage(target),
-            gates=pipeline.installed_gates(target),
-        ),
-        encoding="utf-8",
-    )
-    return out
+    fs = ProjectFS(target)
+    with fs.mutation_lease():
+        return fs.write_text(
+            board_html.BOARD_REL,
+            board_html.render_html(
+                store,
+                refresh=refresh,
+                stage=tickets_mod.pipeline_stage(target),
+                gates=pipeline.installed_gates(target),
+            ),
+        )
 
 
 def _launch_browser(url: str) -> bool:
@@ -716,7 +784,11 @@ def tickets(
     ),
 ) -> None:
     """Show the ticket board with live token, model, agent, and timing figures."""
-    target = Path(path).expanduser().resolve()
+    entered_target = Path(path).expanduser()
+    try:
+        target = ProjectFS(entered_target).root
+    except OSError as exc:
+        raise _fs_failure("use", entered_target, exc) from exc
     if graph and graph_git:
         typer.echo("--graph and --graph-git are alternatives; pass only one.")
         raise typer.Exit(2)
@@ -732,7 +804,10 @@ def tickets(
         nonlocal opened
         store = _load_ticket_view(target, transcript_dir)
         if write_html:
-            out = write_board_html(store, target, refresh)
+            try:
+                out = write_board_html(store, target, refresh)
+            except OSError as exc:
+                raise _fs_failure("write the ticket board into", target, exc) from exc
             url = f"file://{out}"
             typer.echo(f"wrote {out}")
             typer.echo(f"open {url}")
@@ -903,7 +978,15 @@ def pipeline_validate(
     Every gate_history entry is re-verified: evidence file present, sha256 unchanged since the
     gate closed, and entries in the installed gate order.
     """
-    _emit_report(*pipeline.validate(path, strict=strict), as_json=json_out)
+    ok, messages = pipeline.validate(path, strict=strict)
+    if json_out:
+        snapshot, error = pipeline.snapshot_document(path)
+        extra = {"snapshot": snapshot} if error is None else {"snapshot_error": error}
+        typer.echo(report.Report.from_lines(ok, messages).to_json(extra=extra))
+        if not ok:
+            raise typer.Exit(1)
+    else:
+        _print_report(ok, messages)
 
 
 @pipeline_app.command("status")
@@ -914,7 +997,99 @@ def pipeline_status(
     ),
 ) -> None:
     """Print a summary of the current pipeline run (stage, lanes, gate, findings, next)."""
-    _emit_report(*pipeline.status(path), as_json=json_out)
+    ok, messages = pipeline.status(path)
+    if json_out:
+        snapshot, error = pipeline.snapshot_document(path)
+        extra = {"snapshot": snapshot} if error is None else {"snapshot_error": error}
+        typer.echo(report.Report.from_lines(ok, messages).to_json(extra=extra))
+        if not ok:
+            raise typer.Exit(1)
+    else:
+        _print_report(ok, messages)
+
+
+@pipeline_app.command("start")
+def pipeline_start(
+    task: str = typer.Option(
+        ..., "--task", help="concise identity of the work being run"
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+    mode: str = typer.Option("B", "--mode", help="pipeline mode A, B, C, D, or E"),
+) -> None:
+    """Start a fresh schema-v2 run at the installed profile's first gate."""
+    _print_report(*pipeline.start(path, task=task, mode=mode))
+
+
+@pipeline_app.command("adopt")
+def pipeline_adopt(
+    gate: str = typer.Argument(..., help="first gate controlled by the adopted run"),
+    task: str = typer.Option(
+        ..., "--task", help="concise identity of the work being adopted"
+    ),
+    reason: str = typer.Option(
+        ..., "--reason", help="why preceding gates are historical"
+    ),
+    adopted_by: str = typer.Option(
+        ..., "--adopted-by", help="human or accountable role adopting the work"
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+    mode: str = typer.Option("B", "--mode", help="pipeline mode A, B, C, D, or E"),
+) -> None:
+    """Explicitly adopt work already in flight and preserve its historical boundary."""
+    _print_report(
+        *pipeline.adopt(
+            path,
+            task=task,
+            gate=gate,
+            reason=reason,
+            adopted_by=adopted_by,
+            mode=mode,
+        )
+    )
+
+
+@pipeline_app.command("resume")
+def pipeline_resume(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Validate and resume an active run bound to this repository and branch."""
+    _print_report(*pipeline.resume(path))
+
+
+@pipeline_app.command("record-findings")
+def pipeline_record_findings(
+    critical: int = typer.Option(
+        ..., "--critical", min=0, help="exact open Critical finding count"
+    ),
+    high: int = typer.Option(
+        ..., "--high", min=0, help="exact open High finding count"
+    ),
+    medium: int = typer.Option(
+        ..., "--medium", min=0, help="exact open Medium finding count"
+    ),
+    low: int = typer.Option(..., "--low", min=0, help="exact open Low finding count"),
+    cosmetic: int = typer.Option(
+        ..., "--cosmetic", min=0, help="exact open Cosmetic finding count"
+    ),
+    evidence: str = typer.Option(
+        ...,
+        "--evidence",
+        help="project-contained evidence artifact for this exact finding set",
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Atomically record exact finding counts bound to current HEAD and evidence."""
+    _print_report(
+        *pipeline.record_findings(
+            path,
+            critical=critical,
+            high=high,
+            medium=medium,
+            low=low,
+            cosmetic=cosmetic,
+            evidence=evidence,
+        )
+    )
 
 
 @pipeline_app.command("close-gate")
@@ -929,12 +1104,12 @@ def pipeline_close_gate(
     force: bool = typer.Option(
         False,
         "--force",
-        help="close the gate despite open critical/high/medium findings (requires --override-reason)",
+        help="compatibility flag for repair tooling; never waives a finding or gate order",
     ),
     override_reason: Optional[str] = typer.Option(
         None,
         "--override-reason",
-        help="justification recorded when --force bypasses blocking findings or gate order",
+        help="repair/migration note; does not authorize a gate bypass",
     ),
     strict: bool = typer.Option(
         False,
@@ -944,10 +1119,9 @@ def pipeline_close_gate(
 ) -> None:
     """Record a quality gate as passed, with an evidence file, in the pipeline gate ledger.
 
-    Appends to gate_history with the evidence file's sha256 and a UTC timestamp. Refuses to pass a
-    gate while critical/high/medium findings are open, and refuses to pass a gate out of the
-    installed order (skip a non-applicable gate explicitly with skip-gate), unless --force is given
-    with an --override-reason (the entry is then recorded as overridden, for human review).
+    Appends to gate_history with the evidence sha256, repository commit, and timestamp. Critical
+    and High findings are never waivable; Medium uses the distinct accept-risk transition. The
+    compatibility --force option cannot override a finding or gate order.
     """
     _print_report(
         *pipeline.close_gate(
@@ -969,6 +1143,14 @@ def pipeline_skip_gate(
     reason: str = typer.Option(
         ..., "--reason", help="why this conditional gate does not apply to the run"
     ),
+    condition: str = typer.Option(
+        ..., "--condition", help="configured machine-readable skip condition identifier"
+    ),
+    evidence: str = typer.Option(
+        ...,
+        "--evidence",
+        help="evidence proving that the condition holds at current HEAD",
+    ),
     path: str = typer.Argument(".", help="target project dir (default: .)"),
     strict: bool = typer.Option(
         False,
@@ -976,12 +1158,97 @@ def pipeline_skip_gate(
         help="fail (instead of warn) when the install snapshot is missing/unreadable — for CI",
     ),
 ) -> None:
-    """Record a conditional gate as deliberately skipped (with a reason) in the gate ledger.
+    """Compatibility alias that records the structured status ``not-applicable``."""
+    _print_report(
+        *pipeline.skip_gate(
+            path,
+            gate,
+            reason,
+            condition=condition,
+            evidence=evidence,
+            strict=strict,
+        )
+    )
 
-    A skipped gate keeps the ledger's order intact without claiming a pass — use it when a
-    profile-defined gate genuinely does not apply to this run (e.g. no API contract changed).
-    """
-    _print_report(*pipeline.skip_gate(path, gate, reason, strict=strict))
+
+@pipeline_app.command("not-applicable")
+def pipeline_not_applicable(
+    gate: str = typer.Argument(..., help="conditional gate to resolve"),
+    condition: str = typer.Option(
+        ..., "--condition", help="configured condition identifier"
+    ),
+    reason: str = typer.Option(..., "--reason", help="why the condition applies"),
+    evidence: str = typer.Option(
+        ..., "--evidence", help="evidence proving the condition"
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Resolve the next conditional gate as not applicable, never as an ordinary pass."""
+    _print_report(
+        *pipeline.not_applicable(
+            path, gate, condition=condition, reason=reason, evidence=evidence
+        )
+    )
+
+
+@pipeline_app.command("accept-risk")
+def pipeline_accept_risk(
+    gate: str = typer.Argument(..., help="gate affected by the Medium finding"),
+    finding_id: str = typer.Option(
+        ..., "--finding-id", help="stable Medium finding identifier"
+    ),
+    reason: str = typer.Option(
+        ..., "--reason", help="why this Medium risk is accepted"
+    ),
+    accepted_by: str = typer.Option(
+        ..., "--accepted-by", help="accepting human or accountable role"
+    ),
+    owner: str = typer.Option(
+        ..., "--owner", help="owner responsible for the residual risk"
+    ),
+    ticket: str = typer.Option(..., "--ticket", help="issue or ticket reference"),
+    revisit: str = typer.Option(..., "--revisit", help="expiry or revisit trigger"),
+    evidence: str = typer.Option(..., "--evidence", help="finding evidence artifact"),
+    compensating_control: Optional[str] = typer.Option(
+        None, "--compensating-control", help="control that bounds the residual risk"
+    ),
+    refresh: bool = typer.Option(
+        False,
+        "--refresh",
+        help="explicitly re-attest an existing stale acceptance at the current commit",
+    ),
+    supersedes_finding_id: Optional[str] = typer.Option(
+        None,
+        "--supersedes-finding-id",
+        help="prior finding ID replaced by --finding-id during a refresh",
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Record a structured Medium acceptance; never represents an ordinary PASS."""
+    _print_report(
+        *pipeline.accept_risk(
+            path,
+            gate,
+            finding_id=finding_id,
+            reason=reason,
+            accepted_by=accepted_by,
+            owner=owner,
+            ticket=ticket,
+            revisit=revisit,
+            evidence=evidence,
+            compensating_control=compensating_control,
+            refresh=refresh,
+            supersedes_finding_id=supersedes_finding_id,
+        )
+    )
+
+
+@pipeline_app.command("complete")
+def pipeline_complete(
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Complete a coherent run after every active gate is explicitly resolved."""
+    _print_report(*pipeline.complete(path))
 
 
 @pipeline_app.command("abort")

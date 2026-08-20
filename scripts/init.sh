@@ -1,95 +1,30 @@
 #!/usr/bin/env bash
-# claude-kit scaffolder.
+# Compatibility launcher for historical callers of scripts/init.sh.
 #
-# Copies the claude-kit payload (rules, agents, skills, hooks, templates) into a target
-# project's .claude/ directory and drops a generic CLAUDE.md at the project root.
-#
-# Used by the /claude-kit:init slash command (plugin) and runnable directly from a checkout.
-# This is a degraded, no-resolution fallback: it copies the full payload as-is. The pip CLI
-# (`claude-kit init`) is the recommended installer -- it is catalog-driven (stack/profile/MCP
-# resolution) and upgrade-safe (diff/upgrade), which this script does not do.
-#
-# Usage:  init.sh [TARGET_DIR] [--defaults] [--force] [--minimal] [--no-hooks]
-#   TARGET_DIR  project to scaffold into (default: $CLAUDE_PROJECT_DIR or current dir)
-#   --defaults  accepted for parity with the pip CLI (`claude-kit init --defaults`); a no-op here
-#               because this shell fallback is already non-interactive
-#   --force     overwrite existing CLAUDE.md / settings.json (otherwise written as *.claude-kit sidecars)
-#   --minimal   only CLAUDE.md + rules/ (skip agents, skills, hooks, memory)
-#   --no-hooks  skip installing hook scripts and settings.json
+# Project installation now requires the Python CLI because only that path can share
+# ProjectFS containment checks, strict staging validation, and the rollback journal.
+# This wrapper deliberately performs no filesystem mutation of its own.
 set -euo pipefail
 
-FORCE=0; MINIMAL=0; NO_HOOKS=0; TARGET=""
-for arg in "$@"; do
-  case "$arg" in
-    --force) FORCE=1 ;;
-    --minimal) MINIMAL=1 ;;
-    --no-hooks) NO_HOOKS=1 ;;
-    --defaults) : ;;  # parity with `claude-kit init --defaults`; no-op (this fallback is non-interactive)
-    -*) echo "unknown flag: $arg" >&2; exit 2 ;;
-    *) TARGET="$arg" ;;
-  esac
-done
-TARGET="${TARGET:-${CLAUDE_PROJECT_DIR:-$PWD}}"
-
-# Resolve the kit source: plugin root when installed as a plugin, else this checkout's root.
-SRC="${CLAUDE_PLUGIN_ROOT:-}"
-if [ -z "$SRC" ]; then
-  SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if command -v claude-kit >/dev/null 2>&1; then
+  exec claude-kit init "$@"
 fi
-for d in rules templates; do
-  [ -d "$SRC/$d" ] || { echo "error: kit source incomplete (missing $SRC/$d)" >&2; exit 1; }
-done
-
-DEST="$TARGET/.claude"
-mkdir -p "$DEST"
-
-# Loud warning: this is the degraded, no-pip path. The full experience is the Python CLI.
-echo "================================================================" >&2
-echo "claude-kit BASIC scaffolder (no Python CLI)" >&2
-echo "  SUPERSET install: NO stack / profile / MCP resolution." >&2
-echo "  'claude-kit upgrade' and 'diff' will NOT work against it." >&2
-echo "  For the full catalog-driven experience + safe upgrades:" >&2
-echo "    pipx install claude-code-kit   (then re-run /claude-kit:init)" >&2
-echo "================================================================" >&2
-
-echo "claude-kit: scaffolding into $TARGET"
-
-copy_root_file() {  # src, dest, label
-  local src="$1" dest="$2" label="$3"
-  if [ -f "$dest" ] && [ "$FORCE" -ne 1 ]; then
-    cp "$src" "${dest}.claude-kit"
-    echo "  * $label exists -- wrote ${dest##*/}.claude-kit (use --force to overwrite)"
-  else
-    cp "$src" "$dest"; echo "  * $label installed"
-  fi
-}
-
-# Rules + the generic CLAUDE.md are always installed.
-rm -rf "$DEST/rules"; cp -R "$SRC/rules" "$DEST/rules"; echo "  * rules/ ($(ls "$DEST/rules" | wc -l | tr -d ' ') files)"
-copy_root_file "$SRC/templates/CLAUDE.md" "$TARGET/CLAUDE.md" "CLAUDE.md"
-cp "$SRC/templates/CONTINUITY.template.md" "$DEST/CONTINUITY.template.md"
-
-if [ "$MINIMAL" -ne 1 ]; then
-  rm -rf "$DEST/agents"; cp -R "$SRC/agents" "$DEST/agents"; echo "  * agents/ ($(ls "$DEST/agents" | wc -l | tr -d ' ') files)"
-  rm -rf "$DEST/skills"; cp -R "$SRC/skills" "$DEST/skills"; echo "  * skills/ ($(ls -d "$DEST"/skills/*/ | wc -l | tr -d ' ') skills)"
-  if [ ! -d "$DEST/agent-memory" ]; then
-    cp -R "$SRC/templates/agent-memory" "$DEST/agent-memory"; echo "  * agent-memory/ seed"
-  fi
-  if [ -f "$SRC/templates/scripts/sdlc-loop.sh" ]; then
-    mkdir -p "$DEST/scripts"
-    cp "$SRC/templates/scripts/sdlc-loop.sh" "$DEST/scripts/sdlc-loop.sh"
-    chmod +x "$DEST/scripts/sdlc-loop.sh"
-    # No catalog resolution here, so no stack snapshot exists -- the loop runner will
-    # require SDLC_FINAL_GATE to be set explicitly (it refuses to guess a finish line).
-    echo "  * scripts/sdlc-loop.sh (bounded headless runner; set SDLC_FINAL_GATE to use)"
-  fi
+if command -v ckit >/dev/null 2>&1; then
+  exec ckit init "$@"
+fi
+if command -v claude-sdlc >/dev/null 2>&1; then
+  exec claude-sdlc init "$@"
 fi
 
-if [ "$MINIMAL" -ne 1 ] && [ "$NO_HOOKS" -ne 1 ]; then
-  mkdir -p "$DEST/hooks"; cp "$SRC"/hooks/scripts/*.sh "$DEST/hooks/" 2>/dev/null || true
-  chmod +x "$DEST"/hooks/*.sh 2>/dev/null || true
-  echo "  * hooks/ ($(ls "$DEST"/hooks/*.sh 2>/dev/null | wc -l | tr -d ' ') scripts)"
-  copy_root_file "$SRC/templates/settings.json" "$DEST/settings.json" "settings.json"
-fi
+cat >&2 <<'EOF'
+error: the legacy shell scaffolder was retired in claude-kit 0.83.0.
 
-echo "claude-kit: done. Open the project in Claude Code; CLAUDE.md and .claude/ are now active."
+It could not provide the Python installer's path-containment, symlink/reparse-point,
+strict-staging, and rollback-transaction guarantees. Install the supported CLI, then retry:
+
+  pipx install claude-code-kit
+  claude-kit init <target> [options]
+
+No project files were changed.
+EOF
+exit 2
