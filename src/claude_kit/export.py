@@ -31,6 +31,7 @@ import yaml
 from claude_kit import scaffold
 from claude_kit.models import ResolvedPlan
 from claude_kit.render import render_text
+from claude_kit.secure_fs import ProjectFS
 
 #: The export targets this module understands (validated by the CLI before calling in).
 VALID_TARGETS: tuple[str, ...] = ("cursor", "agents", "copilot")
@@ -334,24 +335,24 @@ def _emit(
     non-destructive convention the installer uses). ``dry_run`` records the intended path in
     ``written`` and writes nothing.
     """
-    rel = path.relative_to(root).as_posix()
+    fs = ProjectFS(root)
+    rel = fs.relpath(path)
     if dry_run:
         written.append(rel)
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists() and not force:
+    if fs.is_file(rel) and not force:
         try:
-            existing = path.read_text(encoding="utf-8")
+            existing = fs.read_text(rel)
         except UnicodeDecodeError:
             existing = None
         if existing == text:
             current.append(rel)
             return
-        sidecar = path.with_name(path.name + ".claude-kit")
-        sidecar.write_text(text, encoding="utf-8")
-        written.append(sidecar.relative_to(root).as_posix())
+        sidecar_rel = f"{rel}.claude-kit"
+        fs.write_text(sidecar_rel, text)
+        written.append(sidecar_rel)
     else:
-        path.write_text(text, encoding="utf-8")
+        fs.write_text(rel, text)
         written.append(rel)
 
 
@@ -486,15 +487,26 @@ def export_targets(
     target_dir = Path(target_dir)
     written: list[str] = []
     current: list[str] = []
-    # De-duplicate while preserving the caller's order.
-    for name in dict.fromkeys(targets):
-        _WRITERS[name](
-            payload,
-            target_dir,
-            plan,
-            force=force,
-            dry_run=dry_run,
-            written=written,
-            current=current,
-        )
+
+    def project() -> None:
+        # De-duplicate while preserving the caller's order.
+        for name in dict.fromkeys(targets):
+            _WRITERS[name](
+                payload,
+                target_dir,
+                plan,
+                force=force,
+                dry_run=dry_run,
+                written=written,
+                current=current,
+            )
+
+    if dry_run:
+        project()
+    else:
+        # A lifecycle rollback snapshots root exports such as AGENTS.md. Keep the
+        # projection under the shared project lease so it cannot be acknowledged
+        # and then erased by a concurrent install/upgrade rollback.
+        with ProjectFS(target_dir).mutation_lease():
+            project()
     return sorted(written), sorted(current)

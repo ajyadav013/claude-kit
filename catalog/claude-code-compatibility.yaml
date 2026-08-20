@@ -1,0 +1,66 @@
+# Claude Code versions and hook events exercised by claude-kit's compatibility contract.
+#
+# `minimum` is the oldest version that supports Stop hook `additionalContext`, used by the shipped
+# hook payload (see the 0.75.1 changelog entry). `current-stable` is deliberately pinned rather than
+# using npm's moving `latest` tag; the scheduled CI drift check opens the update path explicitly.
+version: 1
+minimum: "2.1.163"
+stable_as_of: "2026-08-20"
+
+tested:
+  - version: "2.1.163"
+    role: minimum
+    tested_at: "2026-08-20"
+    ci: true
+  - version: "2.1.178"
+    role: observed
+    tested_at: "2026-08-20"
+    ci: false
+  - version: "2.1.236"
+    role: current-stable
+    tested_at: "2026-08-20"
+    ci: true
+
+features:
+  stop_hook_additional_context:
+    minimum_version: "2.1.163"
+    required: true
+  dynamic_workflows:
+    minimum_version: "2.1.154"
+    required: false
+  permission_rule_tool_matching:
+    minimum_version: "2.1.178"
+    required: false
+
+# Recognition is intentionally broader than claude-kit's installed hook registry. A recognized
+# event is accepted by strict validation; it need not have a bundled hook implementation.
+recognized_events:
+  - PreToolUse
+  - PostToolUse
+  - PostToolUseFailure
+  - PostToolBatch
+  - Notification
+  - UserPromptSubmit
+  - UserPromptExpansion
+  - SessionStart
+  - SessionEnd
+  - Stop
+  - StopFailure
+  - SubagentStart
+  - SubagentStop
+  - PreCompact
+  - PostCompact
+  - PermissionRequest
+  - PermissionDenied
+  - Setup
+  - TeammateIdle
+  - TaskCreated
+  - TaskCompleted
+  - ConfigChange
+  - WorktreeCreate
+  - WorktreeRemove
+  - CwdChanged
+  - Elicitation
+  - ElicitationResult
+  - FileChanged
+  - InstructionsLoaded

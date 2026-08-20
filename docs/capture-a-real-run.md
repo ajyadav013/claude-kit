@@ -18,7 +18,7 @@ they never show up in a normal `git diff`:
 | Artifact | Location | Tracked? |
 |---|---|---|
 | Feature spec | `docs/specs/<feature>_spec.md` | committed |
-| Gate state (last gate passed, open findings by severity, evidence, overrides) | `.claude/state/pipeline-snapshot.json` | gitignored runtime state |
+| Run lifecycle and gate state (resolved gate, exact findings, evidence hashes, not-applicable conditions, accepted risks, terminal summary) | `.claude/state/pipeline-snapshot.json` | gitignored runtime state |
 | Verdict log / phase history | `.claude/CONTINUITY.md` | gitignored runtime state |
 | Install snapshot (profile + resolved gate set) | `.claude/config/stack-catalog.snapshot.yaml` | committed |
 | The code itself + the PR | git history (`diff` vs your base branch) | committed |
@@ -64,8 +64,9 @@ they never show up in a normal `git diff`:
 claude-kit-run-<timestamp>-<slug>/
 ├── specs/                         # docs/specs/*_spec.md
 ├── state/
-│   ├── pipeline-snapshot.json     # gate state, findings, evidence, overrides
+│   ├── pipeline-snapshot.json     # lifecycle, gates, findings, evidence, accepted risks
 │   └── stack-catalog.snapshot.yaml
+├── evidence/                      # every project-contained artifact referenced by the snapshot
 ├── continuity.md                  # verdict log / phase history
 ├── git/
 │   ├── log.txt                    # recent commits
@@ -74,5 +75,8 @@ claude-kit-run-<timestamp>-<slug>/
 └── REDACTION-CHECKLIST.md         # finish this before publishing
 ```
 
-Missing files are reported, not fatal — if you point the script at a checkout where `/sdlc` hasn't run
-yet, it tells you which artifacts it couldn't find.
+Missing optional run files are reported, not fatal — if you point the script at a checkout where
+`/sdlc` has not run yet, it tells you what it could not find. A snapshot whose declared evidence is
+missing, outside the project, unreadable, or malformed is different: capture fails rather than
+publishing a bundle that claims to be self-contained. The collector requires `python3` to parse the
+snapshot structurally; it never scrapes nested JSON with text tools.

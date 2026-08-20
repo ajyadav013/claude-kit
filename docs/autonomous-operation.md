@@ -63,15 +63,16 @@ The naive autonomous loop — `while :; do claude -p "keep going"; done` — fai
 between iterations, and no exit condition. The kit already ships both halves:
 
 - **Memory:** `.claude/CONTINUITY.md` + the structured snapshot
-  `.claude/state/pipeline-snapshot.json` (`last_gate_passed`, `lanes`, `next`, and the append-only
-  `gate_history` ledger — every passed/skipped gate with its evidence path + sha256). The resume
-  contract is *reload, don't re-run* (`.claude/rules/continuity.md`): re-enter at the first gate
-  after `last_gate_passed`, never re-apply committed work — and run `claude-kit pipeline validate`
-  first, which re-hashes every ledger entry, so a resumed loop never builds on tampered or
-  out-of-order state.
-- **Exit condition:** the installed profile's gate tokens. Done = the profile's *final* gate is
-  green (read your gate list from `.claude/config/stack-catalog.snapshot.yaml`; the orchestrator's
-  Gate ↔ Stage Map defines the token order).
+  `.claude/state/pipeline-snapshot.json` (explicit run identity/status, lanes, next action, gate
+  definition digest, and the evidence-hashed `gate_history`). Start a new run with `pipeline start`;
+  work already in flight requires `pipeline adopt`. The resume contract is *reload, don't re-run*
+  (`.claude/rules/continuity.md`): call `pipeline resume`/`validate`, then re-enter at the first
+  unresolved gate and never re-apply committed work. Before a transition, `record-findings` binds all
+  five exact severity counts to a current report/commit. Validation detects out-of-order state and
+  evidence drift; the adjacent local hashes are not authenticated against a writer who can edit both.
+- **Exit condition:** `claude-kit pipeline complete` succeeds and a subsequent `pipeline validate`
+  confirms the terminal snapshot. The installed profile's final gate is necessary but raw JSON or a
+  final-gate token alone is not sufficient.
 
 What the loop script must add is **brakes** — a hard iteration cap, a per-iteration spend cap, and
 stall detection. The kit **installs this pattern as a runnable file**:
@@ -83,7 +84,7 @@ an environment variable:
 
 | Knob | Default | Meaning |
 |---|---|---|
-| `SDLC_FINAL_GATE` | last entry of the snapshot's `gates:` list | exit condition; **required** if the snapshot is absent (e.g. after the no-pip `init.sh` fallback — the script refuses to guess a finish line) |
+| `SDLC_FINAL_GATE` | last entry of the snapshot's `gates:` list | exit condition; **required** if the snapshot is absent (the script refuses to guess a finish line) |
 | `SDLC_MAX_ITER` | `8` | hard iteration cap |
 | `SDLC_BUDGET_USD` | `5` | per-iteration `--max-budget-usd` |
 | `SDLC_PERMISSION_MODE` | `acceptEdits` | `--permission-mode` for each run |
@@ -156,7 +157,7 @@ The kit's rules already define the defenses — these are the signs they exist t
 | "Tests pass" with no captured runner output | Fabricated/assumed verdict | `quality-gates.md` §2.5: a verdict must be backed by real, captured output; a fabricated one is an **auto-Critical** |
 | Iterations that only rewrite `CONTINUITY.md`/state files, no code or test diffs | Progress theater | The §3 stall brake catches the unchanged token; also diff the repo between iterations (`git diff --stat`) |
 | Review/security gates passing implausibly fast at high autonomy | Rubber-stamping | Blind review + Devil's Advocate protocol (`quality-gates.md`); sample-audit transcripts; `audit-log` (org autonomous levels) records an independent trail |
-| Budget consumed, `last_gate_passed` unchanged | Runaway or thrash | `--max-budget-usd` bounds the damage; the loop exits nonzero; a human reads the transcript before any restart |
+| Budget consumed while top-level `status` + `last_gate_resolved` stay unchanged | Runaway or thrash | `--max-budget-usd` bounds the damage; the loop exits nonzero; a human reads the transcript before any restart |
 
 The general rule behind all five: **"Verify means run it, not imagine it"**
 (`.claude/rules/rarv-cycle.md`), applied by someone the agent can't overrule — a hook, a loop
@@ -189,7 +190,7 @@ pattern is proven in the wild — GitHub spec-kit's label-driven `bug-assess` �
    can't land unreviewed; the loop brakes if the stage iterates.
 6. **Verify gate state mechanically between stages.** Run `claude-kit pipeline validate --strict`
    before a stage consumes its predecessor's snapshot: it re-hashes every `gate_history` entry and
-   fails on out-of-order, tampered, or missing evidence, and `--strict` turns a missing install
+   fails on out-of-order, drifted, or missing evidence, and `--strict` turns a missing install
    snapshot from WARN into FAIL — the right posture in CI, where an absent config means a broken
    checkout, not a minimal install. A stage that trusts an unvalidated snapshot inherits whatever
    the previous run (or an injected commit) wrote into it.

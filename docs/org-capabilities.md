@@ -49,8 +49,9 @@ How much Claude may do before a human acts. Set per repo; default **assisted**. 
 Review **strictness** (`light` / `standard` / `regulated`) is an independent axis; `regulated` adds the
 `validate-frontmatter` + `validate-settings` hooks and the `security-clear` + `acceptance` +
 `accessibility-clear` gates. The `accessibility-clear` gate (owned by `acceptance-reviewer`, driving
-the `accessibility-review` skill) enforces WCAG-AA on changed UI and self-skips when the change has no
-UI surface — so it binds only when both `regulated` strictness **and** a frontend are in play.
+the `accessibility-review` skill) enforces WCAG-AA on changed UI and permits an evidenced
+`not-applicable` transition only when the configured no-UI condition holds — so it binds only when
+both `regulated` strictness **and** a frontend are in play.
 
 ## Risk classification
 

@@ -1,5 +1,10 @@
 # Pipeline Speed (0.82.0) Implementation Plan
 
+> **Historical completed plan — superseded in 0.83.0.** The commands and manual state-editing
+> fallbacks below describe the old schema-1 lifecycle and are unsafe for current runs. Follow
+> [`docs/pipeline-speed-playbook.md`](../../pipeline-speed-playbook.md): record exact findings, use
+> structured `accept-risk` only for Medium findings, and never hand-write the snapshot.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the 12 verified pipeline-speed adoptions from `docs/superpowers/specs/2026-08-17-pipeline-speed-design.md` as claude-kit 0.82.0, plus an operator playbook, fully tested.

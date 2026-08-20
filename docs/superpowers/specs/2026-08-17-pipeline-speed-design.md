@@ -1,5 +1,11 @@
 # Pipeline Speed — Design (0.82.0)
 
+> **Historical design — superseded in 0.83.0.** This records the 0.82 decision process; do not
+> execute its `close-gate --force` waiver guidance. Current runs must use the explicit lifecycle and
+> structured `record-findings` / `accept-risk` flow in
+> [`docs/pipeline-speed-playbook.md`](../../pipeline-speed-playbook.md). Never hand-edit pipeline
+> state.
+
 **Date:** 2026-08-17 · **Status:** approved by user (sections 1–5) · **Target:** one release
 (0.82.0) + an operator playbook for in-flight runs.
 

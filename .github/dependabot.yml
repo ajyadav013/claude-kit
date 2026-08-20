@@ -1,14 +1,30 @@
 # Keep the GitHub Actions used by CI and publish current (and SHA-pinned by Dependabot's PRs).
 # Dependabot opens one grouped PR per week that pins each action to a commit SHA with a tag comment,
-# giving supply-chain auditability without manual upkeep. pypa/gh-action-pypi-publish stays on its
-# rolling release/v1 branch (required for PyPI Trusted Publishing + PEP 740 attestations).
+# giving supply-chain auditability without manual upkeep. Reviews must retain full commit-SHA pins;
+# tag comments are human-readable provenance, never executable refs.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:
           - "*"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      python-runtime:
+        dependency-type: "production"
+      python-development:
+        dependency-type: "development"
+    open-pull-requests-limit: 5

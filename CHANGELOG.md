@@ -4,6 +4,99 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.83.0] — 2026-08-20
+
+**Trust-boundary hardening.** This release makes pipeline transitions explicit, confines project
+mutations to a checked filesystem capability, makes strict schema validation fail closed, and
+promotes the exact artifacts verified by CI into PyPI and GitHub Releases.
+
+### Added
+
+- **Explicit pipeline lifecycle:** `pipeline start`, `adopt`, `resume`, `record-findings`, `complete`,
+  and `abort`. `record-findings` binds all five exact severity counts to current evidence and HEAD
+  before any gate transition; a new run never assumes that unrecorded findings are zero.
+  Fresh runs begin at the first active gate; adopting work in flight records the historical gates,
+  reason, and adopting identity. Schema-v1 snapshots remain readable and can be explicitly adopted
+  into schema v2; unknown future schemas are refused.
+- **Canonical gate definitions** in `catalog/profiles.yaml`, including required/conditional status,
+  allowed not-applicable conditions, and a digest persisted with each install and run. Required
+  gates cannot be skipped. Conditional gates require a configured condition plus hashed evidence.
+- **Structured Medium accepted risk:** `pipeline accept-risk` records finding ID, reason, acceptor,
+  owner, ticket, revisit trigger/expiry, compensating control, gate, commit, evidence, and finding-set
+  binding under the distinct `accepted-risk` status. A stale record must be explicitly refreshed;
+  Critical and High findings are never waivable.
+- **Project-root filesystem capability and rollback journal.** Install, merge, force install, and
+  upgrade preflight selected payloads, stage and strictly validate the complete result, reject
+  traversal/link/reparse-point escapes, and snapshot the bounded mutation surface before applying.
+  Ordinary failures roll back; an interrupted schema-v2 transaction is detected and recovered on
+  the next run.
+- **Claude Code compatibility catalog** with a declared minimum version, tested versions, feature
+  floors, and recognized lifecycle events. CI exercises the official strict plugin validator at the
+  minimum and current stable pins; `doctor` distinguishes missing, unsupported, tested, untested,
+  and feature-limited installations.
+- **Release provenance and recovery:** one CI build, SHA-256 manifest, clean-wheel smoke, artifact
+  attestation, exact-artifact Trusted Publishing, post-publish digest verification, matching GitHub
+  Release assets, and a documented partial-release recovery path. Workflow lint/security checks and
+  a scheduled stable-version drift check now guard the release definitions.
+
+### Changed
+
+- `jsonschema` is a normal runtime dependency. `validate --strict` can no longer succeed after
+  skipping schema checks; current catalogs and persisted artifacts are validated against their
+  declared metaschemas and supported schema versions.
+- Ordinary `close-gate --force` transitions are refused. `skip-gate` remains a compatibility CLI
+  alias for structured `not-applicable`; old `skipped` and `overridden` ledger records remain
+  readable but are surfaced as legacy records requiring review.
+- The stack-catalog snapshot now carries `schema_version`, canonical `gate_definitions`, and their
+  SHA-256 digest. Existing schema-v1 init options and upgrade journals retain their documented
+  migration paths; future versions fail closed rather than being guessed at.
+- Native Windows project mutation now fails closed instead of using a pathname-recheck fallback
+  vulnerable to junction swaps. Use WSL on a POSIX-semantics filesystem for `init`, upgrade,
+  export, and pipeline writes; plugin discovery and read-only inspection remain available.
+- Local evidence hashes are described as **content-integrity checks**, not tamper evidence: an actor
+  able to edit both a ledger and its adjacent hash can rewrite both.
+
+### Security
+
+- All Python installer/upgrader destination paths now reject absolute, drive-qualified, UNC,
+  traversal, symlink, junction, and reparse-point escapes, including backup and sidecar targets.
+  Destination ancestry and leaves are checked again at mutation time; supported POSIX writes are
+  anchored by directory file descriptors and concurrent lifecycle/runtime writes are coordinated
+  by a handle-tied project lease. Platforms without those primitives are refused before mutation.
+- Missing selected payload components now abort before the live project is touched. Staged output
+  must pass strict validation and its manifest cannot claim absent files.
+- Installer-created bytecode and cache directories inside an installed package payload are excluded
+  from generated projects and their ownership manifest.
+- Publication no longer rebuilds after verification and no longer uses `skip-existing`. An existing
+  PyPI version is accepted only when every remote digest matches the verified artifact set; other
+  registry responses fail closed with bounded retry/timeout behavior.
+
+### Migration
+
+- Existing installations upgrade in place. Re-run `claude-kit init` (merge) or `claude-kit upgrade`
+  to persist gate definitions in the stack snapshot. Start a new run with `pipeline start`, or use
+  `pipeline adopt --reason ... --adopted-by ...` to migrate readable schema-v1 work in flight.
+- Native Windows users must run mutating CLI operations in WSL on a filesystem providing POSIX
+  descriptor and lock semantics. The refusal does not alter an existing installation.
+- Automation that used `close-gate --force` must use an ordinary evidenced pass, fix Critical/High
+  findings, or use `accept-risk` for fully structured Medium-only risk. Automation that skipped
+  conditional gates must supply `--condition` and `--evidence`.
+
+### Not adopted (deliberately)
+
+- **Authenticated/signed evidence, mechanical test-result parsers, and policy-as-code** — local
+  hashing now has accurate semantics; signed envelopes and parser-backed verification are separate
+  Phase 2 designs in `docs/roadmap/hardening-backlog.md`.
+- **Portable replacement of every Bash/jq hook** — the current limitations remain explicit;
+  cross-platform security-hook runtime work is scoped as its own migration rather than folded into
+  the installer transaction.
+- **A native Win32 mutation backend** — secure junction-resistant writes require held directory
+  handles and native race tests; 0.83 fails closed instead of shipping an unverified fallback, and
+  the Phase 2 OS-support issue owns that backend and support matrix.
+- **Changing GitHub repository or PyPI environment settings from a workflow** — required controls
+  are documented for maintainers and current settings were audited, but repository governance stays
+  an explicit owner action.
+
 ## [0.82.0] — 2026-08-17
 
 **Pipeline speed.** Three field-feedback sets from live SDLC runs (3 projects, 18 levers) triaged

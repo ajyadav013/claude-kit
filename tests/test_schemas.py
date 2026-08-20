@@ -1,19 +1,15 @@
-"""JSON Schema layer: schema validity, real-catalog conformance, and rejection of bad shapes.
-
-The whole module is skipped when the optional ``jsonschema`` dependency is absent (mirroring how
-``check_catalog`` / ``validate --strict`` degrade to a no-op), so CI exercises it via the ``dev``
-extra while a minimal runtime install is unaffected.
-"""
+"""JSON Schema validity, real-catalog conformance, and rejection of bad shapes."""
 
 from __future__ import annotations
 
 from contextlib import ExitStack
+from pathlib import Path
 
+import jsonschema
 import pytest
+import yaml
 
 from claude_kit import schemas
-
-jsonschema = pytest.importorskip("jsonschema")
 
 
 def test_every_schema_file_is_itself_a_valid_draft_2020_12_schema():
@@ -37,6 +33,7 @@ def test_real_catalog_files_match_their_schemas():
             ("mcp", "mcp.yaml"),
             ("capture", "capture.yaml"),
             ("org", "org.yaml"),
+            ("claude-code-compatibility", "claude-code-compatibility.yaml"),
         ]:
             if not (cat_dir / fn).is_file():
                 continue
@@ -77,6 +74,90 @@ def test_invalid_org_pack_component_missing_existing_is_rejected():
         assert errs and any("existing" in e for e in errs)
 
 
+@pytest.mark.parametrize(
+    ("schema_name", "doc"),
+    [
+        ("stacks", {"version": 999}),
+        ("profiles", {"version": 999, "profiles": {}, "gate_definitions": {}}),
+        ("mcp", {"version": 999, "servers": {}}),
+        ("capture", {"version": 999, "default": "off", "modes": {}}),
+        ("org", {"version": 999}),
+        ("mcp-lock", {"schema": 999, "servers": {}}),
+    ],
+)
+def test_versioned_documents_reject_future_versions(schema_name, doc):
+    with ExitStack() as stack:
+        assert schemas.validate_doc(doc, schema_name, stack) != []
+
+
+def test_current_stack_snapshot_is_valid_and_future_version_is_rejected():
+    current = {
+        "schema_version": 1,
+        "selection": {},
+        "agents": [],
+        "skills": [],
+        "overlay_rules": [],
+        "overlay_agents": [],
+        "hooks": [],
+        "gates": [],
+        "gate_definitions": {},
+        "gate_definition_digest": "0" * 64,
+        "mcp": [],
+    }
+    with ExitStack() as stack:
+        assert schemas.validate_doc(current, "stack-catalog-snapshot", stack) == []
+        assert (
+            schemas.validate_doc(
+                {**current, "schema_version": 999}, "stack-catalog-snapshot", stack
+            )
+            != []
+        )
+
+
+def test_current_compatibility_policy_is_valid_and_future_version_is_rejected():
+    current = {
+        "version": 1,
+        "minimum": "2.1.163",
+        "stable_as_of": "2026-08-20",
+        "tested": [
+            {
+                "version": "2.1.163",
+                "role": "minimum",
+                "tested_at": "2026-08-20",
+                "ci": True,
+            },
+            {
+                "version": "2.1.236",
+                "role": "current-stable",
+                "tested_at": "2026-08-20",
+                "ci": True,
+            },
+        ],
+        "features": {},
+        "recognized_events": ["Stop"],
+    }
+    with ExitStack() as stack:
+        assert schemas.validate_doc(current, "claude-code-compatibility", stack) == []
+        assert (
+            schemas.validate_doc(
+                {**current, "version": 999}, "claude-code-compatibility", stack
+            )
+            != []
+        )
+
+
+def test_claude_code_compatibility_policy_is_pinned_and_current():
+    policy = yaml.safe_load(
+        (
+            Path(__file__).parents[1] / "catalog" / "claude-code-compatibility.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert policy["minimum"] == "2.1.163"
+    assert policy["stable_as_of"] == "2026-08-20"
+    ci_versions = {entry["version"] for entry in policy["tested"] if entry["ci"]}
+    assert {"2.1.163", "2.1.236"} <= ci_versions
+
+
 def test_persisted_artifact_schemas_accept_representative_docs():
     with ExitStack() as stack:
         lock = {"schema": 1, "servers": {"github": {"type": "stdio", "package": "x"}}}
@@ -100,6 +181,66 @@ def test_persisted_artifact_schemas_accept_representative_docs():
         assert schemas.validate_doc(bad_identity, "pipeline-snapshot", stack) != []
         bad_snap = {"schema": 1, "profile": "not-a-profile"}
         assert schemas.validate_doc(bad_snap, "pipeline-snapshot", stack) != []
+
+
+def test_pipeline_schema_accepts_v2_lifecycle_and_rejects_future_versions():
+    with ExitStack() as stack:
+        current = {
+            "schema_version": 2,
+            "run_id": "run-123",
+            "repository_root": "/repo",
+            "branch": "main",
+            "starting_commit": "a" * 40,
+            "current_commit": "a" * 40,
+            "kit_version": "0.83.0",
+            "profile": "standard",
+            "scope": "team",
+            "mode": "E",
+            "ordered_gates": ["spec-complete"],
+            "gate_definition_digest": "b" * 64,
+            "start_type": "fresh",
+            "created_at": "2026-08-20T00:00:00+00:00",
+            "status": "active",
+            "task": "demo",
+            "stage": "spec-complete",
+            "open_findings": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "cosmetic": 0,
+            },
+            "findings_evidence": None,
+            "accepted_risks": [],
+            "gate_history": [],
+        }
+        assert schemas.validate_doc(current, "pipeline-snapshot", stack) == []
+        assert (
+            schemas.validate_doc(
+                {**current, "schema_version": 999}, "pipeline-snapshot", stack
+            )
+            != []
+        )
+        recorded = {
+            **current,
+            "findings_evidence": {
+                "counts": current["open_findings"],
+                "evidence_path": "artifacts/findings.json",
+                "evidence_sha256": "c" * 64,
+                "finding_set_digest": "d" * 64,
+                "repository_commit": "a" * 40,
+                "recorded_at": "2026-08-20T00:01:00+00:00",
+            },
+        }
+        assert schemas.validate_doc(recorded, "pipeline-snapshot", stack) == []
+        missing_count = {
+            **recorded,
+            "findings_evidence": {
+                **recorded["findings_evidence"],
+                "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            },
+        }
+        assert schemas.validate_doc(missing_count, "pipeline-snapshot", stack) != []
 
 
 def test_check_catalog_emits_schema_lines_and_passes():

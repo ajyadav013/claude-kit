@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -14,114 +23,224 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install (editable + dev extras)
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
+          python -m pip install -e '.[dev]'
       - name: Run tests
-        run: pytest -q
+        run: python -m pytest -q
 
   lint:
     name: lint (ruff + mypy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       - name: Install (editable + dev extras)
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev]'
-      - name: ruff check
-        run: ruff check src scripts tests skills
-      - name: ruff format --check
-        run: ruff format --check src scripts tests
-      - name: mypy
-        # ruff lints src+scripts+tests; mypy type-checks only src/claude_kit (per [tool.mypy]) —
-        # the shipped library code. scripts/ + tests/ are intentionally style-checked, not typed.
-        run: mypy
+          python -m pip install -e '.[dev]'
+      - run: ruff check src scripts tests skills
+      - run: ruff format --check src scripts tests
+      - run: mypy
 
   shell:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
-      - name: Install shellcheck (pip-vendored binary)
-        run: python -m pip install --upgrade pip shellcheck-py
-      - name: shellcheck hook + repo + payload scripts (fail on warnings+)
-        run: shellcheck -S warning hooks/scripts/*.sh scripts/*.sh templates/scripts/*.sh
+      - run: python -m pip install --upgrade pip shellcheck-py
+      - run: shellcheck -S warning hooks/scripts/*.sh scripts/*.sh templates/scripts/*.sh
 
   static:
     name: static (hooks + docs + catalog + manifests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
-      - name: Install (editable, runtime deps)
+      - name: Install runtime package
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
-      - name: Hook files in sync with the registry
-        run: python scripts/gen_hooks.py --check
-      - name: Docs / version / count consistency
-        run: python scripts/check_docs_consistency.py
-      - name: Skill/agent descriptions within picker cap
-        run: python scripts/check_skill_descriptions.py --strict
-      - name: MCP servers pinned to exact versions (no @latest)
-        run: python scripts/check_mcp_pins.py
-      - name: Rule files under the 40k memory limit
-        run: python scripts/check_rule_sizes.py
-      - name: Cross-references in prose resolve to shipped files
-        run: python scripts/check_cross_references.py --strict
-      - name: Catalog referential integrity
-        run: |
-          python -c "import sys; from claude_kit import validator; ok, msgs = validator.check_catalog('.'); [print(m) for m in msgs]; sys.exit(0 if ok else 1)"
-      - name: Plugin manifests + hooks.json are valid JSON
-        run: |
-          python -c "import json; [json.load(open(p)) for p in ('hooks/hooks.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json')]; print('manifests OK')"
+          python -m pip install -e .
+      - run: python scripts/gen_hooks.py --check
+      - run: python scripts/check_docs_consistency.py
+      - run: python scripts/check_skill_descriptions.py --strict
+      - run: python scripts/check_mcp_pins.py
+      - run: python scripts/check_rule_sizes.py
+      - run: python scripts/check_cross_references.py --strict
+      - name: Catalog referential and required-schema integrity
+        run: >-
+          python -c "import sys; from claude_kit import validator;
+          ok, msgs = validator.check_catalog('.', require_schema=True);
+          [print(m) for m in msgs]; sys.exit(0 if ok else 1)"
+      - name: Plugin manifests and hooks are valid JSON
+        run: >-
+          python -c "import json; [json.load(open(p)) for p in
+          ('hooks/hooks.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json')];
+          print('manifests OK')"
 
-  build:
-    name: build + twine check
+  workflow-security:
+    name: workflow security (actionlint + zizmor)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
-      - name: Build wheel + sdist and validate
+      - name: Install pinned workflow analyzers
+        run: |
+          workflow_tools="$RUNNER_TEMP/workflow-tools"
+          mkdir -p "$workflow_tools"
+          GOBIN="$workflow_tools" go install github.com/rhysd/actionlint/cmd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+          echo "$workflow_tools" >> "$GITHUB_PATH"
+          python -m pip install zizmor==1.29.0
+      - run: actionlint
+      - run: zizmor .
+
+  compatibility-matrix:
+    name: Read pinned Claude Code matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyyaml==6.0.3
+      - id: matrix
+        name: Export CI-enabled versions from claude-code-compatibility.yaml
+        run: |
+          python - <<'PY'
+          import json, os, yaml
+          with open("catalog/claude-code-compatibility.yaml", encoding="utf-8") as handle:
+              policy = yaml.safe_load(handle)
+          versions = [entry["version"] for entry in policy["tested"] if entry["ci"]]
+          if len(versions) < 2 or policy["minimum"] not in versions:
+              raise SystemExit("compatibility CI must include the minimum and current stable")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"version": versions}, separators=(",", ":")) + "\n")
+          PY
+
+  official-plugin-validation:
+    name: Claude Code ${{ matrix.version }} official validator
+    needs: compatibility-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compatibility-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - name: Install exact Claude Code version
+        env:
+          CLAUDE_CODE_VERSION: ${{ matrix.version }}
+        # Exact versions come from the reviewed compatibility policy; a lockfile cannot express a
+        # CI matrix of two globally executed CLI releases.
+        run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION" # zizmor: ignore[adhoc-packages]
+      - run: claude plugin validate . --strict
+
+  compatibility-drift:
+    name: Claude Code stable-pin drift
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - run: python -m pip install pyyaml==6.0.3
+      - name: Require explicit audit when npm stable moves
+        run: |
+          latest="$(npm view @anthropic-ai/claude-code version)"
+          pinned="$(python -c 'import yaml; p=yaml.safe_load(open("catalog/claude-code-compatibility.yaml")); print(next(x["version"] for x in p["tested"] if x["role"] == "current-stable"))')"
+          test "$latest" = "$pinned" || {
+            echo "::error::Claude Code latest is $latest; audit and update pinned current-stable $pinned"
+            exit 1
+          }
+
+  build:
+    name: build once + verify distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Build wheel and sdist once
         run: |
           python -m pip install --upgrade pip build twine
           python -m build
           python -m twine check dist/*
+      - id: release
+        name: Require release notes and create SHA256SUMS
+        run: python scripts/release_preflight.py prepare --notes-output release-notes.md
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-dist
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            release-notes.md
+          if-no-files-found: error
+          retention-days: 30
 
   wheel-smoke:
-    name: wheel smoke (build → install → init → validate)
+    name: wheel smoke (verified artifact -> install -> strict validate)
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
-      - name: Build wheel
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-dist
+          path: verified
+      - name: Verify and smoke the exact wheel
         run: |
-          python -m pip install --upgrade pip build
-          python -m build --wheel
-      - name: Install into a clean venv and exercise the CLI
-        run: |
-          set -euo pipefail
+          python scripts/release_preflight.py verify --dist-dir verified/dist
           python -m venv /tmp/ckenv
           /tmp/ckenv/bin/pip install --upgrade pip
-          /tmp/ckenv/bin/pip install dist/*.whl
+          /tmp/ckenv/bin/pip install verified/dist/*.whl
           /tmp/ckenv/bin/claude-kit --version
           /tmp/ckenv/bin/claude-kit init /tmp/demo --defaults
           /tmp/ckenv/bin/claude-kit validate --strict /tmp/demo

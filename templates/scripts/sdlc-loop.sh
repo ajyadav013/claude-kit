@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # sdlc-loop.sh — bounded headless /sdlc loop (installed by claude-kit).
 #
-# Each iteration runs `claude -p` with a one-gate contract: re-enter the pipeline at the
-# first gate after `last_gate_passed`, pass AT MOST one more gate, update the snapshot,
-# stop. Three deliberate brakes keep an unattended run honest:
+# Each iteration runs `claude -p` with a one-transition contract: validate/resume the explicit
+# schema-v2 run, resolve AT MOST one gate through the lifecycle CLI (or complete an already fully
+# resolved run), then stop. Three deliberate brakes keep an unattended run honest:
 #
 #   1. iteration cap      — SDLC_MAX_ITER   (default 8)
 #   2. per-iteration spend — SDLC_BUDGET_USD (default 5; passed to --max-budget-usd)
@@ -15,7 +15,7 @@
 # is an environment variable:
 #
 #   SDLC_FINAL_GATE       final gate token (required if the snapshot yaml is absent,
-#                         e.g. after the no-pip init.sh fallback install)
+#                         e.g. when the install snapshot is intentionally absent)
 #   SDLC_MAX_ITER         iteration cap (default 8)
 #   SDLC_BUDGET_USD       per-iteration --max-budget-usd (default 5)
 #   SDLC_PERMISSION_MODE  --permission-mode per run (default acceptEdits)
@@ -30,6 +30,8 @@ set -u
 
 [ -d .claude ] || { echo "sdlc-loop: run from the project root (no .claude/ here)" >&2; exit 2; }
 command -v claude >/dev/null 2>&1 || { echo "sdlc-loop: 'claude' CLI not found on PATH" >&2; exit 2; }
+command -v claude-kit >/dev/null 2>&1 || { echo "sdlc-loop: 'claude-kit' CLI not found on PATH" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "sdlc-loop: 'python3' not found on PATH" >&2; exit 2; }
 
 SNAP=.claude/state/pipeline-snapshot.json
 CATALOG=.claude/config/stack-catalog.snapshot.yaml
@@ -47,25 +49,36 @@ fi
 MAX_ITER="${SDLC_MAX_ITER:-8}"
 BUDGET="${SDLC_BUDGET_USD:-5}"
 MODE="${SDLC_PERMISSION_MODE:-acceptEdits}"
-PROMPT="${SDLC_PROMPT:-Continue the /sdlc run per .claude/CONTINUITY.md. Re-enter at the first gate after last_gate_passed in $SNAP. Pass at most ONE more gate, update the snapshot, then stop.}"
+PROMPT="${SDLC_PROMPT:-Continue the explicit /sdlc run per .claude/CONTINUITY.md. Run claude-kit pipeline resume, re-enter at the first unresolved gate in $SNAP, and use lifecycle commands only. Before any gate transition, run pipeline record-findings with all five exact severity counts and a project-contained evidence report. Resolve at most ONE gate, or run pipeline complete if every gate is already resolved, then stop. Never hand-edit the snapshot.}"
 
 echo "sdlc-loop: final gate '$FINAL_GATE' | $MAX_ITER iteration(s) max | \$$BUDGET/iteration | mode $MODE"
 
-prev_gate=""
+prev_progress=""
 for i in $(seq 1 "$MAX_ITER"); do
   echo "sdlc-loop: iteration $i/$MAX_ITER"
   claude -p --permission-mode "$MODE" --max-budget-usd "$BUDGET" "$PROMPT" ||
     echo "sdlc-loop: claude exited nonzero (continuing; the stall brake decides)" >&2
-  gate=$(sed -n 's/.*"last_gate_passed": *"\([^"]*\)".*/\1/p' "$SNAP" 2>/dev/null)
-  if [ "$gate" = "$FINAL_GATE" ]; then
-    echo "sdlc-loop: pipeline complete: $gate"
-    exit 0
-  fi
-  if [ "$gate" = "$prev_gate" ]; then
-    echo "sdlc-loop: STALLED at gate '${gate:-none}' — human review needed (read the transcript and $SNAP; do NOT loosen the brakes)" >&2
+  state_fields=$(python3 -c 'import json, sys; data = json.load(open(sys.argv[1], encoding="utf-8")); status = data.get("status"); gate = data.get("last_gate_resolved"); print("{}\t{}".format(status if isinstance(status, str) else "", gate if isinstance(gate, str) else ""))' "$SNAP" 2>/dev/null) || state_fields=$'\t'
+  IFS=$'\t' read -r status gate <<< "$state_fields"
+  progress="${status:-missing}:${gate:-none}"
+  if [ "$status" = "completed" ]; then
+    if validation_output=$(claude-kit pipeline validate . --strict 2>&1); then
+      echo "sdlc-loop: pipeline complete and strictly validated (last resolved gate: ${gate:-none})"
+      exit 0
+    fi
+    echo "sdlc-loop: REFUSING unvalidated completed status — human review needed" >&2
+    echo "$validation_output" >&2
     exit 1
   fi
-  prev_gate="$gate"
+  if [ "$status" = "aborted" ]; then
+    echo "sdlc-loop: pipeline aborted — human review needed" >&2
+    exit 1
+  fi
+  if [ "$progress" = "$prev_progress" ]; then
+    echo "sdlc-loop: STALLED at '${progress}' — human review needed (read the transcript and $SNAP; do NOT loosen the brakes)" >&2
+    exit 1
+  fi
+  prev_progress="$progress"
 done
-echo "sdlc-loop: iteration cap ($MAX_ITER) reached at gate '${prev_gate:-none}' — human review needed" >&2
+echo "sdlc-loop: iteration cap ($MAX_ITER) reached at '${prev_progress:-missing:none}' — human review needed" >&2
 exit 1

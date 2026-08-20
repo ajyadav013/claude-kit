@@ -75,10 +75,38 @@ you, that's useful signal — open an issue.
   hidden unless `CLAUDE_KIT_EXPERIMENTAL=1` and exit non-zero with a "planned" notice; they do not yet
   do anything.
 
-## Upgrades are convergent and journalled, but install replace is not atomic
+## Project updates are rollback-journalled, not one atomic whole-tree swap
 
-- `claude-kit upgrade` writes an `upgrade-in-progress.json` journal, backs up modified/removed files,
-  and is convergent (a re-run finishes an interrupted upgrade; `doctor` warns if a journal is left
-  behind). However, the first-time directory install (`_copy_tree`) replaces a kit-owned subtree
-  non-atomically — an interrupted *install* (not upgrade) can leave a partial tree that a re-run
-  restores.
+- `init`, merge, force install, and `upgrade` resolve and preflight the selected payload, render a
+  complete install in controlled staging, strictly validate it, then snapshot the bounded live
+  mutation surface before applying. An ordinary exception restores the snapshot immediately; an
+  abrupt interruption leaves a schema-versioned journal and rollback data that the next invocation
+  recovers. `doctor` reports an interrupted transaction. This is a tested rollback transaction, not
+  a filesystem-wide atomic rename: power loss can leave recovery work for the next run, and the
+  project must remain on a filesystem that preserves ordinary rename/write semantics. Each complete
+  managed subtree is digest-verified and promoted with two renames under the cooperative project
+  lease; a non-cooperating reader can still observe the brief gap between those renames.
+- The filesystem layer refuses symlinks, junctions, or reparse points in managed destination paths,
+  including `.claude/`, backups, and sidecars. It does not "repair" an untrusted path automatically;
+  replace the link with a regular project-local directory and retry.
+
+## Native Windows project mutation fails closed
+
+- In 0.83, mutating CLI operations require POSIX directory-descriptor operations plus `flock`-style
+  project leases. Native Windows path rechecks cannot close the junction/reparse swap window before
+  a pathname-based replace or recursive delete, so `init`, merge, `upgrade`, export, ticket-board
+  writes, and pipeline transitions refuse rather than claim an unsafe guarantee. Existing project
+  files are left untouched by that refusal.
+- Use WSL on a filesystem that supplies those POSIX semantics for mutation. Plugin discovery and
+  read-only inspection are not converted into writes. A Win32 handle-anchored backend and native
+  Windows junction/race CI are explicitly deferred in the Phase 2 operating-system issue.
+
+## Evidence hashes are integrity checks, not signatures
+
+- Passed/not-applicable/accepted-risk records bind evidence by SHA-256 and validation detects later
+  drift. The hash and ledger live in the same mutable project, so an actor able to edit both can
+  rewrite both. claude-kit therefore calls this **content-integrity checked** or **evidence-hashed**,
+  not tamper-evident. Authenticated signed evidence/provenance is a post-Phase-1 backlog item.
+- The Python layer mechanically enforces lifecycle, gate ordering, allowed transition types, and
+  record bindings. It does not yet parse arbitrary test, coverage, SARIF, or review output to prove
+  the semantic verdict. Those results remain Agent-enforced or Externally verified as labelled.

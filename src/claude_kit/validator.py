@@ -19,27 +19,35 @@ import os
 import platform
 import re
 import shutil
+import subprocess
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Callable
 
-from claude_kit.models import UPGRADE_JOURNAL, InitOptions, UpgradeJournal
-
-#: Claude Code hook event names. A settings.json hooks block keyed on anything else is suspect —
-#: a typo'd event silently never fires — so strict validation flags unknown events.
-KNOWN_EVENTS = frozenset(
-    {
-        "SessionStart",
-        "UserPromptSubmit",
-        "PreToolUse",
-        "PostToolUse",
-        "Stop",
-        "SubagentStop",
-        "PreCompact",
-        "Notification",
-        "SessionEnd",
-    }
+from claude_kit.models import InitOptions, UpgradeJournal
+from claude_kit.secure_fs import (
+    TRANSACTION_SCHEMA,
+    ProjectFS,
+    inspect_interrupted_transaction,
 )
+
+
+def _load_claude_code_compatibility() -> dict:
+    """Load the bundled, schema-validated Claude Code compatibility policy."""
+    import yaml
+
+    from claude_kit import scaffold
+
+    with ExitStack() as stack:
+        path = (
+            scaffold.payload_dir(stack) / "catalog" / "claude-code-compatibility.yaml"
+        )
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+CLAUDE_CODE_COMPATIBILITY = _load_claude_code_compatibility()
+#: Officially recognized events are data, separate from the hook implementations the kit ships.
+KNOWN_EVENTS = frozenset(CLAUDE_CODE_COMPATIBILITY["recognized_events"])
 
 #: Extracts the script basenames a hook command runs from ``.claude/hooks/`` (inline guards match none).
 _HOOK_SCRIPT_RE = re.compile(r"\.claude/hooks/([^\"'\s]+\.sh)")
@@ -110,7 +118,14 @@ def _read_init_options(claude_dir: Path) -> tuple[InitOptions | None, str | None
     if not path.is_file():
         return None, "missing"
     try:
-        return InitOptions.from_dict(json.loads(path.read_text(encoding="utf-8"))), None
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict):
+            raise ValueError("document root must be an object")
+        if not isinstance(document.get("selection", {}), dict):
+            raise ValueError("selection must be an object")
+        if not isinstance(document.get("files", []), list):
+            raise ValueError("files must be an array")
+        return InitOptions.from_dict(document), None
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         return None, f"corrupt: {exc}"
 
@@ -172,6 +187,19 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
         good(
             f"init-options.json (schema v{options.schema_version}, kit {options.claude_kit_version})"
         )
+        try:
+            from claude_kit import catalog, scaffold
+
+            with ExitStack() as stack:
+                catalog.resolve(scaffold.payload_dir(stack), options.selection)
+        except (FileNotFoundError, TypeError, ValueError) as exc:
+            fail(
+                ".claude/config/init-options.json contains a selection that does not resolve "
+                f"against this kit's catalog ({exc}) — repair it or re-run "
+                "`claude-kit init --force`"
+            )
+        else:
+            good("installed selection resolves against the current catalog")
         drifted: list[str] = []
         for rec in options.files:
             fp = target / rec.path
@@ -250,7 +278,7 @@ def validate(target: str | Path, *, strict: bool = False) -> tuple[bool, list[st
 
     if strict:
         _strict_checks(claude, fail, warn, good, info)
-        cat_ok, cat_msgs = check_catalog()
+        cat_ok, cat_msgs = check_catalog(require_schema=True)
         msgs.extend(cat_msgs)
         if not cat_ok:
             ok = False
@@ -276,7 +304,9 @@ def _strict_checks(
         except json.JSONDecodeError:
             doc = None  # base checks already reported the parse error
         if isinstance(doc, dict):
-            _strict_settings_hooks(claude, doc, fail, good)
+            _strict_settings_hooks(claude, doc, fail, warn, good)
+        elif doc is not None:
+            fail("settings.json root must be an object")
 
     mcp = claude.parent / ".mcp.json"
     if mcp.is_file():
@@ -285,6 +315,7 @@ def _strict_checks(
     snap = claude / "config" / "stack-catalog.snapshot.yaml"
     if snap.is_file():
         _strict_snapshot(claude, snap, fail, good)
+        _strict_yaml_schema_artifact(snap, "stack-catalog-snapshot", fail, good)
 
     lock = claude.parent / ".mcp.lock.json"
     if lock.is_file():
@@ -376,11 +407,15 @@ def _strict_schema_artifact(
     fail: Callable[[str], None],
     good: Callable[[str], None],
 ) -> None:
-    """Validate a persisted JSON artifact against its JSON Schema (no-op without ``jsonschema``)."""
+    """Validate a persisted JSON artifact against its JSON Schema, failing closed."""
     from claude_kit import schemas
 
     if not schemas.available():
-        return  # optional layer; referential checks already ran
+        fail(
+            "jsonschema not installed — strict validation cannot continue; "
+            "repair the claude-code-kit installation"
+        )
+        return
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -394,20 +429,92 @@ def _strict_schema_artifact(
         good(f"{path.name} matches the {schema_name} schema")
 
 
+def _strict_yaml_schema_artifact(
+    path: Path,
+    schema_name: str,
+    fail: Callable[[str], None],
+    good: Callable[[str], None],
+) -> None:
+    """Validate a persisted YAML artifact against its JSON Schema, failing closed."""
+    from claude_kit import schemas
+
+    if not schemas.available():
+        fail(
+            "jsonschema not installed — strict validation cannot continue; "
+            "repair the claude-code-kit installation"
+        )
+        return
+    import yaml
+
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        fail(f"{path.name} is invalid YAML: {exc}")
+        return
+    if (
+        schema_name == "stack-catalog-snapshot"
+        and isinstance(doc, dict)
+        and "schema_version" not in doc
+    ):
+        fail(
+            f"{path.name} is a legacy unversioned stack snapshot; "
+            "run `claude-kit upgrade` to migrate its gate-policy metadata"
+        )
+        return
+    with ExitStack() as stack:
+        errs = schemas.validate_doc(doc, schema_name, stack)
+    if errs:
+        fail(f"{path.name} fails its JSON Schema: " + "; ".join(errs[:6]))
+    else:
+        good(f"{path.name} matches the {schema_name} schema")
+
+
 def _strict_settings_hooks(
     claude: Path,
     doc: dict,
     fail: Callable[[str], None],
+    warn: Callable[[str], None],
     good: Callable[[str], None],
 ) -> None:
-    """Every settings.json hook must fire on a known event and run an installed, executable script."""
+    """Check hook scripts and flag events outside the tested compatibility catalog."""
     clean = True
-    for event, groups in (doc.get("hooks") or {}).items():
-        if event not in KNOWN_EVENTS:
-            fail(f"settings.json hooks: unknown event {event!r} (it will never fire)")
+    hooks = doc.get("hooks")
+    if hooks is None:
+        hooks = {}
+    if not isinstance(hooks, dict):
+        fail("settings.json 'hooks' must be an object")
+        return
+    for event, groups in hooks.items():
+        if not isinstance(event, str) or not isinstance(groups, list):
+            fail("settings.json hook entries must map event names to arrays")
             clean = False
-        for grp in groups or []:
-            for entry in grp.get("hooks", []) or []:
+            continue
+        if event not in KNOWN_EVENTS:
+            warn(
+                f"settings.json hook event {event!r} is not in the tested compatibility catalog; "
+                "run the official validator (`claude plugin validate . --strict`) with the "
+                "target Claude Code version"
+            )
+            clean = False
+        for grp in groups:
+            if not isinstance(grp, dict):
+                fail(f"settings.json hook event {event!r} contains a non-object group")
+                clean = False
+                continue
+            entries = grp.get("hooks") or []
+            if not isinstance(entries, list):
+                fail(f"settings.json hook event {event!r} has a non-array hooks field")
+                clean = False
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(
+                    entry.get("command", ""), str
+                ):
+                    fail(
+                        f"settings.json hook event {event!r} contains an invalid hook command"
+                    )
+                    clean = False
+                    continue
                 for script in _HOOK_SCRIPT_RE.findall(entry.get("command", "")):
                     sp = claude / "hooks" / script
                     if not sp.is_file():
@@ -430,6 +537,9 @@ def _strict_mcp_shape(
         doc = json.loads(mcp.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         fail(f".mcp.json is invalid JSON: {exc}")
+        return
+    if not isinstance(doc, dict):
+        fail(".mcp.json root must be an object")
         return
     servers = doc.get("mcpServers")
     if not isinstance(servers, dict):
@@ -458,16 +568,25 @@ def _strict_snapshot(
     except yaml.YAMLError as exc:
         fail(f"stack snapshot is invalid YAML: {exc}")
         return
+    if not isinstance(data, dict):
+        fail("stack snapshot root must be an object")
+        return
+
+    def string_list(name: str) -> list[str]:
+        raw = data.get(name) or []
+        if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
+            fail(f"stack snapshot {name!r} must be an array of strings")
+            return []
+        return raw
+
     missing: list[str] = []
-    for agent in list(data.get("agents") or []) + list(
-        data.get("overlay_agents") or []
-    ):
+    for agent in string_list("agents") + string_list("overlay_agents"):
         if not (claude / "agents" / f"{agent}.md").is_file():
             missing.append(f"agents/{agent}.md")
-    for skill in data.get("skills") or []:
+    for skill in string_list("skills"):
         if not (claude / "skills" / skill / "SKILL.md").is_file():
             missing.append(f"skills/{skill}/SKILL.md")
-    for rule in data.get("overlay_rules") or []:
+    for rule in string_list("overlay_rules"):
         if not (claude / "rules" / rule).is_file():
             missing.append(f"rules/{rule}")
     if missing:
@@ -523,7 +642,9 @@ def _check_duplicate_skills(
         cgood("no profile lists a duplicate skill")
 
 
-def check_catalog(payload_root: str | Path | None = None) -> tuple[bool, list[str]]:
+def check_catalog(
+    payload_root: str | Path | None = None, *, require_schema: bool = False
+) -> tuple[bool, list[str]]:
     """Check the kit catalog is referentially consistent (used by ``validate --strict`` / CI).
 
     Unlike :func:`claude_kit.catalog.resolve` (which validates *ids*), this confirms the referenced
@@ -620,7 +741,9 @@ def check_catalog(payload_root: str | Path | None = None) -> tuple[bool, list[st
         if org_path.is_file():
             _check_org_catalog(payload_root, catalog, agent_set, cfail, cgood)
 
-        _check_catalog_schemas(payload_root, catalog, stack, cfail, cgood, msgs)
+        _check_catalog_schemas(
+            payload_root, catalog, stack, cfail, cgood, msgs, require_schema
+        )
 
     return ok, msgs
 
@@ -632,18 +755,23 @@ def _check_catalog_schemas(
     cfail: Callable[[str], None],
     cgood: Callable[[str], None],
     msgs: list[str],
+    require_schema: bool,
 ) -> None:
     """Structurally validate catalog files + org pack manifests against their JSON Schemas.
 
-    Optional: a no-op (one advisory line) when ``jsonschema`` is not installed.
+    A missing runtime dependency is a failure when called from strict validation.
     """
     from claude_kit import schemas
 
     if not schemas.available():
-        msgs.append(
-            "OK    catalog: jsonschema not installed — skipped JSON Schema checks "
-            "(pip install claude-kit[schema])"
+        message = (
+            "jsonschema not installed — strict validation cannot continue; "
+            "repair the claude-code-kit installation"
         )
+        if require_schema:
+            cfail(message)
+        else:
+            msgs.append(f"WARN  catalog: {message}")
         return
 
     cat_dir = catalog.catalog_dir(payload_root)
@@ -652,6 +780,7 @@ def _check_catalog_schemas(
         ("profiles", "profiles.yaml"),
         ("mcp", "mcp.yaml"),
         ("capture", "capture.yaml"),
+        ("claude-code-compatibility", "claude-code-compatibility.yaml"),
     ]
     if (cat_dir / "org.yaml").is_file():
         file_schemas.append(("org", "org.yaml"))
@@ -723,6 +852,76 @@ def _check_org_catalog(
 # --- doctor (validate + environment) --------------------------------------------------------------
 
 
+def _version_tuple(value: str) -> tuple[int, int, int]:
+    """Parse the numeric core of a Claude Code version for compatibility comparisons."""
+    match = re.search(r"(?<!\d)(\d+)\.(\d+)\.(\d+)(?!\d)", value)
+    if not match:
+        raise ValueError(f"unrecognized version: {value!r}")
+    return tuple(int(part) for part in match.groups())  # type: ignore[return-value]
+
+
+def _claude_version(executable: str) -> str | None:
+    """Return Claude Code's semantic version, or ``None`` when it cannot be queried safely."""
+    try:
+        proc = subprocess.run(
+            [executable, "--version"],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    match = re.search(r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)", proc.stdout)
+    return match.group(1) if match else None
+
+
+def _claude_code_health(msgs: list[str]) -> None:
+    """Append missing/tested/untested/unsupported Claude Code compatibility state."""
+    executable = shutil.which("claude")
+    if not executable:
+        msgs.append(
+            "WARN  Claude Code not on PATH — official plugin validation and runtime compatibility "
+            "could not be checked"
+        )
+        return
+    version = _claude_version(executable)
+    if version is None:
+        msgs.append(
+            f"WARN  Claude Code found at {executable}, but its version is unreadable"
+        )
+        return
+
+    policy = CLAUDE_CODE_COMPATIBILITY
+    minimum = str(policy["minimum"])
+    if _version_tuple(version) < _version_tuple(minimum):
+        msgs.append(
+            f"WARN  Claude Code {version} is unsupported; minimum is {minimum} "
+            "(upgrade before relying on hooks)"
+        )
+        return
+
+    tested = {str(item["version"]) for item in policy.get("tested", [])}
+    if version in tested:
+        msgs.append(f"OK    Claude Code {version} is supported and tested")
+    else:
+        msgs.append(
+            f"WARN  Claude Code {version} is supported but is not in the tested matrix; "
+            "run `claude plugin validate . --strict`"
+        )
+
+    for feature, spec in policy.get("features", {}).items():
+        feature_min = str(spec["minimum_version"])
+        if not spec.get("required") and _version_tuple(version) < _version_tuple(
+            feature_min
+        ):
+            msgs.append(
+                f"INFO  optional feature unavailable: {feature} requires Claude Code {feature_min}+"
+            )
+
+
 def doctor(target: str | Path, *, mcp: bool = False) -> tuple[bool, list[str]]:
     """Run a strict :func:`validate` plus environment/health checks.
 
@@ -750,18 +949,25 @@ def doctor(target: str | Path, *, mcp: bool = False) -> tuple[bool, list[str]]:
         else:
             msgs.append(f"WARN  {tool} not on PATH — {why}")
 
-    # Platform visibility: the shell hooks need a POSIX shell + jq. On Windows they no-op silently
-    # unless run under WSL/Git Bash; the config and CLI work natively regardless. Never a failure.
+    _claude_code_health(msgs)
+
+    # Native pathname fallbacks cannot exclude a junction swap. Mutation therefore fails closed;
+    # read-only/plugin use remains distinguishable from the shell-hook runtime limitation.
     if platform.system() == "Windows":
+        msgs.append(
+            "WARN  native Windows project mutation is unsupported in this release — init, merge, "
+            "upgrade, export, and pipeline writes require WSL on a filesystem with POSIX "
+            "descriptor and lock semantics; read-only inspection and plugin discovery remain "
+            "available"
+        )
         if shutil.which("jq"):
             msgs.append(
-                "OK    Windows with jq on PATH — a POSIX shell (Git Bash/WSL) is providing the hooks"
+                "INFO  jq is on PATH, but .sh hooks still require a POSIX shell such as WSL"
             )
         else:
             msgs.append(
                 "WARN  Windows detected and jq not on PATH — the shell hooks (guard-*, warn-*) will "
-                "no-op. Run claude-kit inside WSL or Git Bash to enable them; the kit config "
-                "(agents/skills/rules) and the claude-kit CLI work natively on Windows regardless."
+                "no-op. Run claude-kit inside WSL with jq to enable them."
             )
 
     hooks_dir = claude / "hooks"
@@ -798,19 +1004,55 @@ def doctor(target: str | Path, *, mcp: bool = False) -> tuple[bool, list[str]]:
             "CLAUDE_KIT_NO_AUTOCAPTURE=1; bound with CLAUDE_KIT_CAPTURE_MAX_LINES/_MAX_BYTES."
         )
 
-    journal = claude / "config" / UPGRADE_JOURNAL
-    if journal.is_file():
+    transaction_doc: dict | None = None
+    try:
+        transaction_doc = inspect_interrupted_transaction(ProjectFS(target))
+    except OSError as exc:
+        msgs.append(
+            "WARN  interrupted transaction marker could not be inspected safely — "
+            f"{exc}; do not mutate this project until the marker is repaired"
+        )
+    if transaction_doc is not None:
         detail = ""
+        operation = "upgrade"
+        recovery = "`claude-kit upgrade`"
+        rollback = ""
         try:
-            j = UpgradeJournal.from_dict(
-                json.loads(journal.read_text(encoding="utf-8"))
-            )
-            detail = f" ({j.from_version} -> {j.to_version}, started {j.started_at})"
-        except (ValueError, OSError):
+            if transaction_doc.get(
+                "schema_version"
+            ) == TRANSACTION_SCHEMA and transaction_doc.get("transaction_kind") in {
+                "install",
+                "force",
+                "merge",
+                "upgrade",
+            }:
+                operation = transaction_doc["transaction_kind"]
+                detail = (
+                    f" ({transaction_doc.get('from_version', '')} -> "
+                    f"{transaction_doc.get('to_version', '')}, started "
+                    f"{transaction_doc.get('started_at', '')})"
+                )
+                recovery = {
+                    "install": "`claude-kit init`",
+                    "force": "`claude-kit init --force`",
+                    "merge": "`claude-kit init --merge`",
+                    "upgrade": "`claude-kit upgrade`",
+                }[operation]
+                rollback = (
+                    "; the durable commit is complete but transaction cleanup is pending"
+                    if transaction_doc.get("phase") == "committed"
+                    else "; the schema-v2 journal is rollback-capable"
+                )
+            else:
+                j = UpgradeJournal.from_dict(transaction_doc)
+                detail = (
+                    f" ({j.from_version} -> {j.to_version}, started {j.started_at})"
+                )
+        except (TypeError, ValueError):
             detail = ""
         msgs.append(
-            f"WARN  interrupted upgrade detected{detail} — re-run `claude-kit upgrade` to finish "
-            f"(upgrade is convergent; this clears the journal)"
+            f"WARN  interrupted {operation} detected{detail}{rollback} — re-run {recovery} to "
+            "recover and finish (the operation is convergent and clears the journal)"
         )
 
     if mcp:
@@ -826,10 +1068,16 @@ def _mcp_health(target: Path, msgs: list[str]) -> None:
         msgs.append("OK    no .mcp.json (no MCP servers configured)")
         return
     try:
-        servers = json.loads(mcp.read_text(encoding="utf-8")).get("mcpServers", {})
+        document = json.loads(mcp.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         msgs.append(f"WARN  .mcp.json unreadable for MCP health checks: {exc}")
         return
+    if not isinstance(document, dict) or not isinstance(
+        document.get("mcpServers"), dict
+    ):
+        msgs.append("WARN  .mcp.json has no valid mcpServers object for health checks")
+        return
+    servers = document["mcpServers"]
     for sid, cfg in servers.items():
         command = cfg.get("command") if isinstance(cfg, dict) else None
         if command and not shutil.which(command):
@@ -843,10 +1091,13 @@ def _mcp_health(target: Path, msgs: list[str]) -> None:
     lock = target / ".mcp.lock.json"
     if lock.is_file():
         try:
-            locked = set(
-                json.loads(lock.read_text(encoding="utf-8")).get("servers", {})
-            )
-        except json.JSONDecodeError:
+            lock_document = json.loads(lock.read_text(encoding="utf-8"))
+            if not isinstance(lock_document, dict) or not isinstance(
+                lock_document.get("servers"), dict
+            ):
+                raise ValueError("lock root/servers has the wrong shape")
+            locked = set(lock_document["servers"])
+        except (json.JSONDecodeError, ValueError):
             locked = set()
         if locked != set(servers):
             msgs.append(

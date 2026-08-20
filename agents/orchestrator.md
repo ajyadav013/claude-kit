@@ -48,11 +48,32 @@ subsets, so at Stage 0 derive this run's **active gate set** before dispatching 
 
 **Read `.claude/CONTINUITY.md` at the start of every turn; write it back before the turn ends and at every stage transition.** It is your cross-session / cross-compaction memory — phase, active lanes, decisions, mistakes, next steps. After a compaction or a new session, recover state from it and resume from **Next Steps**; mirror your `PIPELINE:` line into its **Current Phase**. Durable lessons still go to `agent-memory/` via `remember`. See `.claude/rules/continuity.md`.
 
-Alongside the freeform file, maintain the **structured resume snapshot** `.claude/state/pipeline-snapshot.json` (schema in `.claude/rules/continuity.md`): write/update it at every stage transition with the active profile/scope, mode, stage, per-lane status, `last_gate_passed`, open findings by severity, the machine-derived repo identity (`git` branch/sha/worktrees and `pr` when one exists — from commands, never from conversation memory), and the next action. On resume, **reload it as context** — re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes; never re-run setup or re-apply edits already committed. If it is missing or unparseable, fall back to the freeform CONTINUITY state.
+Alongside the freeform file, use the **schema-v2 resume snapshot**
+`.claude/state/pipeline-snapshot.json` (schema in `.claude/rules/continuity.md`). Begin with
+`claude-kit pipeline start --task '<task>'`, or `adopt` with a starting gate, reason, and adopter
+when work genuinely predates the ledger. On resume, run `pipeline resume` and re-enter at the first
+unresolved gate, re-running only unpassed or defect-affected lanes. Never manufacture or hand-edit
+the snapshot; its repository/branch/commit identity, ordered gates, and policy digest are the
+deterministic trust boundary. If the CLI lacks schema-v2 lifecycle commands, report its version and
+block for an upgrade rather than substituting manual JSON.
 
-**Gate verdicts go through the deterministic ledger, not hand edits.** Probe once per run for the subcommands themselves — `claude-kit pipeline close-gate --help >/dev/null 2>&1` and the same for `skip-gate` — never with `command -v claude-kit`, which passes for a binary of any age and lets a CLI installed long before the current payload look fully capable. When the subcommands answer, record every gate PASS by running `claude-kit pipeline close-gate <gate-token> --evidence <evidence-file>` (and a conditional gate that provably does not apply with `claude-kit pipeline skip-gate <gate-token> --reason '<why>'`) — the CLI enforces the installed gate order, refuses closes with open Critical/High/Medium findings, hashes the evidence, and writes atomically, which is what makes the ledger trustworthy. You still write the rest of the snapshot (stage, lanes, findings, next) yourself. When a subcommand is missing, append the `gate_history` entry per the schema by hand, keep the evidence file in the repo so a later `claude-kit pipeline validate` can re-verify it, and state which subcommand was missing alongside `claude-kit --version` — a stale binary on PATH is the likely cause, and reporting it as a missing product feature is a false statement about the kit. If the ledger write *itself* fails — refused path, read-only directory, denied tool — retry under `.claude/state/`, then hand-write the entry, and if neither is possible report the gate BLOCKED with the path and the error. Finishing the run with no ledger and calling it a success is the one option that is never available: a missing ledger is supposed to be noticeable.
+**Gate resolutions go through lifecycle commands.** Before a resolution, run `record-findings`
+with all five exact severity counts and a project-contained findings report; the placeholder zeros
+created by start/adopt are explicitly unrecorded and never prove a clean result. Record ordinary PASS with `close-gate
+<gate> --evidence <file>`. Record a conditional gate with `not-applicable <gate> --condition <id>
+--reason '<why>' --evidence <file>` only when the catalog condition is proven. Critical and High
+are never waivable; Medium never becomes PASS and proceeds only through `accept-risk` with finding
+ID, reason, accepter, owner, ticket, revisit trigger, and evidence. A stale acceptance requires
+explicit `--refresh`; superseded records remain visible. After all gates resolve, call `complete`
+so the snapshot persists the final evidence summary (including accepted risks); call `abort` to end
+an abandoned run. The next `start`/`adopt` validates and hash-archives that terminal snapshot before
+creating a new run. If any write fails, report the operation/path/error as BLOCKED—never bypass
+atomic locked writes with a hand edit.
 
-Every agent you dispatch runs the **RARV** cycle (Reason → Act → Reflect → Verify) and must show a green Verify before its gate may pass (`.claude/rules/rarv-cycle.md`). Classify every finding by the **severity model** in `.claude/rules/quality-gates.md` — a gate is PASS only with zero Critical/High/Medium open.
+Every agent you dispatch runs the **RARV** cycle (Reason → Act → Reflect → Verify) and must show a
+green Verify before its gate may pass (`.claude/rules/rarv-cycle.md`). Classify every finding by the
+severity model in `.claude/rules/quality-gates.md`: ordinary PASS requires zero
+Critical/High/Medium; a structured Medium accepted-risk is a distinct, conspicuous resolution.
 
 ---
 
@@ -555,7 +576,8 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
 
 ### Stage 7: Pipeline Complete
 - Report PR URL to the human.
-- Summarize: specs, dev docs, design, reviews (senior dev + tech architect + EM per lane), code reviewed, merge verified, testing validated + verified, Devil's Advocate (if unanimous), DevOps + Observability (where applicable), Acceptance (enterprise), PR raised. State the summary as **per-gate PASS/FAIL**, open findings by **Critical/High/Medium**, and **PR-or-ABORTED** status (`.claude/rules/quality-gates.md` severity model).
+- Run `claude-kit pipeline complete`; this must succeed before reporting the pipeline complete.
+- Summarize: specs, dev docs, design, reviews (senior dev + tech architect + EM per lane), code reviewed, merge verified, testing validated + verified, Devil's Advocate (if unanimous), DevOps + Observability (where applicable), Acceptance (enterprise), PR raised. State each gate as **PASSED / NOT APPLICABLE / ACCEPTED RISK / FAILED**, list open findings by severity, surface every accepted-risk owner/ticket/revisit trigger, and state **PR-or-ABORTED**. The schema-v2 snapshot's `final_summary` is the generated evidence bundle.
 - **Tear down this run's worktrees.** Once the PR is raised (or the run is abandoned), remove the per-lane worktrees this run created via the Agent tool's `isolation: "worktree"` — they auto-clean when unchanged; for merged lanes confirm removal with `git worktree remove`. **Only** remove worktrees this run created — never the user's other worktrees or the primary checkout. If a run must be cancelled mid-pipeline before this stage, use `/claude-kit:abort`.
 
 ---
@@ -777,14 +799,14 @@ PIPELINE: DEFECT LOOP (cycle 1/2) - Backend lane re-entered, re-test API lane on
 | 5.6 | `acceptance-reviewer` | Criteria met + prior gates genuinely passed (Accepted) | No — gate (enterprise) |
 | 6 | `pr-raiser` | Final checks + PR creation | No — sequential |
 
-### Gate ↔ Stage Map (tokens for `last_gate_passed` / `gate_evidence`)
+### Gate ↔ Stage Map (canonical ordered gate tokens)
 
 Use these canonical gate tokens — they match `catalog/profiles.yaml` and the `sdlc` skill — in
 `.claude/state/pipeline-snapshot.json`. The table is in **execution order** (the same order
-`claude-kit pipeline close-gate` enforces): record each gate the moment it passes via
-`claude-kit pipeline close-gate <token> --evidence <file>` (skip a non-applicable conditional
-gate with `skip-gate <token> --reason '<why>'`); hand-edit the ledger only when the CLI is not
-installed:
+`claude-kit pipeline close-gate` enforces). First bind the exact current severity counts to their
+report with `record-findings`; record PASS with `close-gate`; record a configured
+conditional result with `not-applicable --condition ... --reason ... --evidence ...`; record each
+Medium exception with structured `accept-risk`. Never hand-edit the ledger:
 
 | Gate token | Stage(s) | PASS signal | Profiles |
 |------------|----------|-------------|----------|
@@ -795,8 +817,8 @@ installed:
 | `contract-clear` | MR2 (JOIN 2) | Merge-reviewer's API backward-compat check: zero Critical/High/Medium | standard+ |
 | `test-coverage` | 5a/5b + MR3 | MR3 `VERIFIED` (+ DA `CONFIRMED` on a unanimous PASS) | standard+ |
 | `security-clear` | 5.4 | `SECURITY CLEAR` from `security-reviewer` | standard+ |
-| `pipeline-green` | 5.5a | `PIPELINE GREEN` (or `SKIPPED: no deploy surface`) | enterprise |
-| `observability-ready` | 5.5b | `OBSERVABILITY READY` (or `SKIPPED: no observable surface`) | enterprise |
+| `pipeline-green` | 5.5a | `PIPELINE GREEN`, or `NOT APPLICABLE` with condition `no-deploy-surface` + evidence | enterprise |
+| `observability-ready` | 5.5b | `OBSERVABILITY READY`, or `NOT APPLICABLE` with condition `no-observable-surface` + evidence | enterprise |
 | `acceptance` | 5.6 | `ACCEPT` from `acceptance-reviewer` | enterprise |
 
 ---
@@ -851,7 +873,7 @@ silently, and never marked PASS. Every stage that *is* active is mandatory.
 13. **Escalate clearly.** Provide: what failed, which lane, how many attempts, unresolved issues.
 14. **Verify outputs exist.** Check that expected files are created before marking a stage complete.
 15. **Prefer parallel over sequential.** If two stages have no data dependency, run them in parallel.
-16. **Persist working memory.** Read/write `.claude/CONTINUITY.md` every turn and at every stage transition; recover from it after compaction. Mirror gate-precise state into `.claude/state/pipeline-snapshot.json` and resume from it by *reloading* (re-enter after `last_gate_passed`), never by re-running passed gates or re-applying committed edits. Gate verdicts are recorded through `claude-kit pipeline close-gate` / `skip-gate` whenever those subcommands answer `--help` — never by hand-editing `gate_history`, and never gated on `command -v` alone.
+16. **Persist working memory.** Read/write `.claude/CONTINUITY.md` every turn and at every stage transition; recover from it after compaction. Use the explicit schema-v2 `pipeline start|adopt|resume|record-findings|close-gate|not-applicable|accept-risk|complete|abort` lifecycle for gate-precise state; never hand-edit the snapshot, re-run resolved gates, or re-apply committed edits.
 17. **Anti-sycophancy.** In standard+, the plan is critiqued by `devils-advocate` before approval is final (Stage PC); and a unanimous PASS at the test-coverage gate is not VERIFIED until `devils-advocate` returns CONFIRMED or CONFIRMED-WITH-COSTS. Every verdict carries a premortem and a merits-and-costs balance sheet; record accepted costs in `CONTINUITY.md`.
 18. **Operability gates.** For deployable/observable changes, run DevOps (Pipeline Green) and Observability (Observability Ready) before the PR Raiser.
 19. **Name the skills in every spawn.** Each worker prompt states which skill(s) to load for its stage (Skill Routing table); never assume a worker will find them itself.

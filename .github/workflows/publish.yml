@@ -1,133 +1,247 @@
-name: Publish to PyPI
+name: Publish verified distributions
 
-# Publishes claude-code-kit to PyPI via Trusted Publishing (OIDC) — no API token needed.
-#
-# Triggers: every push to `main` (i.e. every merge), every version tag (e.g. v0.7.0), a published
-# GitHub Release, or a manual dispatch. PyPI versions are immutable, so a merge that does NOT bump the
-# version cannot be re-uploaded. The `version-check` job below therefore gates the build/publish on
-# whether `pyproject.toml`'s version is already on PyPI: a new version publishes, an unchanged version
-# is skipped cleanly. Combined with the release rule (bump the version in all four manifests + the
-# CHANGELOG), this means "merge to main → publish" whenever — and only when — the version is bumped.
-#
-# After a successful publish, the `github-release` job creates the matching git tag `vX.Y.Z` and a
-# GitHub Release whose body is that version's CHANGELOG section — so the tag/Release ledger stays in
-# lockstep with PyPI automatically (no manual `git tag`). It is idempotent: a re-run over an
-# already-released version is a clean no-op.
-on:
-  push:
-    branches: ["main"]
-    tags: ["v*"]
-  release:
-    types: [published]
+# The preflight authenticates repository, event, branch, conclusion, run ID, and head SHA before
+# checking out or executing source from the completed run.
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful main-branch CI run containing verified-dist
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-claude-code-kit
+  cancel-in-progress: false
 
 jobs:
-  version-check:
-    name: Check version is new
+  preflight:
+    name: Authenticate CI run and release artifact
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
-      should_publish: ${{ steps.check.outputs.should_publish }}
-      version: ${{ steps.check.outputs.version }}
+      run_id: ${{ steps.run.outputs.run_id }}
+      sha: ${{ steps.run.outputs.sha }}
+      version: ${{ steps.metadata.outputs.version }}
+      pypi_status: ${{ steps.registry.outputs.status }}
     steps:
-      - uses: actions/checkout@v7
-      - id: check
-        name: Compare pyproject version against PyPI
-        run: |
-          version="$(grep -E '^version *= *"' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          code="$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/claude-code-kit/$version/json")"
-          if [ "$code" = "200" ]; then
-            echo "::notice::claude-code-kit $version is already on PyPI (HTTP $code) — skipping publish. Bump the version to release."
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::claude-code-kit $version is not on PyPI (HTTP $code) — will build and publish."
-            echo "should_publish=true" >> "$GITHUB_OUTPUT"
-          fi
-
-  build:
-    name: Build distributions
-    needs: version-check
-    if: needs.version-check.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - name: Build wheel + sdist and validate
-        run: |
-          python -m pip install --upgrade pip build twine
-          python -m build
-          python -m twine check dist/*
-      - uses: actions/upload-artifact@v7
-        with:
-          name: dist
-          path: dist/
-
-  publish:
-    name: Publish to PyPI
-    needs: [version-check, build]
-    if: needs.version-check.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
-    # The trusted publisher on PyPI must reference: workflow `publish.yml` and (if set) environment `pypi`.
-    environment: pypi
-    permissions:
-      id-token: write   # required for OIDC trusted publishing
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: dist
-          path: dist/
-      - name: Publish
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          # Belt-and-suspenders against the immutable-version race: if the version somehow already
-          # exists at upload time, skip instead of failing the run (the version-check job already
-          # gates this, but two merges in flight could both pass the check).
-          skip-existing: true
-          # PEP 740 attestations are enabled (this is also the action's default; set explicitly to
-          # document intent). They were temporarily disabled in an earlier release while Sigstore's
-          # Rekor transparency log was returning HTTP 502s at upload time. Sigstore has since been
-          # healthy (status.sigstore.dev reported all services online with no incidents), so signed
-          # build attestations are re-enabled here for supply-chain provenance. If Rekor flakes again,
-          # flip this back to false to unblock a release, then re-enable once it recovers.
-          attestations: true
-
-  github-release:
-    name: Tag + GitHub Release
-    needs: [version-check, publish]
-    if: needs.version-check.outputs.should_publish == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # required to create the git tag and the GitHub Release
-    steps:
-      - uses: actions/checkout@v7
-      - name: Create tag + Release from the CHANGELOG section
-        # `version` comes from version-check (parsed from pyproject.toml — repo-controlled, not event
-        # input) but is passed through `env` rather than interpolated into the script body as a matter of
-        # workflow-injection hygiene. GH_TOKEN authenticates the `gh` CLI to create the tag + Release.
+      - id: run
+        name: Require a successful main push CI run from this repository
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.version-check.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
+          case "$SOURCE_RUN_ID" in
+            ''|*[!0-9]*) echo "::error::run_id must be numeric"; exit 1 ;;
+          esac
+          gh api "repos/$REPOSITORY/actions/runs/$SOURCE_RUN_ID" > run.json
+          python - <<'PY'
+          import json, os, re
+          run = json.load(open("run.json", encoding="utf-8"))
+          expected = {
+              "name": "CI",
+              "conclusion": "success",
+              "head_branch": "main",
+              "event": "push",
+          }
+          bad = {key: (run.get(key), value) for key, value in expected.items() if run.get(key) != value}
+          repository = (run.get("head_repository") or {}).get("full_name")
+          if repository != os.environ["REPOSITORY"]:
+              bad["head_repository"] = (repository, os.environ["REPOSITORY"])
+          sha = run.get("head_sha", "")
+          if not re.fullmatch(r"[0-9a-f]{40}", sha):
+              bad["head_sha"] = (sha, "40 lowercase hex characters")
+          event_sha = os.environ.get("EVENT_HEAD_SHA")
+          if event_sha and event_sha != sha:
+              bad["event_head_sha"] = (event_sha, sha)
+          if bad:
+              raise SystemExit(f"untrusted/ineligible CI run: {bad}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"run_id={run['id']}\nsha={sha}\n")
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ steps.run.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-dist
+          path: verified
+          run-id: ${{ steps.run.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify artifact and CI-generated metadata
+        run: |
+          python scripts/release_preflight.py verify --dist-dir verified/dist
+          cp verified/dist/SHA256SUMS verified/CI-SHA256SUMS
+          python scripts/release_preflight.py prepare \
+            --dist-dir verified/dist --notes-output verified/recomputed-release-notes.md
+          cmp verified/CI-SHA256SUMS verified/dist/SHA256SUMS
+          cmp verified/release-notes.md verified/recomputed-release-notes.md
+      - id: metadata
+        name: Export version from validated project metadata
+        run: >-
+          python scripts/release_preflight.py prepare
+          --dist-dir verified/dist --notes-output verified/recomputed-release-notes.md
+      - id: registry
+        name: Require PyPI to be absent or byte-identical
+        env:
+          VERSION: ${{ steps.metadata.outputs.version }}
+        run: python scripts/release_preflight.py pypi-status --version "$VERSION" --dist-dir verified/dist
+
+  attest:
+    name: Attest exact CI artifacts
+    needs: preflight
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-dist
+          path: verified
+          run-id: ${{ needs.preflight.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: verified/dist/*
+
+  publish:
+    name: Publish exact CI wheel and sdist to PyPI
+    needs: [preflight, attest]
+    if: needs.preflight.outputs.pypi_status == 'missing'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-dist
+          path: verified
+          run-id: ${{ needs.preflight.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Recheck digest and isolate uploadable distributions
+        run: |
+          cd verified/dist
+          sha256sum --check SHA256SUMS
+          mkdir ../../publish-dist
+          cp ./*.whl ./*.tar.gz ../../publish-dist/
+      - name: Trusted publish of exact distributions
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: publish-dist
+          attestations: true
+
+  verify-pypi:
+    name: Download PyPI files and verify CI digests
+    needs: [preflight, attest, publish]
+    if: >-
+      always() && needs.preflight.result == 'success' && needs.attest.result == 'success' &&
+      (needs.preflight.outputs.pypi_status == 'identical' || needs.publish.result == 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-dist
+          path: verified
+          run-id: ${{ needs.preflight.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify registry metadata and downloaded bytes
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          python scripts/release_preflight.py verify --dist-dir verified/dist
+          python scripts/release_preflight.py verify-published \
+            --version "$VERSION" --dist-dir verified/dist --download-dir pypi-download
+
+  github-release:
+    name: Tag exact commit and attach exact verified artifacts
+    needs: [preflight, verify-pypi]
+    if: needs.verify-pypi.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: verified-dist
+          path: verified
+          run-id: ${{ needs.preflight.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Create or recover release at the verified commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          VERIFIED_SHA: ${{ needs.preflight.outputs.sha }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          python scripts/release_preflight.py verify --dist-dir verified/dist
           tag="v$VERSION"
-          # Idempotent: on a re-run the Release already exists, so do nothing (a second create would fail).
-          if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::notice::Release $tag already exists — nothing to do."
-            exit 0
+          tag_ref="refs/tags/$tag"
+          if ! git ls-remote --exit-code --tags origin "$tag_ref" >/dev/null 2>&1; then
+            # Create the lightweight tag first. A racing creator may make this
+            # request fail with 422; the authoritative fetch + SHA check below
+            # decides whether recovery is safe in either case.
+            gh api --method POST "repos/$REPOSITORY/git/refs" \
+              -f ref="$tag_ref" -f sha="$VERIFIED_SHA" || true
           fi
-          # Pull this version's CHANGELOG section: the lines between its `## [x.y.z]` heading and the next
-          # `## [` heading (heading lines themselves excluded — the Release title already carries the tag).
-          awk -v ver="$VERSION" '
-            index($0, "## [" ver "]") == 1 { capture = 1; next }
-            capture && index($0, "## [") == 1 { exit }
-            capture { print }
-          ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ] || ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "::warning::No CHANGELOG section found for $VERSION — using a generic Release note."
-            printf 'Release %s. See CHANGELOG.md for details.\n' "$tag" > release-notes.md
+          git fetch --force origin "$tag_ref:$tag_ref"
+          test "$(git rev-list -n 1 "$tag")" = "$VERIFIED_SHA" || {
+            echo "::error::$tag exists at a different commit"
+            exit 1
+          }
+          if gh release view "$tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release view "$tag" --repo "$REPOSITORY" --json assets > release-assets.json
+            python scripts/release_preflight.py verify-release-assets \
+              --dist-dir verified/dist --assets-json release-assets.json --allow-missing
+            gh release upload "$tag" --repo "$REPOSITORY" --clobber \
+              verified/dist/*.whl verified/dist/*.tar.gz verified/dist/SHA256SUMS
+          else
+            gh release create "$tag" --repo "$REPOSITORY" \
+              --title "$tag" --notes-file verified/release-notes.md \
+              verified/dist/*.whl verified/dist/*.tar.gz verified/dist/SHA256SUMS
           fi
-          # `gh release create` creates the annotated tag on the checked-out commit (main's merge commit)
-          # and publishes the Release in one step.
-          gh release create "$tag" --title "$tag" --notes-file release-notes.md
-          echo "::notice::Created git tag and GitHub Release $tag."
+          gh release view "$tag" --repo "$REPOSITORY" --json assets > release-assets.json
+          python scripts/release_preflight.py verify-release-assets \
+            --dist-dir verified/dist --assets-json release-assets.json

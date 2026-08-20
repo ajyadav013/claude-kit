@@ -1,4 +1,4 @@
-"""Optional JSON Schema validation for catalog files and persisted artifacts.
+"""JSON Schema validation for catalog files and persisted artifacts.
 
 Schemas (Draft 2020-12) live under the payload ``schemas/`` directory and are loaded via
 :func:`claude_kit.scaffold.payload_dir` (so they resolve from both a source checkout and the
@@ -6,9 +6,8 @@ bundled wheel). This is a *structural* quality layer on top of the *referential*
 :mod:`claude_kit.validator`: it catches shape/type typos (a missing ``version``, a section that
 isn't a map, an org-pack component missing its ``existing`` flag) that referential checks don't.
 
-``jsonschema`` is an **optional** dependency (``pip install claude-kit[schema]``). The deliberate
-3-dependency runtime install is preserved: when ``jsonschema`` is absent, every caller degrades to
-a no-op via :func:`available`, so schema validation simply doesn't run (it never hard-fails).
+``jsonschema`` is a runtime dependency. :func:`available` remains as a defensive installation-health
+probe; strict validation fails closed if the dependency is unexpectedly unavailable.
 """
 
 from __future__ import annotations
@@ -28,11 +27,13 @@ SCHEMAS = {
     "org-pack": "org-pack.schema.json",
     "mcp-lock": "mcp-lock.schema.json",
     "pipeline-snapshot": "pipeline-snapshot.schema.json",
+    "stack-catalog-snapshot": "stack-catalog-snapshot.schema.json",
+    "claude-code-compatibility": "claude-code-compatibility.schema.json",
 }
 
 
 def available() -> bool:
-    """True if the optional ``jsonschema`` package is importable."""
+    """True if the required ``jsonschema`` package is importable."""
     try:
         import jsonschema  # noqa: F401
     except ModuleNotFoundError:
@@ -56,8 +57,8 @@ def load_schema(name: str, stack: ExitStack) -> dict[str, Any]:
 def validate_doc(doc: Any, name: str, stack: ExitStack) -> list[str]:
     """Validate ``doc`` against schema ``name``; return human-readable errors ([] == valid).
 
-    Raises :class:`ModuleNotFoundError` if ``jsonschema`` is not installed — callers should guard
-    with :func:`available` and skip gracefully.
+    Raises :class:`ModuleNotFoundError` for a broken installation where the required dependency is
+    absent. Strict callers must treat that condition as a validation failure.
     """
     import jsonschema
 

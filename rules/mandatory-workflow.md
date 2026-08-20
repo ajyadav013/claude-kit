@@ -335,7 +335,8 @@ Review the diff for changes outside your scope.
 > **Mechanical counterpart (standard+, API-exposing stacks):** the `merge-reviewer` runs the
 > **contract-clear** gate — a base-branch API-surface diff (`git show <base>:<schema>`) that classifies
 > each delta by severity and blocks backward-incompatible changes lacking an approved migration note +
-> version bump. It self-skips when no API contract surface exists. This §2d is the manual consumer
+> version bump. When no API contract surface exists, record `not-applicable` only with the configured
+> condition and current evidence. This §2d is the manual consumer
 > check; contract-clear is its automated, externally-exposed-contract complement. See
 > `.claude/agents/merge-reviewer.md`.
 
