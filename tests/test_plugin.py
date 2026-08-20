@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from claude_kit.validator import KNOWN_EVENTS
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
 HOOKS_FILE = REPO_ROOT / "hooks" / "hooks.json"
@@ -29,18 +31,6 @@ pytestmark = pytest.mark.skipif(
     not PLUGIN_MANIFEST.exists(),
     reason="plugin manifest only present in a source checkout, not the wheel",
 )
-
-VALID_EVENTS = {
-    "PreToolUse",
-    "PostToolUse",
-    "UserPromptSubmit",
-    "Notification",
-    "Stop",
-    "SubagentStop",
-    "SessionStart",
-    "SessionEnd",
-    "PreCompact",
-}
 
 
 def test_plugin_hooks_file_is_wrapped() -> None:
@@ -59,7 +49,7 @@ def test_plugin_hooks_event_structure() -> None:
     """Every event maps to matcher groups, each with a non-empty ``hooks`` list of typed entries."""
     events = json.loads(HOOKS_FILE.read_text())["hooks"]
     for event, groups in events.items():
-        assert event in VALID_EVENTS, f"unknown hook event: {event}"
+        assert event in KNOWN_EVENTS, f"unknown hook event: {event}"
         assert isinstance(groups, list) and groups, f"{event} must be a non-empty list"
         for group in groups:
             entries = group.get("hooks")
@@ -70,6 +60,23 @@ def test_plugin_hooks_event_structure() -> None:
                 assert entry.get("type") in {"command", "prompt"}, (
                     f"{event}: bad hook type"
                 )
+
+
+def test_compatibility_catalog_recognizes_current_official_events() -> None:
+    assert {
+        "PostToolUseFailure",
+        "PermissionRequest",
+        "SubagentStart",
+        "Setup",
+        "TeammateIdle",
+        "TaskCreated",
+        "TaskCompleted",
+        "ConfigChange",
+        "WorktreeCreate",
+        "WorktreeRemove",
+        "Elicitation",
+        "ElicitationResult",
+    } <= KNOWN_EVENTS
 
 
 def test_manifest_does_not_redeclare_standard_hooks() -> None:
@@ -216,8 +223,8 @@ def test_init_command_requires_cli_and_fails_loud() -> None:
     assert (
         "pipx install claude-code-kit" in text or "pip install claude-code-kit" in text
     )
-    # The thin fallback must be opt-in (gated behind CLAUDE_KIT_BASIC), never the silent default.
-    assert "CLAUDE_KIT_BASIC" in text
+    # No environment variable may restore the retired shell-write bypass.
+    assert "CLAUDE_KIT_BASIC=1" not in text
     assert (
         "do not scaffold anything" in text.lower()
         or "not silently fall back" in text.lower()
@@ -228,11 +235,29 @@ def test_init_command_requires_cli_and_fails_loud() -> None:
     )
 
 
-def test_basic_scaffolder_warns_it_is_degraded() -> None:
-    """The no-pip shell scaffolder must announce that it is a degraded, no-resolution install."""
+def test_init_script_is_a_non_mutating_cli_dispatcher(tmp_path: Path) -> None:
+    """Historical init.sh callers dispatch safely or fail before touching the project."""
     text = INIT_SH.read_text(encoding="utf-8")
-    assert "BASIC scaffolder" in text
-    assert "upgrade" in text and "NOT work" in text
+    assert 'exec claude-kit init "$@"' in text
+    assert 'exec ckit init "$@"' in text
+    assert 'exec claude-sdlc init "$@"' in text
+    assert "pipx install claude-code-kit" in text
+    for mutation in ("rm -", "cp ", "mkdir", "mv ", '>"'):
+        assert mutation not in text, (
+            f"compatibility launcher must not contain {mutation!r}"
+        )
+
+    target = tmp_path / "untouched"
+    result = subprocess.run(
+        ["bash", str(INIT_SH), str(target)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    assert result.returncode == 2
+    assert "No project files were changed" in result.stderr
+    assert not target.exists()
 
 
 # --- functional rm-rf guard behaviour (order-independent recursive+force regex) ----------------
@@ -589,8 +614,8 @@ def test_gate_ledger_guidance_probes_capability_not_cli_presence(payload: Path) 
     (`claude-kit pipeline close-gate --help`), and this pins it: prose drifts back easily, and the
     failure it causes is a false statement about the product rather than a crash anyone would spot.
 
-    `commands/init.md` is deliberately NOT covered. It probes presence to choose between the pip CLI
-    and the shell fallback for `init`, which every version can run; it never reaches for the ledger.
+    `commands/init.md` is deliberately NOT covered. It probes presence only to locate the required
+    Python installer; the compatibility shell launcher performs no project writes.
     """
     offenders = []
     for rel in ("rules", "skills", "agents", "templates"):

@@ -1008,7 +1008,7 @@ def test_readme_is_user_editable_not_clobbered(tmp_path, payload):
 
 def test_token_budget_keys_in_installed_settings(tmp_path, payload):
     """The token-budget defaults (env terminal-title off, autoCompact, skill-listing cap) land in the
-    pip-installed .claude/settings.json across profiles — and match the no-pip starter template, so the
+    pip-installed .claude/settings.json across profiles — and match the scaffold settings template, so the
     two install paths can't silently diverge on token settings."""
     from claude_kit import hooks
 
@@ -1025,7 +1025,7 @@ def test_token_budget_keys_in_installed_settings(tmp_path, payload):
             == hooks._TOKEN_BUDGET["maxSkillDescriptionChars"]
         )
 
-    # Parity: the no-pip starter template carries the identical token-budget block.
+    # Parity: the scaffold settings template carries the identical token-budget block.
     starter = json.loads(
         (payload / "templates" / "settings.json").read_text(encoding="utf-8")
     )
@@ -1162,7 +1162,13 @@ def test_continuity_template_and_rule_sections_stay_in_sync(payload):
     for section in ("Attempted & Ruled Out", "Repo State"):
         assert section in template, f"CONTINUITY.template.md missing section: {section}"
         assert section in rule, f"rules/continuity.md missing section: {section}"
-    # identity anchors documented in the rule's snapshot schema
-    assert '"git"' in rule and '"pr"' in rule, (
-        "rules/continuity.md snapshot schema lost the git/pr identity anchors"
-    )
+    # Schema-v2 identity anchors documented in the rule's snapshot schema.
+    for anchor in (
+        "repository_root",
+        "branch",
+        "starting_commit",
+        "current_commit",
+    ):
+        assert f'"{anchor}"' in rule, (
+            f"rules/continuity.md snapshot schema lost identity anchor: {anchor}"
+        )

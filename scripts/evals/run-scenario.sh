@@ -412,6 +412,9 @@ out = {
     "pipeline_state_files": listing(".claude/state"),
     "pipeline_snapshot_present": snap.is_file(),
     "gate_history": (parsed or {}).get("gate_history"),
+    "status": (parsed or {}).get("status"),
+    "last_gate_resolved": (parsed or {}).get("last_gate_resolved"),
+    # Retain the legacy field in evidence so pre-v2 fixtures remain diagnosable.
     "last_gate_passed": (parsed or {}).get("last_gate_passed"),
     "mode": (parsed or {}).get("mode"),
     "lanes": (parsed or {}).get("lanes"),

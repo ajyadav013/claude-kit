@@ -4,18 +4,54 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 from contextlib import ExitStack
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from claude_kit import cli, scaffold, upgrader
+from claude_kit import cli, scaffold, upgrader, validator
 from claude_kit.cli import app
+from claude_kit.secure_fs import ProjectFS
 from tests._helpers import install
 from tests.test_tickets import write_store
 
 runner = CliRunner()
+
+
+def _init_pipeline_git(target):
+    subprocess.run(
+        ["git", "init", "-b", "cli-main"], cwd=target, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "cli@example.invalid"], cwd=target, check=True
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Pipeline CLI"], cwd=target, check=True
+    )
+    marker = target / ".pipeline-cli-root"
+    marker.write_text("root\n", encoding="utf-8")
+    subprocess.run(["git", "add", marker.name], cwd=target, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "test root"],
+        cwd=target,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _record_pipeline_findings_cli(target, **overrides):
+    counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0}
+    counts.update(overrides)
+    evidence = target / "findings-report.json"
+    evidence.write_text(json.dumps(counts, sort_keys=True), encoding="utf-8")
+    args = ["pipeline", "record-findings", str(target)]
+    for severity in ("critical", "high", "medium", "low", "cosmetic"):
+        args.extend([f"--{severity}", str(counts[severity])])
+    args.extend(["--evidence", str(evidence)])
+    return runner.invoke(app, args), evidence
 
 
 def test_version_flag():
@@ -91,7 +127,23 @@ def test_init_config_malformed_yaml_is_friendly(tmp_path):
     assert "not valid yaml" in combined.lower()
     assert "Traceback" not in combined
     # No partial install may be left behind.
-    assert not target.exists() or not any(target.iterdir())
+    assert not target.exists()
+
+
+def test_init_config_read_error_is_friendly_and_leaves_no_target(tmp_path, monkeypatch):
+    config = tmp_path / "unreadable.yaml"
+    target = tmp_path / "project"
+
+    def denied(*_args, **_kwargs):
+        raise PermissionError("config denied by test")
+
+    monkeypatch.setattr(cli.prompts, "from_config", denied)
+    result = runner.invoke(app, ["init", str(target), "--config", str(config)])
+
+    assert result.exit_code == 2
+    assert "config denied by test" in result.output
+    assert "Traceback" not in result.output
+    assert not target.exists()
 
 
 def test_init_capture_mode_config_and_default(tmp_path):
@@ -201,6 +253,41 @@ def test_diff_and_upgrade_exit_codes(tmp_path, payload):
     empty = tmp_path / "empty"
     empty.mkdir()
     assert runner.invoke(app, ["diff", str(empty)]).exit_code == 1
+
+
+def test_diff_and_upgrade_report_filesystem_errors_without_tracebacks(
+    tmp_path, monkeypatch
+):
+    def denied(*_args, **_kwargs):
+        raise PermissionError("permission denied by test")
+
+    monkeypatch.setattr(upgrader, "diff", denied)
+    diff_result = runner.invoke(app, ["diff", str(tmp_path)])
+    assert diff_result.exit_code == 1
+    assert "cannot inspect" in diff_result.output
+    assert "Traceback" not in diff_result.output
+
+    monkeypatch.setattr(upgrader, "upgrade", denied)
+    upgrade_result = runner.invoke(app, ["upgrade", str(tmp_path)])
+    assert upgrade_result.exit_code == 1
+    assert "cannot upgrade" in upgrade_result.output
+    assert "Traceback" not in upgrade_result.output
+
+
+@pytest.mark.parametrize("command", ["validate", "doctor"])
+def test_inspection_commands_report_filesystem_errors_without_tracebacks(
+    tmp_path, monkeypatch, command
+):
+    def denied(*_args, **_kwargs):
+        raise PermissionError("permission denied by test")
+
+    monkeypatch.setattr(validator, command, denied)
+    result = runner.invoke(app, [command, str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "cannot inspect" in result.output
+    assert "permission denied by test" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_list_options_runs(tmp_path):
@@ -326,6 +413,13 @@ def test_pipeline_validate_and_status_cli(tmp_path, payload):
 def test_pipeline_close_gate_and_abort_cli(tmp_path, payload):
     """Exercises the close-gate positional+option signature end-to-end (and abort)."""
     install(payload, tmp_path)
+    _init_pipeline_git(tmp_path)
+    started = runner.invoke(
+        app, ["pipeline", "start", str(tmp_path), "--task", "CLI gate test"]
+    )
+    assert started.exit_code == 0, started.stdout
+    recorded, _ = _record_pipeline_findings_cli(tmp_path)
+    assert recorded.exit_code == 0, recorded.stdout
     evidence = tmp_path / "evidence.txt"
     evidence.write_text("done", encoding="utf-8")
     res = runner.invoke(
@@ -333,7 +427,7 @@ def test_pipeline_close_gate_and_abort_cli(tmp_path, payload):
         [
             "pipeline",
             "close-gate",
-            "code-review",
+            "spec-complete",
             "--evidence",
             str(evidence),
             str(tmp_path),
@@ -578,6 +672,56 @@ def test_tickets_html_writes_a_self_contained_board(tmp_path):
     assert "<script" not in html and "https://" not in html
 
 
+def test_tickets_html_refuses_a_symlinked_state_destination(tmp_path):
+    """A board write refusal is actionable and never mutates the link target."""
+    _ticket_store(tmp_path)
+    outside = tmp_path.parent / f"{tmp_path.name}-outside-board"
+    outside.mkdir()
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "state").symlink_to(outside, target_is_directory=True)
+
+    result = runner.invoke(
+        app,
+        [
+            "tickets",
+            "--path",
+            str(tmp_path),
+            "--html",
+            "--transcript-dir",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "cannot write the ticket board" in result.output
+    assert "Traceback" not in result.output
+    assert not (outside / "ticket-board.html").exists()
+
+
+def test_tickets_html_refuses_during_a_lifecycle_transaction(tmp_path):
+    """A board write cannot be acknowledged while rollback owns the project."""
+    _ticket_store(tmp_path)
+    fs = ProjectFS(tmp_path)
+
+    with fs.mutation_lease(exclusive=True):
+        result = runner.invoke(
+            app,
+            [
+                "tickets",
+                "--path",
+                str(tmp_path),
+                "--html",
+                "--transcript-dir",
+                str(tmp_path),
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert "project mutation is busy" in result.output
+    assert not (tmp_path / ".claude/state/ticket-board.html").exists()
+
+
 def test_tickets_html_refresh_zero_produces_a_static_page(tmp_path):
     from claude_kit import board_html
 
@@ -727,13 +871,32 @@ def test_privacy_report_without_settings_shows_plugin_roster(tmp_path):
     assert "plugin ships no capture hooks" in result.stdout
 
 
-def test_pipeline_skip_gate_cli_records_agent_entry(tmp_path):
-    """skip-gate end-to-end: exit 0, and the entry is skipped + verification=agent (a skip is
-    recorded by whoever ran the CLI — not a human attestation)."""
+def test_pipeline_skip_gate_cli_records_structured_not_applicable(tmp_path):
     import json
 
     target = tmp_path / "proj"
     assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
+    _init_pipeline_git(target)
+    adopted = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "adopt",
+            "contract-clear",
+            str(target),
+            "--task",
+            "CLI conditional gate",
+            "--reason",
+            "prior required gates predate v2",
+            "--adopted-by",
+            "release-manager",
+        ],
+    )
+    assert adopted.exit_code == 0, adopted.stdout
+    recorded, _ = _record_pipeline_findings_cli(target)
+    assert recorded.exit_code == 0, recorded.stdout
+    evidence = target / "condition.txt"
+    evidence.write_text("no public API", encoding="utf-8")
     result = runner.invoke(
         app,
         [
@@ -743,17 +906,21 @@ def test_pipeline_skip_gate_cli_records_agent_entry(tmp_path):
             str(target),
             "--reason",
             "no API surface changed in this run",
+            "--condition",
+            "no-api-contract-surface",
+            "--evidence",
+            str(evidence),
         ],
     )
     assert result.exit_code == 0, result.stdout
-    assert "recorded skipped" in result.stdout
+    assert "recorded not-applicable" in result.stdout
     snap = json.loads(
         (target / ".claude" / "state" / "pipeline-snapshot.json").read_text(
             encoding="utf-8"
         )
     )
     entry = snap["gate_history"][-1]
-    assert entry["status"] == "skipped"
+    assert entry["status"] == "not-applicable"
     assert entry["verification"] == "agent"
     assert entry["reason"] == "no API surface changed in this run"
 
@@ -777,28 +944,19 @@ def test_pipeline_validate_strict_cli_fails_closed(tmp_path):
     assert "no install snapshot" in result.stdout
 
 
-def test_pipeline_close_gate_cli_out_of_order_then_forced(tmp_path):
-    """Out-of-order close exits 1 with the refusal; --force --override-reason threads through
-    the CLI and records an honest `overridden` entry."""
+def test_pipeline_close_gate_cli_out_of_order_and_force_both_fail(tmp_path):
     import json
 
     target = tmp_path / "proj"
     assert runner.invoke(app, ["init", str(target), "--defaults"]).exit_code == 0
-    state = target / ".claude" / "state"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "pipeline-snapshot.json").write_text(
-        json.dumps(
-            {
-                "schema": 1,
-                "task": "cli order test",
-                "profile": "standard",
-                "scope": "team",
-                "stage": "build",
-                "last_gate_passed": "spec-complete",
-            }
-        ),
-        encoding="utf-8",
+    _init_pipeline_git(target)
+    started = runner.invoke(
+        app, ["pipeline", "start", str(target), "--task", "CLI order test"]
     )
+    assert started.exit_code == 0, started.stdout
+    recorded, _ = _record_pipeline_findings_cli(target)
+    assert recorded.exit_code == 0, recorded.stdout
+    state = target / ".claude" / "state"
     ev = target / "review.txt"
     ev.write_text("APPROVED", encoding="utf-8")
     refused = runner.invoke(
@@ -828,12 +986,201 @@ def test_pipeline_close_gate_cli_out_of_order_then_forced(tmp_path):
             "hotfix: security reviewed out-of-band",
         ],
     )
-    assert forced.exit_code == 0, forced.stdout
-    assert "overridden" in forced.stdout
+    assert forced.exit_code == 1
+    assert "cannot record a normal gate transition" in forced.stdout
     snap = json.loads((state / "pipeline-snapshot.json").read_text(encoding="utf-8"))
-    entry = snap["gate_history"][-1]
-    assert entry["status"] == "overridden"
-    assert entry["override"] == "hotfix: security reviewed out-of-band"
+    assert snap["gate_history"] == []
+
+
+def test_pipeline_cli_refuses_a_symlinked_project_root(tmp_path, payload):
+    target = tmp_path / "real-project"
+    install(payload, target, profile="lean")
+    _init_pipeline_git(target)
+    alias = tmp_path / "project-alias"
+    try:
+        alias.symlink_to(target, target_is_directory=True)
+    except OSError as exc:  # pragma: no cover - Windows without symlink privilege
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    result = runner.invoke(
+        app, ["pipeline", "start", str(alias), "--task", "must refuse linked root"]
+    )
+
+    assert result.exit_code == 1
+    assert "unsafe" in result.stdout and "link/reparse" in result.stdout
+    assert not (target / ".claude/state/pipeline-snapshot.json").exists()
+    evidence = target / "findings.json"
+    evidence.write_text("{}", encoding="utf-8")
+    record = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "record-findings",
+            str(alias),
+            "--critical",
+            "0",
+            "--high",
+            "0",
+            "--medium",
+            "0",
+            "--low",
+            "0",
+            "--cosmetic",
+            "0",
+            "--evidence",
+            str(evidence),
+        ],
+    )
+    assert record.exit_code == 1
+    assert "unsafe" in record.stdout and "link/reparse" in record.stdout
+
+
+def test_pipeline_accept_risk_and_final_summary_are_structured_json(tmp_path, payload):
+    target = tmp_path / "risk"
+    install(payload, target, profile="lean")
+    _init_pipeline_git(target)
+    started = runner.invoke(
+        app, ["pipeline", "start", str(target), "--task", "CLI risk test"]
+    )
+    assert started.exit_code == 0, started.stdout
+    unrecorded = runner.invoke(app, ["pipeline", "status", str(target)])
+    assert "UNRECORDED" in unrecorded.stdout
+    recorded, report = _record_pipeline_findings_cli(target, high=1, medium=1)
+    assert recorded.exit_code == 0, recorded.stdout
+    evidence = target / "finding.md"
+    evidence.write_text("MED-CLI", encoding="utf-8")
+
+    forced = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "close-gate",
+            "code-review",
+            str(target),
+            "--evidence",
+            str(evidence),
+            "--force",
+            "--override-reason",
+            "must remain forbidden",
+        ],
+    )
+    assert forced.exit_code == 1
+    assert "never waivable" in forced.stdout
+    recorded, _ = _record_pipeline_findings_cli(target, medium=1)
+    assert recorded.exit_code == 0, recorded.stdout
+
+    def accept(gate):
+        return runner.invoke(
+            app,
+            [
+                "pipeline",
+                "accept-risk",
+                gate,
+                str(target),
+                "--finding-id",
+                "MED-CLI",
+                "--reason",
+                "bounded release window",
+                "--accepted-by",
+                "release-manager",
+                "--owner",
+                "platform",
+                "--ticket",
+                "ISSUE-CLI",
+                "--revisit",
+                "next release",
+                "--evidence",
+                str(evidence),
+            ],
+        )
+
+    accepted = accept("code-review")
+    assert accepted.exit_code == 0, accepted.stdout
+    assert "not an ordinary PASS" in accepted.stdout
+    for command in ("status", "validate"):
+        result = runner.invoke(app, ["pipeline", command, str(target), "--json"])
+        assert result.exit_code == 0, result.stdout
+        document = json.loads(result.stdout)
+        assert document["snapshot"]["accepted_risks"][0]["finding_id"] == "MED-CLI"
+        assert document["snapshot"]["findings_evidence"]["evidence_path"] == report.name
+        assert any("ACCEPTED RISK" in item["text"] for item in document["messages"])
+
+    assert accept("build-green").exit_code == 0
+    completed = runner.invoke(app, ["pipeline", "complete", str(target)])
+    assert completed.exit_code == 0, completed.stdout
+    result = runner.invoke(app, ["pipeline", "status", str(target), "--json"])
+    document = json.loads(result.stdout)
+    final_summary = document["snapshot"]["final_summary"]
+    assert final_summary["status"] == "completed"
+    assert len(final_summary["accepted_risks"]) == 2
+
+
+def test_pipeline_record_findings_cli_requires_all_counts_and_repairs_evidence_drift(
+    tmp_path, payload
+):
+    target = tmp_path / "findings"
+    install(payload, target, profile="lean")
+    _init_pipeline_git(target)
+    started = runner.invoke(
+        app, ["pipeline", "start", str(target), "--task", "CLI findings test"]
+    )
+    assert started.exit_code == 0, started.stdout
+    report = target / "findings-report.json"
+    report.write_text("{}", encoding="utf-8")
+    incomplete = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "record-findings",
+            str(target),
+            "--critical",
+            "0",
+            "--high",
+            "0",
+            "--medium",
+            "0",
+            "--low",
+            "0",
+            "--evidence",
+            str(report),
+        ],
+    )
+    assert incomplete.exit_code != 0
+    assert "--cosmetic" in (incomplete.stdout + incomplete.stderr)
+
+    recorded, report = _record_pipeline_findings_cli(target)
+    assert recorded.exit_code == 0, recorded.stdout
+    report.write_text("changed after recording", encoding="utf-8")
+    gate_evidence = target / "review.txt"
+    gate_evidence.write_text("approved", encoding="utf-8")
+    stale = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "close-gate",
+            "code-review",
+            str(target),
+            "--evidence",
+            str(gate_evidence),
+        ],
+    )
+    assert stale.exit_code == 1
+    assert "findings evidence hash mismatch" in stale.stdout
+
+    rerecorded, _ = _record_pipeline_findings_cli(target)
+    assert rerecorded.exit_code == 0, rerecorded.stdout
+    closed = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "close-gate",
+            "code-review",
+            str(target),
+            "--evidence",
+            str(gate_evidence),
+        ],
+    )
+    assert closed.exit_code == 0, closed.stdout
 
 
 def test_privacy_report_json_capture_levels(tmp_path):
@@ -913,25 +1260,21 @@ def test_init_reports_an_uncreatable_target_instead_of_crashing(tmp_path):
     try:
         result = runner.invoke(app, ["init", str(blocked / "child"), "--defaults"])
         assert result.exit_code != 0
-        assert "cannot create" in result.output
+        assert "cannot write into" in result.output
         assert "Traceback" not in result.output
     finally:
         blocked.chmod(0o700)
 
 
-def test_init_reports_an_unwritable_existing_target_instead_of_crashing(tmp_path):
-    """The F-031 guard only covered the mkdir, which an EXISTING target never reaches (F-087).
-
-    `.claude` as a regular file is the cheap way to make the install fail deep inside
-    install_sdlc rather than at the entry mkdir -- the same class as an existing-but-unwritable
-    directory, but reproducible without depending on the test user's privileges.
-    """
+def test_init_refuses_a_nondirectory_claude_root_without_crashing(tmp_path):
+    """A regular `.claude` cannot be treated as a safe install directory."""
     target = tmp_path / "existing"
     target.mkdir()
     (target / ".claude").write_text("not a directory")
     result = runner.invoke(app, ["init", str(target), "--defaults"])
     assert result.exit_code != 0
-    assert "cannot write into" in result.output
+    assert "non-directory component appears in path ancestry" in result.output
+    assert "remove the link/reparse point or choose a regular path" in result.output
     assert "Traceback" not in result.output
 
 
@@ -941,7 +1284,8 @@ def test_init_reports_a_target_that_is_a_file_instead_of_crashing(tmp_path):
     target.write_text("x")
     result = runner.invoke(app, ["init", str(target), "--defaults"])
     assert result.exit_code != 0
-    assert "cannot write into" in result.output
+    assert "not a directory" in result.output.lower()
+    assert "choose a regular path" in result.output
     assert "Traceback" not in result.output
 
 
@@ -1054,6 +1398,54 @@ def test_export_refuses_an_unreadable_installed_selection(tmp_path, payload):
     assert "could not read installed selection" in result.output
 
 
+def test_export_refuses_a_future_init_options_schema(tmp_path, payload):
+    """A mutating export must not reinterpret persisted state from a future kit."""
+    install(payload, tmp_path)
+    options = tmp_path / ".claude" / "config" / "init-options.json"
+    document = json.loads(options.read_text(encoding="utf-8"))
+    document["schema_version"] = 999
+    options.write_text(json.dumps(document), encoding="utf-8")
+
+    result = runner.invoke(app, ["export", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "unsupported future init-options schema_version 999" in result.output
+    assert "Traceback" not in result.output
+    assert not (tmp_path / ".cursor").exists()
+
+
+def test_export_refuses_a_symlinked_destination_without_a_traceback(tmp_path):
+    """Mutation-time export checks must surface a clean refusal at the CLI boundary."""
+    target = tmp_path / "project"
+    outside = tmp_path / "outside-cursor"
+    target.mkdir()
+    outside.mkdir()
+    (target / ".cursor").symlink_to(outside, target_is_directory=True)
+
+    result = runner.invoke(
+        app, ["export", str(target), "--defaults", "--target", "cursor"]
+    )
+
+    assert result.exit_code == 1
+    assert "cannot export into" in result.output
+    assert "Traceback" not in result.output
+    assert not any(outside.iterdir())
+
+
+def test_export_refuses_during_a_lifecycle_transaction(tmp_path):
+    """A root export cannot be acknowledged and later erased by transaction rollback."""
+    target = tmp_path / "project"
+    target.mkdir()
+    fs = ProjectFS(target)
+
+    with fs.mutation_lease(exclusive=True):
+        result = runner.invoke(app, ["export", str(target), "--defaults"])
+
+    assert result.exit_code == 1
+    assert "project mutation is busy" in result.output
+    assert not (target / ".cursor").exists()
+
+
 def test_status_reports_a_project_with_no_install(tmp_path):
     result = runner.invoke(app, ["status", str(tmp_path)])
     assert result.exit_code == 0, result.output
@@ -1078,6 +1470,67 @@ def test_status_renders_components_selection_and_working_memory(tmp_path, payloa
     shutil.rmtree(tmp_path / ".claude" / "hooks")
     missing = runner.invoke(app, ["status", str(tmp_path)])
     assert "hooks/: (missing)" in missing.output
+
+
+@pytest.mark.parametrize(
+    "document, expected",
+    [
+        ("{not json", "could not read installed selection"),
+        ("[]", "init-options document root must be an object"),
+        (
+            json.dumps({"schema_version": 999}),
+            "unsupported future init-options schema_version 999",
+        ),
+    ],
+)
+def test_status_refuses_corrupt_or_future_init_options_without_a_traceback(
+    tmp_path, payload, document, expected
+):
+    install(payload, tmp_path)
+    (tmp_path / ".claude" / "config" / "init-options.json").write_text(
+        document, encoding="utf-8"
+    )
+
+    result = runner.invoke(app, ["status", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert expected in result.output
+    assert "Traceback" not in result.output
+
+
+def test_status_refuses_an_installed_selection_that_does_not_resolve(tmp_path, payload):
+    install(payload, tmp_path)
+    options = tmp_path / ".claude" / "config" / "init-options.json"
+    document = json.loads(options.read_text(encoding="utf-8"))
+    document["selection"]["profile"] = "bogus-profile"
+    options.write_text(json.dumps(document), encoding="utf-8")
+
+    result = runner.invoke(app, ["status", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "bogus-profile" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_status_reports_component_read_errors_without_a_traceback(
+    tmp_path, payload, monkeypatch
+):
+    install(payload, tmp_path)
+    denied_dir = tmp_path / ".claude" / "rules"
+    original_iterdir = Path.iterdir
+
+    def denied(path):
+        if path == denied_dir:
+            raise PermissionError("component directory denied by test")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", denied)
+    result = runner.invoke(app, ["status", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "cannot inspect" in result.output
+    assert "component directory denied by test" in result.output
+    assert "Traceback" not in result.output
 
 
 def test_tickets_graph_modes_render(tmp_path):
