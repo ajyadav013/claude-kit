@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-code-kit"
-version = "0.82.0"
-description = "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker). Asks ordered questions and installs CLAUDE.md + .claude/ (rules, the chosen profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with a tamper-evident gate ledger, working memory, and a self-improving learnings loop."
+version = "0.83.0"
+description = "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker). Asks ordered questions and installs CLAUDE.md + .claude/ (rules, the chosen profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with an evidence-hashed gate ledger, working memory, and a self-improving learnings loop."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -39,11 +39,12 @@ dependencies = [
   "typer>=0.12",
   "jinja2>=3.1",
   "pyyaml>=6.0",
+  "jsonschema>=4.0",
+  "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
-# Optional JSON Schema validation of catalog files + persisted artifacts. Keeps the runtime
-# install at three deps (typer/jinja2/pyyaml); install with `claude-kit[schema]` to enable.
+# Backward-compatible alias; JSON Schema validation is runtime-required as of 0.83.0.
 schema = [
   "jsonschema>=4.0",
 ]

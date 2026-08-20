@@ -3,7 +3,8 @@
 > Produced by the **contract-clear** gate (`merge-reviewer`, standard+ / API-exposing stacks). It
 > diffs the externally-exposed API contract against the base branch. Backward-incompatible deltas for
 > already-shipped consumers block the gate unless an approved migration note + version bump accompany
-> them. The gate self-skips when no contract surface (OpenAPI / GraphQL / typed routes) is found.
+> them. When no contract surface (OpenAPI / GraphQL / typed routes) is found, this report supplies
+> evidence for the configured explicit `not-applicable` transition; the gate never skips itself.
 
 ## Contract source
 - Spec: <openapi.(json|yaml) | GraphQL SDL | generated-from-typed-routes>

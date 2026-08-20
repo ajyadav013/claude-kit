@@ -39,6 +39,12 @@ def test_unknown_config_key_is_rejected(tmp_path, payload):
         prompts.from_config(cfg, payload)
 
 
+def test_non_string_unknown_config_key_is_reported_cleanly(tmp_path, payload):
+    cfg = _write(tmp_path, "1: value\n")
+    with pytest.raises(ValueError, match="unknown config key.*1"):
+        prompts.from_config(cfg, payload)
+
+
 def test_teams_string_is_normalised(tmp_path, payload):
     """A bare `teams: engineering` becomes a one-element list."""
     cfg = _write(tmp_path, "scope: organization\nteams: engineering\n")
@@ -390,9 +396,36 @@ def test_config_that_is_not_a_mapping_is_rejected(tmp_path, payload):
         prompts.from_config(cfg, payload)
 
 
-def test_config_with_a_non_mapping_org_block_falls_back_to_defaults(tmp_path, payload):
-    """`org:` written as a scalar is treated as absent rather than crashing the whole init."""
+def test_config_with_a_non_mapping_org_block_is_rejected(tmp_path, payload):
+    """A malformed org block cannot silently erase organization policy choices."""
     cfg = tmp_path / "ckit.yaml"
     cfg.write_text("org: organization\n", encoding="utf-8")
-    sel = prompts.from_config(cfg, payload)
-    assert sel.scope == catalog.defaults(payload).scope
+    with pytest.raises(ValueError, match="config 'org' must be an object"):
+        prompts.from_config(cfg, payload)
+
+
+@pytest.mark.parametrize("field", ["frontend", "backend"])
+def test_config_rejects_invalid_lane_container(tmp_path, payload, field):
+    cfg = _write(tmp_path, f"{field}: [react]\n")
+    with pytest.raises(ValueError, match=field):
+        prompts.from_config(cfg, payload)
+
+
+def test_config_rejects_unknown_nested_key(tmp_path, payload):
+    cfg = _write(tmp_path, "frontend: { framework: react, languge: typescript }\n")
+    with pytest.raises(ValueError, match="unknown config 'frontend' key"):
+        prompts.from_config(cfg, payload)
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ('org_packs: "false"\n', "org_packs"),
+        ('detect_commands: "false"\n', "detect_commands"),
+        ('org: { packs: "false" }\n', "org_packs"),
+    ],
+)
+def test_config_rejects_quoted_boolean_values(tmp_path, payload, body, expected):
+    cfg = _write(tmp_path, body)
+    with pytest.raises(ValueError, match=expected):
+        prompts.from_config(cfg, payload)

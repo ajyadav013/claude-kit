@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "stack-catalog-snapshot",
+  "title": "claude-kit resolved stack catalog snapshot",
+  "type": "object",
+  "required": ["schema_version", "selection", "agents", "skills", "overlay_rules", "overlay_agents", "hooks", "gates", "gate_definitions", "gate_definition_digest", "mcp"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "selection": {"type": "object"},
+    "agents": {"$ref": "#/$defs/stringArray"},
+    "skills": {"$ref": "#/$defs/stringArray"},
+    "overlay_rules": {"$ref": "#/$defs/stringArray"},
+    "overlay_agents": {"$ref": "#/$defs/stringArray"},
+    "hooks": {"$ref": "#/$defs/stringArray"},
+    "gates": {"$ref": "#/$defs/stringArray"},
+    "gate_definitions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["requirement", "skippable", "skip_conditions"],
+        "properties": {
+          "requirement": {"enum": ["required", "conditional"]},
+          "skippable": {"type": "boolean"},
+          "skip_conditions": {"$ref": "#/$defs/stringArray"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "gate_definition_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mcp": {"$ref": "#/$defs/stringArray"},
+    "org": {"type": ["object", "null"]},
+    "detected_commands": {"type": "object"}
+  },
+  "$defs": {
+    "stringArray": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  },
+  "additionalProperties": true
+}

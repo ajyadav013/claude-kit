@@ -5,20 +5,19 @@ topic. But the three are **not** equivalent in enforcement strength:
 
 | Class | What it means | Enforced? |
 |-------|---------------|-----------|
-| **GATED** | A gate token in `catalog/profiles.yaml` / `catalog/org.yaml`, owned by an agent, blocking at ≥ Medium severity (`rules/quality-gates.md` §1) | **Yes** — blocks delivery |
-| **RULE** | An always-on file in `.claude/rules/` (installed in every profile) | Partly — an instruction the agents must follow; not a blocking checkpoint by itself |
-| **SKILL / DOC** | A profile-gated skill (advisory, invoked on demand) or repo documentation | **No** — guidance, runs only when invoked |
+| **GATED** | A gate token with canonical metadata in `catalog/profiles.yaml` / `catalog/org.yaml` | Transition type/order is Mechanically enforced; the underlying verdict may be Agent-enforced, Externally verified, or Human-attested |
+| **RULE** | An always-on file in `.claude/rules/` (installed in every profile) | Agent-enforced instruction unless a named Python/hook/external control backs it |
+| **SKILL / DOC** | A profile-gated skill or repository documentation | Advisory; runs only when invoked |
 
 This document is the **justification record** for what the kit enforces versus documents. Each P0/P1
 item in the improvement briefs cites a row here. It reflects the state **as of 0.13.0**.
 
-> **Deterministic ledger (0.76.0).** The classes above say *what* blocks; since 0.76.0 the
-> *recording* of a gate verdict is itself mechanically enforced wherever the `claude-kit` CLI is
-> installed: `claude-kit pipeline close-gate` refuses out-of-order closes and open
-> Critical/High/Medium findings, stores the evidence file's sha256 in the append-only
-> `gate_history`, and `pipeline validate` re-hashes every entry later. A GATED row is therefore
-> backed twice — by prose (the owning agent applies `rules/quality-gates.md`) and by a
-> deterministic check (the ledger refuses an unearned close; §2.5 of that rule).
+> **Schema-v2 state layer (0.83.0).** A run must be explicitly started or adopted. Python
+> mechanically enforces gate order, required-vs-conditional transitions, unwaivable Critical/High,
+> structured Medium `accepted-risk`, terminal states, and commit/gate/evidence bindings. A local
+> SHA-256 detects evidence drift but is not authenticated tamper evidence. The CLI does not yet parse
+> arbitrary test/scanner output, so do not infer that a GATED verdict is mechanically proven unless a
+> registered external mechanism is named.
 
 ## The named capabilities (verified against the files)
 
@@ -27,8 +26,8 @@ item in the improvement briefs cites a row here. It reflects the state **as of 0
 | **Rollback (verified)** | **GATED — enterprise only**; RULE elsewhere | `pipeline-green` gate is listed **only** in the enterprise profile (`catalog/profiles.yaml`); owned by `devops-engineer`, which requires a *verified* rollback + runbook (`rules/devops-observability.md`, `agents/devops-engineer.md`). In lean/standard, rollback is **RULE-level** advice via `rules/risk-classification.md` (high-risk changes need rollback notes), not a gate. | enterprise (blocking); lean/standard (advisory) |
 | **Cost expectations** | **DOC — by design** | `rules/model-tiers.md` "Profile cost expectations" (added 0.12.0). A `cost-estimate` skill + per-run cost hook were **deliberately rejected** (CHANGELOG 0.12.0) — the kit cannot reliably meter tokens at scaffold time. | documented only (accepted) |
 | **Migration safety** | **RULE + OVERLAY-AGENT (advisory) + enterprise rollback** | Always-on RULE: `rules/risk-classification.md` (DB migrations = sensitive, ≥ High). Overlay RULES (when a DB is selected): `postgres-patterns.md` / `mongodb-patterns.md` now state expand/contract + "no destructive drop in the same release" with **severity** (0.13.0, brief #2 P0-2). Overlay AGENT: `migration-specialist` (postgres + mongodb) reviews each change (expand/contract, reversible down-path, idempotent backfill; irreversible/table-locking ≥ High). **No dedicated migration gate token** — it is reviewed, not gated, and the enterprise rollback verification (`pipeline-green`) is the nearest enforced backstop. | overlay-advisory + enterprise rollback |
-| **Accessibility** | **SKILL/DOC** in lean/standard/team; **GATED** at org `regulated` strictness (0.13.0) | RULE (standards): `rules/responsive-and-accessibility.md` (always-on, advisory). SKILL (review procedure): `skills/accessibility-review`. As of 0.13.0 there **is** a gate — `accessibility-clear` — but **only** under organization scope at `regulated` strictness (`catalog/org.yaml`), owned by `acceptance-reviewer`, self-skipping when no UI surface (brief #2 P1-2). Outside `regulated`, a11y is advisory and blocks nothing. | regulated-org (blocking); otherwise advisory |
-| **API breaking changes** | **GATED — standard+ (API stacks)** as of 0.13.0 | `contract-clear` gate, owned by `merge-reviewer`, now in the **standard** and enterprise profiles (`catalog/profiles.yaml`); self-skips when the stack exposes no API contract surface (brief #2 P0-1). The manual counterpart is `rules/mandatory-workflow.md` §2d. | standard+ (blocking, API stacks) |
+| **Accessibility** | **SKILL/DOC** in lean/standard/team; **GATED** at org `regulated` strictness (0.13.0) | RULE (standards): `rules/responsive-and-accessibility.md` (always-on, advisory). SKILL (review procedure): `skills/accessibility-review`. As of 0.13.0 there **is** a gate — `accessibility-clear` — but **only** under organization scope at `regulated` strictness (`catalog/org.yaml`), owned by `acceptance-reviewer`; when no UI surface exists, its configured condition plus current evidence permits an explicit `not-applicable` transition. Outside `regulated`, a11y is advisory and blocks nothing. | regulated-org (blocking); otherwise advisory |
+| **API breaking changes** | **GATED — standard+ (API stacks)** as of 0.13.0 | `contract-clear` gate, owned by `merge-reviewer`, now in the **standard** and enterprise profiles (`catalog/profiles.yaml`); when no API contract surface exists, its configured condition plus current evidence permits an explicit `not-applicable` transition. The manual counterpart is `rules/mandatory-workflow.md` §2d. | standard+ (blocking, API stacks) |
 
 ### The one "looks enforced but isn't" trap
 
@@ -91,8 +90,8 @@ design, and the product-lens review tier is additionally **scope-gated** to orga
   strictness level, and `resolve()` stays branch-free.
 - Heavyweight, situational gates default to **enterprise** or to **org strictness** (golden rule #6).
   `contract-clear` is the deliberate exception promoted to `standard` (brief #2 P0-1) because
-  breaking-change detection is table-stakes for the headline FastAPI backend — and it self-skips for
-  non-API stacks, so it adds no burden where it doesn't apply.
+  breaking-change detection is table-stakes for the headline FastAPI backend — and its configured
+  no-contract condition permits an evidenced `not-applicable` transition for non-API stacks.
 - Where a capability is *advisory by design* (cost, lean/standard rollback, non-regulated a11y), this
   audit says so plainly rather than implying enforcement the kit doesn't provide.
 
@@ -121,5 +120,5 @@ to run.
 
 To move a capability from RULE/SKILL to GATED: add a gate token to a profile (`catalog/profiles.yaml`)
 or to an org strictness level (`catalog/org.yaml` `extra_gates`), give it an **owner agent**, a
-**self-skip** condition when irrelevant, a **severity mapping**, and a row in `rules/quality-gates.md`
+**not-applicable** condition when irrelevant, a **severity mapping**, and a row in `rules/quality-gates.md`
 §4. That is exactly how `contract-clear` (standard+) and `accessibility-clear` (regulated) were wired.

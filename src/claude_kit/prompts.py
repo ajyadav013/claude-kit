@@ -239,18 +239,19 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     ``fastapi``.
     """
     try:
-        data = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
+        parsed = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         # PyYAML's message spans lines but carries the line/column mark — keep it, one line.
         raise ValueError(
             f"config file is not valid YAML: {' '.join(str(exc).split())}"
         ) from exc
+    data = {} if parsed is None else parsed
     if not isinstance(data, dict):
         raise ValueError("config file did not parse to a mapping")
     unknown = set(data) - _CONFIG_KEYS
     if unknown:
         raise ValueError(
-            f"unknown config key(s): {', '.join(sorted(unknown))} "
+            f"unknown config key(s): {', '.join(sorted(map(str, unknown)))} "
             f"(recognised: {', '.join(sorted(_CONFIG_KEYS))})"
         )
     dflt = catalog.defaults(payload_root)
@@ -259,8 +260,27 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     fe = data.get("frontend", {})
     be = data.get("backend", {})
     org = data.get("org", {})
-    if not isinstance(org, dict):
-        org = {}
+    for name, block, allowed, allow_scalar in (
+        ("frontend", fe, {"framework", "language"}, True),
+        ("backend", be, {"language", "framework"}, True),
+        (
+            "org",
+            org,
+            {"teams", "autonomy", "review_strictness", "packs"},
+            False,
+        ),
+    ):
+        if allow_scalar and isinstance(block, str):
+            continue
+        if not isinstance(block, dict):
+            expected = "a string or object" if allow_scalar else "an object"
+            raise ValueError(f"config {name!r} must be {expected}")
+        unknown_nested = set(block) - allowed
+        if unknown_nested:
+            raise ValueError(
+                f"unknown config {name!r} key(s): "
+                f"{', '.join(sorted(map(str, unknown_nested)))}"
+            )
     # YAML 1.1 parses bare off/no -> False and on/yes -> True; map an unquoted `capture_mode: off`
     # back to the "off" mode. A bare `on`/`true` is REJECTED, not guessed: since 0.76.0 the
     # default is off, so silently mapping True to the default would turn an explicit opt-IN into
@@ -331,9 +351,13 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     packs = data.get("org_packs")
     if packs is None:
         packs = org.get("packs")
-    flat["org_packs"] = True if packs is None else bool(packs)
+    if packs is not None and not isinstance(packs, bool):
+        raise ValueError("config 'org_packs' / 'org.packs' must be a boolean")
+    flat["org_packs"] = True if packs is None else packs
     # detect_commands: accept an explicit bool, else default True (inspect the target repo for its
     # real package-manager commands). Set False in config to pin the generic catalog commands.
     detect = data.get("detect_commands")
-    flat["detect_commands"] = True if detect is None else bool(detect)
+    if detect is not None and not isinstance(detect, bool):
+        raise ValueError("config 'detect_commands' must be a boolean")
+    flat["detect_commands"] = True if detect is None else detect
     return Selection.from_dict(flat, strict=True)

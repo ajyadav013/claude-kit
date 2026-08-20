@@ -8,6 +8,8 @@ documentation rule and keeps ``init-options.json`` round-trippable for ``validat
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
@@ -20,6 +22,29 @@ UPGRADE_JOURNAL = "upgrade-in-progress.json"
 
 #: Schema version of the upgrade-journal document.
 UPGRADE_JOURNAL_SCHEMA = 1
+
+
+def _read_schema_version(data: dict[str, Any], *, current: int, document: str) -> int:
+    """Read a persisted schema version, treating absence as explicit legacy v1 only.
+
+    Persisted documents predate ``schema_version``. They remain readable as v1, but a declared
+    future version must never be silently coerced into the current dataclass shape.
+    """
+    if "schema_version" not in data:
+        return 1
+    value = data["schema_version"]
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{document} schema_version must be an integer")
+    if value > current:
+        raise ValueError(
+            f"unsupported future {document} schema_version {value} "
+            f"(maximum supported: {current})"
+        )
+    if value != current:
+        raise ValueError(
+            f"unsupported {document} schema_version {value} (supported: {current})"
+        )
+    return value
 
 
 @dataclass
@@ -91,6 +116,8 @@ class Selection:
             ValueError: In ``strict`` mode, if ``data`` has unknown keys or a field has the wrong
                 type (the list fields must be lists of strings; ``org_packs`` must be a bool).
         """
+        if not isinstance(data, dict):
+            raise ValueError("selection must be an object")
         known = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
         if strict:
             unknown = set(data) - known
@@ -99,17 +126,30 @@ class Selection:
                     f"unknown selection field(s): {', '.join(sorted(unknown))} "
                     f"(known: {', '.join(sorted(known))})"
                 )
-            for fname in ("mcp", "teams"):
-                val = data.get(fname)
-                if val is not None and (
-                    not isinstance(val, list)
-                    or any(not isinstance(x, str) for x in val)
-                ):
-                    raise ValueError(
-                        f"selection field {fname!r} must be a list of strings"
-                    )
-            if "org_packs" in data and not isinstance(data["org_packs"], bool):
-                raise ValueError("selection field 'org_packs' must be a boolean")
+        string_fields = (
+            "frontend_framework",
+            "frontend_language",
+            "backend_language",
+            "backend_framework",
+            "database",
+            "profile",
+            "capture_mode",
+            "scope",
+            "autonomy",
+            "review_strictness",
+        )
+        for fname in string_fields:
+            if fname in data and not isinstance(data[fname], str):
+                raise ValueError(f"selection field {fname!r} must be a string")
+        for fname in ("mcp", "teams"):
+            if fname in data and (
+                not isinstance(data[fname], list)
+                or any(not isinstance(x, str) for x in data[fname])
+            ):
+                raise ValueError(f"selection field {fname!r} must be a list of strings")
+        for fname in ("org_packs", "detect_commands"):
+            if fname in data and not isinstance(data[fname], bool):
+                raise ValueError(f"selection field {fname!r} must be a boolean")
         kwargs = {k: v for k, v in data.items() if k in known}
         kwargs.setdefault("mcp", [])
         return cls(**kwargs)
@@ -161,6 +201,96 @@ class OrgPlan:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class GateDefinition:
+    """Canonical policy metadata for one quality gate.
+
+    Profile gate lists decide membership and execution order; this record decides whether the gate
+    is required or conditional and, for a conditional gate, the closed set of conditions that can
+    make it not applicable. Keeping the policy beside the catalog prevents ``pipeline.py`` from
+    growing gate-name branches.
+    """
+
+    requirement: str
+    skippable: bool
+    skip_conditions: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.requirement not in {"required", "conditional"}:
+            raise ValueError(
+                f"gate requirement must be 'required' or 'conditional', got {self.requirement!r}"
+            )
+        if self.skippable != (self.requirement == "conditional"):
+            raise ValueError(
+                "gate skippable flag must be true exactly when requirement is 'conditional'"
+            )
+        if self.requirement == "required" and self.skip_conditions:
+            raise ValueError("a required gate cannot declare skip conditions")
+        if self.requirement == "conditional" and not self.skip_conditions:
+            raise ValueError(
+                "a conditional gate must declare at least one skip condition"
+            )
+        if any(
+            not isinstance(item, str) or not item.strip()
+            for item in self.skip_conditions
+        ):
+            raise ValueError("gate skip conditions must be non-empty strings")
+        if len(set(self.skip_conditions)) != len(self.skip_conditions):
+            raise ValueError("gate skip conditions must be unique")
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> GateDefinition:
+        requirement = data.get("requirement")
+        skippable = data.get("skippable")
+        conditions = data.get("skip_conditions")
+        if not isinstance(requirement, str):
+            raise ValueError("gate requirement must be a string")
+        if not isinstance(skippable, bool):
+            raise ValueError("gate skippable must be a boolean")
+        if not isinstance(conditions, list) or any(
+            not isinstance(item, str) for item in conditions
+        ):
+            raise ValueError("gate skip_conditions must be a list of strings")
+        return cls(
+            requirement=requirement,
+            skippable=skippable,
+            skip_conditions=list(conditions),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "requirement": self.requirement,
+            "skippable": self.skippable,
+            "skip_conditions": list(self.skip_conditions),
+        }
+
+
+def digest_gate_definitions(
+    ordered_gates: list[str], definitions: dict[str, GateDefinition]
+) -> str:
+    """Return a stable sha256 over the ordered gate policy frozen into a run."""
+    if len(set(ordered_gates)) != len(ordered_gates):
+        raise ValueError("ordered gate list contains duplicates")
+    missing = set(ordered_gates) - set(definitions)
+    extra = set(definitions) - set(ordered_gates)
+    if missing or extra:
+        details = []
+        if missing:
+            details.append(f"missing definitions: {', '.join(sorted(missing))}")
+        if extra:
+            details.append(f"extra definitions: {', '.join(sorted(extra))}")
+        raise ValueError(
+            "gate definition set does not match ordered gates ("
+            + "; ".join(details)
+            + ")"
+        )
+    payload = [{"gate": gate, **definitions[gate].to_dict()} for gate in ordered_gates]
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 @dataclass
 class ResolvedPlan:
     """The concrete install plan produced by :func:`claude_kit.catalog.resolve`.
@@ -173,6 +303,8 @@ class ResolvedPlan:
         overlay_agents: Overlay agent names to copy from the selected stacks.
         hooks: Hook ids to enable (drives copied scripts + assembled ``settings.json``).
         gates: Quality-gate ids active for the chosen profile (∪ strictness gates in org scope).
+        gate_definitions: Canonical policy metadata for each active gate, in execution order.
+        gate_definition_digest: Stable digest of the ordered active gate definitions.
         mcp_servers: Mapping of selected MCP server id to its ``.mcp.json`` config fragment.
         context: Flat string context for rendering ``CLAUDE.md`` / ``README`` (labels + commands).
         stack_dirs: Mapping of selected stack kind to its ``templates/stacks`` subdir.
@@ -188,6 +320,8 @@ class ResolvedPlan:
     overlay_agents: list[str]
     hooks: list[str]
     gates: list[str]
+    gate_definitions: dict[str, GateDefinition]
+    gate_definition_digest: str
     mcp_servers: dict[str, dict[str, Any]]
     context: dict[str, str]
     stack_dirs: dict[str, str]
@@ -257,6 +391,18 @@ class FileRecord:
     def __post_init__(self) -> None:
         """Normalise and containment-check :attr:`path`."""
         self.path = contained_relpath(self.path)
+        if (
+            not isinstance(self.sha256, str)
+            or len(self.sha256) != 64
+            or any(ch not in "0123456789abcdef" for ch in self.sha256)
+        ):
+            raise ValueError(
+                "file record sha256 must be 64 lowercase hexadecimal characters"
+            )
+        if self.owner not in {"kit", "overlay", "user-editable"}:
+            raise ValueError(
+                "file record owner must be 'kit', 'overlay', or 'user-editable'"
+            )
 
     def to_dict(self) -> dict[str, str]:
         """Return a JSON-serialisable mapping of this record."""
@@ -291,11 +437,24 @@ class InitOptions:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> InitOptions:
         """Reconstruct :class:`InitOptions` from a parsed ``init-options.json`` mapping."""
+        if not isinstance(data, dict):
+            raise ValueError("init-options document root must be an object")
+        schema_version = _read_schema_version(
+            data, current=INIT_OPTIONS_SCHEMA, document="init-options"
+        )
+        selection = data.get("selection", {})
+        if not isinstance(selection, dict):
+            raise ValueError("init-options selection must be an object")
+        files = data.get("files", [])
+        if not isinstance(files, list) or any(
+            not isinstance(item, dict) for item in files
+        ):
+            raise ValueError("init-options files must be an array of objects")
         return cls(
             claude_kit_version=str(data.get("claude_kit_version", "")),
-            selection=Selection.from_dict(data.get("selection", {})),
-            files=[FileRecord(**r) for r in data.get("files", [])],
-            schema_version=int(data.get("schema_version", INIT_OPTIONS_SCHEMA)),
+            selection=Selection.from_dict(selection),
+            files=[FileRecord(**record) for record in files],
+            schema_version=schema_version,
         )
 
 
@@ -337,10 +496,20 @@ class UpgradeJournal:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UpgradeJournal:
         """Reconstruct :class:`UpgradeJournal` from a parsed journal mapping (tolerant of missing keys)."""
+        if not isinstance(data, dict):
+            raise ValueError("upgrade journal root must be an object")
+        schema_version = _read_schema_version(
+            data, current=UPGRADE_JOURNAL_SCHEMA, document="upgrade journal"
+        )
+        actions = data.get("actions", [])
+        if not isinstance(actions, list) or any(
+            not isinstance(action, dict) for action in actions
+        ):
+            raise ValueError("upgrade journal actions must be an array of objects")
         return cls(
             from_version=str(data.get("from_version", "")),
             to_version=str(data.get("to_version", "")),
             started_at=str(data.get("started_at", "")),
-            actions=[dict(a) for a in data.get("actions", [])],
-            schema_version=int(data.get("schema_version", UPGRADE_JOURNAL_SCHEMA)),
+            actions=[dict(action) for action in actions],
+            schema_version=schema_version,
         )

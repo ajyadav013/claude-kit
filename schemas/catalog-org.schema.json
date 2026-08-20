@@ -8,7 +8,7 @@
   ],
   "properties": {
     "version": {
-      "type": "integer"
+      "const": 1
     },
     "default_scope": {
       "type": "string"

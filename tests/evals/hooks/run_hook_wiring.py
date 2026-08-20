@@ -337,7 +337,7 @@ def check_plugin_manifest():
 
 
 def check_starter():
-    """templates/settings.json -- the no-pip fallback that scripts/init.sh copies verbatim.
+    """templates/settings.json -- the canonical scaffold settings template.
 
     It is generated from STARTER_HOOK_IDS, so it is a real third install surface with its own
     (smaller) roster. Both halves are checked: every starter hook wired, and nothing outside the

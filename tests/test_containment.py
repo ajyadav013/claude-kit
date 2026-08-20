@@ -117,8 +117,8 @@ def test_inside_rejects_a_symlink_that_leaves_the_project(tmp_path):
     assert upgrader._inside(project, ".claude/config/init-options.json")
 
 
-def test_orphan_removal_skips_paths_that_resolve_outside(tmp_path, payload):
-    """A symlinked kit directory must not turn orphan cleanup into a delete outside the root."""
+def test_orphan_removal_fails_closed_when_a_parent_is_symlinked(tmp_path, payload):
+    """A symlinked kit directory aborts planning without deleting outside the root."""
     install(payload, tmp_path)
     outside = tmp_path.parent / "outside-tree"
     outside.mkdir(exist_ok=True)
@@ -138,8 +138,6 @@ def test_orphan_removal_skips_paths_that_resolve_outside(tmp_path, payload):
     rules.symlink_to(outside, target_is_directory=True)
     (outside / "gone.md").write_text("x\n", encoding="utf-8")
 
-    actions = upgrader._diff_actions(ref, old_map, tmp_path, backup_untracked=False)
-    assert not [a for a in actions if a.kind == "remove"], (
-        "orphan removal followed a symlink out of the project"
-    )
+    with pytest.raises(upgrader.UnsafePathError, match="symlink|reparse|junction"):
+        upgrader._diff_actions(ref, old_map, tmp_path, backup_untracked=False)
     assert bystander.is_file()

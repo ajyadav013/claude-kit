@@ -21,13 +21,14 @@ contract shared by the other lifecycle commands.
 from __future__ import annotations
 
 import hashlib
-import json
+import os
 import shutil
 import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
+
+import yaml
 
 from claude_kit import __version__, catalog, scaffold
 from claude_kit.models import (
@@ -35,7 +36,13 @@ from claude_kit.models import (
     FileRecord,
     InitOptions,
     ResolvedPlan,
-    UpgradeJournal,
+)
+from claude_kit.secure_fs import (
+    ProjectFS,
+    ProjectTransaction,
+    UnsafePathError,
+    normalize_relative_path,
+    recover_interrupted_transaction,
 )
 from claude_kit.validator import _load_init_options, _read_init_options
 
@@ -82,12 +89,11 @@ def _inside(target: Path, rel: str) -> bool:
     relative path resolve outside the root anyway. Since :func:`_apply` unlinks orphans, that is
     worth a check at the moment of use rather than trusting the parse alone.
     """
-    root = target.resolve()
     try:
-        candidate = (target / rel).resolve()
-    except OSError:  # pragma: no cover - unresolvable path is equally untrustworthy
+        ProjectFS(target).assert_safe(rel)
+    except (OSError, UnsafePathError):
         return False
-    return candidate == root or root in candidate.parents
+    return True
 
 
 def _diff_actions(
@@ -108,9 +114,12 @@ def _diff_actions(
     Returns the ordered list of :class:`_Action` (add / update / keep / remove) for :func:`_apply`.
     """
     actions: list[_Action] = []
+    fs = ProjectFS(target)
+    fs.assert_tree_safe(".claude")
     for rel, rrec in sorted(ref.items()):
-        live = target / rel
-        if not live.is_file():
+        rel = normalize_relative_path(rel)
+        live = fs.assert_safe(rel)
+        if not fs.is_file(rel):
             actions.append(_Action(rel, "add", rrec.owner))
             continue
         if _sha256(live) == rrec.sha256:
@@ -141,8 +150,10 @@ def _diff_actions(
         if rel in ref or orec.owner == "user-editable":
             continue
         if not _inside(target, rel):
-            continue
-        if (target / rel).is_file():
+            raise UnsafePathError(
+                f"refusing unsafe orphan path {rel!r} from init-options manifest"
+            )
+        if fs.is_file(rel):
             actions.append(_Action(rel, "remove", orec.owner))
 
     return actions
@@ -155,18 +166,40 @@ def _compare(src: Path, target: str | Path) -> _Comparison | str:
     ``"no-options"``) the callers turn into a ``FAIL`` message. The caller owns cleanup of
     ``ref_root`` (via :func:`_cleanup`).
     """
-    target = Path(target).expanduser().resolve()
+    target = Path(os.path.abspath(os.fspath(Path(target).expanduser())))
+    fs = ProjectFS(target)
     claude = target / ".claude"
-    if not claude.is_dir():
+    if not fs.is_dir(".claude"):
         return "not-installed"
+    fs.assert_tree_safe(".claude")
+    snapshot_rel = ".claude/config/stack-catalog.snapshot.yaml"
+    if fs.is_file(snapshot_rel):
+        try:
+            snapshot = yaml.safe_load(fs.read_text(snapshot_rel))
+        except yaml.YAMLError as exc:
+            raise UnsafePathError(
+                f"cannot upgrade: installed stack snapshot is invalid YAML ({exc})"
+            ) from exc
+        if isinstance(snapshot, dict) and "schema_version" in snapshot:
+            schema = snapshot["schema_version"]
+            if isinstance(schema, bool) or not isinstance(schema, int) or schema != 1:
+                qualifier = "future " if isinstance(schema, int) and schema > 1 else ""
+                raise UnsafePathError(
+                    "cannot upgrade without understanding the installed snapshot: "
+                    f"unsupported {qualifier}stack snapshot schema_version {schema!r} "
+                    "(supported: 1); upgrade claude-kit before retrying"
+                )
     old, err = _read_init_options(claude)
     if old is None:
         return "corrupt-options" if err and err.startswith("corrupt") else "no-options"
 
-    plan = catalog.resolve(src, old.selection)
+    try:
+        plan = catalog.resolve(src, old.selection)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        return f"invalid-selection:{exc}"
     # Render the reference under the REAL project name so CLAUDE.md/README don't diff spuriously.
     plan.context["project_name"] = target.name
-    ref_root = Path(tempfile.mkdtemp(prefix="claude-kit-ref-"))
+    ref_root = Path(tempfile.mkdtemp(prefix="claude-kit-ref-")).resolve()
     # Detect against the REAL target so the reference's commands match the installed ones (the
     # reference itself is rendered into ref_root); otherwise discovered commands would diff.
     scaffold.install_sdlc(src, ref_root, plan, force=True, log=[], detect_target=target)
@@ -184,43 +217,29 @@ def _compare(src: Path, target: str | Path) -> _Comparison | str:
 
 def _cleanup(ref_root: Path) -> None:
     """Remove the throwaway reference render."""
-    shutil.rmtree(ref_root, ignore_errors=True)
+    if not ref_root.name.startswith(("claude-kit-ref-", "claude-kit-merge-")):
+        raise UnsafePathError(
+            f"refusing unexpected reference cleanup target: {ref_root}"
+        )
+    if ref_root.parent.resolve() != Path(tempfile.gettempdir()).resolve():
+        raise UnsafePathError(
+            f"refusing reference cleanup outside temp directory: {ref_root}"
+        )
+    if not ref_root.exists():
+        return
+    fs = ProjectFS(ref_root)
+    for entry in ref_root.iterdir():
+        fs.assert_tree_safe(normalize_relative_path(entry.name))
+    shutil.rmtree(ref_root)
 
 
 def _next_backup_dir(target: Path) -> Path:
     """Return a fresh, non-existing ``.claude-kit.bak-N/`` directory under ``target``."""
+    fs = ProjectFS(target)
     n = 1
-    while (target / f".claude-kit.bak-{n}").exists():
+    while fs.exists(f".claude-kit.bak-{n}"):
         n += 1
-    return target / f".claude-kit.bak-{n}"
-
-
-def _journal_path(target: Path) -> Path:
-    """Path to the transactional upgrade journal under ``.claude/config/``."""
-    return target / ".claude" / "config" / UPGRADE_JOURNAL
-
-
-def _write_journal(cmp: _Comparison) -> None:
-    """Record the planned actions + version transition BEFORE any file is mutated.
-
-    Written before the apply loop and removed only after the new baseline is in place, so its presence
-    means an upgrade was interrupted mid-flight. ``upgrade`` is convergent, so the next run finishes and
-    clears it; ``doctor`` surfaces it. Gitignored, so it is never committed.
-    """
-    journal = UpgradeJournal(
-        from_version=cmp.old.claude_kit_version if cmp.old else "(untracked)",
-        to_version=__version__,
-        started_at=datetime.now(timezone.utc).isoformat(),
-        actions=[{"rel": a.rel, "kind": a.kind, "owner": a.owner} for a in cmp.actions],
-    )
-    path = _journal_path(cmp.target)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(journal.to_dict(), indent=2) + "\n", encoding="utf-8")
-
-
-def _clear_journal(target: Path) -> None:
-    """Remove the upgrade journal once the upgrade has committed its new baseline."""
-    _journal_path(target).unlink(missing_ok=True)
+    return fs.path(f".claude-kit.bak-{n}")
 
 
 def _format_preview(cmp: _Comparison) -> list[str]:
@@ -263,7 +282,10 @@ def diff(target: str | Path) -> tuple[bool, list[str]]:
     """Preview what an upgrade would change (no writes). Returns ``(ok, messages)``."""
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
-        result = _compare(src, target)
+        try:
+            result = _compare(src, target)
+        except UnsafePathError as exc:
+            return False, [f"FAIL  {exc}"]
         if isinstance(result, str):
             return _explain_error(result, target)
         try:
@@ -284,13 +306,21 @@ def upgrade(target: str | Path, *, force: bool = False) -> tuple[bool, list[str]
     """
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
-        result = _compare(src, target)
-        if isinstance(result, str):
-            return _explain_error(result, target)
+        result: _Comparison | str | None = None
         try:
-            return _apply(result, force=force, journal=True)
+            try:
+                fs = ProjectFS(target)
+                with fs.mutation_lease(exclusive=True):
+                    recover_interrupted_transaction(fs, preserve_root=True)
+                    result = _compare(src, fs.root)
+                    if isinstance(result, str):
+                        return _explain_error(result, target)
+                    return _apply(result, force=force, journal=True, fs=fs)
+            except UnsafePathError as exc:
+                return False, [f"FAIL  {exc}"]
         finally:
-            _cleanup(result.ref_root)
+            if isinstance(result, _Comparison):
+                _cleanup(result.ref_root)
 
 
 def merge_install(
@@ -312,45 +342,50 @@ def merge_install(
     before overwrite. Returns the ``(ok, messages)`` contract shared by the other lifecycle commands.
     """
     src = Path(src)
-    target = Path(target).expanduser().resolve()
+    target = Path(os.path.abspath(os.fspath(Path(target).expanduser())))
+    fs: ProjectFS | None = None
     # Render the reference under the REAL project name so CLAUDE.md/README don't diff spuriously.
     plan.context["project_name"] = target.name
-    ref_root = Path(tempfile.mkdtemp(prefix="claude-kit-merge-"))
+    ref_root = Path(tempfile.mkdtemp(prefix="claude-kit-merge-")).resolve()
     try:
-        # Detect against the REAL target so the reference's commands match what a real merge
-        # writes into the live tree (the reference itself is rendered into ref_root).
-        scaffold.install_sdlc(
-            src, ref_root, plan, force=True, log=[], detect_target=target
-        )
-        ref_opts = _load_init_options(ref_root / ".claude")
-        ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
-        old = _load_init_options(target / ".claude")
-        old_map = {r.path: r for r in old.files} if old is not None else {}
-        actions = _diff_actions(ref, old_map, target, backup_untracked=True)
-        cmp = _Comparison(
-            target=target, old=old, plan=plan, ref_root=ref_root, actions=actions
-        )
-        return _apply(cmp, force=force)
+        fs = ProjectFS(target)
+        with fs.mutation_lease(exclusive=True):
+            recover_interrupted_transaction(fs, preserve_root=True)
+            # Detect against the REAL target so the reference's commands match what a real merge
+            # writes into the live tree (the reference itself is rendered into ref_root).
+            scaffold.install_sdlc(
+                src, ref_root, plan, force=True, log=[], detect_target=target
+            )
+            ref_opts = _load_init_options(ref_root / ".claude")
+            ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
+            old = _load_init_options(target / ".claude")
+            old_map = {r.path: r for r in old.files} if old is not None else {}
+            actions = _diff_actions(ref, old_map, target, backup_untracked=True)
+            cmp = _Comparison(
+                target=target, old=old, plan=plan, ref_root=ref_root, actions=actions
+            )
+            return _apply(cmp, force=force, fs=fs)
+    except UnsafePathError as exc:
+        return False, [f"FAIL  {exc}"]
     finally:
         _cleanup(ref_root)
 
 
 def _apply(
-    cmp: _Comparison, *, force: bool, journal: bool = False
+    cmp: _Comparison,
+    *,
+    force: bool,
+    journal: bool = False,
+    fs: ProjectFS | None = None,
 ) -> tuple[bool, list[str]]:
-    """Carry out the planned actions and refresh ``init-options.json``.
-
-    When ``journal`` is set (the ``upgrade`` path), a transactional marker is written under
-    ``.claude/config/`` before the first mutation and removed only after the new baseline is in place,
-    so an interrupted run leaves a visible journal that the next convergent ``upgrade`` clears. The
-    non-destructive ``merge_install`` path leaves it off.
-    """
+    """Carry out planned actions inside a rollback-capable project transaction."""
     msgs: list[str] = []
+    fs = fs or ProjectFS(cmp.target)
     if not cmp.actions:
-        # Convergence: an upgrade interrupted *after* the baseline was written leaves a stale journal
-        # on an already-current tree. Re-running clears it even though there is no work left.
-        if journal and _journal_path(cmp.target).is_file():
-            _clear_journal(cmp.target)
+        # Backward compatibility: clear a schema-1 convergence-only journal left
+        # by an older claude-kit after its baseline had already committed.
+        if journal and fs.is_file(f".claude/config/{UPGRADE_JOURNAL}"):
+            fs.unlink(f".claude/config/{UPGRADE_JOURNAL}")
             msgs.append(
                 "INFO  cleared a leftover upgrade journal (work already complete)"
             )
@@ -359,83 +394,75 @@ def _apply(
         return True, msgs
 
     target, ref_root = cmp.target, cmp.ref_root
-    if journal:
-        _write_journal(cmp)
     backup_dir = _next_backup_dir(target)
+    backup_rel = fs.relpath(backup_dir)
     backed_up = 0
     sidecars_written = 0
 
     def _backup(rel: str) -> None:
         nonlocal backed_up
-        live = target / rel
-        if not live.is_file():
+        rel = normalize_relative_path(rel)
+        if not fs.is_file(rel):
             return
-        dest = backup_dir / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(live, dest)
+        fs.copy_file(fs.path(rel), f"{backup_rel}/{rel}")
         backed_up += 1
 
     def _copy_ref(rel: str) -> None:
-        live = target / rel
-        live.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ref_root / rel, live)
+        safe_rel = normalize_relative_path(rel)
+        fs.copy_file(ref_root / safe_rel, safe_rel)
 
-    for act in cmp.actions:
-        live = target / act.rel
-        if act.kind == "add":
-            _copy_ref(act.rel)
-            msgs.append(f"  + {act.rel}")
-        elif act.kind == "update":
-            # A user-modified user-editable file is classified "keep", never "update"
-            # (_diff_actions), so the sidecar decision belongs to that branch alone. The invariant
-            # is pinned by test_update_actions_never_carry_a_user_modified_user_editable_file.
-            if act.user_modified:
+    transaction_actions = [
+        {"rel": act.rel, "kind": act.kind, "owner": act.owner} for act in cmp.actions
+    ]
+    operation = "upgrade" if journal else "merge"
+    old_version = cmp.old.claude_kit_version if cmp.old else "(untracked)"
+    with ProjectTransaction(
+        fs,
+        operation=operation,
+        from_version=old_version,
+        to_version=__version__,
+        actions=transaction_actions,
+    ):
+        for act in cmp.actions:
+            rel = normalize_relative_path(act.rel)
+            live = fs.path(rel)
+            if act.kind == "add":
+                _copy_ref(rel)
+                msgs.append(f"  + {rel}")
+            elif act.kind == "update":
+                if act.user_modified:
+                    _backup(rel)
+                _copy_ref(rel)
+                msgs.append(f"  ✓ {rel}")
+            elif act.kind == "keep" and force:
                 _backup(act.rel)
-            _copy_ref(act.rel)
-            msgs.append(f"  ✓ {act.rel}")
-        elif act.kind == "keep":
-            if force:
-                # --force: the documented contract is "overwrite user-modified user-editable
-                # files instead of writing sidecars" — with the user's copy backed up first.
-                _backup(act.rel)
-                _copy_ref(act.rel)
-                msgs.append(f"  ✓ {act.rel} (forced; your edits backed up)")
-            else:
+                _copy_ref(rel)
+                msgs.append(f"  ✓ {rel} (forced; your edits backed up)")
+            elif act.kind == "keep":
                 sidecar = live.with_name(live.name + _SIDECAR_SUFFIX)
-                if sidecar.is_file() and _sha256(sidecar) == _sha256(
-                    ref_root / act.rel
+                sidecar_rel = fs.relpath(sidecar)
+                if fs.is_file(sidecar_rel) and _sha256(fs.path(sidecar_rel)) == _sha256(
+                    ref_root / rel
                 ):
-                    # Same-version churn guard: the sidecar already holds exactly the kit's
-                    # current copy — rewriting it every run just resets its mtime and falsely
-                    # announces a "new version" that doesn't exist.
-                    msgs.append(
-                        f"  ~ {act.rel} (your edits kept; sidecar already current)"
-                    )
+                    msgs.append(f"  ~ {rel} (your edits kept; sidecar already current)")
                 else:
-                    shutil.copy2(ref_root / act.rel, sidecar)
+                    fs.copy_file(ref_root / rel, sidecar_rel)
                     sidecars_written += 1
                     msgs.append(
-                        f"  ~ {act.rel} (kept; kit's version -> {live.name}{_SIDECAR_SUFFIX})"
+                        f"  ~ {rel} (kept; kit's version -> {live.name}{_SIDECAR_SUFFIX})"
                     )
-        elif act.kind == "remove":
-            _backup(act.rel)
-            live.unlink(missing_ok=True)
-            msgs.append(f"  - {act.rel} (orphan removed)")
+            elif act.kind == "remove":
+                _backup(rel)
+                fs.unlink(rel, missing_ok=True)
+                msgs.append(f"  - {rel} (orphan removed)")
 
-    # Adopt the reference's config verbatim as the new baseline. Recording the kit's CANONICAL
-    # checksums (not the live ones) is what keeps a *kept* user-editable file detectable as
-    # user-modified on the next upgrade — re-recording its live sha would make the next run treat
-    # it as pristine and clobber the user's edits.
-    ref_config = ref_root / ".claude" / "config"
-    dst_config = target / ".claude" / "config"
-    dst_config.mkdir(parents=True, exist_ok=True)
-    for name in ("init-options.json", "stack-catalog.snapshot.yaml"):
-        if (ref_config / name).is_file():
-            shutil.copy2(ref_config / name, dst_config / name)
-
-    # Commit point reached: the new baseline is in place, so the transaction is complete.
-    if journal:
-        _clear_journal(target)
+        # Adopt the canonical reference checksums rather than the live checksum of
+        # a protected file whose user-owned contents were kept.
+        ref_config = ref_root / ".claude" / "config"
+        for name in ("init-options.json", "stack-catalog.snapshot.yaml"):
+            source = ref_config / name
+            if source.is_file():
+                fs.copy_file(source, f".claude/config/{name}")
 
     if backed_up:
         msgs.append(
@@ -476,6 +503,13 @@ def _explain_error(code: str, target: str | Path) -> tuple[bool, list[str]]:
             "recorded file path is not project-relative (a path containing '..' or a leading '/' "
             "is refused, since upgrade resolves recorded paths against this project and may "
             "delete them). Repair it, or re-run `claude-kit init --force` to re-create it"
+        ]
+    if code.startswith("invalid-selection:"):
+        detail = code.partition(":")[2]
+        return False, [
+            "FAIL  .claude/config/init-options.json contains a selection that does not resolve "
+            f"against this kit's catalog ({detail}) — repair it or re-run "
+            "`claude-kit init --force`"
         ]
     return False, [
         "FAIL  no .claude/config/init-options.json — this install predates upgrade tracking; "
