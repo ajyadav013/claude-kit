@@ -10,7 +10,8 @@ phase.**
 
 The differentiator is trust: **every gate verdict must cite real command output, and the
 deterministic state layer refuses to close a gate out of order or with unresolved
-Critical/High/Medium findings.** It installs as **configuration, not a runtime** — no application
+Critical/High findings; Medium findings require a separate, structured human risk acceptance.** It
+installs as **configuration, not a runtime** — no application
 code in your repo and no daemon: Claude Code configuration, local hooks, and an optional CLI.
 
 </div>
@@ -116,8 +117,9 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 </details>
 
 > **Prerequisites:** [Claude Code](https://www.claude.com/product/claude-code); Python ≥ 3.9 for the CLI;
-> `jq` for the shell hooks (they no-op without it). **Windows** users: run inside WSL or Git Bash for
-> the hooks. Every install question, the `init.yaml` format, what lands on disk, and plugin-update
+> `jq` for the shell hooks (they no-op without it). **Windows** users: run mutating CLI commands in
+> WSL on a filesystem with POSIX descriptor/lock semantics; native Windows mutation fails closed
+> until a handle-anchored backend is available. Every install question, the `init.yaml` format, what lands on disk, and plugin-update
 > steps: **[docs/install.md](docs/install.md)**.
 
 ---
@@ -126,7 +128,7 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 
 | Area | What you get |
 |------|--------------|
-| 🔁 **Pipeline & quality gates** | Gate-enforced progression — a phase advances only with zero open Critical/High/Medium findings — plus a fast-track for small changes and an anti-sycophancy `devils-advocate` pass |
+| 🔁 **Pipeline & quality gates** | Explicit start/adopt lifecycle and ordered progression: Critical/High always block; Medium requires a distinct, structured accepted-risk record; conditional gates need configured not-applicable evidence; plus a fast-track and `devils-advocate` pass |
 | 🤖 **Agent roster** | **29** tiered agents led by an Orchestrator that never writes code, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
 | 📐 **Rules & skills** | **25** stack-agnostic core rules + **121** context-activated skills (58 core + 63 stack-collection), pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **14** overlay rule files (React · FastAPI · Django · Go · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
@@ -149,8 +151,9 @@ Four ideas do the heavy lifting:
    is an **auto-Critical finding** — the same severity as a hardcoded secret
    ([`quality-gates.md` §2.5](rules/quality-gates.md)).
 2. **Quality gates with a shared severity model.** Every finding is classified
-   Critical / High / Medium / Low / Cosmetic. A gate passes **only** with zero Critical/High/Medium
-   open. No silent advancement.
+   Critical / High / Medium / Low / Cosmetic. Critical and High always block. Medium never becomes an
+   ordinary pass: proceeding requires a structured, human-attested `accepted-risk` record tied to
+   the current gate, commit, findings, and evidence. No silent advancement.
 3. **RARV self-check.** Every agent runs **R**eason → **A**ct → **R**eflect → **V**erify and must show
    a *green Verify* (real commands run, not imagined) before handing off.
 4. **Blind review + Devil's Advocate.** Parallel reviewers judge independently; a *unanimous* PASS
@@ -188,9 +191,18 @@ flowchart TD
 | **standard** | spec-complete · em-approved · code-review · build-green · contract-clear\* · test-coverage · security-clear |
 | **enterprise** | standard + pipeline-green · observability-ready · acceptance |
 
-\* `contract-clear` (API breaking-change diff) self-skips when the stack exposes no API surface.
+\* `contract-clear` (API breaking-change diff) is conditional: when the stack exposes no API
+surface, it may be marked `not-applicable` only with the configured condition and current evidence.
 A **fast-track** mode collapses small changes (< 5 files) to Developer → Code Reviewer → Tester → PR;
 organization scope at `regulated` strictness adds `accessibility-clear` (WCAG-AA on changed UI).
+
+The state layer does not infer that a run has begun. `claude-kit pipeline start` opens a fresh run at
+its first active gate; work already in flight must use `pipeline adopt` with a reason and adopting
+identity. Gate results are recorded with `close-gate`, `not-applicable`, or `accept-risk`, then the
+run ends explicitly with `complete` or `abort`. Before any gate transition, `record-findings` binds
+all five exact severity counts to a project-contained report and the current commit; a new commit or
+report requires a fresh record. `status` and `validate --json` expose adoption and accepted-risk
+records without translating them into PASS.
 
 See the real captured run in [`examples/real-run/`](examples/real-run/) — a feature driven through
 every gate on a Go project, with the verbatim state file, agent verdicts, diff, and an asciicast —
@@ -338,14 +350,29 @@ through the alibaba/microsoft/google/Meta/Netflix·aws·apple org reviews — li
 ## Security & trust model
 
 claude-kit installs **configuration only** — no application code, no Docker, nothing that runs as a
-service. Three honest caveats before you rely on it:
+service. Its controls span several trust boundaries; the label matters more than the word "gate":
+
+| Control | Enforcement type | Trust boundary |
+|---|---|---|
+| Gate order and lifecycle | Mechanically enforced | Python pipeline layer |
+| Test result | Agent-enforced today; mechanical parsing is planned | Agent report and cited artifact |
+| Hook guard | Hook-enforced | Requires the Claude hook runtime, POSIX shell, and `jq` |
+| Security scanner result | Externally verified or Agent-enforced, depending on scanner | External tool output or scanner agent |
+| Accepted risk | Human-attested | Structured record bound to gate, commit, evidence, and findings |
+| MCP permissions | Externally verified plus local policy | External server and Claude Code; **not a sandbox** |
+| Local evidence hash | Mechanically enforced content-integrity check | Detects artifact drift; a writer can change both file and ledger |
+
+Other prose requirements are **Advisory** unless one of those layers enforces them. Three honest
+caveats before you rely on the system:
 
 - **The guard hooks are convenience, not a hardened boundary.** They raise the cost of a mistake but
   don't sandbox the agent; they need a POSIX shell + `jq` and silently no-op without them. Seatbelts,
   not walls.
-- **Most quality gates are agent protocols, not mechanical enforcement.** Only the hook scripts are
-  deterministic, host-enforced checks; a capable model can still be wrong or skip a step — keep a
-  human in the loop for anything that matters. Relatedly: the agents' `permissionMode` confinement
+- **Most quality results are agent protocols, not independently parsed test results.** The Python
+  layer mechanically enforces lifecycle, order, allowed transition types, bindings, and evidence
+  hashes; it does not prove that an arbitrary evidence file means the tests passed. A capable model
+  can still be wrong or skip a step — keep a human in the loop for anything that matters. Relatedly:
+  the agents' `permissionMode` confinement
   (read-only reviewers) binds only in **init-scaffolded** projects — plugin-loaded agents ignore
   it, so run the pipeline from a scaffolded project when that confinement matters.
 - **MCP servers are third-party code.** Each fragment runs an external package — pinned to an exact
@@ -382,7 +409,7 @@ Issues and PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). To dogfood 
 
 ```bash
 # As a plugin:  /plugin marketplace add .   then   /plugin install claude-kit@claude-kit
-# As the CLI:   pip install -e '.[dev]'   then   claude-kit init /tmp/demo --defaults   &&   pytest
+# As the CLI:   pip install -e '.[dev]'   then   claude-kit init ./ck-demo --defaults   &&   pytest
 ```
 
 ## License

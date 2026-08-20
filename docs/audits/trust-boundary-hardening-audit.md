@@ -1,7 +1,7 @@
 # Trust-boundary hardening audit
 
-Audit date: 2026-08-20  
-Audited commit: `d1c64eedef1793549af57cca61e87d7ba0d6b793` (`origin/main`)  
+Audit date: 2026-08-20
+Audited commit: `d1c64eedef1793549af57cca61e87d7ba0d6b793` (`origin/main`)
 Working branch: `codex/hardening-trust-boundary-phase-1`
 
 This audit treats the external review as a set of hypotheses. Classification reflects the code and
@@ -131,4 +131,3 @@ Those observations are not claims that the missing settings were changed.
   Hatchling; Twine checks passed.
 - `claude plugin validate . --strict`: passed locally with Claude Code 2.1.178.
 - `actionlint` and `zizmor`: unavailable locally at audit time; they were not reported as passed.
-

@@ -62,7 +62,7 @@ Request ─▶ classify ─▶ Spec & Dev Docs ─▶ [Gate: EM approved]
 
 Which gates actually run depends on the profile: **lean** = code-review · build-green; **standard**
 adds spec/EM/coverage/security · contract-clear; **enterprise** adds pipeline-green ·
-observability-ready · acceptance (contract-clear self-skips on stacks with no API contract surface, so
+observability-ready · acceptance (contract-clear uses evidenced `not-applicable` on stacks with no API contract surface, so
 it is inert for non-API projects). A **fast-track** path (bug fixes / < 5 files) skips planning:
 Developer → Code Reviewer → Tester → PR.
 

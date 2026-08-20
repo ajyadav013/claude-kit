@@ -4,7 +4,7 @@ claude-kit is pre-1.0 (current release: top of [`CHANGELOG.md`](../../CHANGELOG.
 
 ## Why we honestly stay Beta
 
-A 1.0 release signals stability, production-readiness, and API guarantees. claude-kit works today — the `/sdlc` pipeline drives real features through quality gates, the devils-advocate agent has caught reproducible defects that unanimous reviews missed (see [`examples/real-run/`](../../examples/real-run/)), and the trust moat (gates pass only on cited, real command output) is operational. But the project is not yet at the level of maturity where breaking changes are prohibitively expensive, the enforcement boundary is clearly delineated, and the common stacks are all selectable. The Beta classifier is accurate.
+A 1.0 release signals stability, production-readiness, and API guarantees. claude-kit works today — the `/sdlc` pipeline drives real features through quality gates and the devils-advocate has caught reproducible defects that unanimous reviews missed (see [`examples/real-run/`](../../examples/real-run/)). Since 0.83.0 the state layer mechanically enforces explicit run start/adoption, ordered transitions, required-vs-conditional gate policy, evidence hashes, and structured Medium risk acceptance. The underlying verdict is still often an Agent-enforced claim backed by cited output, not an independently parsed result. The remaining Beta gaps below are real.
 
 This document catalogues the gaps, explains why each matters, and defines what "done" looks like. There are no invented timelines — these are concrete, verifiable blockers.
 
@@ -28,22 +28,22 @@ Current status: **6 of 9** catalogued stacks are live (Django shipped in 0.80.0)
 
 ### 2. Enforcement honesty: agent protocols vs. mechanical gates
 
-**The gap:** Most quality gates are **agent protocols** that the model self-verifies, not mechanical enforcement. A reviewer agent returns a verdict; the pipeline script checks the verdict's structure and blocks on Critical/High/Medium findings, but it does not independently re-run the checks. Only the **hook scripts** (block destructive git, force-push, `kubectl delete`, secret-bearing commits) are host-enforced — and even those are best-effort word/regex matchers, not a sandbox (see [`docs/KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md)).
+**The gap:** Most quality *results* are **agent protocols** that the model self-verifies, not mechanical evidence parsing. A reviewer agent returns a verdict; the pipeline state layer independently enforces lifecycle, gate order, allowed transition types, Critical/High blocking, Medium accepted-risk structure, and evidence/identity bindings, but it does not independently interpret the cited test or scanner output. The **hook scripts** are host-enforced only when their runtime is present, and remain best-effort word/regex guards rather than a sandbox (see [`docs/KNOWN_LIMITATIONS.md`](../KNOWN_LIMITATIONS.md)).
 
-The kit is honest about this: the `quality-gates.md` rule states that a gate passes only when the agent verdict meets the criteria and cites real command output, and that a fabricated, assumed, or partial-output verdict is itself a Critical finding. The deterministic pipeline state enforces verdict structure + sequential gate ordering, and the devils-advocate adversarially re-verifies unanimous passes. That anti-sycophancy loop works ([`examples/real-run/`](../../examples/real-run/) demonstrates it), but it is still model-driven verification, not an independent mechanical check.
+The kit labels this boundary explicitly: Mechanically enforced, Hook-enforced, Agent-enforced, Externally verified, Human-attested, or Advisory. The deterministic pipeline records evidence SHA-256 values, but a local hash stored beside the mutable ledger is content-integrity checking rather than authenticated tamper evidence. The anti-sycophancy loop works ([`examples/real-run/`](../../examples/real-run/) demonstrates it), but it is still model-driven verification until a registered parser consumes the artifact.
 
 **Why it matters:** Calling something a "quality gate" implies a hard, unevadable constraint. Agent-based verification with adversarial checks catches real bugs — but it is a different trust model than, for example, a CI script that runs `pytest` and parses the exit code. The current design is honest, but a 1.0 should draw a clearer boundary and expand mechanical enforcement where feasible.
 
 **What "done" looks like:**
 
-- A documented **trust boundary** that states which gates are agent-verified (with adversarial review) and which are mechanically enforced.
+- Keep the documented enforcement table and prevent wording from conflating agent verdicts with parser-backed evidence.
 - Where practical, **more deterministic checks**:
   - Parse actual test runner output (exit codes, JUnit XML, coverage JSON) instead of relying solely on agent verdict.
   - Hook-level enforcement for more destructive operations (if feasible without becoming a sandbox).
   - Clearer "verified by devils-advocate adversarial review" labels on agent-protocol gates.
 - The `quality-gates.md` rule and `README.md` carry an explicit "Enforcement model" section that does not overclaim.
 
-Current status: deterministic state file + hook scripts + adversarial review loop. No independent test-runner parsing yet.
+Current status: **Phase-1 state enforcement shipped** — explicit lifecycle, canonical gate metadata/digest, unwaivable Critical/High, structured Medium accepted risk, conditional not-applicable evidence, strict schemas, and honest content-integrity wording. No independent test-runner parser or authenticated evidence envelope yet; those have issue-quality designs in [`docs/roadmap/hardening-backlog.md`](../roadmap/hardening-backlog.md).
 
 ### 3. Hook portability: POSIX shell + jq requirement
 
@@ -111,7 +111,11 @@ Current status: export works; fidelity gap is documented. No expansion possible 
 - An explicit **upgrade path policy**: `claude-kit upgrade` handles schema migrations within a major version; a major bump may require a manual migration (scripted where feasible).
 - The `init-options.json` manifest already carries `schema_version` (currently `1`); the documented policy states that a schema change bumps it and gates the upgrade logic, and that the catalog files gain the same treatment.
 
-Current status: `upgrade` preserves edits and is convergent; the `init-options.json` manifest is versioned (`schema_version = 1`), but the catalog schema itself is not frozen.
+Current status: `upgrade` preserves edits and install/upgrade are rollback-journalled; init options,
+transaction journals, pipeline snapshots, MCP locks, stack snapshots, and compatibility data have
+explicit supported versions, and strict mode rejects future versions. Catalog JSON Schemas use a
+declared metaschema. The public 1.0 stability guarantee and long-term deprecation policy are still
+not frozen.
 
 ### 7. Test and CI surface: keep the matrix green and grow it as stacks land
 

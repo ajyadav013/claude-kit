@@ -41,6 +41,9 @@ That is the defect loop and the anti-sycophancy moat working on real code — se
 [`run-artifacts/devils-advocate.txt`](run-artifacts/devils-advocate.txt),
 [`run-artifacts/gate-refused.txt`](run-artifacts/gate-refused.txt), and
 [`run-artifacts/defect-loop-reverify.txt`](run-artifacts/defect-loop-reverify.txt).
+The refusal artifact is a genuine 0.82.0 transcript. Its old `--force` remedy is retained only as
+historical evidence and is explicitly superseded by 0.83.0's structured `record-findings` and
+`accept-risk` lifecycle; current runs must never copy the old command or hand-edit state.
 
 ## What's in this folder
 

@@ -102,14 +102,16 @@ macOS or Windows behavior.
 
 **Proposed design.** Measure usage and dependencies, then decide whether 1.0 raises the floor to at
 least 3.11. Publish an OS/Python support matrix and test Ubuntu, macOS, and Windows across supported
-versions.
+versions. For native Windows mutation, implement a Win32 backend that holds verified directory
+handles without delete sharing across each final operation, detects reparse points from handle
+metadata, and removes the 0.83 fail-closed platform guard only after junction-race tests pass.
 
 **Affected files.** `pyproject.toml`, CI, compatibility docs, release notes, secure filesystem and
 hook-runtime tests.
 
 **Acceptance criteria.** A documented decision with evidence; every supported combination passes
-install/upgrade/pipeline tests; wheel metadata matches docs; unsupported versions fail with an
-actionable message.
+install/upgrade/pipeline tests; native Windows cannot escape through a swapped junction; wheel
+metadata matches docs; unsupported versions fail with an actionable message.
 
 **Migration concerns.** A floor increase is breaking and requires a deprecation release, release
 notes, and a supported-version policy.
