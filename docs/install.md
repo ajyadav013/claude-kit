@@ -11,10 +11,13 @@ config format, and exactly what lands on disk.
 - `jq` to enable the shell hooks (they no-op without it)
 - Node / `npx` only if you enable an MCP (Model Context Protocol) server
 
-**Windows:** the config (agents, skills, rules) and the `claude-kit` CLI work natively. The shell
-hooks (`guard-*`, `warn-*`) need a POSIX shell + `jq`, so run inside **WSL or Git Bash** to enable
-them - `claude-kit doctor` detects Windows and tells you which case you're in. Without a POSIX shell
-the hooks silently no-op (the kit still functions; you just lose the deterministic guards).
+**Windows:** plugin payload discovery and read-only inspection can work natively, but commands that
+mutate a project (`init`, merge, `upgrade`, export, and pipeline transitions) deliberately fail
+closed on native Windows in 0.83. They require descriptor-anchored path operations and a handle-tied
+project lease; the former fallback could not exclude a junction-swap race. Run those commands in
+**WSL on a filesystem with POSIX descriptor and lock semantics**. The shell hooks additionally need
+a POSIX shell + `jq`; without them the hooks silently no-op. A native Win32 handle-backed mutation
+backend and Windows CI are tracked for the 1.0 support decision.
 
 ## Path A: as a Claude Code plugin
 
@@ -36,8 +39,9 @@ Then, inside any project you want the pipeline to manage:
 > **`/claude-kit:init` requires the Python CLI** (`pipx install claude-code-kit`, or `pip install
 > claude-code-kit`) - it's what resolves your stack/profile/MCP catalog and records `init-options.json`
 > for safe `upgrade`/`diff`. If the CLI isn't on PATH the command stops and tells you to install it
-> rather than doing a partial install. (A degraded, no-resolution shell scaffolder is available only by
-> explicitly setting `CLAUDE_KIT_BASIC=1`; `upgrade`/`diff` won't work against it.)
+> rather than doing a partial install. The historical shell scaffolder was retired in 0.83.0 because
+> it could not share the Python installer's path-containment and rollback guarantees; `scripts/init.sh`
+> now only dispatches to the installed CLI and otherwise changes nothing.
 
 > `/sdlc` is a **project skill** installed by `init`, so it becomes available after the restart. The
 > plugin also exposes `/claude-kit:sdlc <task>`, which works immediately (no restart needed).

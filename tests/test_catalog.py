@@ -89,6 +89,30 @@ def test_gates_resolve_in_execution_order(payload):
     ]
 
 
+def test_gate_definitions_resolve_from_one_canonical_catalog(payload):
+    """Every active gate carries canonical policy metadata and one deterministic digest."""
+    standard = catalog.resolve(payload, make_selection(payload, profile="standard"))
+
+    assert list(standard.gate_definitions) == standard.gates
+    assert standard.gate_definitions["security-clear"].requirement == "required"
+    assert not standard.gate_definitions["security-clear"].skippable
+    contract = standard.gate_definitions["contract-clear"]
+    assert contract.requirement == "conditional"
+    assert contract.skippable
+    assert contract.skip_conditions == ["no-api-contract-surface"]
+    assert len(standard.gate_definition_digest) == 64
+
+
+def test_every_resolved_profile_gate_has_a_definition(payload):
+    for profile in ("lean", "standard", "enterprise"):
+        plan = catalog.resolve(payload, make_selection(payload, profile=profile))
+        assert set(plan.gate_definitions) == set(plan.gates)
+        assert all(
+            definition.requirement in {"required", "conditional"}
+            for definition in plan.gate_definitions.values()
+        )
+
+
 def test_resolver_keeps_child_gate_order_and_gap_fills_inherited(payload):
     """A child profile's declared gate order wins outright; gates only the parent declares are
     appended after (gap-fill), never interleaved ahead of the child's own order."""

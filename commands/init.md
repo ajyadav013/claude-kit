@@ -82,27 +82,16 @@ prevents word-splitting, globbing, and command injection from the raw argument t
 the detected CLI was `claude-kit` and the user passed `/path/to/proj --defaults`, run
 `claude-kit init /path/to/proj --defaults`.
 
-**Escape hatch (advanced, opt-in only).** A thin shell scaffolder exists for locked-down environments
-where installing the CLI is impossible. It copies the full payload as a **superset** with **no**
-stack/profile/MCP resolution, and `claude-kit upgrade` / `diff` will **not** work against it. Use it
-**only** if the user has explicitly opted in by setting `CLAUDE_KIT_BASIC=1`:
-
-```
-if [ "${CLAUDE_KIT_BASIC:-0}" = "1" ]; then
-  echo "CKIT_BASIC=1"
-else
-  echo "set CLAUDE_KIT_BASIC=1 to use the degraded no-CLI scaffolder (the CLI is the supported path)"
-fi
-```
-
-If that prints `CKIT_BASIC=1`, run `bash "${CLAUDE_PLUGIN_ROOT}/scripts/init.sh"` and append the same
-`$ARGUMENTS` as separate, individually-quoted argv items (same argument-safety rule as above). If
-`${CLAUDE_PLUGIN_ROOT}` is not set (running from a source checkout), locate `scripts/init.sh` in the
-claude-kit repository and run it the same way.
+**No shell-write fallback.** As of 0.83.0, project installation always goes through the Python CLI's
+path-containment checks, strict staging validation, and rollback transaction. `scripts/init.sh` is a
+compatibility dispatcher only: it invokes `claude-kit init`/`ckit init` when installed and otherwise
+exits non-zero after printing `pipx install claude-code-kit`. Do not copy the payload with shell
+`cp`/`rm` commands and do not treat `CLAUDE_KIT_BASIC` as a bypass. If the CLI cannot be installed,
+STOP and report that **no project files were changed**.
 
 After it completes:
 1. Summarize what was installed — `CLAUDE.md`, `.claude/{rules, agents, skills, hooks, templates}`,
-   and (CLI only) `.claude/config/`, optional `.mcp.json` — with counts.
+   `.claude/config/`, and optional `.mcp.json` — with counts.
 2. If `CLAUDE.md` / `settings.json` / `.mcp.json` already existed, the installer wrote a
    `.claude-kit` sidecar instead of overwriting. Point these out and offer to merge them (or suggest
    re-running with `--force`).

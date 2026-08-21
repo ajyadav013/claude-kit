@@ -2,90 +2,267 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "pipeline-snapshot",
   "title": "claude-kit runtime pipeline snapshot (pipeline-snapshot.json)",
-  "type": "object",
-  "properties": {
-    "schema": {
-      "type": "integer"
-    },
+  "$defs": {
     "profile": {
       "type": "string",
-      "enum": [
-        "lean",
-        "standard",
-        "enterprise"
-      ]
+      "enum": ["lean", "standard", "enterprise"]
     },
     "scope": {
       "type": "string",
-      "enum": [
-        "individual",
-        "team",
-        "organization"
-      ]
+      "enum": ["individual", "team", "organization"]
     },
     "mode": {
       "type": "string",
-      "enum": [
-        "A",
-        "B",
-        "C",
-        "D"
-      ]
+      "enum": ["A", "B", "C", "D", "E"]
     },
-    "lanes": {
-      "type": "object"
-    },
-    "findings": {
-      "type": "object"
-    },
-    "gate_evidence": {
-      "type": "object"
-    },
-    "last_gate_passed": {
-      "type": [
-        "string",
-        "null"
-      ]
-    },
-    "git": {
+    "findingCounts": {
       "type": "object",
+      "required": ["critical", "high", "medium", "low", "cosmetic"],
       "properties": {
-        "branch": {
-          "type": "string"
+        "critical": {"type": "integer", "minimum": 0},
+        "high": {"type": "integer", "minimum": 0},
+        "medium": {"type": "integer", "minimum": 0},
+        "low": {"type": "integer", "minimum": 0},
+        "cosmetic": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "findingsEvidence": {
+      "type": "object",
+      "required": [
+        "counts", "evidence_path", "evidence_sha256", "finding_set_digest",
+        "repository_commit", "recorded_at"
+      ],
+      "properties": {
+        "counts": {"$ref": "#/$defs/findingCounts"},
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "repository_commit": {"type": "string", "minLength": 1},
+        "recorded_at": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "legacy": {
+      "type": "object",
+      "not": {"required": ["schema_version"]},
+      "properties": {
+        "schema": {"type": "integer", "const": 1},
+        "profile": {"$ref": "#/$defs/profile"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "mode": {"$ref": "#/$defs/mode"},
+        "lanes": {"type": "object"},
+        "findings": {"type": "object"},
+        "open_findings": {"type": "object"},
+        "gate_evidence": {"type": "object"},
+        "last_gate_passed": {"type": ["string", "null"]},
+        "git": {
+          "type": "object",
+          "properties": {
+            "branch": {"type": "string"},
+            "sha": {"type": "string"},
+            "worktrees": {"type": "object"}
+          },
+          "additionalProperties": true
         },
-        "sha": {
-          "type": "string"
-        },
-        "worktrees": {
-          "type": "object"
+        "pr": {
+          "type": "object",
+          "properties": {
+            "number": {"type": ["string", "integer"]},
+            "url": {"type": "string"},
+            "state": {"type": "string"},
+            "base": {"type": "string"},
+            "head": {"type": "string"}
+          },
+          "additionalProperties": true
         }
       },
       "additionalProperties": true
     },
-    "pr": {
+    "gateRecord": {
       "type": "object",
+      "required": ["gate", "status", "recorded_at", "repository_commit"],
       "properties": {
-        "number": {
-          "type": [
-            "string",
-            "integer"
+        "gate": {"type": "string", "minLength": 1},
+        "status": {
+          "type": "string",
+          "enum": ["passed", "not-applicable", "accepted-risk", "failed", "aborted"]
+        },
+        "evidence_path": {"type": ["string", "null"]},
+        "evidence_sha256": {"type": ["string", "null"]},
+        "condition": {"type": "string"},
+        "condition_evidence_path": {"type": "string"},
+        "condition_evidence_sha256": {"type": "string"},
+        "reason": {"type": "string"},
+        "accepted_risk_ids": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        },
+        "risk_clearance": {"$ref": "#/$defs/riskClearance"},
+        "verification": {"type": "string"},
+        "recorded_at": {"type": "string"},
+        "repository_commit": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "riskClearance": {
+      "type": "object",
+      "required": [
+        "reason", "cleared_by", "owner", "ticket", "revisit", "evidence_path",
+        "evidence_sha256", "cleared_at", "repository_commit", "finding_set_digest"
+      ],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1},
+        "cleared_by": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1},
+        "ticket": {"type": "string", "minLength": 1},
+        "revisit": {"type": "string", "minLength": 1},
+        "evidence_path": {"type": "string", "minLength": 1},
+        "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "cleared_at": {"type": "string", "minLength": 1},
+        "repository_commit": {"type": "string", "minLength": 1},
+        "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      },
+      "additionalProperties": false
+    },
+    "acceptedRisk": {
+      "type": "object",
+      "required": [
+        "risk_id", "finding_id", "reason", "accepted_by", "owner", "ticket", "revisit",
+        "timestamp", "repository_commit", "affected_gate", "evidence_path",
+        "evidence_sha256", "medium_finding_count", "finding_set_digest", "finding_fingerprint",
+        "gate_definition_digest"
+      ],
+      "properties": {
+        "risk_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "finding_id": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "accepted_by": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1},
+        "ticket": {"type": "string", "minLength": 1},
+        "revisit": {"type": "string", "minLength": 1},
+        "compensating_control": {"type": ["string", "null"]},
+        "timestamp": {"type": "string"},
+        "repository_commit": {"type": "string"},
+        "affected_gate": {"type": "string"},
+        "evidence_path": {"type": "string"},
+        "evidence_sha256": {"type": "string"},
+        "medium_finding_count": {"type": "integer", "minimum": 1},
+        "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "finding_fingerprint": {"type": "string"},
+        "gate_definition_digest": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "runArchive": {
+      "type": "object",
+      "required": [
+        "run_id", "status", "archived_at", "snapshot_sha256", "snapshot"
+      ],
+      "properties": {
+        "run_id": {"type": "string", "minLength": 1},
+        "status": {"type": "string", "enum": ["completed", "aborted"]},
+        "archived_at": {"type": "string", "minLength": 1},
+        "snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "snapshot": {"type": "object"}
+      },
+      "additionalProperties": false
+    },
+    "v2": {
+      "type": "object",
+      "required": [
+        "schema_version", "run_id", "repository_root", "branch", "starting_commit",
+        "current_commit", "kit_version", "profile", "scope", "mode", "ordered_gates",
+        "gate_definition_digest", "start_type", "created_at", "status", "task", "stage",
+        "open_findings", "findings_evidence", "accepted_risks", "gate_history"
+      ],
+      "properties": {
+        "schema_version": {"type": "integer", "const": 2},
+        "run_id": {"type": "string", "minLength": 1},
+        "repository_root": {"type": "string", "minLength": 1},
+        "branch": {"type": "string", "minLength": 1},
+        "starting_commit": {"type": "string", "minLength": 1},
+        "current_commit": {"type": "string", "minLength": 1},
+        "kit_version": {"type": "string", "minLength": 1},
+        "claude_code_version": {"type": ["string", "null"]},
+        "profile": {"$ref": "#/$defs/profile"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "mode": {"$ref": "#/$defs/mode"},
+        "ordered_gates": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "gate_definition_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "start_type": {"type": "string", "enum": ["fresh", "adopted"]},
+        "adoption": {"type": ["object", "null"]},
+        "created_at": {"type": "string"},
+        "completed_at": {"type": "string"},
+        "aborted_at": {"type": "string"},
+        "status": {"type": "string", "enum": ["active", "completed", "aborted"]},
+        "task": {"type": "string", "minLength": 1},
+        "stage": {"type": "string", "minLength": 1},
+        "next": {"type": "string"},
+        "lanes": {"type": "object"},
+        "open_findings": {"$ref": "#/$defs/findingCounts"},
+        "findings_evidence": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/findingsEvidence"}
           ]
         },
-        "url": {
-          "type": "string"
+        "gate_evidence": {"type": "object"},
+        "last_gate_passed": {"type": ["string", "null"]},
+        "last_gate_resolved": {"type": ["string", "null"]},
+        "accepted_risks": {"type": "array", "items": {"$ref": "#/$defs/acceptedRisk"}},
+        "accepted_risk_history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["risk_id", "finding_id", "affected_gate", "superseded_at"],
+            "additionalProperties": true
+          }
         },
-        "state": {
-          "type": "string"
+        "run_archives": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/runArchive"}
         },
-        "base": {
-          "type": "string"
+        "gate_history": {"type": "array", "items": {"$ref": "#/$defs/gateRecord"}},
+        "legacy_migration": {
+          "type": "object",
+          "required": ["from_schema", "migrated_at", "legacy_snapshot_sha256", "legacy_snapshot"],
+          "properties": {
+            "from_schema": {"type": "integer", "const": 1},
+            "migrated_at": {"type": "string"},
+            "legacy_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "legacy_snapshot": {"type": "object"}
+          },
+          "additionalProperties": false
         },
-        "head": {
-          "type": "string"
+        "final_summary": {
+          "type": "object",
+          "required": [
+            "schema_version", "run_id", "status", "repository_commit", "completed_at",
+            "gate_definition_digest", "gates", "accepted_risks"
+          ],
+          "properties": {
+            "schema_version": {"type": "integer", "const": 2},
+            "run_id": {"type": "string", "minLength": 1},
+            "status": {"type": "string", "const": "completed"},
+            "repository_commit": {"type": "string", "minLength": 1},
+            "completed_at": {"type": "string"},
+            "gate_definition_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "gates": {"type": "array", "items": {"type": "object"}},
+            "accepted_risks": {"type": "array", "items": {"$ref": "#/$defs/acceptedRisk"}}
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": true
     }
   },
-  "additionalProperties": true
+  "oneOf": [
+    {"$ref": "#/$defs/legacy"},
+    {"$ref": "#/$defs/v2"}
+  ]
 }

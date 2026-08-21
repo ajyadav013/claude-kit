@@ -9,7 +9,7 @@
   ],
   "properties": {
     "version": {
-      "type": "integer"
+      "const": 1
     },
     "servers": {
       "type": "object",

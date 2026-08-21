@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
-from claude_kit import catalog, upgrader
+import yaml
+
+from claude_kit import catalog, upgrader, validator
 from tests._helpers import install, make_selection
 
 
@@ -25,6 +28,50 @@ def test_diff_writes_nothing(tmp_path, payload):
         p: p.read_bytes() for p in (tmp_path / ".claude").rglob("*") if p.is_file()
     }
     assert before == after
+
+
+def test_upgrade_migrates_a_pre_083_stack_snapshot_and_validates_strictly(
+    tmp_path, payload
+):
+    """The public upgrade path adds gate-policy identity to a genuine legacy baseline."""
+    install(payload, tmp_path)
+    config = tmp_path / ".claude" / "config"
+    snapshot = config / "stack-catalog.snapshot.yaml"
+    legacy = yaml.safe_load(snapshot.read_text(encoding="utf-8"))
+    legacy.pop("schema_version")
+    legacy.pop("gate_definitions")
+    legacy.pop("gate_definition_digest")
+    legacy_bytes = yaml.safe_dump(legacy, sort_keys=False).encode()
+    snapshot.write_bytes(legacy_bytes)
+
+    options_path = config / "init-options.json"
+    options = json.loads(options_path.read_text(encoding="utf-8"))
+    options["schema_version"] = 1
+    options["claude_kit_version"] = "0.82.0"
+    record = next(
+        item
+        for item in options["files"]
+        if item["path"] == ".claude/config/stack-catalog.snapshot.yaml"
+    )
+    record["sha256"] = hashlib.sha256(legacy_bytes).hexdigest()
+    options_path.write_text(json.dumps(options, indent=2) + "\n", encoding="utf-8")
+
+    before_ok, before_messages = validator.validate(tmp_path, strict=True)
+    assert not before_ok
+    assert any("claude-kit upgrade" in message for message in before_messages)
+
+    ok, messages = upgrader.upgrade(tmp_path)
+
+    assert ok, "\n".join(messages)
+    migrated = yaml.safe_load(snapshot.read_text(encoding="utf-8"))
+    assert migrated["schema_version"] == 1
+    assert migrated["gate_definitions"]
+    assert len(migrated["gate_definition_digest"]) == 64
+    migrated_options = json.loads(options_path.read_text(encoding="utf-8"))
+    assert migrated_options["schema_version"] == 1
+    assert migrated_options["claude_kit_version"] == "0.83.0"
+    strict_ok, strict_messages = validator.validate(tmp_path, strict=True)
+    assert strict_ok, "\n".join(strict_messages)
 
 
 def test_diff_classifies_mutations(tmp_path, payload):
@@ -347,18 +394,40 @@ def test_upgrade_of_an_install_with_no_pending_actions_reports_up_to_date(
 def test_explain_error_covers_every_compare_failure_code(tmp_path):
     """Each code must produce its own actionable remedy, and none may fall through silently."""
     seen = {}
-    for code in ("not-installed", "corrupt-options", "no-options"):
+    for code in (
+        "not-installed",
+        "corrupt-options",
+        "no-options",
+        "invalid-selection:unknown profile 'bogus-profile'",
+    ):
         ok, msgs = upgrader._explain_error(code, tmp_path)
         assert not ok
         assert len(msgs) == 1 and msgs[0].startswith("FAIL")
         seen[code] = msgs[0]
-    assert len({*seen.values()}) == 3, f"two codes share a message: {seen}"
+    assert len({*seen.values()}) == 4, f"two codes share a message: {seen}"
     assert "claude-kit init" in seen["not-installed"]
     # The corrupt case now has two causes — malformed JSON and a path that escapes the project —
     # and the message must name both, since the fix differs even though the remedy does not.
     assert "not valid JSON" in seen["corrupt-options"]
     assert "project-relative" in seen["corrupt-options"]
     assert "predates upgrade tracking" in seen["no-options"]
+    assert "bogus-profile" in seen["invalid-selection:unknown profile 'bogus-profile'"]
+
+
+def test_diff_and_upgrade_fail_cleanly_when_installed_selection_is_invalid(
+    tmp_path, payload
+):
+    install(payload, tmp_path)
+    options = tmp_path / ".claude" / "config" / "init-options.json"
+    document = json.loads(options.read_text(encoding="utf-8"))
+    document["selection"]["profile"] = "bogus-profile"
+    options.write_text(json.dumps(document), encoding="utf-8")
+
+    for operation in (upgrader.diff, upgrader.upgrade):
+        ok, messages = operation(tmp_path)
+        assert not ok
+        assert any("selection that does not resolve" in message for message in messages)
+        assert any("bogus-profile" in message for message in messages)
 
 
 def test_two_orphans_are_both_removed(tmp_path, payload):

@@ -1,6 +1,6 @@
 # Quality Gates, Severity & Blind Review
 
-**A gate passes only with zero open Critical/High/Medium — and never on a verdict you can't prove.**
+**An ordinary PASS requires zero open Critical/High/Medium — and every resolution needs proof.**
 
 This rule adds three things on top of the existing pipeline in `mandatory-workflow.md`:
 
@@ -20,11 +20,14 @@ Every finding from a reviewer, tester, security agent, or merge reviewer is clas
 |----------|-----------|-------------|
 | **Critical** | Security hole, data loss, authorization bypass, crash, build broken | BLOCK — fix immediately, re-run the lane |
 | **High** | Broken functionality, failing acceptance criterion, major bug | BLOCK — fix before the gate passes |
-| **Medium** | Minor bug, code smell, perf issue, missing edge-case handling | BLOCK — fix before delivery (PR) |
+| **Medium** | Minor bug, code smell, perf issue, missing edge-case handling | BLOCK ordinary PASS — fix, or use a distinct structured accepted-risk resolution |
 | **Low** | Style nit, minor naming, non-blocking doc gap | Note as TODO — does not block |
 | **Cosmetic** | Formatting, wording preference | Informational — no action required |
 
-**Blocking rule:** a gate is **PASS** only when zero Critical, zero High, and zero Medium findings remain open. Low/Cosmetic may pass with notes. This matches the existing reviewer rule "do not approve with unresolved critical or high-severity issues" and tightens Medium to block before PR.
+**Blocking rule:** an ordinary gate **PASS** requires zero Critical, zero High, and zero Medium
+findings. Low/Cosmetic may pass with notes. Critical and High are never waivable. A human may
+explicitly accept a Medium finding through the structured **ACCEPTED RISK** transition in §2; that
+resolution is visible and auditable, and is never relabelled PASS.
 
 **Auto-Critical findings** (never downgrade these):
 - A hardcoded secret, password, API key, or token in code or configuration.
@@ -39,7 +42,9 @@ Every finding from a reviewer, tester, security agent, or merge reviewer is clas
 
 ## 2. Gate Semantics
 
-Every gate is binary: **PASS** or **FAIL**.
+Review verdicts remain binary: **PASS** or **FAIL**. The lifecycle records one explicit gate
+resolution: `passed`, a catalog-authorized `not-applicable`, or a human `accepted-risk` for Medium
+findings. `failed` and `aborted` do not advance the run.
 
 ```
 Phase completes -> Gate
@@ -66,15 +71,17 @@ chain's findings, do not start a third. Late rounds tend to close every earlier 
 ones from their own new prose — the budget converts that tail into a human decision
 (`.claude/rules/human-in-the-loop.md`, exhausted budgets).
 
-**At escalation, the human's options are explicit.** Route a fix (re-open the lane) — or accept a
-residual **Medium** as a recorded known gap through the audited override that already exists:
-`claude-kit pipeline close-gate <gate> --force --override-reason '<finding>: accepted known gap —
-owner: <role>, revisit: <trigger>'`. The override is loud by design: the ledger records status
-`overridden` and `claude-kit pipeline validate` / `status` WARN on it forever after. Name an owner
-and a revisit trigger in the reason — the CONFIRMED-WITH-COSTS cost-record shape (§3); a waiver with
-neither is a hedge, not a decision. **Critical and High findings are never waived this way.** None
-of this changes gate semantics: an autonomous PASS still requires zero Critical/High/Medium — the
-waiver is a human decision recorded as an override, never a new kind of PASS.
+**At escalation, the human's options are explicit.** Route a fix (re-open the lane), or accept each
+residual **Medium** through a structured record:
+`claude-kit pipeline accept-risk <gate> --finding-id <id> --reason '<why>' --accepted-by <person>
+--owner <role> --ticket <id> --revisit '<trigger>' --evidence <file>`. The acceptance is bound to
+the exact finding, gate, acceptance-evidence hash, recorded finding-set digest, Medium count,
+repository commit, and gate-policy digest;
+`status`, JSON output, and the final evidence summary label it **ACCEPTED RISK**, never PASS. A
+commit, evidence, identity/count, or policy change makes it stale. Re-attestation is explicit with
+`--refresh` (and `--supersedes-finding-id` when an identity changed); superseded records remain in
+audit history. **Critical and High findings have no acceptance transition.** `--force` cannot waive
+a finding or bypass gate order.
 
 ---
 
@@ -107,9 +114,27 @@ correctness belongs to the Code Reviewer, and duplicating it spends the pipeline
 resource (the Orchestrator's context) to catch nothing the reviewer doesn't. This bounds *depth*,
 never *effort*: the independent re-run itself and this section's evidence rule stand unchanged.
 
-**Record the verdict in the deterministic ledger.** Probe for the *subcommand you are about to run*, not for the binary: `claude-kit pipeline close-gate --help >/dev/null 2>&1`. `command -v claude-kit` succeeds for a binary of any age, and a CLI pip-installed once while the plugin moved on is the ordinary case rather than an exotic one — presence-testing a stale binary is how a run comes to announce that a command "doesn't exist in this version" when it exists in the version the project actually has. Where the subcommand answers, a passed gate is recorded with `claude-kit pipeline close-gate <gate> --evidence <evidence-file>` — and a conditional gate that provably does not apply with `claude-kit pipeline skip-gate <gate> --reason '<why>'` — never by hand-editing `gate_history`. The CLI refuses out-of-order closes and open Critical/High/Medium findings, resolves the evidence path against the project root, stores its sha256, and `claude-kit pipeline validate` re-verifies every entry later. When the subcommand is missing, append the `gate_history` entry yourself per the schema in `.claude/rules/continuity.md`, keep the cited evidence file in the repo so a later `validate` can still check it, and say which subcommand was missing and what `claude-kit --version` reports — so the gap is attributed to the binary on PATH and not to the product.
+**Record the verdict through the schema-v2 lifecycle.** Start a new run with `claude-kit pipeline
+start --task '<task>'`, or use `adopt` with a starting gate, reason, and adopter when work genuinely
+predates the ledger. Before every gate resolution, persist the exact Critical/High/Medium/Low/
+Cosmetic counts and their project-contained report with `record-findings --critical <n> --high <n>
+--medium <n> --low <n> --cosmetic <n> --evidence <file>`; start's zeros are unverified placeholders,
+not a clean result. Record an ordinary PASS with `close-gate <gate> --evidence <file>`. Record a
+conditional gate only when its catalog condition applies, using `not-applicable <gate> --condition
+<id> --reason '<why>' --evidence <file>`. Use `accept-risk` only for structured Medium acceptance,
+then `complete` after every gate resolves. The CLI enforces order and policy, hashes gate and
+finding-set evidence, binds the run to its repository/branch/commit and installed gate digest, and
+writes atomically. Starting or adopting later work validates and hash-archives the prior terminal
+snapshot; it never overwrites an active run.
+Never hand-edit `gate_history` or manufacture a snapshot. Legacy v1 `skipped`/`overridden` entries
+remain readable with warnings but are not legal new transitions; migrate deliberately with
+`pipeline adopt`. If the installed CLI lacks this lifecycle, report the version mismatch and block
+until the project is upgraded—manual JSON is not an equivalent trust boundary.
 
-**If the ledger write itself fails, say so — never complete quietly without one.** A refused evidence path, a read-only directory, a denied tool call: none of these are permission to skip the ledger. In order: retry at a writable path inside the project (`.claude/state/` is the intended home for gate evidence); if that also fails, hand-write the `gate_history` entry per the schema in `.claude/rules/continuity.md`; if even that is impossible, report the gate as **BLOCKED** naming the path and the error. What must not happen is the run finishing and reporting success with no ledger at all — the ledger's whole value is that its absence is noticeable, and a silent skip spends that value to hide a problem. This is measure 9, handling a missing prerequisite honestly, applied to the gate machinery itself.
+**If a lifecycle write fails, say so—never complete quietly without one.** Retry only after fixing
+the named safe-path, permissions, lock, or version problem. If it still fails, report the gate as
+**BLOCKED** with the operation, path, and error. Do not bypass atomic/locked writes by editing the
+snapshot. The absence of a valid ledger must remain noticeable.
 
 **Self-check before recording any verdict:** can I point to the captured command output or the `file:line` finding behind this PASS/FAIL? If not, it is a TODO, not a verdict — leave the gate closed.
 
@@ -160,8 +185,8 @@ The same adversarial pass also runs **once on the plan** — the spec + develope
 | Security clear | 5.4 | 0 Critical/High/Medium, no secrets, deps patched, policies enforced | No — `security-reviewer` + sub-scanners |
 | Pipeline green | DevOps | CI valid, container/build artifacts healthy, runbook complete | No — see `devops-observability.md` |
 | Observability ready | Observability | SLOs, health checks, alerts, structured logs + (for hot backend paths) a load run meets the SLO | No — see `devops-observability.md` |
-| Contract clear *(standard+; API stacks)* | Pre-merge | API contract diff vs base branch: 0 backward-incompatible deltas without an approved migration note + version bump; self-skips when no contract surface | No — `merge-reviewer` |
-| Accessibility clear *(org · `regulated` strictness; UI stacks)* | Acceptance | WCAG-AA review of changed UI (keyboard, focus, semantics/ARIA, contrast, labels) via the `accessibility-review` skill: 0 Critical/High/Medium; self-skips when no UI surface | No — `acceptance-reviewer` |
+| Contract clear *(standard+; API stacks)* | Pre-merge | API contract diff vs base branch: 0 backward-incompatible deltas without an approved migration note + version bump; otherwise evidenced `not-applicable` only for the configured no-contract condition | No — `merge-reviewer` |
+| Accessibility clear *(org · `regulated` strictness; UI stacks)* | Acceptance | WCAG-AA review of changed UI (keyboard, focus, semantics/ARIA, contrast, labels) via the `accessibility-review` skill: 0 Critical/High/Medium; otherwise evidenced `not-applicable` only for the configured no-UI condition | No — `acceptance-reviewer` |
 
 ---
 
@@ -179,6 +204,6 @@ These are observability for the *process*, not a gate. Do not block on them.
 
 ---
 
-**This rule is working if** no gate ever passes with an open Critical/High/Medium, no verdict ships
-without the evidence that produced it, and a unanimous PASS always saw the Devil's Advocate before it
-counted.
+**This rule is working if** no ordinary PASS carries an open Critical/High/Medium, every Medium
+acceptance remains visibly distinct and current, no verdict ships without its evidence, and a
+unanimous PASS always saw the Devil's Advocate before it counted.

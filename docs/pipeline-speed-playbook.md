@@ -17,8 +17,9 @@ Vertex).
 
 Ask for one story per orchestrator invocation, not "stories 2–5". A 90-minute dispatch that dies
 at minute 85 loses everything unwritten; two 40-minute dispatches lose at most half. On crash,
-resume from `.claude/state/pipeline-snapshot.json`: re-enter after `last_gate_passed`; never
-re-run passed gates or re-apply committed edits.
+run `claude-kit pipeline resume` and re-enter at the first unresolved gate reported by the
+schema-v2 snapshot (`last_gate_resolved` records the latest passed, not-applicable, or accepted-risk
+transition). Never re-run resolved gates or re-apply committed edits.
 
 ## 3. Bound the orchestrator's own verification (paste into the dispatch)
 
@@ -28,18 +29,22 @@ re-run passed gates or re-apply committed edits.
 > correctness. Reviewer reports: read the verdict + severity counts + findings table only; persist
 > the body verbatim without re-analyzing it.
 
-## 4. Cap the review chain; waive residual Mediums loudly
+## 4. Cap the review chain; accept residual Medium risk explicitly
 
-State at dispatch: "2 full re-review generations, then escalate." At escalation, accept a residual
-Medium as a known gap with the **audited** override (first probe your CLI:
-`claude-kit pipeline close-gate --help | grep -q force` — a stale binary may lack it):
+State at dispatch: "2 full re-review generations, then escalate." Critical and High remain blocked.
+A human may accept a residual Medium only with the structured command and all accountability fields:
 
+```bash
+claude-kit pipeline accept-risk <gate> \
+  --finding-id <id> --reason '<why>' --accepted-by '<human or accountable role>' \
+  --owner '<role>' --ticket '<issue>' --revisit '<expiry or trigger>' \
+  --compensating-control '<control, if any>' --evidence <artifact>
 ```
-claude-kit pipeline close-gate <gate> --force --override-reason '<finding>: accepted known gap — owner: <role>, revisit: <trigger>'
-```
 
-`validate`/`status` will WARN on it forever — that's the point. Critical/High: never waive. If the
-CLI lacks `--force`, hand-write the `gate_history` entry (schema: `.claude/rules/continuity.md`).
+The ledger records `accepted-risk`, never PASS, and binds it to the current gate, commit, evidence,
+finding set, and gate-definition digest. `validate`/`status` keep it visible. If it becomes stale,
+fix the finding or use `accept-risk --refresh` for a new human attestation; never hand-edit the
+ledger and never fall back to `close-gate --force`.
 
 ## 5. Fan out disjoint stories across orchestrators
 

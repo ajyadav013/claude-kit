@@ -21,8 +21,8 @@ Before doing anything, read:
 
 - `CLAUDE.md` — the project's rules and the exact build/test/lint commands.
 - `.claude/rules/mandatory-workflow.md` — the full phase pipeline and the defect loop.
-- `.claude/rules/quality-gates.md` — the severity model (zero Critical/High/Medium to pass a gate)
-  and the blind-review + Devil's Advocate protocol.
+- `.claude/rules/quality-gates.md` — ordinary PASS requires zero Critical/High/Medium; Medium can
+  only use the distinct structured accepted-risk resolution; plus blind review/Devil's Advocate.
 - `.claude/rules/rarv-cycle.md` — the Reason → Act → Reflect → Verify self-check every agent runs.
 - `.claude/rules/wave-orchestration.md` — the program-mode contract (audit manifest, risk-ordered
   waves, disjoint boundaries, inventory approval) — required whenever the work classifies as
@@ -30,15 +30,15 @@ Before doing anything, read:
 
 Then read `.claude/CONTINUITY.md` (the `load-continuity` SessionStart hook has already printed it into
 context). **Detect an in-progress run:** if **Current Phase** is not idle and **Active Tasks** names a
-run matching `$ARGUMENTS`, an earlier pipeline is in flight. Prefer the **structured resume snapshot**
-at `.claude/state/pipeline-snapshot.json` when present — its `last_gate_passed`, `lanes`, and `next`
-are the precise resume index (schema in `.claude/rules/continuity.md`); the freeform CONTINUITY state
-(the mirrored `PIPELINE:` line) is the back-compatible fallback. Tell the user the **last PASSed gate**
-and the active lane(s), then ask whether to:
+run matching `$ARGUMENTS`, an earlier pipeline is in flight. Prefer the **schema-v2 structured
+snapshot** at `.claude/state/pipeline-snapshot.json`: run `claude-kit pipeline resume` and use its
+ordered ledger/status as the precise resume index (schema in `.claude/rules/continuity.md`). The
+freeform CONTINUITY state is context, not authority to forge a missing/invalid ledger. Tell the user
+the last resolved gate, its resolution type, and the active lane(s), then ask whether to:
 
-- **RESUME** — re-enter the orchestrator at the first gate *after* the last passed one, re-running only
-  un-passed or defect-affected lanes; or
-- **RESTART** — reset **Current Phase** / **Next Steps** and begin again from spec.
+- **RESUME** — re-enter at the first unresolved gate, re-running only unresolved or defect-affected
+  lanes; or
+- **RESTART** — abort the active run explicitly, then create a fresh run from its first gate.
 
 If **Current Phase** is idle (or CONTINUITY was freshly seeded), proceed as a fresh run.
 
@@ -49,7 +49,8 @@ Read `.claude/config/stack-catalog.snapshot.yaml`. Its `gates:` and `agents:` li
 `.claude/config/init-options.json` for the stack `selection` (frontend / backend / database) so you
 point each lane at the right overlay rule.
 
-- If those files are absent (a minimal/no-pip install), fall back to the **standard** pipeline.
+- If either authoritative file is absent or unreadable, stop and require a supported
+  `claude-kit` CLI install/upgrade. Do not guess a profile, gate set, or stack selection.
 
 Run **only** the gates present in the snapshot's `gates:` list. The three profiles resolve to:
 
@@ -80,21 +81,19 @@ and the stack selection. Instruct it to:
    substrate".) Have the story planner tag each story (risk / batchable); low-risk stories inside
    a full run route through the reduced chain per `.claude/rules/risk-classification.md` →
    Story-level routing.
-2. **Record** (or, **on resume**, update) the plan and state in `.claude/CONTINUITY.md` (working memory
-   survives compaction — update it at every phase transition), and mirror the gate-precise state into
-   the structured snapshot `.claude/state/pipeline-snapshot.json`. Gate verdicts go through the
-   deterministic ledger: probe the subcommand you are about to run, not the binary —
-   `claude-kit pipeline close-gate --help >/dev/null 2>&1`, since `command -v` also passes for a
-   stale CLI that lacks it. Then record each
-   passed gate with `claude-kit pipeline close-gate <gate> --evidence <evidence-file>` and each
-   non-applicable conditional gate with `claude-kit pipeline skip-gate <gate> --reason '<why>'` —
-   the CLI enforces gate order, refuses blocking findings, and hashes the evidence; hand-write the
-   `gate_history` entry (schema: `.claude/rules/continuity.md`) when the subcommand is missing, and
-   report which subcommand and what `claude-kit --version` says rather than attributing the gap to
-   the kit. On
-   resume, reload the snapshot as *context* and re-enter at the first gate *after*
-   `last_gate_passed` — re-running only un-passed or defect-affected lanes, never re-running setup
-   or re-applying committed edits.
+2. **Record** the plan/context in `.claude/CONTINUITY.md`, but create and mutate gate-precise state
+   only through the schema-v2 lifecycle. Use `pipeline start --task ...` for fresh work or `adopt`
+   with starting gate/reason/adopter for genuine pre-ledger work; use `resume` after interruption.
+   Before resolving a gate, use `record-findings` with exact Critical/High/Medium/Low/Cosmetic
+   counts plus a project-contained evidence report; start/adopt zeros are unrecorded placeholders.
+   Record PASS with `close-gate <gate> --evidence <file>`, a catalog-authorized conditional result
+   with `not-applicable <gate> --condition <id> --reason '<why>' --evidence <file>`, and each Medium
+   exception with structured `accept-risk` fields. Critical/High have no waiver; accepted-risk is
+   never PASS. Finish with `complete` (which persists the accepted risks in `final_summary`) or
+   `abort`; a later start/adopt validates and hash-archives the terminal run automatically. Never
+   hand-write `gate_history` or snapshot JSON. If the installed CLI lacks a required
+   lifecycle command or a safe-path/lock write fails, report its version/error and block for repair
+   or upgrade. On resume, re-enter at the first unresolved gate and never re-apply committed work.
 3. **Route skills and models explicitly — and announce fan-out before spawning it.** Every agent
    the orchestrator spawns is told which skill(s) to load for its stage (the orchestrator's Skill
    Routing table; only skills actually installed under `.claude/skills/`) and runs on the model

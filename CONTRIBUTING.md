@@ -10,9 +10,9 @@ security issues go through [SECURITY.md](SECURITY.md) rather than a public issue
   `templates/`, `catalog/` — are the **kit payload** and the **single source of truth**.
 - The plugin reads them directly from the root; the pip wheel bundles them under
   `claude_kit/_payload/` via `force-include` in `pyproject.toml`. **Never duplicate this content.**
-- `src/claude_kit/` is the pip CLI (the canonical scaffolder). `scripts/init.sh` is a **thin no-pip
-  fallback** for the `/claude-kit:init` plugin command — it copies the full payload with no catalog
-  resolution; don't reimplement the resolver in bash.
+- `src/claude_kit/` is the pip CLI and the only supported scaffolder. `scripts/init.sh` is a
+  compatibility dispatcher to that CLI; it performs no project writes. Do not reimplement catalog
+  resolution or filesystem mutation in bash.
 - claude-kit installs **configuration only** — never application code, never Docker.
 
 ## Golden rules
@@ -28,6 +28,14 @@ security issues go through [SECURITY.md](SECURITY.md) rather than a public issue
    manifests go there).
 5. **Hook scripts** use `${CLAUDE_PLUGIN_ROOT}` for plugin context and **degrade to no-ops** when a
    tool isn't present — detect, never hard-fail.
+6. **All project mutations go through `ProjectFS`.** Treat a target checkout and `.claude/` as
+   untrusted: no direct `Path.write_*`, `mkdir`, rename, unlink, `shutil.copy*`, or recursive delete
+   in installer, upgrader, or pipeline-state paths. Keep mutation-time ancestry/leaf checks and add
+   adversarial symlink/reparse tests for every new destination class.
+7. **Gate policy is catalog data.** Add or change a gate once in the canonical `gate_definitions`
+   registry in `catalog/profiles.yaml`; do not reproduce required/skippable policy in CLI branches or
+   prose. Conditional gates need closed condition identifiers. Run installs persist the definition
+   digest so state cannot silently inherit changed policy.
 
 ## Adding components
 
@@ -40,7 +48,7 @@ security issues go through [SECURITY.md](SECURITY.md) rather than a public issue
 - **Rule** → add `rules/<name>.md`; cross-reference siblings as `.claude/rules/<name>.md`.
 - **Hook** → add a script to `hooks/scripts/`, register it in the `HOOK_REGISTRY` in
   `src/claude_kit/hooks.py`, and list its id in the relevant profile's `hooks:`. To surface it in the
-  plugin and/or the no-pip starter, add its id to `PLUGIN_HOOK_IDS` / `STARTER_HOOK_IDS` (same module),
+  plugin and/or static starter template, add its id to `PLUGIN_HOOK_IDS` / `STARTER_HOOK_IDS` (same module),
   then **run `python scripts/gen_hooks.py`** to regenerate `hooks/hooks.json` and
   `templates/settings.json` — **never hand-edit those two files** (a drift test, `gen_hooks.py --check`,
   fails the build if they diverge from the registry). A plugin-only hook (no CLI scaffold equivalent,
@@ -53,7 +61,9 @@ security issues go through [SECURITY.md](SECURITY.md) rather than a public issue
   `templates/stacks/<stack_dir>/rules/<name>.md` (+ `agents/` for a database). Mark not-yet-ready
   entries `status: planned`. No Python change is needed — `catalog.resolve()` must stay branch-free.
 - **Profile** → add an entry to `catalog/profiles.yaml` (compose with `inherit:`; `all` selects
-  everything). **MCP server** → add an entry to `catalog/mcp.yaml` with a `config` fragment using
+  everything). Every referenced gate must have one canonical `gate_definitions` entry; required
+  gates set `skippable: false`, while conditional gates enumerate exact `skip_conditions`.
+  **MCP server** → add an entry to `catalog/mcp.yaml` with a `config` fragment using
   `${ENV}` placeholders (never real credentials).
 
 ## Local testing
@@ -65,9 +75,9 @@ security issues go through [SECURITY.md](SECURITY.md) rather than a public issue
 # CLI:
 pip install -e '.[dev]'
 claude-kit list-options
-claude-kit init /tmp/ck-demo --defaults && ls -R /tmp/ck-demo/.claude
-claude-kit validate /tmp/ck-demo
-claude-kit diff /tmp/ck-demo
+claude-kit init ./ck-demo --defaults && ls -R ./ck-demo/.claude
+claude-kit validate ./ck-demo
+claude-kit diff ./ck-demo
 
 # Tests:
 pytest
@@ -82,6 +92,7 @@ python scripts/check_cross_references.py --strict
 python scripts/check_skill_descriptions.py --strict
 python scripts/check_rule_sizes.py
 python scripts/check_mcp_pins.py
+claude plugin validate . --strict
 
 # Build + validate the package:
 python3 -m build
@@ -108,13 +119,17 @@ a specific stack — `pytest` enforces the no-Docker invariant on a scaffolded p
    so keep it. If those blocks ever grow unwieldy they may later split into `docs/decision-log.md`,
    but **only if** the README's CHANGELOG cross-reference is updated in the same change; until then
    they stay in `CHANGELOG.md` by design.
-3. `pytest` green, then `python3 -m build && python3 -m twine check dist/*`.
-4. CI auto-publishes to PyPI on merge to `main` when the version is new (`.github/workflows/publish.yml`,
-   OIDC trusted publishing). Manual `python3 -m twine upload dist/*` is the fallback.
-5. The tag and GitHub Release are created for you — `publish.yml`'s `github-release` job does both on
-   every successful publish (since 0.57.0), so there is nothing to tag by hand. If a release ever
-   lands on PyPI without its tag, `scripts/backfill-releases.sh --dry-run` shows what is missing and
-   the same script without the flag creates it; it is idempotent, so re-running is safe.
+3. `pytest` and every static/drift check green, then `python3 -m build` and
+   `python3 -m twine check dist/*`. Run the official `claude plugin validate . --strict` at the
+   declared minimum and current stable Claude Code versions (CI owns that matrix).
+4. CI builds wheel + sdist **once**, smoke-tests the exact wheel, writes `SHA256SUMS`, and uploads the
+   `verified-dist` artifact. The publish workflow authenticates the successful main-branch CI run and
+   promotes those exact files through OIDC Trusted Publishing with PEP 740 and GitHub artifact
+   attestations. It must never rebuild or use `skip-existing`.
+5. The tag and GitHub Release are created from the verified commit and receive the same wheel, sdist,
+   and checksum manifest. A partial release is recovered by dispatching the documented workflow for
+   the original CI run; do not make an ad-hoc local rebuild. Follow
+   [`docs/operations/release-recovery.md`](docs/operations/release-recovery.md).
 6. Publish the context-cost report for the release: run `claude plugin details claude-kit@claude-kit`
    in Claude Code and paste the token/context figures into the release notes, so users can see what
    the plugin costs their context window before installing.

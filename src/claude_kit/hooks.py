@@ -331,8 +331,9 @@ PLUGIN_ONLY_HOOKS: dict[str, dict[str, Any]] = {
 
 #: Which registry hooks each *static* generated file ships (the dynamic per-profile installed
 #: settings.json comes from the profile's hook list instead). Declaring channel membership as data —
-#: rather than hand-editing two JSON files — is what keeps the plugin file and the no-pip starter from
-#: silently drifting apart; ``scripts/gen_hooks.py`` regenerates both and a drift test enforces it.
+#: rather than hand-editing two JSON files — is what keeps the plugin file and the legacy static
+#: starter template from silently drifting apart; ``scripts/gen_hooks.py`` regenerates both and a
+#: drift test enforces it.
 #:
 #: The plugin file (hooks/hooks.json, always-on for any project using the plugin) carries the broad
 #: recommended set plus the plugin-only guards above.
@@ -361,8 +362,9 @@ PLUGIN_HOOK_IDS: frozenset[str] = frozenset(
     }
 )
 
-#: The thin no-pip starter (templates/settings.json, copied by scripts/init.sh) ships a smaller subset
-#: — the degraded fallback path keeps a minimal, broadly-safe set rather than the full plugin roster.
+#: The legacy static starter template (templates/settings.json) carries a smaller subset. It is kept
+#: for payload compatibility and registry drift checks; scripts/init.sh is a CLI dispatcher as of
+#: 0.83.0 and does not install this template directly.
 STARTER_HOOK_IDS: frozenset[str] = frozenset(
     {
         "load-continuity",
@@ -374,7 +376,7 @@ STARTER_HOOK_IDS: frozenset[str] = frozenset(
         "type-check",
         "verify-continuity-writeback",
         # capture-learnings hooks deliberately absent — same consent gate as PLUGIN_HOOK_IDS above:
-        # the no-pip starter is copied without an init question, so background capture stays off.
+        # the static starter template has no consent question, so background capture stays off.
     }
 )
 
@@ -391,7 +393,7 @@ _STARTER_COMMENT = (
 )
 
 #: Token-budget defaults baked into every assembled settings.json (the pip-installed file AND the
-#: no-pip starter, since both go through :func:`build_settings`). These trim per-session/per-turn
+#: static starter template, since both go through :func:`build_settings`). These trim per-session/per-turn
 #: context cost without lowering reasoning on any gate — we deliberately do NOT set
 #: ``model``/``effortLevel``/``MAX_THINKING_TOKENS`` here, as those would cut capability on the
 #: judgment-heavy review/security stages.
@@ -488,7 +490,7 @@ def build_settings(
 
 
 def generate_starter_settings() -> dict[str, Any]:
-    """Generate the thin no-pip starter ``templates/settings.json`` from :data:`STARTER_HOOK_IDS`."""
+    """Generate legacy static ``templates/settings.json`` from :data:`STARTER_HOOK_IDS`."""
     return build_settings(sorted(STARTER_HOOK_IDS), comment=_STARTER_COMMENT)
 
 

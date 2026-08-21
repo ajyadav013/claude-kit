@@ -52,7 +52,7 @@ The kit's central data flow is **Selection → catalog.resolve() → ResolvedPla
 | `upgrader.py` | Safe, edit-preserving upgrade: checksum comparison, transactional journal, sidecar fallback for user-edited files. |
 | `validator.py` | Structural validation of an installed config (`validate` + `--strict` mode). |
 | `schemas.py` | JSON Schema definitions for catalog integrity checks (`validate --strict`). |
-| `pipeline.py` | Deterministic `/sdlc` state-file ops (validate, status, close-gate, skip-gate, abort) — owns the append-only `gate_history` ledger (order enforcement, evidence sha256, atomic locked writes); inspects/records state, does **not** run the pipeline. |
+| `pipeline.py` | Deterministic `/sdlc` state-file operations (`start`/`adopt`/`resume`, findings, passed/not-applicable/accepted-risk gates, completion/abort, validation/status) — owns the versioned lifecycle and evidence-hashed append-only ledger; inspects/records state, does **not** run the pipeline. |
 | `export.py` | Projection into Cursor / AGENTS.md / Copilot formats. |
 | `detect.py` | Stack detection from a target repo (heuristic-based; non-blocking). |
 | `report.py` | Human-readable reporting for `doctor` and `status` commands. |
@@ -66,14 +66,14 @@ The kit's central data flow is **Selection → catalog.resolve() → ResolvedPla
 | `.claude-plugin/marketplace.json` | Marketplace entry so `/plugin marketplace add` works |
 | `agents/` | SDLC pipeline subagents (auto-discovered by the plugin); each carries a `tier:` field |
 | `skills/` | Agent skills (auto-discovered by the plugin); `skills/sdlc/` is the `/sdlc` entrypoint |
-| `commands/` | Slash commands: `/claude-kit:init`, `:sdlc`, `:status`, `:abort` (init prefers the pip CLI, falls back to `init.sh`; sdlc delegates to the `sdlc` skill; abort tears down an in-progress `/sdlc` run) |
+| `commands/` | Slash commands: `/claude-kit:init`, `:sdlc`, `:status`, `:abort` (init requires the pip CLI; sdlc delegates to the `sdlc` skill; abort tears down an in-progress `/sdlc` run) |
 | `hooks/hooks.json` + `hooks/scripts/` | Event hooks (paths via `${CLAUDE_PLUGIN_ROOT}`) |
 | `rules/` | The 25-file stack-agnostic engineering rule set (scaffolded into `.claude/rules/`), including the agent-operation rules (reasoning, guardrails, resilience, goal-setting, human-in-the-loop, model-tiers, evals, tool-design — see `docs/agentic-patterns.md`), the program-scale `wave-orchestration` rule, the service-level `resilience-engineering` rule, and the org-core rules `autonomy-levels` + `risk-classification` (see `docs/org-capabilities.md`) |
 | `catalog/` | **Data-driven registry** — `stacks.yaml` · `profiles.yaml` · `mcp.yaml` · `org.yaml`. The only thing that decides what `resolve()` installs. Adding a stack/profile/server/pack is a data change here. |
 | `templates/` | `CLAUDE.md`, `CLAUDE.stack.md.tmpl`, `README.claude-sdlc.md.tmpl`, `CONTINUITY.template.md`, `settings.json`, `artifacts/`, `agent-memory/` seed |
 | `templates/stacks/<kind>/<id>/` | Per-stack **overlay** content: `rules/` (+ `agents/` for DB stacks). **No application code, no Docker** — the only place stack-specific content lives. |
 | `templates/org/` | **Org overlay** content (scope-gated, organization only): `skills/`, `agents/` (personas), `rules/` (policy/vibe), `packs/<pack>/{pack.yaml,README.md}`, `README.md`. Wired via `catalog/org.yaml`. The only place org-specific content lives. |
-| `scripts/init.sh` | Thin no-pip fallback scaffolder (copies the full payload; no catalog resolution) |
+| `scripts/init.sh` | Compatibility dispatcher to the Python CLI; never writes project files itself |
 | `src/claude_kit/` | The pip CLI (Typer): `cli.py`, `catalog.py` (resolver), `prompts.py`, `models.py`, `scaffold.py` (installer), `render.py` (Jinja2), `hooks.py`, `validator.py` (incl. `validate --strict` + `check_catalog`), `upgrader.py`, `pipeline.py` (deterministic `/sdlc` state-file ops) |
 | `tests/` | pytest suite (catalog, render, scaffold, validator, upgrader, CLI; incl. the profile×stack×scope self-test matrix) |
 | `examples/` | Synthetic end-to-end `/sdlc` worked example (repo reference; **not** bundled into the wheel) |
@@ -125,8 +125,8 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
 
 - **Plugin:** `claude` → `/plugin marketplace add .` → `/plugin install claude-kit@claude-kit` (loads the
   agents/skills/commands/hooks from this checkout).
-- **CLI:** `pip install -e '.[dev]'` then `claude-kit init /tmp/demo --defaults` (or interactive),
-  `claude-kit validate /tmp/demo`, `claude-kit diff /tmp/demo`, and inspect the result.
+- **CLI:** `pip install -e '.[dev]'` then `claude-kit init ./ck-demo --defaults` (or interactive),
+  `claude-kit validate ./ck-demo`, `claude-kit diff ./ck-demo`, and inspect the result.
 - **Tests:** `pytest` runs the full suite. Run a single test with `pytest tests/test_catalog.py -k "test_name"`.
   The suite calls library functions directly (no subprocess) for speed and determinism, using the
   bundled payload resolved via `scaffold.payload_dir()`. Key invariants asserted: no-Docker,
@@ -161,11 +161,13 @@ root are read directly by the plugin **and** bundled into the wheel (mapped to
 1. Bump the version in **all five** places (see golden rule #6 above).
 2. Add a `CHANGELOG.md` entry with a **"Not adopted (deliberately)"** block.
 3. Ensure `pytest` + all lint/drift checks are green.
-4. Build: `python3 -m build && python3 -m twine check dist/*`.
-5. Merge to `main` — CI auto-publishes to PyPI (OIDC trusted publishing). Manual `twine upload` is
-   the fallback.
-6. Nothing to tag by hand — `publish.yml`'s `github-release` job creates the `vX.Y.Z` tag and the
-   GitHub Release on every successful publish (since 0.57.0). `scripts/backfill-releases.sh
-   --dry-run` is the recovery path if a published version is ever missing its tag.
+4. Build locally with `python3 -m build && python3 -m twine check dist/*` as a verification step;
+   local artifacts are never release inputs.
+5. Merge to `main`. CI builds wheel and sdist once, smoke-tests that exact `verified-dist` artifact,
+   and the publish workflow promotes those same bytes through PyPI Trusted Publishing.
+6. Nothing is uploaded or tagged by hand. For partial-publication recovery, dispatch `Publish
+   verified distributions` with the numeric successful `main` CI run ID that produced the original
+   artifact; follow `docs/operations/release-recovery.md`. Never use an ad-hoc rebuild or manual
+   `twine upload` as a fallback.
 
 See `CONTRIBUTING.md` for the full contributor workflow.

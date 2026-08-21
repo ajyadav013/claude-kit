@@ -20,8 +20,58 @@
 # Agent and skill names must match files in agents/ and skills/. Hook ids map to entries in the
 # hook registry in scaffold.py (script-backed hooks copy their .sh; inline/prompt hooks don't).
 
-version: 1
+version: 2
 default: standard
+
+# Canonical gate policy. Profile lists below decide only membership + execution order; this mapping
+# decides whether a selected gate is required or may be marked not applicable, and under which
+# machine-checked condition. Keep each gate here exactly once so the resolver and pipeline consume
+# one source of truth rather than inferring policy from prose or gate names.
+gate_definitions:
+  spec-complete:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  em-approved:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  code-review:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  build-green:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  contract-clear:
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-api-contract-surface]
+  test-coverage:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  security-clear:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  pipeline-green:
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-deploy-surface]
+  observability-ready:
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-observable-surface]
+  acceptance:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  accessibility-clear:
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-ui-surface]
 
 profiles:
   lean:

@@ -37,8 +37,10 @@ flowchart LR
 `rules/` directory into your project — those only take effect as real files in the repo. So both the
 pip CLI (`claude-kit init`) and the plugin command (`/claude-kit:init`) do the same job: resolve the
 catalog and write the config into `.claude/`. The plugin command prefers the pip CLI when it's on
-PATH (full resolver) and falls back to a thin `scripts/init.sh` otherwise; it also makes the agents,
-skills, commands, and hooks available globally without any files in your repo.
+PATH (full resolver) and fails with an installation instruction when it is absent; the former shell
+copy fallback cannot meet the same untrusted-filesystem guarantees and no longer writes project
+files. The plugin still makes agents, skills, commands, and hooks available globally without any
+files in your repo.
 
 ---
 
@@ -58,7 +60,7 @@ flowchart TB
     end
     SEL --> RESOLVE["catalog.resolve()"]
     CAT --> RESOLVE
-    RESOLVE --> PLAN["ResolvedPlan<br/>agents · skills · hooks · gates<br/>overlay_rules · overlay_agents · mcp_servers · context<br/>· org (OrgPlan, only when scope == organization)"]
+    RESOLVE --> PLAN["ResolvedPlan<br/>agents · skills · hooks · ordered gates<br/>gate definitions + digest<br/>overlay_rules · overlay_agents · mcp_servers · context<br/>· org (OrgPlan, only when scope == organization)"]
     PLAN --> INSTALL["scaffold.install_sdlc()"]
     INSTALL --> OUT["CLAUDE.md (stack block filled) + .claude/<br/>rules (core + overlays) · agents (profile subset + DB overlays)<br/>skills (profile subset incl. sdlc/) · hooks · templates · config"]
     INSTALL -.->|"only if mcp selected"| MCPJSON[".mcp.json"]
@@ -66,7 +68,9 @@ flowchart TB
 ```
 
 - **Profiles** (`lean ⊊ standard ⊊ enterprise`) select *which* agents/skills/hooks/gates are
-  installed — composed via `inherit:` and an `all` token, with no code branches.
+  installed — composed via `inherit:` and an `all` token, with no code branches. One canonical
+  `gate_definitions` map declares required/conditional behavior and closed skip conditions; its
+  canonical SHA-256 digest is persisted with the ordered list.
 - **Overlays** (rules + DB agents) are copied only for the selected stacks from
   `templates/stacks/<dir>/`.
 - **`init-options.json`** records every installed file's checksum + `owner` (kit / overlay /
@@ -112,7 +116,7 @@ flowchart TD
     FORK --> LANES
     LANES --> MR1{{"Gate: Merge Reviewer<br/>cross-lane consistency"}}
 
-    MR1 -->|"pass"| CC{{"Gate: Contract clear<br/>standard+ · API stacks (self-skips otherwise)"}}
+    MR1 -->|"pass"| CC{{"Gate: Contract clear<br/>standard+ · evidenced N/A without API surface"}}
     CC -->|"pass"| TEST["Testing (parallel): unit · e2e · integration<br/>then Senior Tester verification"]
     TEST --> TCG{{"Gate: Test coverage<br/>blind review + Devil's Advocate"}}
 
@@ -130,10 +134,18 @@ flowchart TD
     SEC -->|"fail"| LANES
 ```
 
-**Every gate uses the same rules:** the severity model (zero Critical/High/Medium to pass), the RARV
-self-check (Reason → Act → Reflect → Verify, with a green Verify backed by real captured output —
-a fabricated verdict is auto-Critical, `rules/quality-gates.md` §2.5), and blind review (parallel
-reviewers judge independently; a unanimous PASS triggers the Devil's Advocate before the gate counts).
+**Every run has an explicit lifecycle.** `start` creates schema v2 at the first active gate; `adopt`
+records which earlier gates are historical, why, and who accepts that boundary. `close-gate` and
+`not-applicable` fail before either operation. `complete` and `abort` are terminal. The run binds its
+repository identity, branch, start/current commit, profile/scope, gate order, and gate-definition
+digest; legacy schema-v1 state is readable and migrates only through explicit adoption.
+
+**Every gate uses the same rules:** Critical and High always block; Medium can proceed only as a
+distinct structured `accepted-risk` record, never PASS. Low/Cosmetic remain non-blocking. Required
+gates cannot be skipped; conditional `not-applicable` records carry a configured condition and
+evidence. The RARV self-check (Reason → Act → Reflect → Verify) and blind review remain
+Agent-enforced protocols; Python mechanically enforces lifecycle, ordering, transition kinds,
+bindings, and evidence hashes, but does not yet parse arbitrary test results.
 In standard+, the Devil's Advocate also critiques the **plan** before approval is final, so a flawed
 spec is caught on paper rather than after implementation.
 
@@ -220,14 +232,14 @@ claude-kit/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-* / validate-* / audit-log
 ├── rules/                     # 25 stack-agnostic engineering rules (incl. agent-operation + org-core rules)
-├── catalog/                   # stacks.yaml · profiles.yaml · mcp.yaml · org.yaml (the resolver's data)
+├── catalog/                   # stacks · profiles/gates · MCP · org · Claude compatibility
 ├── templates/
 │   ├── CLAUDE.md · CLAUDE.stack.md.tmpl · README.claude-sdlc.md.tmpl
 │   ├── CONTINUITY.template.md · settings.json · artifacts/ · agent-memory/
 │   ├── stacks/<kind>/<id>/    # per-stack overlay rules (+ agents/ for databases)
 │   └── org/                   # org overlay: skills · agents (personas) · rules · packs/ (scope-gated)
-├── scripts/init.sh            # thin no-pip fallback scaffolder
-├── src/claude_kit/            # pip CLI: cli · catalog · prompts · models · scaffold · render · hooks · validator · upgrader
+├── scripts/init.sh            # compatibility launcher; project writes require the Python CLI
+├── src/claude_kit/            # CLI + resolver + secure_fs + scaffold/upgrade/validation/pipeline
 ├── tests/                     # pytest suite (catalog · render · scaffold · validator · upgrader · cli)
 ├── docs/architecture.md       # this file
 ├── docs/agentic-patterns.md   # how the kit maps onto the 21 agentic design patterns
@@ -237,16 +249,37 @@ claude-kit/
 
 ---
 
-## 6. Lifecycle: validate / diff / upgrade
+## 6. Lifecycle: transactional init / validate / diff / upgrade
 
 Because every install records per-file checksums + ownership in `.claude/config/init-options.json`,
 the kit can safely evolve a project in place:
 
-- **`validate` / `doctor`** — structural checks (tracked files present, valid JSON, frontmatter
-  complete) plus environment checks (git/jq, executable hooks, gitignored runtime dirs).
+- **`init` / merge / force** — resolve and preflight every selected component before a live write,
+  render the complete result into controlled staging, run strict validation, then apply through
+  `ProjectFS` inside a schema-v2 rollback transaction. Traversal, absolute/drive/UNC paths,
+  symlinks, junctions, and reparse points in managed destinations are refused. Ordinary failures
+  restore immediately; an interrupted journal is recovered at the next invocation. Mutations
+  currently require POSIX descriptor/lock semantics; native Windows refuses rather than use its
+  former junction-racy pathname fallback (WSL is the supported mutation path for this release).
+- **`validate` / `doctor`** — structural and JSON Schema checks (tracked files present, valid JSON,
+  frontmatter complete, supported schema versions) plus environment checks. Strict mode fails when
+  any declared schema layer is unavailable; `jsonschema` is a normal runtime dependency. Doctor also
+  classifies the installed Claude Code version against `catalog/claude-code-compatibility.yaml`.
 - **`diff` / `upgrade`** — `upgrade` re-renders a pristine reference of the recorded selection into a
   temp dir and compares it to the live tree. Kit/overlay files are refreshed; **user-editable files
   are never clobbered** (a modified one is kept, the new version dropped beside it as a `.claude-kit`
   sidecar); changed/removed files are backed up; deleted files are restored; orphans are pruned. The
   post-upgrade baseline is the kit's canonical checksums, so user edits stay protected across repeated
-  upgrades. `diff` previews all of this and writes nothing.
+  upgrades. Every live mutation uses the same `ProjectFS` and rollback transaction as init. `diff`
+  previews all of this and writes nothing.
+
+## 7. Verified-artifact release flow
+
+The CI workflow builds wheel and sdist once, checks them, creates `SHA256SUMS`, and installs the exact
+wheel into a clean smoke environment. Only after all test, lint, schema, official Claude validator,
+and workflow-security jobs succeed is that artifact uploaded as `verified-dist`. The publication
+workflow authenticates the originating repository/main/SHA/run, downloads that artifact, attests it,
+and sends the same files to PyPI via Trusted Publishing without rebuilding or `skip-existing`.
+Post-publish verification downloads PyPI files and compares their digests; the GitHub Release points
+at the verified commit and receives those same assets. A workflow dispatch against the original CI
+run is the recovery mechanism for partial publication.

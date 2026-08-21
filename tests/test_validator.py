@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 import shutil
 
+import pytest
+import yaml
+
 from claude_kit import validator
+from claude_kit.secure_fs import ProjectFS, ProjectTransaction
 from tests._helpers import install
 
 
@@ -71,6 +75,37 @@ def test_validate_fails_on_corrupt_init_options(tmp_path, payload):
     )
 
 
+@pytest.mark.parametrize(
+    "document",
+    [[], {"claude_kit_version": "0.82.0", "selection": [], "files": []}],
+)
+def test_validate_fails_cleanly_on_wrong_shaped_init_options(
+    tmp_path, payload, document
+):
+    install(payload, tmp_path)
+    config = tmp_path / ".claude" / "config" / "init-options.json"
+    config.write_text(json.dumps(document), encoding="utf-8")
+
+    ok, messages = validator.validate(tmp_path, strict=True)
+
+    assert not ok
+    assert any("init-options.json is unreadable" in message for message in messages)
+
+
+def test_validate_fails_when_installed_selection_no_longer_resolves(tmp_path, payload):
+    install(payload, tmp_path)
+    options = tmp_path / ".claude" / "config" / "init-options.json"
+    document = json.loads(options.read_text(encoding="utf-8"))
+    document["selection"]["profile"] = "bogus-profile"
+    options.write_text(json.dumps(document), encoding="utf-8")
+
+    ok, messages = validator.validate(tmp_path, strict=True)
+
+    assert not ok
+    assert any("selection that does not resolve" in message for message in messages)
+    assert any("bogus-profile" in message for message in messages)
+
+
 def test_validate_warns_on_missing_init_options(tmp_path, payload):
     """A missing manifest (old install) stays a WARN, distinct from the corrupt FAIL above."""
     install(payload, tmp_path)
@@ -91,13 +126,17 @@ def test_doctor_runs_environment_checks(tmp_path, payload):
 
 
 def test_doctor_warns_on_windows_without_jq(tmp_path, payload, monkeypatch):
-    """doctor: Windows + no jq → actionable WSL/Git Bash guidance, and never a failure."""
+    """doctor separates native mutation refusal from the missing hook runtime."""
     install(payload, tmp_path)
     monkeypatch.setattr(validator.platform, "system", lambda: "Windows")
     monkeypatch.setattr(validator.shutil, "which", lambda _tool: None)
     ok, messages = validator.doctor(tmp_path)
     assert ok, "\n".join(messages)
-    assert any("Windows" in m and "WSL" in m for m in messages)
+    assert any(
+        "native Windows project mutation is unsupported" in m and "WSL" in m
+        for m in messages
+    )
+    assert any("hooks" in m and "jq not on PATH" in m for m in messages)
 
 
 # --- strict installed-config checks ---------------------------------------------------------------
@@ -122,15 +161,40 @@ def test_strict_validate_flags_nonexecutable_hook_script(tmp_path, payload):
     assert validator.validate(tmp_path)[0]
 
 
-def test_strict_validate_flags_unknown_hook_event(tmp_path, payload):
+def test_strict_validate_warns_on_unrecognized_future_hook_event(tmp_path, payload):
     install(payload, tmp_path)
     settings = tmp_path / ".claude" / "settings.json"
     doc = json.loads(settings.read_text(encoding="utf-8"))
     doc["hooks"]["NotARealEvent"] = [{"matcher": "", "hooks": []}]
     settings.write_text(json.dumps(doc, indent=2), encoding="utf-8")
     ok, messages = validator.validate(tmp_path, strict=True)
-    assert not ok
-    assert any("unknown event" in m and "NotARealEvent" in m for m in messages)
+    assert ok, "\n".join(messages)
+    assert any(
+        m.startswith("WARN") and "NotARealEvent" in m and "official validator" in m
+        for m in messages
+    )
+
+
+def test_strict_validate_accepts_current_official_hook_events(tmp_path, payload):
+    install(payload, tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    doc = json.loads(settings.read_text(encoding="utf-8"))
+    for event in (
+        "PostToolUseFailure",
+        "PermissionRequest",
+        "SubagentStart",
+        "Setup",
+        "TeammateIdle",
+        "TaskCompleted",
+        "ConfigChange",
+        "WorktreeCreate",
+        "ElicitationResult",
+    ):
+        doc["hooks"][event] = []
+    settings.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    ok, messages = validator.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)
+    assert not any("not in the tested compatibility catalog" in m for m in messages)
 
 
 def test_strict_validate_flags_broken_mcp_json(tmp_path, payload):
@@ -500,7 +564,7 @@ def test_strict_validate_fails_when_the_catalog_is_inconsistent(
     assert any("synthetic defect" in m for m in messages)
 
 
-# --- Strict checks skip cleanly when their inputs are absent or malformed -----------------------
+# --- Strict checks skip absent optional inputs but reject malformed ones -------------------------
 
 
 def test_strict_checks_skip_absent_settings_and_snapshot(tmp_path, payload):
@@ -514,12 +578,12 @@ def test_strict_checks_skip_absent_settings_and_snapshot(tmp_path, payload):
     assert not any("stack snapshot" in m for m in messages)
 
 
-def test_strict_checks_ignore_settings_json_that_is_not_an_object(tmp_path, payload):
+def test_strict_checks_reject_settings_json_that_is_not_an_object(tmp_path, payload):
     install(payload, tmp_path)
     (tmp_path / ".claude" / "settings.json").write_text("[]", encoding="utf-8")
     ok, messages = validator.validate(tmp_path, strict=True)
-    assert ok, "\n".join(messages)
-    assert not any("settings.json hooks" in m for m in messages)
+    assert not ok
+    assert any("settings.json root must be an object" in m for m in messages)
 
 
 def test_strict_validate_checks_a_present_pipeline_snapshot(tmp_path, payload):
@@ -552,6 +616,28 @@ def test_strict_validate_flags_mcp_json_without_servers(tmp_path, payload):
     assert any("no valid 'mcpServers' object" in m for m in messages)
 
 
+def test_strict_validate_fails_cleanly_on_non_object_mcp_and_settings(
+    tmp_path, payload
+):
+    install(payload, tmp_path)
+    (tmp_path / ".mcp.json").write_text("[]\n", encoding="utf-8")
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps({"hooks": []}), encoding="utf-8"
+    )
+
+    ok, messages = validator.validate(tmp_path, strict=True)
+
+    assert not ok
+    assert any(".mcp.json root must be an object" in message for message in messages)
+    assert any(
+        "settings.json 'hooks' must be an object" in message for message in messages
+    )
+
+    doctor_ok, doctor_messages = validator.doctor(tmp_path, mcp=True)
+    assert not doctor_ok
+    assert any("no valid mcpServers object" in message for message in doctor_messages)
+
+
 def test_strict_validate_flags_snapshot_listing_missing_agent_and_skill(
     tmp_path, payload
 ):
@@ -567,10 +653,44 @@ def test_strict_validate_flags_snapshot_listing_missing_agent_and_skill(
     assert "agents/ghost-agent.md" in joined and "skills/ghost-skill/SKILL.md" in joined
 
 
-def test_schema_artifact_check_is_a_noop_without_jsonschema(
+def test_strict_validate_fails_cleanly_on_non_object_stack_snapshot(tmp_path, payload):
+    install(payload, tmp_path)
+    snap = tmp_path / ".claude" / "config" / "stack-catalog.snapshot.yaml"
+    snap.write_text("[wrong-root]\n", encoding="utf-8")
+
+    ok, messages = validator.validate(tmp_path, strict=True)
+
+    assert not ok
+    assert any(
+        "stack snapshot root must be an object" in message for message in messages
+    )
+    assert any("fails its JSON Schema" in message for message in messages)
+
+
+def test_strict_validate_directs_legacy_stack_snapshots_to_upgrade(tmp_path, payload):
+    """Pre-0.83 snapshots fail closed with a migration command, not only schema jargon."""
+    install(payload, tmp_path)
+    snap = tmp_path / ".claude" / "config" / "stack-catalog.snapshot.yaml"
+    doc = yaml.safe_load(snap.read_text(encoding="utf-8"))
+    doc.pop("schema_version")
+    doc.pop("gate_definitions")
+    doc.pop("gate_definition_digest")
+    snap.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+
+    ok, messages = validator.validate(tmp_path, strict=True)
+
+    assert not ok
+    assert any(
+        "legacy unversioned stack snapshot" in message
+        and "claude-kit upgrade" in message
+        for message in messages
+    )
+
+
+def test_strict_schema_artifact_check_fails_closed_without_jsonschema(
     tmp_path, payload, monkeypatch
 ):
-    """The JSON Schema layer is an optional extra \u2014 absent, validation degrades, never crashes."""
+    """Strict validation must never silently accept an unvalidated artifact."""
     from claude_kit import schemas
 
     install(payload, tmp_path)
@@ -579,9 +699,13 @@ def test_schema_artifact_check_is_a_noop_without_jsonschema(
     )
     monkeypatch.setattr(schemas, "available", lambda: False)
     ok, messages = validator.validate(tmp_path, strict=True)
-    assert ok, "\n".join(messages)
-    assert not any("fails its JSON Schema" in m for m in messages)
-    assert any("jsonschema not installed" in m for m in messages)
+    assert not ok
+    assert any(
+        m.startswith("FAIL")
+        and "jsonschema not installed" in m
+        and "cannot continue" in m
+        for m in messages
+    )
 
 
 def test_unicode_findings_are_capped_with_a_remainder_line(tmp_path, payload):
@@ -696,18 +820,77 @@ def test_check_catalog_skips_schema_checks_without_jsonschema(tmp_path, monkeypa
     monkeypatch.setattr(schemas, "available", lambda: False)
     ok, messages = validator.check_catalog(tmp_path)
     assert ok, "\n".join(messages)
-    assert any("jsonschema not installed" in m for m in messages)
+    assert any(
+        m.startswith("WARN") and "jsonschema not installed" in m for m in messages
+    )
+
+
+def test_check_catalog_can_require_schema_support(tmp_path, monkeypatch):
+    from claude_kit import schemas
+
+    _minimal_payload(tmp_path, profile_agents=[])
+    monkeypatch.setattr(schemas, "available", lambda: False)
+    ok, messages = validator.check_catalog(tmp_path, require_schema=True)
+    assert not ok
+    assert any(
+        m.startswith("FAIL") and "strict validation cannot continue" in m
+        for m in messages
+    )
 
 
 # --- doctor: environment reporting ----------------------------------------------------------
 
 
-def test_doctor_reports_windows_with_jq_as_healthy(tmp_path, payload, monkeypatch):
+def test_doctor_warns_when_claude_code_is_missing(tmp_path, payload, monkeypatch):
+    install(payload, tmp_path)
+    original = validator.shutil.which
+    monkeypatch.setattr(
+        validator.shutil,
+        "which",
+        lambda tool: None if tool == "claude" else original(tool),
+    )
+    ok, messages = validator.doctor(tmp_path)
+    assert ok, "\n".join(messages)
+    assert any("Claude Code not on PATH" in m for m in messages)
+
+
+def test_doctor_reports_tested_claude_code_version(tmp_path, payload, monkeypatch):
+    install(payload, tmp_path)
+    monkeypatch.setattr(validator.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(validator, "_claude_version", lambda _path: "2.1.163")
+    ok, messages = validator.doctor(tmp_path)
+    assert ok, "\n".join(messages)
+    assert any("Claude Code 2.1.163 is supported and tested" in m for m in messages)
+
+
+def test_doctor_warns_on_untested_supported_claude_code(tmp_path, payload, monkeypatch):
+    install(payload, tmp_path)
+    monkeypatch.setattr(validator.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(validator, "_claude_version", lambda _path: "2.1.170")
+    ok, messages = validator.doctor(tmp_path)
+    assert ok, "\n".join(messages)
+    assert any("supported but is not in the tested matrix" in m for m in messages)
+    assert any("optional feature unavailable" in m for m in messages)
+
+
+def test_doctor_warns_on_unsupported_claude_code(tmp_path, payload, monkeypatch):
+    install(payload, tmp_path)
+    monkeypatch.setattr(validator.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(validator, "_claude_version", lambda _path: "2.1.100")
+    ok, messages = validator.doctor(tmp_path)
+    assert ok, "\n".join(messages)
+    assert any("unsupported; minimum is 2.1.163" in m for m in messages)
+
+
+def test_doctor_reports_windows_with_jq_but_still_refuses_native_mutation(
+    tmp_path, payload, monkeypatch
+):
     install(payload, tmp_path)
     monkeypatch.setattr(validator.platform, "system", lambda: "Windows")
     monkeypatch.setattr(validator.shutil, "which", lambda tool: f"/usr/bin/{tool}")
     ok, messages = validator.doctor(tmp_path)
-    assert any("Windows with jq on PATH" in m for m in messages)
+    assert any("native Windows project mutation is unsupported" in m for m in messages)
+    assert any("jq is on PATH" in m and "POSIX shell" in m for m in messages)
 
 
 def test_doctor_warns_on_non_executable_hook_scripts(tmp_path, payload):
@@ -751,6 +934,27 @@ def test_doctor_warns_when_learning_capture_is_enabled(tmp_path, payload):
     install(payload, tmp_path, capture_mode="session-end-catchup")
     ok, messages = validator.doctor(tmp_path)
     assert any("learning capture is enabled" in m for m in messages)
+
+
+def test_doctor_recognizes_a_rollback_capable_install_journal(tmp_path, payload):
+    install(payload, tmp_path)
+    fs = ProjectFS(tmp_path)
+    with pytest.raises(KeyboardInterrupt):
+        with ProjectTransaction(fs, operation="force", to_version="0.83.0"):
+            # Backup mode moves the nested journal away with .claude. Doctor
+            # must inspect the authoritative top-level transaction marker.
+            fs.move(".claude", ".claude.bak-1")
+            raise KeyboardInterrupt
+
+    assert not (tmp_path / ".claude" / "config" / "upgrade-in-progress.json").exists()
+    ok, messages = validator.doctor(tmp_path)
+    assert not ok  # the interrupted backup temporarily has no live .claude tree
+    assert any(
+        "interrupted force detected" in m
+        and "re-run `claude-kit init --force`" in m
+        and "rollback-capable" in m
+        for m in messages
+    )
 
 
 # --- doctor --mcp health -----------------------------------------------------------------------

@@ -33,47 +33,73 @@ of it, not the only one. Do not delete either on the grounds that the other cove
 
 ## Resume snapshot (`.claude/state/pipeline-snapshot.json`)
 
-`CONTINUITY.md` is the human-readable scratchpad; for a pipeline run it is paired with a small **structured snapshot** so a later session can re-enter precisely. The Orchestrator writes/updates it at every stage transition (alongside the `PIPELINE:` line it mirrors into **Current Phase**). It is gitignored runtime state under `.claude/state/` — created by the installer and ensured by the `load-continuity` SessionStart hook.
+`CONTINUITY.md` is the human-readable scratchpad; for a pipeline run it is paired with a small
+**structured snapshot** so a later session can re-enter precisely. The Orchestrator invokes the
+`claude-kit pipeline` lifecycle commands at every transition; those commands alone update the
+snapshot while the Orchestrator mirrors the result into the `PIPELINE:` line under **Current
+Phase**. It is gitignored runtime state under `.claude/state/` — created by the installer and
+ensured by the `load-continuity` SessionStart hook.
 
-Schema (keep it small and truthful — omit a field rather than guess it):
+Schema v2 is explicit and fail-closed. Do not omit required fields or guess values; create it with
+`claude-kit pipeline start` or `adopt`, then mutate it only through lifecycle commands:
 
 ```json
 {
-  "schema": 1,
+  "schema_version": 2,
+  "run_id": "<uuid>",
+  "repository_root": "<machine-derived absolute root>",
+  "branch": "<machine-derived branch>",
+  "starting_commit": "<git sha>",
+  "current_commit": "<git sha>",
+  "kit_version": "<version>",
   "task": "<one-line description of the run>",
   "profile": "lean | standard | enterprise",
   "scope": "individual | team | organization",
   "mode": "A | B | C | D | E",
-  "stage": "<current PIPELINE stage label>",
+  "ordered_gates": ["<execution-ordered gate tokens>"],
+  "gate_definition_digest": "<sha256 of the ordered canonical gate policy>",
+  "start_type": "fresh | adopted",
+  "adoption": null,
+  "created_at": "<UTC ISO timestamp>",
+  "status": "active | completed | aborted",
+  "stage": "<current gate, completed, or aborted>",
+  "next": "<the immediate next action>",
   "lanes": { "<lane>": "not-started | in-progress | passed | failed" },
-  "last_gate_passed": "<gate token, e.g. code-review>",
-  "open_findings": { "critical": 0, "high": 0, "medium": 0 },
-  "gate_evidence": { "<gate token>": "<path to the evidence artifact>" },
-  "gate_overrides": { "<gate token>": "<why a blocking gate was force-closed>" },
+  "open_findings": { "critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0 },
+  "findings_evidence": {
+    "counts": { "critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0 },
+    "evidence_path": "<project-relative findings report>",
+    "evidence_sha256": "<sha256>",
+    "finding_set_digest": "<sha256 of counts + evidence hash + repository commit>",
+    "repository_commit": "<git sha>",
+    "recorded_at": "<UTC ISO timestamp>"
+  },
+  "gate_evidence": { "<passed gate token>": "<compatibility index of its evidence path>" },
+  "accepted_risks": [],
   "gate_history": [
     {
       "gate": "<gate token>",
-      "status": "passed | skipped | overridden",
-      "evidence_path": "<path relative to the project root (portable across checkouts); null for skipped>",
+      "status": "passed | not-applicable | accepted-risk | failed | aborted",
+      "evidence_path": "<project-relative evidence path for passed>",
       "evidence_sha256": "<sha256 of the evidence file at close time>",
-      "verification": "agent | mechanical | human | override",
+      "verification": "agent | mechanical | human",
       "recorded_at": "<UTC ISO timestamp>",
-      "override": "<reason when force-closed, else null>",
-      "reason": "<why a skipped gate does not apply (skipped entries only)>"
+      "repository_commit": "<git sha>"
     }
-  ],
-  "git": { "branch": "<branch>", "sha": "<HEAD sha>", "worktrees": { "<lane>": "<path>" } },
-  "pr": { "number": "<n>", "url": "<url>", "state": "<open|merged|closed>", "base": "<base>", "head": "<head>" },
-  "next": "<the immediate next action>"
+  ]
 }
 ```
 
-The optional `git` / `pr` objects are the run's **machine-derived identity anchors** — populate them
-from commands (`git rev-parse --abbrev-ref HEAD`, `git rev-parse HEAD`, `git worktree list`, a
-read-only `gh pr view`), **never from conversation memory**; omit any field you cannot prove. On
-resume, compare `git.branch`/`git.sha` against a fresh `git rev-parse` **before touching anything** —
-a mismatch means the checkout moved since the snapshot; stop and verify rather than acting on stale
-state. (`abort` likewise treats `git.worktrees` as the authoritative list of what this run created.)
+The repository root, branch, and commits are **machine-derived identity anchors**, never
+conversation memory. `pipeline resume` compares them with the live checkout before allowing work.
+A different root or branch is refused. A changed commit invalidates structured risk acceptances and
+requires explicit `accept-risk --refresh`; old records move to audit history rather than silently
+following the new code. Immediately after `start`/`adopt`, `open_findings` contains placeholder
+zeros and `findings_evidence` is `null`; that is visibly **UNRECORDED**, not a clean scan. Before
+any gate resolution, run `pipeline record-findings --critical <n> --high <n> --medium <n> --low
+<n> --cosmetic <n> --evidence <project-contained-file>`. It atomically binds the exact counts,
+evidence hash, and current commit. Evidence or HEAD drift invalidates the record; run the producer
+again rather than editing counts.
 
 The sha comparison catches a checkout that *moved*; it cannot catch one that is **behind**. Snapshot
 and CONTINUITY timestamps are self-reported — they can look fresh while commits have landed
@@ -87,22 +113,29 @@ checks adapted, in the kit's own terms, from the MIT-licensed
 [`pborenstein/handoff`](https://github.com/pborenstein/handoff) `session-pickup` skill,
 © 2026 Philip Borenstein.)
 
-A gate is PASS only when zero **critical/high/medium** findings remain open (low/cosmetic may pass with notes). `gate_evidence` records the artifact backing each passed gate; `gate_overrides` is written **only** when a gate is deliberately force-closed despite open blocking findings, so a reviewer (or `claude-kit pipeline validate`) can surface and re-examine it.
+An ordinary PASS requires zero **critical/high/medium** findings. Critical and High have no waiver.
+Each Medium exception is a distinct structured `accepted-risk`, bound to its finding/gate identity,
+evidence hash, count, commit, and gate-policy digest; it is never PASS. A conditional gate resolves
+`not-applicable` only through a catalog-declared condition plus reason and hashed evidence, and
+never while blocking findings remain.
 
-`gate_history` is the **append-only ledger** behind those mirrors: gates close **in the installed
-order** (the `gates:` list in `stack-catalog.snapshot.yaml` is execution-ordered; the first record
-may anchor anywhere so a run can be adopted mid-flight), a conditional gate that doesn't apply is
-recorded `skipped` with a reason (`claude-kit pipeline skip-gate`), and each closed entry carries
-the evidence file's **sha256** — `validate` re-hashes every entry, so evidence cannot silently
-change after its gate closed. `verification` records *how* the evidence was checked: `agent`
-(a reviewer agent cited it — also the level for CLI-recorded skips), `mechanical` / `human`
-(reserved for parsed evidence and explicit human sign-off), `override` (force-closed). Old
-snapshots without `gate_history` stay valid. **Write ledger entries through the CLI whenever it
-is on PATH** (`claude-kit pipeline close-gate <gate> --evidence <file>` / `skip-gate <gate>
---reason '<why>'`) — it enforces the order, refuses blocking findings, and hashes the evidence;
-hand-append an entry per this schema only when the CLI is not installed.
+Create and mutate schema v2 only through the lifecycle: `pipeline start` (fresh work) or `adopt`
+(pre-existing work, with starting gate/reason/adopter), `resume`, `record-findings`, `close-gate`,
+`not-applicable`, `accept-risk`, then terminal `complete` or `abort`. `complete` persists
+`final_summary` in this same
+snapshot; that deterministic projection is the generated evidence bundle and includes every active
+accepted risk. A later `start` or `adopt` first validates and preserves the terminal document in the
+hash-bound `run_archives` audit list; an active run is never replaced. Never hand-edit
+`gate_history` or the risk ledgers. Legacy v1 snapshots and old
+`skipped`/`overridden` records remain readable with warnings, but accept no new transition until an
+explicit `adopt` migration preserves the legacy record. Unknown future versions fail closed.
 
-**Resume by reloading, not by re-running.** On resume, read the snapshot as *context* to decide where to continue — then continue from there. Do **not** re-run setup that already ran, re-apply edits already committed, or re-open a gate already PASSed. Re-enter at the first gate *after* `last_gate_passed`, re-running only un-passed or defect-affected lanes. The snapshot records what was *true when written*, so the verify-before-trust check still applies (`.claude/rules/agent-memory.md`): if a "passed" gate's artifact is gone, treat it as not passed. If the snapshot is absent or unparseable, fall back to the freeform CONTINUITY state (back-compatible) and proceed.
+**Resume by reloading, not re-running.** Run `pipeline resume`, then continue at the first unresolved
+gate, re-running only unpassed or defect-affected lanes. Do not re-apply committed edits. If a
+passed artifact disappeared or changed, validation fails and the gate is no longer trustworthy. If
+the structured snapshot is absent, use freeform CONTINUITY only as context and explicitly `start`
+or `adopt`; if it is invalid or the installed CLI lacks schema-v2 lifecycle commands, block and
+upgrade rather than manufacturing JSON.
 
 ## Concurrency
 
