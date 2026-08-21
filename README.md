@@ -130,8 +130,8 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 |------|--------------|
 | 🔁 **Pipeline & quality gates** | Explicit start/adopt lifecycle and ordered progression: Critical/High always block; Medium requires a distinct, structured accepted-risk record; conditional gates need configured not-applicable evidence; plus a fast-track and `devils-advocate` pass |
 | 🤖 **Agent roster** | **29** tiered agents led by an Orchestrator that never writes code, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
-| 📐 **Rules & skills** | **25** stack-agnostic core rules + **121** context-activated skills (58 core + 63 stack-collection), pulled into context on demand |
-| 🧱 **Stacks & overlays** | A stack-agnostic core + **14** overlay rule files (React · FastAPI · Django · Go · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
+| 📐 **Rules & skills** | **25** stack-agnostic core rules + **122** context-activated skills (59 core + 63 stack-collection), pulled into context on demand |
+| 🧱 **Stacks & overlays** | A stack-agnostic core + **15** overlay rule files (React · FastAPI · Django · Go · Express · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
 | 🛠️ **Hooks & guards** | **20** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
 | 📊 **Traceability & live board** | A git-native ticket per story with a work-log and commit linkage, plus `claude-kit tickets` — a terminal chart and a click-through browser Kanban board (gate strip, per-ticket issue view, agent/model/token/timing figures) that `/sdlc` opens for you when it creates the tickets ([below](#parallel-lanes-and-the-live-ticket-board)) |
 | 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **24** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
@@ -312,7 +312,7 @@ that matters most: **native gives you the agents; claude-kit gives you the gover
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar collections | Large libraries of individual subagent prompts you pick from | A smaller, opinionated set wired into a sequenced pipeline — agents are stages that hand off and block on each other, not a menu |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec-driven development as a platform: constitution → spec → tasks → analyze, plus label-driven CI stages | The same coverage-gate idea absorbed into a broader in-session lifecycle — review, security, build, test, release, and observability gates with enforced severity blocking. Complementary: their CI stages, this kit's gate depth ([details](docs/autonomous-operation.md)) |
 | **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | Portable configuration, not a running process — no daemon, no lock-in, no app code |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A catalog-driven generator: resolves your stack/profile/scope into the right subset of 25 rules, 29 agents, 121 skills, gates, and hooks — kept upgradeable with your edits preserved |
+| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A catalog-driven generator: resolves your stack/profile/scope into the right subset of 25 rules, 29 agents, 122 skills, gates, and hooks — kept upgradeable with your edits preserved |
 
 **Choose claude-kit when** you want a consistent, gate-enforced autonomous-SDLC setup that's the
 same across every repo and stack, installs in seconds, and ships nothing you have to run. It is

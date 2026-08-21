@@ -145,13 +145,20 @@ backend:
             make_migration: "uv run python manage.py makemigrations"
     node:
       label: "Node.js"
-      status: planned
       default_framework: express
       frameworks:
         express:
           label: "Express"
-          status: planned
-          skills: [backend-repo-architecture, node-express-service, node-objection-knex, dockerfile-backend]
+          overlay_rules: [express-patterns.md]
+          skills:
+            - express
+          commands:
+            install: "npm ci"
+            dev: "npm run dev"
+            test: "npm test"
+            lint: "npm run lint"
+            typecheck: "npm run typecheck"
+            build: "npm run build"
           stack_dir: backend/node/express
     go:
       label: "Go"

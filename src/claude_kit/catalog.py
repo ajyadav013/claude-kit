@@ -526,6 +526,24 @@ def list_options(payload_root: str | Path) -> dict[str, Any]:
     profiles = _load(payload_root, "profiles.yaml")
     mcp = _load(payload_root, "mcp.yaml")
 
+    # Keep prompt numbering stable even when catalog entries are added or reordered.
+    # The interactive flow depends on these ids lining up with historical numeric answers
+    # (for example: backend 1) none 2) python 3) node 4) go).
+    backend_order: list[str] = []
+    seen_backend: set[str] = set()
+    for lid in ("none", stacks.get("backend", {}).get("default", ""), "node", "go"):
+        if (
+            lid
+            and lid in stacks.get("backend", {}).get("languages", {})
+            and lid not in seen_backend
+        ):
+            backend_order.append(lid)
+            seen_backend.add(lid)
+    for lid in stacks.get("backend", {}).get("languages", {}):
+        if lid not in seen_backend:
+            backend_order.append(lid)
+            seen_backend.add(lid)
+
     def _live(entry: dict[str, Any]) -> bool:
         return entry.get("status") != "planned"
 
@@ -540,7 +558,8 @@ def list_options(payload_root: str | Path) -> dict[str, Any]:
         for fid, fw in stacks["frontend"]["frameworks"].items()
     ]
     backends = []
-    for lid, lang in stacks["backend"]["languages"].items():
+    for lid in backend_order:
+        lang = stacks["backend"]["languages"][lid]
         backends.append(
             {
                 "id": lid,

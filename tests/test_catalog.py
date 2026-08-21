@@ -347,6 +347,7 @@ def test_list_options_reports_live_and_planned(payload):
     opts = catalog.list_options(payload)
     fe_ids = {f["id"] for f in opts["frontend"]}
     assert {"none", "react", "vue", "svelte"} <= fe_ids
+    assert [b["id"] for b in opts["backend"][:4]] == ["none", "python", "node", "go"]
     db_ids = {d["id"] for d in opts["database"]}
     assert {"none", "postgres", "mongodb"} == db_ids
     profile_ids = {p["id"] for p in opts["profiles"]}
