@@ -532,7 +532,11 @@ def list_options(payload_root: str | Path) -> dict[str, Any]:
     backend_order: list[str] = []
     seen_backend: set[str] = set()
     for lid in ("none", stacks.get("backend", {}).get("default", ""), "node", "go"):
-        if lid and lid in stacks.get("backend", {}).get("languages", {}) and lid not in seen_backend:
+        if (
+            lid
+            and lid in stacks.get("backend", {}).get("languages", {})
+            and lid not in seen_backend
+        ):
             backend_order.append(lid)
             seen_backend.add(lid)
     for lid in stacks.get("backend", {}).get("languages", {}):
