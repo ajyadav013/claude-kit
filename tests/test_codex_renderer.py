@@ -26,7 +26,11 @@ from claude_kit.hooks import HOOK_REGISTRY, HOOK_SPECS
 from claude_kit.models import InstallRequest, Runtime
 from claude_kit.projection import ProjectionCompiler, Provider, RendererRegistry
 from claude_kit.provider_compatibility import ProviderCompatibilityError
-from claude_kit.provider_renderers import CodexRenderer, _render_agent_toml
+from claude_kit.provider_renderers import (
+    CodexRenderer,
+    _render_agent_toml,
+    _render_mcp_config,
+)
 
 _FORBIDDEN = (
     re.compile(r"\$ARGUMENTS"),
@@ -362,6 +366,30 @@ def test_mcp_config_uses_native_tables_and_environment_forwarding(
         "env_vars": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
     }
     assert servers["linear"] == {"url": "https://mcp.linear.app/mcp"}
+
+
+def test_mcp_config_uses_codex_native_http_header_fields():
+    document = tomllib.loads(
+        _render_mcp_config(
+            {
+                "remote": {
+                    "type": "http",
+                    "url": "https://mcp.example.test/mcp",
+                    "headers": {
+                        "Authorization": "${REMOTE_BEARER_TOKEN}",
+                        "X-Region": "us-east-1",
+                    },
+                }
+            }
+        )
+    )
+
+    assert document["mcp_servers"]["remote"] == {
+        "url": "https://mcp.example.test/mcp",
+        "http_headers": {"X-Region": "us-east-1"},
+        "env_http_headers": {"Authorization": "REMOTE_BEARER_TOKEN"},
+    }
+    assert "headers" not in document["mcp_servers"]["remote"]
 
 
 def test_mcp_semantic_client_context_projects_to_codex(payload):

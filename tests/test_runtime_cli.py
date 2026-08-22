@@ -27,6 +27,18 @@ from claude_kit.workflow_executor import (
 runner = CliRunner()
 
 
+def _tree_snapshot(root):
+    """Return an exact-enough byte/type inventory for lifecycle rollback tests."""
+
+    return {
+        path.relative_to(root).as_posix(): (
+            "directory" if path.is_dir() else "file",
+            b"" if path.is_dir() else path.read_bytes(),
+        )
+        for path in sorted(root.rglob("*"))
+    }
+
+
 @pytest.mark.parametrize("runtime", ["claude", "codex", "both"])
 def test_init_explicit_runtime_uses_native_projection(tmp_path, runtime):
     target = tmp_path / runtime
@@ -96,6 +108,179 @@ def test_native_runtime_dry_run_is_exact_and_non_mutating(tmp_path):
     assert ".codex/agents/orchestrator.toml" in document["would_write"]
     assert StateLayout.neutral().manifest in document["would_write"]
     assert not target.exists()
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_native_runtime_dry_run_reports_existing_tree_destinations(tmp_path, force):
+    target = tmp_path / ("force" if force else "merge")
+    target.mkdir()
+    readme = target / "README.claude-sdlc.md"
+    readme.write_text("user-owned readme\n", encoding="utf-8")
+    mcp = target / ".mcp.json"
+    mcp.write_text('{"mcpServers":{"mine":{"command":"echo"}}}\n', encoding="utf-8")
+    config = tmp_path / f"{target.name}.yaml"
+    config.write_text("runtime: claude\nmcp: [github]\n", encoding="utf-8")
+    command = [
+        "init",
+        str(target),
+        "--config",
+        str(config),
+        "--dry-run",
+        "--json",
+    ]
+    if force:
+        command.append("--force")
+
+    result = runner.invoke(app, command)
+
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.output)
+    expected_readme = (
+        "README.claude-sdlc.md" if force else "README.claude-sdlc.md.claude-kit"
+    )
+    assert expected_readme in document["would_write"]
+    assert ".mcp.json" in document["would_write"]
+    assert ".mcp.json.claude-kit" not in document["would_write"]
+    assert readme.read_text(encoding="utf-8") == "user-owned readme\n"
+    assert json.loads(mcp.read_text(encoding="utf-8")) == {
+        "mcpServers": {"mine": {"command": "echo"}}
+    }
+    assert not (target / "README.claude-sdlc.md.claude-kit").exists()
+
+
+def test_native_runtime_dry_run_rejects_ambiguous_claude_mcp_without_mutation(
+    tmp_path,
+):
+    target = tmp_path / "duplicate"
+    target.mkdir()
+    original = '{"mcpServers":{"github":{"command":"user-owned"}}}\n'
+    mcp = target / ".mcp.json"
+    mcp.write_text(original, encoding="utf-8")
+    config = tmp_path / "duplicate.yaml"
+    config.write_text("runtime: claude\nmcp: [github]\n", encoding="utf-8")
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--config",
+            str(config),
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "duplicate MCP definitions" in result.output
+    assert mcp.read_text(encoding="utf-8") == original
+    assert not (target / ".ckit").exists()
+
+
+def test_native_runtime_dry_run_includes_legacy_state_migration_and_requires_flag(
+    tmp_path,
+):
+    target = tmp_path / "legacy-preview"
+    legacy = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert legacy.exit_code == 0, legacy.output
+    ticket = target / ".claude/state/user-ticket.json"
+    ticket.parent.mkdir(parents=True, exist_ok=True)
+    ticket.write_text('{"owner":"user"}\n', encoding="utf-8")
+    before = _tree_snapshot(target)
+
+    preview = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--defaults",
+            "--runtime",
+            "both",
+            "--migrate-state",
+            "--dry-run",
+            "--json",
+        ],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+
+    assert preview.exit_code == 0, preview.output
+    assert ".ckit/state/user-ticket.json" in json.loads(preview.output)["would_write"]
+    assert _tree_snapshot(target) == before
+
+    refused = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--defaults",
+            "--runtime",
+            "both",
+            "--dry-run",
+            "--json",
+        ],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+    assert refused.exit_code == 1, refused.output
+    assert "--migrate-state" in refused.output
+    assert _tree_snapshot(target) == before
+
+
+def test_native_runtime_dry_run_reports_legacy_migration_conflict_cleanly(tmp_path):
+    target = tmp_path / "legacy-conflict"
+    legacy = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert legacy.exit_code == 0, legacy.output
+    legacy_ticket = target / ".claude/state/user-ticket.json"
+    legacy_ticket.parent.mkdir(parents=True, exist_ok=True)
+    legacy_ticket.write_text('{"source":"legacy"}\n')
+    neutral_ticket = target / ".ckit/state/user-ticket.json"
+    neutral_ticket.parent.mkdir(parents=True)
+    neutral_ticket.write_text('{"source":"neutral"}\n')
+    before = _tree_snapshot(target)
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--defaults",
+            "--runtime",
+            "claude",
+            "--migrate-state",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "legacy state migration conflicts" in result.output
+    assert _tree_snapshot(target) == before
+
+
+def test_native_runtime_dry_run_previews_explicit_untracked_legacy_state_migration(
+    tmp_path,
+):
+    target = tmp_path / "untracked-legacy-state"
+    ticket = target / ".claude/state/user-ticket.json"
+    ticket.parent.mkdir(parents=True)
+    ticket.write_text('{"owner":"user"}\n')
+    before = _tree_snapshot(target)
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--defaults",
+            "--runtime",
+            "claude",
+            "--migrate-state",
+            "--dry-run",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert ".ckit/state/user-ticket.json" in json.loads(result.output)["would_write"]
+    assert _tree_snapshot(target) == before
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
@@ -197,6 +382,167 @@ def test_legacy_runtime_transition_requires_and_preserves_explicit_state_migrati
     )
     manifest = json.loads((target / StateLayout.neutral().manifest).read_text())
     assert manifest["runtimes"] == ["claude", "codex"]
+
+
+def test_init_migration_and_runtime_install_roll_back_as_one_operation(tmp_path):
+    target = tmp_path / "legacy-with-user-codex"
+    config = tmp_path / "selection.yaml"
+    config.write_text("mcp: [github]\n", encoding="utf-8")
+    legacy = runner.invoke(app, ["init", str(target), "--config", str(config)])
+    assert legacy.exit_code == 0, legacy.output
+
+    continuity = target / ".claude/CONTINUITY.md"
+    continuity.write_text("# In-flight legacy work\n\nDo not lose these bytes.\n")
+    codex_config = target / ".codex/config.toml"
+    codex_config.parent.mkdir()
+    codex_config.write_text(
+        '[mcp_servers.github]\ncommand = "user-owned"\n', encoding="utf-8"
+    )
+    before = _tree_snapshot(target)
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--config",
+            str(config),
+            "--runtime",
+            "both",
+            "--migrate-state",
+        ],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "duplicate MCP definitions" in result.output
+    assert "legacy mutable state migrated" not in result.output
+    assert not (target / ".ckit").exists()
+    assert _tree_snapshot(target) == before
+
+
+def test_init_does_not_migrate_state_when_runtime_projection_is_incompatible(
+    tmp_path, monkeypatch
+):
+    target = tmp_path / "legacy-incompatible-projection"
+    legacy = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert legacy.exit_code == 0, legacy.output
+    continuity = target / ".claude/CONTINUITY.md"
+    continuity.write_text("# Legacy state before projection validation\n")
+    before = _tree_snapshot(target)
+
+    config = tmp_path / "selection.yaml"
+    config.write_text("mcp: [github]\n", encoding="utf-8")
+    original_load = catalog._load
+
+    def provider_limited(root, name):
+        document = deepcopy(original_load(root, name))
+        if name == "mcp.yaml":
+            document["servers"]["github"]["runtime_support"] = ["claude"]
+        return document
+
+    monkeypatch.setattr(catalog, "_load", provider_limited)
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--config",
+            str(config),
+            "--runtime",
+            "both",
+            "--migrate-state",
+        ],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "github lacks codex" in result.output
+    assert "legacy mutable state migrated" not in result.output
+    assert not (target / ".ckit").exists()
+    assert _tree_snapshot(target) == before
+
+
+class _SimulatedMigrationProcessDeath(BaseException):
+    pass
+
+
+def test_interrupted_migrate_install_retry_recovers_before_routing(
+    payload, tmp_path, monkeypatch
+):
+    from claude_kit import runtime_scaffold
+    from claude_kit.models import InstallRequest
+
+    target = tmp_path / "interrupted-migration"
+    legacy = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert legacy.exit_code == 0, legacy.output
+    continuity = target / StateLayout.legacy_claude().continuity
+    expected = "# Irreplaceable legacy continuity\n\nKEEP-ME\n"
+    continuity.write_text(expected, encoding="utf-8")
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+
+    original_apply = runtime_scaffold._apply_runtime_files
+
+    def die_after_migration(*_args, **_kwargs):
+        raise _SimulatedMigrationProcessDeath()
+
+    monkeypatch.setattr(runtime_scaffold, "_apply_runtime_files", die_after_migration)
+    with pytest.raises(_SimulatedMigrationProcessDeath):
+        runtime_scaffold.install_runtime_with_state_migration(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection=selection, runtime="both"),
+        )
+    monkeypatch.setattr(runtime_scaffold, "_apply_runtime_files", original_apply)
+
+    assert (target / StateLayout.neutral().manifest).is_file()
+    assert (target / StateLayout.neutral().journal).is_file()
+    assert (target / StateLayout.neutral().continuity).read_text() == expected
+
+    preview = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--defaults",
+            "--runtime",
+            "both",
+            "--migrate-state",
+            "--dry-run",
+        ],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+    assert preview.exit_code == 1, preview.output
+    assert "interrupted lifecycle transaction" in preview.output
+    assert (target / StateLayout.neutral().journal).is_file()
+
+    refused = runner.invoke(
+        app,
+        ["init", str(target), "--defaults", "--runtime", "both"],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+    assert refused.exit_code == 1, refused.output
+    assert "--migrate-state" in refused.output
+    assert not (target / StateLayout.neutral().root).exists()
+    assert continuity.read_text() == expected
+
+    retry = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--defaults",
+            "--runtime",
+            "both",
+            "--migrate-state",
+        ],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+    assert retry.exit_code == 0, retry.output
+    assert (target / StateLayout.neutral().continuity).read_text() == expected
+    assert not (target / StateLayout.neutral().journal).exists()
 
 
 def test_pipeline_run_reaches_structured_executor_and_emits_bounded_json(

@@ -22,7 +22,7 @@ import shutil
 import subprocess
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, Mapping
 
 import yaml
 
@@ -31,7 +31,11 @@ try:  # pragma: no cover - Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10 dependency
     import tomli as tomllib  # type: ignore[no-redef]
 
-from claude_kit.mcp import require_runtime_support
+from claude_kit.mcp import (
+    adapt_codex_server_config,
+    project_resolved_servers,
+    require_runtime_support,
+)
 from claude_kit.models import (
     InitOptions,
     ResolvedPlan,
@@ -116,19 +120,73 @@ def _check_mcp_runtime_support(
     runtimes: tuple[str, ...] | list[str] | set[str],
     fail: Callable[[str], None],
     good: Callable[[str], None],
-) -> None:
+) -> bool:
     """Validate required MCP/runtime compatibility from retained semantic specs."""
 
     try:
         require_runtime_support(plan.mcp_server_specs, sorted(runtimes))
     except ValueError as exc:
         fail(str(exc))
+        return False
     else:
         if plan.mcp_server_specs:
             good(
                 "selected MCP servers support installed runtime(s): "
                 + ", ".join(sorted(runtimes))
             )
+        return True
+
+
+def _check_native_mcp_projection(
+    plan: ResolvedPlan,
+    provider: str,
+    native_servers: Mapping[str, Any] | None,
+    fail: Callable[[str], None],
+    good: Callable[[str], None],
+) -> None:
+    """Require selected native MCP records to equal the current projection.
+
+    A project may contain additional user-owned server ids. Selected ids are
+    kit-managed capabilities, however, so membership alone is insufficient: a
+    changed command, URL, argument, environment mapping, or HTTP header would no
+    longer represent the resolved semantic plan.
+    """
+
+    if not plan.mcp_servers or native_servers is None:
+        return
+    try:
+        projected = project_resolved_servers(
+            plan.mcp_servers,
+            plan.mcp_server_specs,
+            provider,
+        )
+        if provider == "codex":
+            expected = {
+                server_id: adapt_codex_server_config(server_id, config)
+                for server_id, config in projected.items()
+            }
+        else:
+            expected = projected
+    except (TypeError, ValueError) as exc:
+        fail(f"{provider.title()} MCP projection cannot be validated: {exc}")
+        return
+
+    mismatched: list[str] = []
+    for server_id, expected_config in expected.items():
+        # The structural pass already emits the more actionable omission error.
+        if server_id not in native_servers:
+            continue
+        if native_servers[server_id] != expected_config:
+            mismatched.append(server_id)
+            fail(
+                f"{provider.title()} MCP server {server_id!r} differs from "
+                "the current resolved native projection"
+            )
+    if not mismatched and set(expected).issubset(native_servers):
+        good(
+            f"{provider.title()} MCP config exactly matches every selected "
+            "server projection"
+        )
 
 
 def _doctor_mcp_semantic_summary(
@@ -294,6 +352,10 @@ def _validate_native_runtime(target: Path, *, strict: bool) -> tuple[bool, list[
 
     providers = set(options.runtimes)
     selected_mcp = set(options.selection.mcp)
+    native_mcp_servers: dict[str, Mapping[str, Any] | None] = {
+        "claude": None,
+        "codex": None,
+    }
     recorded_providers = {record.provider for record in options.files}
     unexpected = recorded_providers - providers - {"shared"}
     if unexpected:
@@ -342,6 +404,7 @@ def _validate_native_runtime(target: Path, *, strict: bool) -> tuple[bool, list[
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 fail(f"Claude MCP config is invalid: {exc}")
             else:
+                native_mcp_servers["claude"] = native_servers
                 missing = selected_mcp - set(native_servers)
                 if missing:
                     fail(
@@ -412,6 +475,7 @@ def _validate_native_runtime(target: Path, *, strict: bool) -> tuple[bool, list[
                 if not isinstance(native_servers, dict):
                     fail("Codex MCP config has no mcp_servers table")
                 else:
+                    native_mcp_servers["codex"] = native_servers
                     missing = selected_mcp - set(native_servers)
                     if missing:
                         fail(
@@ -451,8 +515,19 @@ def _validate_native_runtime(target: Path, *, strict: bool) -> tuple[bool, list[
             fail(f"installed selection no longer resolves: {exc}")
         else:
             good("installed selection resolves against the current catalog")
-            _check_mcp_runtime_support(plan, options.runtimes, fail, good)
+            mcp_supported = _check_mcp_runtime_support(
+                plan, options.runtimes, fail, good
+            )
             _check_snapshot_mcp_semantics(snapshot, plan, fail, warn, good)
+            if mcp_supported:
+                for provider in sorted(providers):
+                    _check_native_mcp_projection(
+                        plan,
+                        provider,
+                        native_mcp_servers[provider],
+                        fail,
+                        good,
+                    )
         catalog_ok, catalog_messages = check_catalog(require_schema=True)
         msgs.extend(catalog_messages)
         if not catalog_ok:

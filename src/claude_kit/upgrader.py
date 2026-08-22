@@ -435,6 +435,11 @@ def upgrade(
     """
     try:
         native_fs = ProjectFS(target)
+        if native_fs.root.exists():
+            # A provider transition can be interrupted after writing the target
+            # manifest but before commit. Recover before that manifest decides
+            # whether this invocation is an upgrade or another transition.
+            recover_interrupted_transaction(native_fs, preserve_root=True)
         if native_fs.is_file(StateLayout.neutral().manifest):
             return _native_upgrade(
                 native_fs,

@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping, Optional, Type, TypeVar, Union
+from urllib.parse import unquote, unquote_plus, urlsplit
 
 
 class ComponentKind(str, Enum):
@@ -160,7 +161,44 @@ class MCPAuthenticationMode(str, Enum):
 
 
 _ENV_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
-_SECRET_KEY_RE = re.compile(r"(?:token|secret|password|credential|api[_-]?key)", re.I)
+_SECRET_KEY_RE = re.compile(
+    r"(?:token|secret|password|credential|api[_-]?key|private[_-]?key)", re.I
+)
+_AUTHORIZATION_SCHEME_RE = re.compile(r"^\s*(?:basic|bearer)\s+\S", re.I)
+_SENSITIVE_MCP_HEADER_NAMES = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+    }
+)
+_SENSITIVE_MCP_CREDENTIAL_NAMES = frozenset(
+    {
+        "auth",
+        "authorization",
+        "bearer",
+        "cookie",
+        "proxy-authorization",
+        "set-cookie",
+    }
+)
+_SENSITIVE_MCP_CREDENTIAL_SUFFIXES = (
+    "api-key",
+    "apikey",
+    "auth",
+    "authorization",
+    "bearer",
+    "cookie",
+    "credential",
+    "credentials",
+    "password",
+    "private-key",
+    "privatekey",
+    "secret",
+    "token",
+)
+_INVALID_PERCENT_ESCAPE_RE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -622,17 +660,31 @@ class MCPServerSpec:
             raise ValueError("HTTP/SSE MCP servers require a URL")
         object.__setattr__(self, "command", command)
         object.__setattr__(self, "url", url)
-        object.__setattr__(
-            self,
-            "arguments",
-            _string_tuple(self.arguments, field_name="MCP arguments"),
-        )
+        arguments = _string_tuple(self.arguments, field_name="MCP arguments")
+        object.__setattr__(self, "arguments", arguments)
+        if url:
+            self._validate_url_credentials(url)
+        if transport is MCPTransport.STDIO:
+            self._validate_argument_credentials(arguments)
         environment = self._key_value_pairs(
             self.environment, field_name="MCP environment"
         )
         headers = self._key_value_pairs(self.headers, field_name="MCP headers")
-        for key, value in (*environment, *headers):
-            if _SECRET_KEY_RE.search(key) and not _ENV_REF_RE.fullmatch(value):
+        for key, value in environment:
+            if (
+                _SECRET_KEY_RE.search(key) or self._is_sensitive_credential_name(key)
+            ) and not _ENV_REF_RE.fullmatch(value):
+                raise ValueError(
+                    f"MCP credential field {key!r} must be an environment reference"
+                )
+        for key, value in headers:
+            normalized_key = key.casefold().replace("_", "-")
+            if (
+                normalized_key in _SENSITIVE_MCP_HEADER_NAMES
+                or _SECRET_KEY_RE.search(normalized_key)
+                or self._is_sensitive_credential_name(normalized_key)
+                or _AUTHORIZATION_SCHEME_RE.match(value)
+            ) and not _ENV_REF_RE.fullmatch(value):
                 raise ValueError(
                     f"MCP credential field {key!r} must be an environment reference"
                 )
@@ -671,6 +723,140 @@ class MCPServerSpec:
             )
         )
         object.__setattr__(self, "environment_references", references)
+
+    @staticmethod
+    def _is_sensitive_credential_name(value: str) -> bool:
+        normalized = value.casefold().replace("_", "-").replace(".", "-")
+        auth_segments = {"auth", "authorization", "bearer", "cookie"}
+        return (
+            normalized in _SENSITIVE_MCP_CREDENTIAL_NAMES
+            or any(
+                normalized.endswith(suffix)
+                for suffix in _SENSITIVE_MCP_CREDENTIAL_SUFFIXES
+            )
+            or bool(auth_segments.intersection(normalized.split("-")))
+        )
+
+    @staticmethod
+    def _decode_url_component(value: str, *, query: bool) -> str:
+        if _INVALID_PERCENT_ESCAPE_RE.search(value):
+            raise ValueError("MCP URL contains invalid percent encoding")
+        try:
+            decoder = unquote_plus if query else unquote
+            return decoder(value, encoding="utf-8", errors="strict")
+        except UnicodeDecodeError as exc:
+            raise ValueError("MCP URL contains invalid UTF-8 percent encoding") from exc
+
+    @classmethod
+    def _validate_url_credentials(cls, url: str) -> None:
+        try:
+            parsed = urlsplit(url)
+            username = parsed.username
+            password = parsed.password
+        except ValueError as exc:
+            raise ValueError("MCP URL must be parseable") from exc
+
+        for userinfo_value in (username, password):
+            if userinfo_value is None:
+                continue
+            cls._decode_url_component(userinfo_value, query=False)
+            if not _ENV_REF_RE.fullmatch(userinfo_value):
+                raise ValueError(
+                    "MCP URL userinfo values must be environment references"
+                )
+
+        for raw_field in parsed.query.split("&"):
+            if not raw_field:
+                continue
+            raw_name, _, raw_value = raw_field.partition("=")
+            name = cls._decode_url_component(raw_name, query=True)
+            cls._decode_url_component(raw_value, query=True)
+            if cls._is_sensitive_credential_name(name) and not _ENV_REF_RE.fullmatch(
+                raw_value
+            ):
+                raise ValueError(
+                    f"MCP URL credential parameter {name!r} must be an "
+                    "environment reference"
+                )
+
+    @classmethod
+    def _validate_argument_credentials(cls, arguments: tuple[str, ...]) -> None:
+        for index, raw_argument in enumerate(arguments):
+            argument = raw_argument
+            if argument.startswith(("https://", "http://")):
+                cls._validate_url_credentials(argument)
+
+            attached_user_value = argument[2:] if argument.startswith("-u") else ""
+            is_attached_user_credential = bool(
+                attached_user_value
+                and (
+                    _ENV_REF_RE.fullmatch(attached_user_value)
+                    or (":" in attached_user_value and "=" not in attached_user_value)
+                )
+            )
+            if argument == "-u" or is_attached_user_credential:
+                value = (
+                    attached_user_value
+                    if is_attached_user_credential
+                    else (arguments[index + 1] if index + 1 < len(arguments) else "")
+                )
+                if not _ENV_REF_RE.fullmatch(value):
+                    raise ValueError(
+                        "MCP argument for credential flag '-u' must be an "
+                        "environment reference"
+                    )
+
+            for prefix in ("-H", "-e"):
+                if argument.startswith(prefix) and argument != prefix:
+                    argument = argument[len(prefix) :]
+                    break
+
+            flag, separator, inline_value = argument.partition("=")
+            if separator and inline_value.startswith(("https://", "http://")):
+                cls._validate_url_credentials(inline_value)
+            if flag in {"--user", "--proxy-user"} or (
+                flag.startswith("--") and cls._is_sensitive_credential_name(flag[2:])
+            ):
+                if separator:
+                    value = inline_value
+                elif index + 1 < len(arguments):
+                    value = arguments[index + 1]
+                else:
+                    value = ""
+                if not _ENV_REF_RE.fullmatch(value):
+                    raise ValueError(
+                        f"MCP argument for credential flag {flag!r} must be an "
+                        "environment reference"
+                    )
+
+            candidate = inline_value if flag in {"--header", "--env"} else argument
+            if flag in {"--header", "--env"} and not separator:
+                candidate = arguments[index + 1] if index + 1 < len(arguments) else ""
+            header_name, header_separator, header_value = candidate.partition(":")
+            if (
+                header_separator
+                and (
+                    cls._is_sensitive_credential_name(header_name.strip())
+                    or _AUTHORIZATION_SCHEME_RE.match(header_value)
+                )
+                and not _ENV_REF_RE.fullmatch(header_value.strip())
+            ):
+                raise ValueError(
+                    f"MCP argument for credential header {header_name!r} must be an "
+                    "environment reference"
+                )
+            environment_name, environment_separator, environment_value = (
+                candidate.partition("=")
+            )
+            if (
+                environment_separator
+                and cls._is_sensitive_credential_name(environment_name.strip())
+                and not _ENV_REF_RE.fullmatch(environment_value.strip())
+            ):
+                raise ValueError(
+                    f"MCP argument for credential environment {environment_name!r} "
+                    "must be an environment reference"
+                )
 
     @staticmethod
     def _key_value_pairs(

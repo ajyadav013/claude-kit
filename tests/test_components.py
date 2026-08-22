@@ -92,6 +92,319 @@ def test_mcp_spec_rejects_inline_credentials_and_incomplete_transport():
         )
 
 
+@pytest.mark.parametrize(
+    "environment_name", ["AUTH", "BEARER", "SESSION_COOKIE", "PRIVATE_KEY"]
+)
+def test_mcp_spec_rejects_literal_sensitive_environment_values(environment_name):
+    with pytest.raises(ValueError, match="environment reference"):
+        MCPServerSpec.from_catalog(
+            "unsafe-environment",
+            {
+                "label": "Unsafe environment",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {
+                    "type": "stdio",
+                    "command": "server",
+                    "env": {environment_name: "fixed-value"},
+                },
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "header_name",
+    [
+        "Authorization",
+        "authorization",
+        "Proxy-Authorization",
+        "Cookie",
+        "Set-Cookie",
+        "X-API-Key",
+        "ApiKey",
+        "X-Auth",
+        "X-Auth-Token",
+        "X-Access-Token",
+        "X-Private-Key",
+    ],
+)
+def test_mcp_spec_rejects_literal_sensitive_header_values(header_name):
+    with pytest.raises(ValueError, match="environment reference"):
+        MCPServerSpec.from_catalog(
+            "unsafe-header",
+            {
+                "label": "Unsafe header",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {
+                    "type": "http",
+                    "url": "https://mcp.example.test",
+                    "headers": {header_name: "fixed-value"},
+                },
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "header_name",
+    ["Authorization", "Proxy_Authorization", "Cookie", "Set_Cookie", "X-API-Key"],
+)
+def test_mcp_spec_accepts_sensitive_header_environment_references(header_name):
+    spec = MCPServerSpec.from_catalog(
+        "referenced-header",
+        {
+            "label": "Referenced header",
+            "runtime_support": ["claude", "codex"],
+            "authentication": {"mode": "inferred"},
+            "health_check": {"kind": "mcp-initialize"},
+            "config": {
+                "type": "http",
+                "url": "https://mcp.example.test",
+                "headers": {
+                    header_name: "${MCP_HEADER_VALUE}",
+                    "Content-Type": "application/json",
+                },
+            },
+        },
+    )
+
+    assert dict(spec.headers) == {
+        "Content-Type": "application/json",
+        header_name: "${MCP_HEADER_VALUE}",
+    }
+    assert spec.environment_references == ("MCP_HEADER_VALUE",)
+
+
+@pytest.mark.parametrize("value", ["Bearer literal-token", "Basic dXNlcjpwYXNz"])
+def test_mcp_spec_rejects_authorization_schemes_in_custom_headers(value):
+    with pytest.raises(ValueError, match="environment reference"):
+        MCPServerSpec.from_catalog(
+            "custom-auth-header",
+            {
+                "label": "Custom authorization header",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {
+                    "type": "http",
+                    "url": "https://mcp.example.test",
+                    "headers": {"X-Whatever": value},
+                },
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://service-account:fixed-value@mcp.example.test",
+        "https://service-account@mcp.example.test",
+        "https://%73ervice:%66ixed@mcp.example.test",
+        "https://${MCP_USER}:fixed-value@mcp.example.test",
+    ],
+)
+def test_mcp_spec_rejects_literal_url_userinfo(url):
+    with pytest.raises(
+        ValueError, match="userinfo values must be environment references"
+    ):
+        MCPServerSpec.from_catalog(
+            "userinfo",
+            {
+                "label": "URL userinfo",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {"type": "http", "url": url},
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "access_token=fixed-value",
+        "api_key=fixed-value",
+        "%61ccess_token=fixed-value",
+        "client%5Fsecret=fixed-value",
+        "AUTHORIZATION=fixed-value",
+        "private_key=fixed-value",
+    ],
+)
+def test_mcp_spec_rejects_literal_sensitive_url_query_values(query):
+    with pytest.raises(ValueError, match="credential parameter.*environment reference"):
+        MCPServerSpec.from_catalog(
+            "query-credential",
+            {
+                "label": "Query credential",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {
+                    "type": "http",
+                    "url": f"https://mcp.example.test/mcp?{query}",
+                },
+            },
+        )
+
+
+def test_mcp_spec_accepts_url_credential_environment_references_and_benign_query():
+    url = (
+        "https://${MCP_USER}:${MCP_PASSWORD}@mcp.example.test/mcp"
+        "?access_token=${MCP_ACCESS_TOKEN}&format=json&tokenizer=v2"
+    )
+    spec = MCPServerSpec.from_catalog(
+        "referenced-url",
+        {
+            "label": "Referenced URL",
+            "runtime_support": ["claude", "codex"],
+            "authentication": {"mode": "inferred"},
+            "health_check": {"kind": "mcp-initialize"},
+            "config": {"type": "http", "url": url},
+        },
+    )
+
+    assert spec.url == url
+    assert spec.environment_references == (
+        "MCP_ACCESS_TOKEN",
+        "MCP_PASSWORD",
+        "MCP_USER",
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("serve", "--token", "fixed-value"),
+        ("serve", "--api-key=fixed-value"),
+        ("serve", "--access_token", "fixed-value"),
+        ("serve", "--client-secret=fixed-value"),
+        ("serve", "--githubToken", "fixed-value"),
+        ("serve", "--private-key", "fixed-value"),
+        ("serve", "--user", "alice:literal-password"),
+        ("serve", "--user=alice:literal-password"),
+        ("serve", "--proxy-user", "alice:literal-password"),
+        ("serve", "-ualice:literal-password"),
+    ],
+)
+def test_mcp_spec_rejects_literal_values_after_sensitive_stdio_flags(arguments):
+    with pytest.raises(ValueError, match="credential flag.*environment reference"):
+        MCPServerSpec.from_catalog(
+            "argument-credential",
+            {
+                "label": "Argument credential",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {
+                    "type": "stdio",
+                    "command": "server",
+                    "args": list(arguments),
+                },
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("serve", "--header", "Authorization: Bearer fixed-value"),
+        ("serve", "-H", "X-Auth: fixed-value"),
+        ("serve", "-HX-API-Key: fixed-value"),
+        ("serve", "--env", "API_TOKEN=fixed-value"),
+        ("serve", "-eAUTH=fixed-value"),
+        ("serve", "https://mcp.example.test?access_token=fixed-value"),
+        ("serve", "--url=https://mcp.example.test?access_token=fixed-value"),
+        ("serve", "--endpoint=https://mcp.example.test?private_key=fixed-value"),
+        ("serve", "--header", "X-Whatever: Bearer literal-token"),
+        ("serve", "-H", "X-Whatever: Basic dXNlcjpwYXNz"),
+    ],
+)
+def test_mcp_spec_rejects_embedded_stdio_credentials(arguments):
+    with pytest.raises(ValueError, match="environment reference"):
+        MCPServerSpec.from_catalog(
+            "embedded-credential",
+            {
+                "label": "Embedded credential",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {
+                    "type": "stdio",
+                    "command": "server",
+                    "args": list(arguments),
+                },
+            },
+        )
+
+
+def test_mcp_spec_accepts_stdio_flag_environment_references_and_benign_arguments():
+    arguments = [
+        "serve",
+        "--token",
+        "${MCP_TOKEN}",
+        "--api-key=${MCP_API_KEY}",
+        "--token-cache",
+        "/tmp/mcp-token-cache",
+        "--api-key-file",
+        "/tmp/mcp-api-key",
+        "--header",
+        "Authorization: ${MCP_AUTH_HEADER}",
+        "--user=${MCP_BASIC_AUTH}",
+        "-u",
+        "${MCP_PROXY_AUTH}",
+        "--env",
+        "SESSION_COOKIE=${MCP_COOKIE}",
+        "--timeout",
+        "30",
+        "-url=https://mcp.example.test?format=json",
+        "-use-feature",
+        "-unsafe-mode",
+    ]
+    spec = MCPServerSpec.from_catalog(
+        "referenced-arguments",
+        {
+            "label": "Referenced arguments",
+            "runtime_support": ["claude", "codex"],
+            "authentication": {"mode": "inferred"},
+            "health_check": {"kind": "mcp-initialize"},
+            "config": {
+                "type": "stdio",
+                "command": "server",
+                "args": arguments,
+            },
+        },
+    )
+
+    assert spec.arguments == tuple(arguments)
+    assert spec.environment_references == (
+        "MCP_API_KEY",
+        "MCP_AUTH_HEADER",
+        "MCP_BASIC_AUTH",
+        "MCP_COOKIE",
+        "MCP_PROXY_AUTH",
+        "MCP_TOKEN",
+    )
+
+
+def test_mcp_spec_rejects_malformed_url_percent_encoding():
+    with pytest.raises(ValueError, match="invalid percent encoding"):
+        MCPServerSpec.from_catalog(
+            "malformed-url",
+            {
+                "label": "Malformed URL",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": {
+                    "type": "http",
+                    "url": "https://mcp.example.test/mcp?format=%ZZ",
+                },
+            },
+        )
+
+
 def test_every_catalog_mcp_definition_round_trips_declared_semantics(payload):
     from claude_kit import catalog
 

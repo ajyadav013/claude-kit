@@ -360,6 +360,68 @@ def _apply_plan(
     return tuple(copied), tuple(created_directories)
 
 
+def _apply_legacy_state_migration(
+    fs: ProjectFS, *, require_source: bool = False
+) -> StateMigrationResult:
+    """Apply legacy-state copying inside an already-held project transaction.
+
+    This is the bounded composition seam used when migration is one step in a
+    larger lifecycle operation.  It deliberately does not recover an earlier
+    transaction, acquire a lease, create a journal, or commit independently;
+    the caller must hold an exclusive :class:`ProjectTransaction` whose
+    protected surface contains both ``.claude`` and ``.ckit``.
+
+    ``require_source`` closes the race between an outer read-only legacy check
+    and transaction acquisition.  A caller that selected migration because a
+    legacy manifest existed must not silently continue if that source vanishes.
+    """
+
+    lease_depth = int(getattr(fs._lease_local, "depth", 0))
+    exclusive = bool(getattr(fs._lease_local, "exclusive", False))
+    if lease_depth < 1 or not exclusive:
+        raise StateMigrationError(
+            "legacy state migration requires an encompassing exclusive project transaction"
+        )
+    if _neutral_manifest_is_current(fs):
+        return StateMigrationResult(migrated=False, already_neutral=True)
+
+    plan = _build_plan(fs)
+    if require_source and not plan.source_present:
+        raise StateMigrationError(
+            "legacy state disappeared while migration was acquiring its lock"
+        )
+    if not plan.source_present or not plan.has_changes:
+        return StateMigrationResult(migrated=False)
+
+    copied, created = _apply_plan(fs, plan)
+    return StateMigrationResult(
+        migrated=bool(copied or created),
+        copied_paths=copied,
+        created_directories=created,
+    )
+
+
+def preview_legacy_state_migration(target: str | Path) -> StateMigrationResult:
+    """Return the exact pending legacy-state copy inventory without mutation.
+
+    Dry-run deliberately does not recover an interrupted transaction or create
+    lock/journal files. Ordinary source/destination validation is identical to
+    the real migration plan, so conflicts fail before the CLI claims success.
+    """
+
+    fs = ProjectFS(Path(target).expanduser())
+    if not fs.root.exists():
+        return StateMigrationResult(migrated=False)
+    if _neutral_manifest_is_current(fs):
+        return StateMigrationResult(migrated=False, already_neutral=True)
+    plan = _build_plan(fs)
+    return StateMigrationResult(
+        migrated=plan.has_changes,
+        copied_paths=tuple(entry.destination for entry in plan.pending_files),
+        created_directories=plan.pending_directories,
+    )
+
+
 def migrate_legacy_state(target: str | Path) -> StateMigrationResult:
     """Copy legacy mutable state into ``.ckit`` transactionally and convergently.
 
@@ -398,18 +460,14 @@ def migrate_legacy_state(target: str | Path) -> StateMigrationResult:
     ):
         # Recompute after the transaction acquired its exclusive mutation lease.
         # The journal is an allowed extra destination and is never copied.
-        plan = _build_plan(fs)
-        if not plan.source_present:
-            raise StateMigrationError(
-                "legacy state disappeared while migration was acquiring its lock"
-            )
-        copied, created = _apply_plan(fs, plan)
+        applied = _apply_legacy_state_migration(fs, require_source=True)
 
     return StateMigrationResult(
-        migrated=bool(copied or created),
+        migrated=applied.migrated,
         recovered=recovered,
-        copied_paths=copied,
-        created_directories=created,
+        already_neutral=applied.already_neutral,
+        copied_paths=applied.copied_paths,
+        created_directories=applied.created_directories,
     )
 
 
@@ -418,4 +476,5 @@ __all__ = [
     "StateMigrationError",
     "StateMigrationResult",
     "migrate_legacy_state",
+    "preview_legacy_state_migration",
 ]

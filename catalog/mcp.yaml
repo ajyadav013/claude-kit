@@ -60,6 +60,8 @@ servers:
         JIRA_API_TOKEN: "${JIRA_API_TOKEN}"
   postgres:
     <<: *mcp_semantic_defaults
+    # Codex does not interpolate environment references inside stdio arguments.
+    runtime_support: [claude]
     label: "PostgreSQL (query the database)"
     # toxic-flow legs: private-data (DB rows) · untrusted-content (user-generated rows); read-only server — no destructive leg
     # NOTE: @modelcontextprotocol/server-postgres is archived/deprecated upstream; pinned to its last
@@ -71,6 +73,8 @@ servers:
         ["-y", "@modelcontextprotocol/server-postgres@0.6.2", "${DATABASE_URL}"]
   mongodb:
     <<: *mcp_semantic_defaults
+    # Codex env_vars forwards only same-named variables; this server requires a rename.
+    runtime_support: [claude]
     label: "MongoDB (query the database)"
     # toxic-flow legs: private-data (DB contents) · untrusted-content (stored docs) · destructive (supports writes)
     config:
@@ -165,6 +169,8 @@ servers:
         REQUIRE_MUTATION_CONSENT: "true"
   azure_devops:
     <<: *mcp_semantic_defaults
+    # Codex does not interpolate environment references inside stdio arguments.
+    runtime_support: [claude]
     label: "Azure DevOps (work items, repos, pipelines, wikis, test plans)"
     # toxic-flow legs: untrusted-content (work-item text) · private-data · destructive (writes) · egress
     # First-party Azure DevOps MCP Server (github.com/microsoft/azure-devops-mcp, @azure-devops/mcp,
@@ -248,6 +254,8 @@ servers:
   # first use. Point it at the repo via the env var below (e.g. `export REPOWISE_PROJECT_ROOT=$(pwd)`).
   repowise:
     <<: *mcp_semantic_defaults
+    # Codex does not interpolate environment references inside stdio arguments.
+    runtime_support: [claude]
     label: "Repowise codebase intelligence (AGPL-3.0; needs `pip install repowise` + `repowise init`)"
     # toxic-flow legs: private-data (whole-codebase index); local-only — no egress leg
     config:

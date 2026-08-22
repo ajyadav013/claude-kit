@@ -52,11 +52,16 @@ from claude_kit.projection import Provider
 from claude_kit.runtime_scaffold import (
     RuntimeInstallError,
     install_runtime,
+    install_runtime_with_state_migration,
     preview_runtime_install,
 )
 from claude_kit.secure_fs import ProjectFS
 from claude_kit.state import detect_state_layout
-from claude_kit.state_migration import StateMigrationError, migrate_legacy_state
+from claude_kit.state_migration import (
+    StateMigrationError,
+    migrate_legacy_state,
+    preview_legacy_state_migration,
+)
 from claude_kit.worktrees import WorktreeError, WorktreeManager, WorktreeStatus
 
 # Planned-but-unimplemented commands are hidden from `--help` by default so they
@@ -335,8 +340,11 @@ def _print_dry_run(
     target: Path,
     plan: ResolvedPlan,
     request: InstallRequest | None = None,
+    *,
+    force: bool = False,
+    additional_paths: tuple[str, ...] = (),
 ) -> None:
-    """Print the resolved plan + the exact files a fresh install would write. Touches nothing."""
+    """Print the resolved plan + exact live-target writes. Touches nothing."""
     sel = plan.selection
     stack_str = (
         f"{sel.frontend_framework}/{sel.frontend_language} + "
@@ -345,7 +353,8 @@ def _print_dry_run(
     if request is None:
         _, paths = scaffold.preview_install(src, target, plan)
     else:
-        _, paths = preview_runtime_install(src, target, plan, request)
+        _, paths = preview_runtime_install(src, target, plan, request, force=force)
+    paths = sorted(set(paths).union(additional_paths))
     typer.echo(f"\nDRY RUN — previewing install into {target} (no files written)\n")
     typer.echo(f"  profile : {sel.profile}    scope: {sel.scope}")
     typer.echo(f"  runtime : {request.runtime.value if request else 'claude (legacy)'}")
@@ -374,13 +383,17 @@ def _dry_run_doc(
     target: Path,
     plan: ResolvedPlan,
     request: InstallRequest | None = None,
+    *,
+    force: bool = False,
+    additional_paths: tuple[str, ...] = (),
 ) -> dict:
     """The same plan + would-write file list as :func:`_print_dry_run`, as a JSON-able dict."""
     sel = plan.selection
     if request is None:
         _, paths = scaffold.preview_install(src, target, plan)
     else:
-        _, paths = preview_runtime_install(src, target, plan, request)
+        _, paths = preview_runtime_install(src, target, plan, request, force=force)
+    paths = sorted(set(paths).union(additional_paths))
     return {
         "dry_run": True,
         "target": str(target),
@@ -541,13 +554,46 @@ def init(
                     if runtime_choice is not None
                     else None
                 )
+                migration_paths: tuple[str, ...] = ()
+                if request is not None:
+                    legacy_manifest = StateLayout.legacy_claude().manifest
+                    neutral_manifest = StateLayout.neutral().manifest
+                    needs_migration = project_fs.is_file(
+                        legacy_manifest
+                    ) and not project_fs.is_file(neutral_manifest)
+                    if needs_migration and not migrate_state:
+                        raise RuntimeInstallError(
+                            "legacy mutable state is installed under .claude; rerun with "
+                            "--migrate-state to copy it transactionally into .ckit"
+                        )
+                    if migrate_state:
+                        migration_paths = preview_legacy_state_migration(
+                            target
+                        ).copied_paths
                 if json_out:
                     typer.echo(
-                        json.dumps(_dry_run_doc(src, target, plan, request), indent=2)
+                        json.dumps(
+                            _dry_run_doc(
+                                src,
+                                target,
+                                plan,
+                                request,
+                                force=force,
+                                additional_paths=migration_paths,
+                            ),
+                            indent=2,
+                        )
                     )
                 else:
-                    _print_dry_run(src, target, plan, request)
-            except (RuntimeInstallError, ValueError) as exc:
+                    _print_dry_run(
+                        src,
+                        target,
+                        plan,
+                        request,
+                        force=force,
+                        additional_paths=migration_paths,
+                    )
+            except (RuntimeInstallError, StateMigrationError, ValueError) as exc:
                 typer.echo(f"error: {exc}", err=True)
                 raise typer.Exit(1) from exc
             return
@@ -595,30 +641,41 @@ def init(
             try:
                 legacy_manifest = StateLayout.legacy_claude().manifest
                 neutral_manifest = StateLayout.neutral().manifest
-                if project_fs.is_file(legacy_manifest) and not project_fs.is_file(
-                    neutral_manifest
-                ):
-                    if not migrate_state:
-                        raise RuntimeInstallError(
-                            "legacy mutable state is installed under .claude; rerun with "
-                            "--migrate-state to copy it transactionally into .ckit"
-                        )
-                    migrated = migrate_legacy_state(target)
-                    typer.echo(
-                        "  • legacy mutable state migrated to .ckit"
-                        if migrated.migrated
-                        else "  • neutral state already current"
+                needs_migration = project_fs.is_file(
+                    legacy_manifest
+                ) and not project_fs.is_file(neutral_manifest)
+                if needs_migration and not migrate_state:
+                    raise RuntimeInstallError(
+                        "legacy mutable state is installed under .claude; rerun with "
+                        "--migrate-state to copy it transactionally into .ckit"
                     )
                 typer.echo(
                     f"\nckit: installing native {runtime_choice.value} projection into {target}"
                 )
-                for line in install_runtime(
-                    src,
-                    target,
-                    plan,
-                    request,
-                    force=force,
-                ):
+                if migrate_state:
+                    lines, migrated = install_runtime_with_state_migration(
+                        src,
+                        target,
+                        plan,
+                        request,
+                        force=force,
+                        require_legacy_source=needs_migration,
+                    )
+                    if migrated.migrated:
+                        typer.echo("  • legacy mutable state migrated to .ckit")
+                    elif migrated.already_neutral:
+                        typer.echo("  • neutral state already current")
+                    else:
+                        typer.echo("  • no legacy mutable state required migration")
+                else:
+                    lines = install_runtime(
+                        src,
+                        target,
+                        plan,
+                        request,
+                        force=force,
+                    )
+                for line in lines:
                     typer.echo(line)
             except (RuntimeInstallError, StateMigrationError) as exc:
                 typer.echo(f"error: {exc}", err=True)

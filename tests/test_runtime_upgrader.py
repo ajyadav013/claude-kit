@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from claude_kit import catalog, upgrader
 from claude_kit.models import InitOptions, InstallRequest, StateLayout
-from claude_kit.runtime_scaffold import install_runtime
+from claude_kit.runtime_scaffold import install_runtime, transition_runtime
 
 
 def _options(target):
@@ -71,6 +73,7 @@ def test_native_upgrade_requires_confirmation_and_backs_up_removed_runtime(
         plan,
         InstallRequest(selection=selection, runtime="both"),
     )
+    assert (target / "README.claude-sdlc.md").is_file()
 
     refused, refused_messages = upgrader.upgrade(target, runtime="codex")
     assert not refused
@@ -85,5 +88,61 @@ def test_native_upgrade_requires_confirmation_and_backs_up_removed_runtime(
     assert ok, messages
     assert _options(target).runtimes == ["codex"]
     assert not (target / ".claude").exists()
+    assert not (target / "CLAUDE.md").exists()
+    assert not (target / "README.claude-sdlc.md").exists()
+    assert not (target / ".mcp.json").exists()
+    assert not (target / ".mcp.lock.json").exists()
     assert (target / ".codex").is_dir()
+    assert list(target.glob(".ckit.bak-*/providers/.claude"))
+    assert list(target.glob(".ckit.bak-*/providers/README.claude-sdlc.md"))
+
+
+class _SimulatedLateUpgradeDeath(BaseException):
+    pass
+
+
+def test_native_upgrade_recovers_late_interrupted_transition_before_routing(
+    payload, tmp_path, monkeypatch
+):
+    from claude_kit import runtime_scaffold
+
+    target = tmp_path / "late-interrupted-upgrade"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime="both"),
+    )
+    original_apply = runtime_scaffold._apply_runtime_files
+
+    def apply_then_die(*args, **kwargs):
+        original_apply(*args, **kwargs)
+        raise _SimulatedLateUpgradeDeath()
+
+    monkeypatch.setattr(runtime_scaffold, "_apply_runtime_files", apply_then_die)
+    with pytest.raises(_SimulatedLateUpgradeDeath):
+        transition_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection=selection, runtime="codex"),
+            confirm_removal=True,
+        )
+    monkeypatch.setattr(runtime_scaffold, "_apply_runtime_files", original_apply)
+    assert _options(target).runtimes == ["codex"]
+    assert not (target / ".claude").exists()
+    assert (target / StateLayout.neutral().journal).is_file()
+
+    ok, messages = upgrader.upgrade(
+        target,
+        runtime="codex",
+        confirm_runtime_removal=True,
+    )
+
+    assert ok, messages
+    assert _options(target).runtimes == ["codex"]
+    assert not (target / ".claude").exists()
+    assert not (target / StateLayout.neutral().journal).exists()
     assert list(target.glob(".ckit.bak-*/providers/.claude"))

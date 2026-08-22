@@ -8,7 +8,9 @@ import shutil
 import pytest
 import yaml
 
-from claude_kit import validator
+from claude_kit import catalog, validator
+from claude_kit.models import InstallRequest
+from claude_kit.runtime_scaffold import install_runtime
 from claude_kit.secure_fs import ProjectFS, ProjectTransaction
 from tests._helpers import install
 
@@ -140,6 +142,171 @@ def test_doctor_warns_on_windows_without_jq(tmp_path, payload, monkeypatch):
 
 
 # --- strict installed-config checks ---------------------------------------------------------------
+
+
+def _install_native_mcp(payload, target, runtime, server_id):
+    selection = catalog.defaults(payload)
+    selection.mcp = [server_id]
+    plan = catalog.resolve(payload, selection)
+    install_runtime(payload, target, plan, InstallRequest(selection, runtime))
+
+
+@pytest.mark.parametrize(
+    ("server_id", "field"),
+    [
+        ("github", "command"),
+        ("github", "args"),
+        ("github", "env"),
+        ("linear", "url"),
+        ("linear", "headers"),
+    ],
+)
+def test_native_strict_validation_rejects_claude_mcp_semantic_changes(
+    tmp_path, payload, server_id, field
+):
+    target = tmp_path / f"claude-{field}"
+    _install_native_mcp(payload, target, "claude", server_id)
+    path = target / ".mcp.json"
+    document = json.loads(path.read_text(encoding="utf-8"))
+    server = document["mcpServers"][server_id]
+    if field == "command":
+        server["command"] = "user-modified"
+    elif field == "args":
+        server["args"] = [*server["args"], "--user-modified"]
+    elif field == "env":
+        server["env"] = {"GITHUB_PERSONAL_ACCESS_TOKEN": "${OTHER_TOKEN}"}
+    elif field == "url":
+        server["url"] = "https://example.invalid/mcp"
+    else:
+        server["headers"] = {"X-Debug": "user-modified"}
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+    ok, messages = validator.validate(target, strict=True)
+
+    assert not ok
+    assert any(
+        f"Claude MCP server '{server_id}' differs from the current resolved "
+        "native projection" in message
+        for message in messages
+    ), "\n".join(messages)
+
+
+@pytest.mark.parametrize(
+    ("server_id", "old", "new"),
+    [
+        ("github", '"command" = "npx"', '"command" = "user-modified"'),
+        (
+            "github",
+            '"args" = ["-y", "@modelcontextprotocol/server-github@2025.4.8"]',
+            '"args" = ["--user-modified"]',
+        ),
+        (
+            "github",
+            '"env_vars" = ["GITHUB_PERSONAL_ACCESS_TOKEN"]',
+            '"env_vars" = ["OTHER_TOKEN"]',
+        ),
+        (
+            "linear",
+            '"url" = "https://mcp.linear.app/mcp"',
+            '"url" = "https://example.invalid/mcp"',
+        ),
+    ],
+)
+def test_native_strict_validation_rejects_codex_mcp_semantic_changes(
+    tmp_path, payload, server_id, old, new
+):
+    target = tmp_path / f"codex-{server_id}"
+    _install_native_mcp(payload, target, "codex", server_id)
+    path = target / ".codex/config.toml"
+    content = path.read_text(encoding="utf-8")
+    assert content.count(old) == 1
+    path.write_text(content.replace(old, new), encoding="utf-8")
+
+    ok, messages = validator.validate(target, strict=True)
+
+    assert not ok
+    assert any(
+        f"Codex MCP server '{server_id}' differs from the current resolved "
+        "native projection" in message
+        for message in messages
+    ), "\n".join(messages)
+
+
+def test_native_strict_validation_rejects_codex_mcp_header_changes(tmp_path, payload):
+    target = tmp_path / "codex-headers"
+    _install_native_mcp(payload, target, "codex", "linear")
+    path = target / ".codex/config.toml"
+    content = path.read_text(encoding="utf-8")
+    content += '\n[mcp_servers."linear".http_headers]\n"X-Debug" = "user-modified"\n'
+    path.write_text(content, encoding="utf-8")
+
+    ok, messages = validator.validate(target, strict=True)
+
+    assert not ok
+    assert any(
+        "Codex MCP server 'linear' differs from the current resolved native projection"
+        in message
+        for message in messages
+    ), "\n".join(messages)
+
+
+@pytest.mark.parametrize("changed_provider", ["claude", "codex"])
+def test_dual_runtime_strict_validation_detects_one_sided_mcp_divergence(
+    tmp_path, payload, changed_provider
+):
+    target = tmp_path / changed_provider
+    _install_native_mcp(payload, target, "both", "github")
+    if changed_provider == "claude":
+        path = target / ".mcp.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        document["mcpServers"]["github"]["command"] = "user-modified"
+        path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    else:
+        path = target / ".codex/config.toml"
+        content = path.read_text(encoding="utf-8")
+        assert content.count('"command" = "npx"') == 1
+        path.write_text(
+            content.replace('"command" = "npx"', '"command" = "user-modified"'),
+            encoding="utf-8",
+        )
+
+    ok, messages = validator.validate(target, strict=True)
+
+    assert not ok
+    label = changed_provider.title()
+    other = "Codex" if label == "Claude" else "Claude"
+    assert any(
+        f"{label} MCP server 'github' differs" in message for message in messages
+    ), "\n".join(messages)
+    assert not any(
+        f"{other} MCP server 'github' differs" in message for message in messages
+    ), "\n".join(messages)
+
+
+def test_native_strict_validation_allows_unselected_user_mcp_servers(tmp_path, payload):
+    target = tmp_path / "user-servers"
+    (target / ".codex").mkdir(parents=True)
+    (target / ".mcp.json").write_text(
+        json.dumps({"mcpServers": {"user-claude": {"command": "user-command"}}}) + "\n",
+        encoding="utf-8",
+    )
+    (target / ".codex/config.toml").write_text(
+        '[mcp_servers."user-codex"]\ncommand = "user-command"\n',
+        encoding="utf-8",
+    )
+    _install_native_mcp(payload, target, "both", "github")
+
+    ok, messages = validator.validate(target, strict=True)
+
+    assert ok, "\n".join(messages)
+    assert any(
+        "Claude MCP config exactly matches every selected server projection" in message
+        for message in messages
+    )
+    assert any(
+        "Codex MCP config exactly matches every selected server projection" in message
+        for message in messages
+    )
 
 
 def test_strict_validate_green_on_fresh_install(tmp_path, payload):

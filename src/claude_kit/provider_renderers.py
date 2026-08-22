@@ -41,7 +41,7 @@ from claude_kit.components import (
     SymbolicRef,
 )
 from claude_kit.hooks import HOOK_REGISTRY, HOOK_SPECS
-from claude_kit.mcp import project_resolved_servers
+from claude_kit.mcp import adapt_codex_server_config, project_resolved_servers
 from claude_kit.models import InstallRequest, ResolvedPlan
 from claude_kit.projection import ProjectionFile, Provider, ProviderSpec
 from claude_kit.provider_compatibility import (
@@ -1168,54 +1168,23 @@ def _render_mcp_config(servers: dict[str, dict[str, Any]]) -> str:
         return "\n".join(lines) + "\n"
 
     for server_id in sorted(servers):
-        config = servers[server_id]
-        if not isinstance(config, dict):
-            raise ValueError(f"MCP server {server_id!r} config must be a mapping")
-        server_type = config.get("type")
-        if server_type not in {"stdio", "http"}:
-            raise ValueError(f"MCP server {server_id!r} type must be 'stdio' or 'http'")
+        config = adapt_codex_server_config(server_id, servers[server_id])
         table = f"mcp_servers.{_toml_key(server_id)}"
         lines.extend(["", f"[{table}]"])
 
-        environment = config.get("env", {})
-        if not isinstance(environment, dict):
-            raise ValueError(f"MCP server {server_id!r} env must be a mapping")
-        forwarded: list[str] = []
-        literal_environment: dict[str, Any] = {}
-        for key, value in environment.items():
-            match = (
-                re.fullmatch(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", value)
-                if isinstance(value, str)
-                else None
-            )
-            if match and match.group(1) == key:
-                forwarded.append(key)
-            else:
-                literal_environment[key] = value
-
         for key in sorted(config):
-            if key in {"type", "env"}:
-                continue
             value = config[key]
             if isinstance(value, dict):
                 continue
             lines.append(f"{_toml_key(key)} = {_toml_value(value)}")
-        if forwarded:
-            lines.append(f"env_vars = {_toml_value(sorted(forwarded))}")
         for key in sorted(config):
             value = config[key]
-            if key in {"type", "env"} or not isinstance(value, dict):
+            if not isinstance(value, dict):
                 continue
             lines.extend(["", f"[{table}.{_toml_key(key)}]"])
             for nested_key in sorted(value):
                 lines.append(
                     f"{_toml_key(nested_key)} = {_toml_value(value[nested_key])}"
-                )
-        if literal_environment:
-            lines.extend(["", f"[{table}.env]"])
-            for key in sorted(literal_environment):
-                lines.append(
-                    f"{_toml_key(key)} = {_toml_value(literal_environment[key])}"
                 )
     return "\n".join(lines).rstrip() + "\n"
 

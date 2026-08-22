@@ -44,7 +44,15 @@ from claude_kit.projection import (
     RendererRegistry,
 )
 from claude_kit.provider_renderers import CodexRenderer
-from claude_kit.secure_fs import ProjectFS, ProjectTransaction
+from claude_kit.secure_fs import (
+    ProjectFS,
+    ProjectTransaction,
+    recover_interrupted_transaction,
+)
+from claude_kit.state_migration import (
+    StateMigrationResult,
+    _apply_legacy_state_migration,
+)
 
 _AGENTS_START = "<!-- ckit:managed:start -->"
 _AGENTS_END = "<!-- ckit:managed:end -->"
@@ -66,6 +74,7 @@ _PROTECTED_PATHS = (
     ".mcp.json",
     ".mcp.json.claude-kit",
     ".mcp.lock.json",
+    ".mcp.lock.json.claude-kit",
     ".gitignore",
 )
 _GITIGNORE_ENTRIES = (
@@ -433,7 +442,81 @@ def _merge_codex_toml(existing: str, generated: str) -> str:
     return merged
 
 
-def _old_records(fs: ProjectFS) -> dict[str, FileRecord]:
+def _merge_claude_mcp(
+    existing: str,
+    generated: str,
+    *,
+    prior_managed_ids: frozenset[str] = frozenset(),
+) -> str:
+    """Merge generated Claude MCP servers without shadowing user definitions.
+
+    A previously installed ``.mcp.json`` may contain both user servers and the
+    kit's prior selected servers. ``prior_managed_ids`` comes only from the
+    matching native manifest and names the subset replaced on upgrade. Any
+    other overlap is an ambiguous duplicate and fails closed.
+    """
+
+    try:
+        base_doc = json.loads(existing)
+        generated_doc = json.loads(generated)
+    except json.JSONDecodeError as exc:
+        raise RuntimeInstallError(f"cannot merge invalid .mcp.json: {exc}") from exc
+    if not isinstance(base_doc, dict) or not isinstance(generated_doc, dict):
+        raise RuntimeInstallError(".mcp.json root must be an object")
+    existing_servers = base_doc.get("mcpServers", {})
+    generated_servers = generated_doc.get("mcpServers", {})
+    if not isinstance(existing_servers, dict) or not isinstance(
+        generated_servers, dict
+    ):
+        raise RuntimeInstallError(".mcp.json mcpServers must be an object")
+
+    preserved_servers = dict(existing_servers)
+    for server_id in prior_managed_ids:
+        preserved_servers.pop(server_id, None)
+    duplicates = set(preserved_servers) & set(generated_servers)
+    if duplicates:
+        raise RuntimeInstallError(
+            "duplicate MCP definitions in user and generated Claude config: "
+            + ", ".join(sorted(duplicates))
+        )
+
+    merged = dict(base_doc)
+    for key, value in generated_doc.items():
+        if key == "mcpServers":
+            continue
+        if key in merged and merged[key] != value:
+            raise RuntimeInstallError(
+                f"duplicate top-level .mcp.json definition for {key!r}"
+            )
+        merged[key] = value
+    merged["mcpServers"] = {**preserved_servers, **generated_servers}
+    return json.dumps(merged, indent=2, ensure_ascii=False) + "\n"
+
+
+def _remove_managed_claude_mcp_servers(
+    existing: str, prior_managed_ids: frozenset[str]
+) -> bytes | None:
+    """Remove only the prior managed subset from a mixed Claude MCP file.
+
+    ``None`` means the resulting document has neither user server definitions
+    nor any other user-owned top-level key and can be removed entirely.
+    """
+
+    rendered = _merge_claude_mcp(
+        existing,
+        '{"mcpServers": {}}\n',
+        prior_managed_ids=prior_managed_ids,
+    )
+    document = json.loads(rendered)
+    servers = document.get("mcpServers")
+    if servers or any(key != "mcpServers" for key in document):
+        return rendered.encode("utf-8")
+    return None
+
+
+def _old_options(fs: ProjectFS) -> InitOptions | None:
+    """Return the installed manifest from either supported state layout."""
+
     for rel in (
         StateLayout.neutral().manifest,
         StateLayout.legacy_claude().manifest,
@@ -441,13 +524,42 @@ def _old_records(fs: ProjectFS) -> dict[str, FileRecord]:
         if not fs.is_file(rel):
             continue
         try:
-            options = InitOptions.from_dict(json.loads(fs.read_text(rel)))
+            return InitOptions.from_dict(json.loads(fs.read_text(rel)))
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             raise RuntimeInstallError(
                 f"existing init-options is corrupt: {exc}"
             ) from exc
-        return {record.path: record for record in options.files}
-    return {}
+    return None
+
+
+def _old_records(fs: ProjectFS) -> dict[str, FileRecord]:
+    options = _old_options(fs)
+    return {record.path: record for record in options.files} if options else {}
+
+
+def _prior_managed_claude_mcp_ids(
+    fs: ProjectFS,
+    options: InitOptions | None,
+    records: dict[str, FileRecord],
+) -> frozenset[str]:
+    """Return the selected Claude MCP ids owned by a prior native install.
+
+    ``.mcp.json`` is a mixed-ownership document: unknown server ids belong to
+    the user, while ids explicitly selected into the prior kit manifest are the
+    managed semantic subset. Replacing only that subset preserves later user
+    additions without allowing a user definition to shadow the resolved plan.
+    A pre-existing file with no matching manifest record remains wholly
+    user-owned and therefore collides fail-closed.
+    """
+
+    if (
+        options is None
+        or "claude" not in options.runtimes
+        or ".mcp.json" not in records
+        or not fs.is_file(".mcp.json")
+    ):
+        return frozenset()
+    return frozenset(options.selection.mcp)
 
 
 def _sha256(content: bytes) -> str:
@@ -459,6 +571,7 @@ def _write_artifact(
     artifact: RuntimeArtifact,
     *,
     old_records: dict[str, FileRecord],
+    prior_managed_claude_mcp_ids: frozenset[str],
     force: bool,
     log: list[str],
 ) -> tuple[str, bytes] | None:
@@ -497,6 +610,25 @@ def _write_artifact(
         )
         log.append(message)
         return path, content
+    if path == ".mcp.json":
+        generated = content.decode("utf-8")
+        if exists and not force:
+            rendered = _merge_claude_mcp(
+                fs.read_text(path),
+                generated,
+                prior_managed_ids=prior_managed_claude_mcp_ids,
+            )
+        else:
+            rendered = generated
+        content = rendered.encode("utf-8")
+        fs.write_bytes(path, content, mode=mode)
+        message = (
+            "  • .mcp.json merged; user server definitions preserved"
+            if exists and not force
+            else "  • .mcp.json"
+        )
+        log.append(message)
+        return path, content
 
     if exists and not force:
         current = fs.read_bytes(path)
@@ -508,7 +640,7 @@ def _write_artifact(
         previous = old_records.get(path)
         safe_to_refresh = (
             previous is not None
-            and previous.owner != "user-editable"
+            and (previous.owner != "user-editable" or path == ".mcp.lock.json")
             and previous.sha256 == _sha256(current)
         )
         if artifact.owner == "user-editable" or not safe_to_refresh:
@@ -583,12 +715,100 @@ def preview_runtime_install(
     target: Path,
     plan: ResolvedPlan,
     request: InstallRequest,
+    *,
+    force: bool = False,
 ) -> tuple[ProjectionPlan, list[str]]:
-    """Return the exact fresh-install provider/shared inventory without mutation."""
+    """Return the exact live-target write inventory without mutation.
 
+    The preview runs the same pure merge and collision decisions as the real
+    installer. It therefore reports sidecars on an existing project and
+    refuses ambiguous native configuration before claiming success.
+    """
+
+    fs = ProjectFS(Path(target).expanduser())
+    if fs.root.exists() and (
+        fs.exists(StateLayout.neutral().journal)
+        or fs.exists(StateLayout.legacy_claude().journal)
+        or any(child.name.startswith(".claude-kit-txn-") for child in fs.root.iterdir())
+    ):
+        raise RuntimeInstallError(
+            "exact runtime preview is unavailable while an interrupted lifecycle "
+            "transaction awaits recovery; rerun the real lifecycle command to recover "
+            "it before requesting --dry-run"
+        )
     projection, artifacts = render_runtime_artifacts(source, target, plan, request)
-    paths = [artifact.path for artifact in artifacts]
-    paths.extend([StateLayout.neutral().manifest, ".gitignore"])
+    options = _old_options(fs)
+    records = {record.path: record for record in options.files} if options else {}
+    managed_mcp_ids = _prior_managed_claude_mcp_ids(fs, options, records)
+    paths: list[str] = []
+    artifact_paths = {artifact.path for artifact in artifacts}
+    if managed_mcp_ids and ".mcp.json" not in artifact_paths:
+        _remove_managed_claude_mcp_servers(fs.read_text(".mcp.json"), managed_mcp_ids)
+        paths.append(".mcp.json")
+        previous_lock = records.get(".mcp.lock.json")
+        if previous_lock is not None and fs.is_file(".mcp.lock.json"):
+            if previous_lock.sha256 == _sha256(fs.read_bytes(".mcp.lock.json")):
+                paths.append(".mcp.lock.json")
+    for artifact in artifacts:
+        path = artifact.path
+        exists = fs.is_file(path)
+        if fs.exists(path) and not exists:
+            raise RuntimeInstallError(
+                f"native artifact destination is not a regular file: {path}"
+            )
+        if path == "AGENTS.md":
+            if exists and not force:
+                _merge_agents(fs.read_text(path), artifact.content.decode("utf-8"))
+            paths.append(path)
+            continue
+        if path == ".codex/config.toml":
+            if exists and not force:
+                _merge_codex_toml(fs.read_text(path), artifact.content.decode("utf-8"))
+            paths.append(path)
+            continue
+        if path == ".mcp.json":
+            if exists and not force:
+                _merge_claude_mcp(
+                    fs.read_text(path),
+                    artifact.content.decode("utf-8"),
+                    prior_managed_ids=managed_mcp_ids,
+                )
+            paths.append(path)
+            continue
+        if not exists or force:
+            paths.append(path)
+            continue
+        current = fs.read_bytes(path)
+        if current == artifact.content or path == StateLayout.neutral().continuity:
+            continue
+        previous = records.get(path)
+        safe_to_refresh = (
+            previous is not None
+            and (previous.owner != "user-editable" or path == ".mcp.lock.json")
+            and previous.sha256 == _sha256(current)
+        )
+        if artifact.owner == "user-editable" or not safe_to_refresh:
+            if path.startswith(".ckit/agent-memory/"):
+                continue
+            sidecar = path + _SIDECAR_SUFFIX
+            if fs.exists(sidecar) and not fs.is_file(sidecar):
+                raise RuntimeInstallError(
+                    f"native sidecar destination is not a regular file: {sidecar}"
+                )
+            paths.append(sidecar)
+        else:
+            paths.append(path)
+
+    if fs.exists(".gitignore") and not fs.is_file(".gitignore"):
+        raise RuntimeInstallError(
+            "native artifact destination is not a regular file: .gitignore"
+        )
+    existing_ignore = (
+        fs.read_text(".gitignore").splitlines() if fs.is_file(".gitignore") else []
+    )
+    if any(entry not in set(existing_ignore) for entry in _GITIGNORE_ENTRIES):
+        paths.append(".gitignore")
+    paths.append(StateLayout.neutral().manifest)
     return projection, sorted(set(paths))
 
 
@@ -604,13 +824,40 @@ def _apply_runtime_files(
     """Apply a prevalidated projection while an encompassing transaction is held."""
 
     log: list[str] = []
+    previous_options = _old_options(fs)
     previous = old_records if old_records is not None else _old_records(fs)
+    prior_managed_claude_mcp_ids = _prior_managed_claude_mcp_ids(
+        fs, previous_options, previous
+    )
+    artifacts = tuple(artifacts)
     installed: list[tuple[RuntimeArtifact, str, bytes]] = []
+    artifact_paths = {artifact.path for artifact in artifacts}
+    if prior_managed_claude_mcp_ids and ".mcp.json" not in artifact_paths:
+        remaining = _remove_managed_claude_mcp_servers(
+            fs.read_text(".mcp.json"), prior_managed_claude_mcp_ids
+        )
+        if remaining is None:
+            fs.unlink(".mcp.json")
+            log.append("  • removed prior managed .mcp.json (no MCP servers selected)")
+        else:
+            fs.write_bytes(".mcp.json", remaining)
+            log.append(
+                "  • removed prior managed MCP servers; user definitions preserved"
+            )
+        previous_lock = previous.get(".mcp.lock.json")
+        if previous_lock is not None and fs.is_file(".mcp.lock.json"):
+            current_lock = fs.read_bytes(".mcp.lock.json")
+            if previous_lock.sha256 == _sha256(current_lock):
+                fs.unlink(".mcp.lock.json")
+                log.append("  • removed prior managed .mcp.lock.json")
+            else:
+                log.append("  • preserved user-modified .mcp.lock.json")
     for artifact in artifacts:
         result = _write_artifact(
             fs,
             artifact,
             old_records=previous,
+            prior_managed_claude_mcp_ids=prior_managed_claude_mcp_ids,
             force=force,
             log=log,
         )
@@ -643,10 +890,67 @@ def install_runtime(
 ) -> list[str]:
     """Install every selected native projection and one shared state root atomically."""
 
+    log, _migration = _install_runtime_transaction(
+        source,
+        target,
+        plan,
+        request,
+        force=force,
+        migrate_legacy=False,
+        require_legacy_source=False,
+    )
+    return log
+
+
+def install_runtime_with_state_migration(
+    source: Path,
+    target: Path,
+    plan: ResolvedPlan,
+    request: InstallRequest,
+    *,
+    force: bool = False,
+    require_legacy_source: bool = True,
+) -> tuple[list[str], StateMigrationResult]:
+    """Migrate legacy state and install native projections in one transaction.
+
+    Projection compilation and validation finish before the transaction starts.
+    Once mutation begins, both legacy-state copying and every provider/shared
+    write are covered by the same rollback snapshot, so an install refusal can
+    never leave a separately committed ``.ckit`` migration behind.
+    """
+
+    log, migration = _install_runtime_transaction(
+        source,
+        target,
+        plan,
+        request,
+        force=force,
+        migrate_legacy=True,
+        require_legacy_source=require_legacy_source,
+    )
+    if migration is None:  # pragma: no cover - internal invariant
+        raise RuntimeInstallError("legacy state migration result was not recorded")
+    return log, migration
+
+
+def _install_runtime_transaction(
+    source: Path,
+    target: Path,
+    plan: ResolvedPlan,
+    request: InstallRequest,
+    *,
+    force: bool,
+    migrate_legacy: bool,
+    require_legacy_source: bool,
+    fs: ProjectFS | None = None,
+) -> tuple[list[str], StateMigrationResult | None]:
+    """Apply one pre-rendered runtime install under one lifecycle transaction."""
+
     target = Path(target).expanduser()
     projection, artifacts = render_runtime_artifacts(source, target, plan, request)
-    fs = ProjectFS(target)
+    fs = fs or ProjectFS(target)
     log: list[str] = []
+    migration: StateMigrationResult | None = None
     operation = "force" if force else ("merge" if fs.root.exists() else "install")
     with ProjectTransaction(
         fs,
@@ -655,6 +959,29 @@ def install_runtime(
         protected_paths=_PROTECTED_PATHS,
         journal_path=StateLayout.neutral().journal,
     ):
+        if migrate_legacy:
+            migration = _apply_legacy_state_migration(
+                fs, require_source=require_legacy_source
+            )
+        elif fs.is_file(StateLayout.legacy_claude().manifest) and not fs.is_file(
+            StateLayout.neutral().manifest
+        ):
+            raise RuntimeInstallError(
+                "legacy mutable state is installed under .claude; rerun with "
+                "--migrate-state to copy it transactionally into .ckit"
+            )
+        installed_options = _old_options(fs)
+        if (
+            installed_options is not None
+            and fs.is_file(StateLayout.neutral().manifest)
+            and installed_options.runtime is not request.runtime
+            and not (migration is not None and migration.migrated)
+        ):
+            raise RuntimeInstallError(
+                "installed runtime differs from the requested runtime; use "
+                "`ckit upgrade --runtime <runtime>` so provider removal is confirmed "
+                "and backed up"
+            )
         log.extend(
             _apply_runtime_files(
                 fs,
@@ -664,7 +991,7 @@ def install_runtime(
                 force=force,
             )
         )
-    return log
+    return log, migration
 
 
 def _next_provider_backup(fs: ProjectFS) -> str:
@@ -674,24 +1001,27 @@ def _next_provider_backup(fs: ProjectFS) -> str:
     return f".ckit.bak-{index}"
 
 
-def _removed_surfaces(current: Runtime, target: Runtime) -> tuple[str, ...]:
-    current_providers = set(current.providers)
+def _removed_surfaces(options: InitOptions, target: Runtime) -> tuple[str, ...]:
+    current_providers = set(options.runtime.providers)
     target_providers = set(target.providers)
     removed = current_providers - target_providers
-    surfaces: list[str] = []
+    surfaces = {record.path for record in options.files if record.provider in removed}
     if "claude" in removed:
-        surfaces.extend(
+        surfaces.update(
             (
                 ".claude",
                 "CLAUDE.md",
                 "CLAUDE.md.claude-kit",
+                "README.claude-sdlc.md",
+                "README.claude-sdlc.md.claude-kit",
                 ".mcp.json",
                 ".mcp.json.claude-kit",
                 ".mcp.lock.json",
+                ".mcp.lock.json.claude-kit",
             )
         )
     if "codex" in removed:
-        surfaces.extend(
+        surfaces.update(
             (
                 ".codex",
                 ".agents",
@@ -699,7 +1029,7 @@ def _removed_surfaces(current: Runtime, target: Runtime) -> tuple[str, ...]:
                 "AGENTS.md.claude-kit",
             )
         )
-    return tuple(surfaces)
+    return tuple(sorted(surfaces))
 
 
 def transition_runtime(
@@ -720,68 +1050,88 @@ def transition_runtime(
 
     target = Path(target).expanduser()
     fs = ProjectFS(target)
-    if not fs.is_file(StateLayout.neutral().manifest):
+    if not fs.root.exists():
         raise RuntimeInstallError(
             "runtime transitions require a neutral .ckit manifest; migrate legacy state first"
         )
-    try:
-        options = InitOptions.from_dict(
-            json.loads(fs.read_text(StateLayout.neutral().manifest))
-        )
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
-        raise RuntimeInstallError(
-            f"installed runtime manifest is corrupt: {exc}"
-        ) from exc
-    if options.selection != plan.selection or request.selection != plan.selection:
-        raise RuntimeInstallError(
-            "runtime transition must reuse the installed provider-neutral selection"
-        )
-    current = options.runtime
-    if current is request.runtime:
-        return install_runtime(source, target, plan, request, force=force)
-
-    removed = _removed_surfaces(current, request.runtime)
-    if removed and not confirm_removal:
-        raise RuntimeInstallError(
-            "runtime transition removes native provider files; confirmation is required"
-        )
-    projection, artifacts = render_runtime_artifacts(source, target, plan, request)
-    backup = _next_provider_backup(fs) if removed else None
-    protected = _PROTECTED_PATHS + ((backup,) if backup is not None else ())
-    actions = [
-        {"rel": surface, "kind": "provider-remove", "owner": "kit"}
-        for surface in removed
-        if fs.exists(surface)
-    ]
-    log: list[str] = []
-    with ProjectTransaction(
-        fs,
-        operation="upgrade",
-        from_version=options.claude_kit_version,
-        to_version=__version__,
-        actions=actions,
-        protected_paths=protected,
-        journal_path=StateLayout.neutral().journal,
-    ):
-        old_records = _old_records(fs)
-        if backup is not None:
-            for surface in removed:
-                if not fs.exists(surface):
-                    continue
-                destination = f"{backup}/providers/{surface}"
-                fs.move(surface, destination)
-                log.append(f"  • backed up {surface} -> {destination}")
-        log.extend(
-            _apply_runtime_files(
-                fs,
-                plan,
-                projection,
-                artifacts,
-                force=force,
-                old_records=old_records,
+    with fs.mutation_lease(exclusive=True):
+        # The live manifest may be a partially applied target-runtime manifest.
+        # Recover before choosing same-runtime upgrade versus provider transition,
+        # and retain this lease until the new transaction commits.
+        recover_interrupted_transaction(fs, preserve_root=True)
+        if not fs.is_file(StateLayout.neutral().manifest):
+            raise RuntimeInstallError(
+                "runtime transitions require a neutral .ckit manifest; "
+                "migrate legacy state first"
             )
-        )
-    return log
+        try:
+            options = InitOptions.from_dict(
+                json.loads(fs.read_text(StateLayout.neutral().manifest))
+            )
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            raise RuntimeInstallError(
+                f"installed runtime manifest is corrupt: {exc}"
+            ) from exc
+        if options.selection != plan.selection or request.selection != plan.selection:
+            raise RuntimeInstallError(
+                "runtime transition must reuse the installed provider-neutral selection"
+            )
+        current = options.runtime
+        if current is request.runtime:
+            log, _migration = _install_runtime_transaction(
+                source,
+                target,
+                plan,
+                request,
+                force=force,
+                migrate_legacy=False,
+                require_legacy_source=False,
+                fs=fs,
+            )
+            return log
+
+        removed = _removed_surfaces(options, request.runtime)
+        if removed and not confirm_removal:
+            raise RuntimeInstallError(
+                "runtime transition removes native provider files; confirmation is required"
+            )
+        projection, artifacts = render_runtime_artifacts(source, target, plan, request)
+        backup = _next_provider_backup(fs) if removed else None
+        protected = _PROTECTED_PATHS + ((backup,) if backup is not None else ())
+        actions = [
+            {"rel": surface, "kind": "provider-remove", "owner": "kit"}
+            for surface in removed
+            if fs.exists(surface)
+        ]
+        log = []
+        with ProjectTransaction(
+            fs,
+            operation="upgrade",
+            from_version=options.claude_kit_version,
+            to_version=__version__,
+            actions=actions,
+            protected_paths=protected,
+            journal_path=StateLayout.neutral().journal,
+        ):
+            old_records = _old_records(fs)
+            if backup is not None:
+                for surface in removed:
+                    if not fs.exists(surface):
+                        continue
+                    destination = f"{backup}/providers/{surface}"
+                    fs.move(surface, destination)
+                    log.append(f"  • backed up {surface} -> {destination}")
+            log.extend(
+                _apply_runtime_files(
+                    fs,
+                    plan,
+                    projection,
+                    artifacts,
+                    force=force,
+                    old_records=old_records,
+                )
+            )
+        return log
 
 
 __all__ = [
@@ -789,6 +1139,7 @@ __all__ = [
     "RuntimeInstallError",
     "compile_runtime_projection",
     "install_runtime",
+    "install_runtime_with_state_migration",
     "preview_runtime_install",
     "render_runtime_artifacts",
     "transition_runtime",

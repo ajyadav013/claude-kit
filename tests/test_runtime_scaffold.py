@@ -155,6 +155,173 @@ def test_duplicate_user_mcp_definition_fails_and_rolls_back_every_root(
     assert not (target / "AGENTS.md").exists()
 
 
+@pytest.mark.parametrize("runtime", ["claude", "both"])
+def test_duplicate_user_claude_mcp_definition_fails_before_install(
+    payload, tmp_path, runtime
+):
+    target = tmp_path / runtime
+    target.mkdir()
+    original = '{"mcpServers":{"github":{"command":"user-owned"}}}\n'
+    (target / ".mcp.json").write_text(original, encoding="utf-8")
+    selection = catalog.defaults(payload)
+    selection.mcp = ["github"]
+    plan = catalog.resolve(payload, selection)
+
+    with pytest.raises(RuntimeInstallError, match="duplicate MCP definitions"):
+        install_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection=selection, runtime=runtime),
+        )
+
+    assert (target / ".mcp.json").read_text(encoding="utf-8") == original
+    assert not (target / ".ckit").exists()
+    assert not (target / ".claude").exists()
+    assert not (target / ".codex").exists()
+    assert not (target / ".agents").exists()
+
+
+@pytest.mark.parametrize("runtime", ["claude", "both"])
+def test_user_claude_mcp_servers_merge_with_selected_servers_idempotently(
+    payload, tmp_path, runtime
+):
+    from claude_kit import validator
+
+    target = tmp_path / runtime
+    target.mkdir()
+    (target / ".mcp.json").write_text(
+        json.dumps(
+            {
+                "projectSetting": "preserve-me",
+                "mcpServers": {"mine": {"command": "echo", "args": []}},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    selection = catalog.defaults(payload)
+    selection.mcp = ["github"]
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime=runtime)
+
+    install_runtime(payload, target, plan, request)
+    first = (target / ".mcp.json").read_bytes()
+    install_runtime(payload, target, plan, request)
+
+    document = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert (target / ".mcp.json").read_bytes() == first
+    assert document["projectSetting"] == "preserve-me"
+    assert set(document["mcpServers"]) == {"github", "mine"}
+    assert document["mcpServers"]["mine"] == {"command": "echo", "args": []}
+    assert not (target / ".mcp.json.claude-kit").exists()
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert any(record.path == ".mcp.json" for record in options.files)
+    assert (
+        next(
+            record.owner for record in options.files if record.path == ".mcp.lock.json"
+        )
+        == "kit"
+    )
+    ok, messages = validator.validate(target, strict=True)
+    assert ok, "\n".join(messages)
+
+
+def test_reinstall_restores_managed_claude_mcp_and_preserves_user_servers(
+    payload, tmp_path
+):
+    target = tmp_path / "modified"
+    selection = catalog.defaults(payload)
+    selection.mcp = ["github"]
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    install_runtime(payload, target, plan, request)
+    document = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    document["mcpServers"]["github"]["command"] = "user-modified"
+    document["mcpServers"]["mine"] = {"command": "first"}
+    (target / ".mcp.json").write_text(json.dumps(document) + "\n", encoding="utf-8")
+
+    install_runtime(payload, target, plan, request)
+    document = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert document["mcpServers"]["github"]["command"] == "npx"
+    assert document["mcpServers"]["mine"] == {"command": "first"}
+
+    document["mcpServers"]["mine"]["command"] = "second"
+    (target / ".mcp.json").write_text(json.dumps(document) + "\n", encoding="utf-8")
+    install_runtime(payload, target, plan, request)
+    document = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+    assert document["mcpServers"]["mine"] == {"command": "second"}
+
+
+@pytest.mark.parametrize("with_user_server", [False, True])
+def test_reinstall_without_selected_mcp_removes_only_prior_managed_servers(
+    payload, tmp_path, with_user_server
+):
+    target = tmp_path / ("mixed" if with_user_server else "managed-only")
+    selection = catalog.defaults(payload)
+    selection.mcp = ["github"]
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime="claude"),
+    )
+    if with_user_server:
+        document = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+        document["mcpServers"]["mine"] = {"command": "echo"}
+        (target / ".mcp.json").write_text(json.dumps(document) + "\n", encoding="utf-8")
+
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime="claude"),
+    )
+
+    if with_user_server:
+        document = json.loads((target / ".mcp.json").read_text(encoding="utf-8"))
+        assert document == {"mcpServers": {"mine": {"command": "echo"}}}
+    else:
+        assert not (target / ".mcp.json").exists()
+    assert not (target / ".mcp.lock.json").exists()
+
+
+def test_runtime_preview_uses_existing_tree_merge_and_collision_decisions(
+    payload, tmp_path
+):
+    from claude_kit.runtime_scaffold import preview_runtime_install
+
+    target = tmp_path / "preview"
+    target.mkdir()
+    (target / "README.claude-sdlc.md").write_text("user readme\n", encoding="utf-8")
+    (target / ".mcp.json").write_text(
+        '{"mcpServers":{"mine":{"command":"echo"}}}\n', encoding="utf-8"
+    )
+    selection = catalog.defaults(payload)
+    selection.mcp = ["github"]
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+
+    _projection, paths = preview_runtime_install(payload, target, plan, request)
+    assert ".mcp.json" in paths
+    assert ".mcp.json.claude-kit" not in paths
+    assert "README.claude-sdlc.md" not in paths
+    assert "README.claude-sdlc.md.claude-kit" in paths
+    assert not (target / "README.claude-sdlc.md.claude-kit").exists()
+
+    (target / ".mcp.json").write_text(
+        '{"mcpServers":{"github":{"command":"user-owned"}}}\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeInstallError, match="duplicate MCP definitions"):
+        preview_runtime_install(payload, target, plan, request)
+
+
 def test_incompatible_mcp_runtime_fails_before_any_project_mutation(payload, tmp_path):
     target = tmp_path / "incompatible"
     selection = catalog.defaults(payload)
@@ -304,6 +471,34 @@ def test_provider_removal_requires_confirmation(payload, tmp_path):
     assert not list(target.glob(".ckit.bak-*"))
 
 
+def test_plain_install_cannot_bypass_explicit_runtime_transition(payload, tmp_path):
+    target = tmp_path / "plain-install-bypass"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime="both"),
+    )
+
+    with pytest.raises(RuntimeInstallError, match="ckit upgrade --runtime"):
+        install_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection=selection, runtime="codex"),
+        )
+
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert options.runtimes == ["claude", "codex"]
+    assert (target / ".claude").is_dir()
+    assert (target / ".codex").is_dir()
+    assert not list(target.glob(".ckit.bak-*"))
+
+
 def test_failed_transition_restores_removed_provider_and_backup(
     payload, tmp_path, monkeypatch
 ):
@@ -396,6 +591,68 @@ def test_interrupted_provider_transition_recovers_then_converges(
     assert manifest.runtimes == ["codex"]
     assert not (target / StateLayout.neutral().journal).exists()
     assert not claude_agent.exists()
+    backups = list(target.glob(".ckit.bak-*"))
+    assert len(backups) == 1
+    assert (
+        backups[0] / "providers/.claude/agents/orchestrator.md"
+    ).read_bytes() == before
+
+
+def test_late_interrupted_provider_transition_recovers_manifest_before_routing(
+    payload, tmp_path, monkeypatch
+):
+    """A target manifest written before process death must not bypass removal on retry."""
+    from claude_kit import runtime_scaffold
+
+    target = tmp_path / "both-late-interruption"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime="both"),
+    )
+    before = (target / ".claude/agents/orchestrator.md").read_bytes()
+    original_apply = runtime_scaffold._apply_runtime_files
+
+    def apply_then_die(*args, **kwargs):
+        original_apply(*args, **kwargs)
+        raise _SimulatedTransitionProcessDeath()
+
+    monkeypatch.setattr(runtime_scaffold, "_apply_runtime_files", apply_then_die)
+    with pytest.raises(_SimulatedTransitionProcessDeath):
+        transition_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection=selection, runtime="codex"),
+            confirm_removal=True,
+        )
+    monkeypatch.setattr(runtime_scaffold, "_apply_runtime_files", original_apply)
+
+    partial = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert partial.runtimes == ["codex"]
+    assert not (target / ".claude").exists()
+    assert (target / StateLayout.neutral().journal).is_file()
+    assert list(target.glob(".ckit.bak-*"))
+
+    transition_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime="codex"),
+        confirm_removal=True,
+    )
+
+    final = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert final.runtimes == ["codex"]
+    assert not (target / ".claude").exists()
+    assert not (target / StateLayout.neutral().journal).exists()
     backups = list(target.glob(".ckit.bak-*"))
     assert len(backups) == 1
     assert (

@@ -102,7 +102,6 @@ def _owner_for_path(path: str, plan: ResolvedPlan) -> ProjectionOwner:
         "CLAUDE.md",
         "README.claude-sdlc.md",
         ".mcp.json",
-        ".mcp.lock.json",
         ".claude/settings.json",
     }:
         return ProjectionOwner.USER_EDITABLE

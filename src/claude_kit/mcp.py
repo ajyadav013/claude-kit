@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any, Iterable
 
 from claude_kit.components import MCPServerSpec
 
 MCP_CLIENT_CONTEXT_REF = "provider://mcp-client-context"
+_ENV_REFERENCE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 _CLIENT_CONTEXTS = {
     "claude": "claude-code",
@@ -48,12 +50,28 @@ def project_server_config(config: Mapping[str, Any], runtime: str) -> dict[str, 
 def project_servers(
     servers: Mapping[str, Mapping[str, Any]], runtime: str
 ) -> dict[str, dict[str, Any]]:
-    """Project a selected semantic MCP set for one host deterministically."""
+    """Project legacy config-only MCP values after semantic safety validation.
 
-    return {
-        server_id: project_server_config(servers[server_id], runtime)
-        for server_id in sorted(servers)
-    }
+    Older callers can omit ``ResolvedPlan.mcp_server_specs``. They do not get to
+    bypass the credential and transport boundary: each compatibility fragment
+    is first round-tripped through ``MCPServerSpec`` with conservative universal
+    runtime metadata, then provider symbols are resolved.
+    """
+
+    projected: dict[str, dict[str, Any]] = {}
+    for server_id in sorted(servers):
+        spec = MCPServerSpec.from_catalog(
+            server_id,
+            {
+                "label": f"Compatibility MCP server {server_id}",
+                "runtime_support": ["claude", "codex"],
+                "authentication": {"mode": "inferred"},
+                "health_check": {"kind": "mcp-initialize"},
+                "config": servers[server_id],
+            },
+        )
+        projected[server_id] = project_server_config(spec.provider_config, runtime)
+    return projected
 
 
 def require_runtime_support(
@@ -86,6 +104,15 @@ def require_runtime_support(
             unsupported.append(
                 f"{server_id} lacks {','.join(missing)} (supports: {supported})"
             )
+            continue
+        if "codex" in required:
+            try:
+                adapt_codex_server_config(
+                    server_id,
+                    project_server_config(spec.provider_config, "codex"),
+                )
+            except ValueError as exc:
+                unsupported.append(f"{server_id} cannot be adapted to codex ({exc})")
     if unsupported:
         raise ValueError(
             "selected MCP server runtime support is incompatible: "
@@ -121,8 +148,170 @@ def project_resolved_servers(
     return project_servers(configs, runtime)
 
 
+def _clone_config_value(value: Any) -> Any:
+    """Copy a configuration value into JSON/TOML-friendly containers."""
+
+    if isinstance(value, Mapping):
+        return {str(key): _clone_config_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_clone_config_value(item) for item in value]
+    return value
+
+
+def _reject_codex_environment_interpolation(
+    server_id: str,
+    value: Any,
+    *,
+    location: str,
+) -> None:
+    """Reject placeholders that Codex would otherwise receive as literal text."""
+
+    if isinstance(value, str):
+        if _ENV_REFERENCE_RE.search(value):
+            raise ValueError(
+                f"MCP server {server_id!r} uses unsupported Codex environment "
+                f"interpolation in {location}: {value!r}"
+            )
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _reject_codex_environment_interpolation(
+                server_id,
+                item,
+                location=f"{location}.{key}",
+            )
+        return
+    if isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_codex_environment_interpolation(
+                server_id,
+                item,
+                location=f"{location}[{index}]",
+            )
+
+
+def adapt_codex_server_config(
+    server_id: str,
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Adapt one projected semantic MCP fragment to native Codex fields.
+
+    Codex forwards same-named process variables through ``env_vars`` and resolves
+    HTTP header variables through ``env_http_headers``.  It does not interpolate
+    ``${ENV}`` placeholders in command arguments, URLs, literal environment
+    values, or arbitrary configuration fields.  Those shapes fail closed here so
+    the native host never receives a plausible-looking literal placeholder.
+    """
+
+    if not isinstance(config, Mapping):
+        raise ValueError(f"MCP server {server_id!r} config must be a mapping")
+    if any(not isinstance(key, str) for key in config):
+        raise ValueError(f"MCP server {server_id!r} config keys must be strings")
+
+    server_type = config.get("type")
+    if server_type not in {"stdio", "http"}:
+        raise ValueError(f"MCP server {server_id!r} type must be 'stdio' or 'http'")
+
+    environment = config.get("env", {})
+    headers = config.get("headers", {})
+    if not isinstance(environment, Mapping):
+        raise ValueError(f"MCP server {server_id!r} env must be a mapping")
+    if not isinstance(headers, Mapping):
+        raise ValueError(f"MCP server {server_id!r} headers must be a mapping")
+    if any(not isinstance(key, str) for key in environment):
+        raise ValueError(f"MCP server {server_id!r} env keys must be strings")
+    if any(not isinstance(key, str) for key in headers):
+        raise ValueError(f"MCP server {server_id!r} header names must be strings")
+    if environment and server_type != "stdio":
+        raise ValueError(
+            f"MCP server {server_id!r} environment is only supported for Codex "
+            "stdio servers"
+        )
+    if headers and server_type != "http":
+        raise ValueError(
+            f"MCP server {server_id!r} headers are only supported for Codex HTTP "
+            "servers"
+        )
+
+    provider_native = {"env_vars", "http_headers", "env_http_headers"}
+    unexpected_native = sorted(provider_native.intersection(config))
+    if unexpected_native:
+        raise ValueError(
+            f"MCP server {server_id!r} semantic config contains Codex-native "
+            f"field(s): {', '.join(unexpected_native)}"
+        )
+
+    native: dict[str, Any] = {}
+    for key in sorted(config):
+        if key in {"type", "env", "headers"}:
+            continue
+        value = config[key]
+        _reject_codex_environment_interpolation(
+            server_id,
+            value,
+            location=key,
+        )
+        native[key] = _clone_config_value(value)
+
+    forwarded: list[str] = []
+    literal_environment: dict[str, str] = {}
+    for key in sorted(environment):
+        value = environment[key]
+        if not isinstance(value, str):
+            raise ValueError(
+                f"MCP server {server_id!r} env value for {key!r} must be a string"
+            )
+        match = _ENV_REFERENCE_RE.fullmatch(value)
+        if match:
+            source = match.group(1)
+            if source != key:
+                raise ValueError(
+                    f"MCP server {server_id!r} cannot map Codex environment key "
+                    f"{key!r} from {source!r}; env_vars forwards same-named "
+                    "variables only"
+                )
+            forwarded.append(key)
+            continue
+        _reject_codex_environment_interpolation(
+            server_id,
+            value,
+            location=f"env.{key}",
+        )
+        literal_environment[key] = value
+
+    static_headers: dict[str, str] = {}
+    environment_headers: dict[str, str] = {}
+    for key in sorted(headers):
+        value = headers[key]
+        if not isinstance(value, str):
+            raise ValueError(
+                f"MCP server {server_id!r} header value for {key!r} must be a string"
+            )
+        match = _ENV_REFERENCE_RE.fullmatch(value)
+        if match:
+            environment_headers[key] = match.group(1)
+            continue
+        _reject_codex_environment_interpolation(
+            server_id,
+            value,
+            location=f"headers.{key}",
+        )
+        static_headers[key] = value
+
+    if forwarded:
+        native["env_vars"] = forwarded
+    if literal_environment:
+        native["env"] = literal_environment
+    if static_headers:
+        native["http_headers"] = static_headers
+    if environment_headers:
+        native["env_http_headers"] = environment_headers
+    return native
+
+
 __all__ = [
     "MCP_CLIENT_CONTEXT_REF",
+    "adapt_codex_server_config",
     "project_server_config",
     "project_resolved_servers",
     "project_server_specs",

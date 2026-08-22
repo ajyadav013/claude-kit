@@ -128,10 +128,11 @@ promotes the exact artifacts verified by CI into PyPI and GitHub Releases.
 - Provider-neutral `CKIT_*` environment variables are preferred. Matching legacy
   `CLAUDE_KIT_*` experimental/capture variables and legacy `SDLC_*` loop knobs remain accepted during
   their documented compatibility windows.
-- The versioned unattended-loop interface is installed once at `.ckit/scripts/sdlc-loop.sh` and
-  selects Claude or Codex with `CKIT_RUNTIME`, but new iterations currently fail closed before host
-  launch. Portable process groups cannot contain deliberately re-sessioned descendants, so the kit
-  does not mint an automated transition token until a real containment primitive is available.
+- The versioned unattended-loop compatibility interface is installed once at
+  `.ckit/scripts/sdlc-loop.sh`. It validates already-completed runs and otherwise fails closed
+  before either host launches. Portable process groups cannot contain deliberately re-sessioned
+  descendants, so the kit does not mint an automated transition token or select a host until a real
+  containment primitive is available.
 
 ### Security
 
