@@ -338,9 +338,10 @@ def _workspace_checkpoint_once(
 
     tracked_paths.sort()
     tracked = hashlib.sha256()
-    for raw_path, record in zip(
-        tracked_paths, _workspace_file_records(root, tracked_paths), strict=True
-    ):
+    tracked_records = _workspace_file_records(root, tracked_paths)
+    if len(tracked_records) != len(tracked_paths):
+        raise WorktreeError("managed workspace checkpoint record count mismatch")
+    for raw_path, record in zip(tracked_paths, tracked_records):
         # A checkpoint binds both the worktree bytes and the exact index entry.
         # Without the stage/mode/object id, a worker could stage an out-of-boundary
         # payload and restore the visible file before the coordinator checks it.

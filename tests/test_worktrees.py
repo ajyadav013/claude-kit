@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from claude_kit import worktrees as worktrees_module
 from claude_kit.cli import app
 from claude_kit.worktrees import (
     WorktreeError,
@@ -112,6 +113,25 @@ def test_checkpoint_binds_index_oid_when_worktree_bytes_are_restored(
     assert staged_only.head_commit == initial.head_commit
     assert staged_only.tracked_digest != initial.tracked_digest
     assert staged_only.content_digest != initial.content_digest
+
+
+def test_checkpoint_rejects_incomplete_tracked_record_collection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    manager = WorktreeManager(repo)
+    manager.create("cardinality-run", "worker")
+    collect_records = worktrees_module._workspace_file_records
+
+    def omit_last_record(root: Path, paths: list[bytes]) -> list[bytes]:
+        records = collect_records(root, paths)
+        return records[:-1]
+
+    monkeypatch.setattr(worktrees_module, "_workspace_file_records", omit_last_record)
+    with pytest.raises(
+        WorktreeError, match="managed workspace checkpoint record count mismatch"
+    ):
+        manager.checkpoint("cardinality-run", "worker")
 
 
 def test_dirty_and_failed_worker_artifacts_require_two_explicit_discards(

@@ -15,7 +15,7 @@ import time
 import webbrowser
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Any, Optional
 
 import typer
 
@@ -109,6 +109,29 @@ worktree_app = typer.Typer(
 )
 app.add_typer(worktree_app, name="worktree")
 
+# Typer's ``Annotated`` declarations are interpreted as positional arguments on
+# supported Python 3.9 environments.  Keep these mutable/required option objects
+# as distinct module-level singletons so assignment-style declarations remain
+# compatible with Python 3.9 without triggering ruff B008.
+_HOOK_PROVIDER_OPTION = typer.Option(..., "--provider")
+_HOOK_ID_OPTION = typer.Option(..., "--hook-id")
+_WORKTREE_STATUS_OPTION = typer.Option(..., "--status")
+_PIPELINE_PROVIDER_OPTION = typer.Option(
+    ...,
+    "--provider",
+    help="concrete installed host used for this invocation: claude or codex",
+)
+_PIPELINE_CONDITION_OPTION = typer.Option(
+    None,
+    "--condition",
+    help="freeze a workflow decision as NAME=true|false; repeat as needed",
+)
+_PIPELINE_PROGRAM_MANIFEST_OPTION = typer.Option(
+    None,
+    "--program-manifest",
+    help="explicit project-contained frozen manifest required for Mode E",
+)
+
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -144,8 +167,8 @@ def _print_report(ok: bool, messages: list[str]) -> None:
 
 @app.command("hook-run", hidden=True)
 def hook_run(
-    provider: Annotated[Runtime, typer.Option("--provider")],
-    hook_id: Annotated[str, typer.Option("--hook-id")],
+    provider: Runtime = _HOOK_PROVIDER_OPTION,
+    hook_id: str = _HOOK_ID_OPTION,
     path: str = typer.Option(".", "--path"),
     plugin_root: Optional[str] = typer.Option(None, "--plugin-root"),
     discover_project_root: bool = typer.Option(False, "--discover-project-root"),
@@ -239,9 +262,9 @@ def worktree_list(
 
 @worktree_app.command("mark")
 def worktree_mark(
-    run_id: Annotated[str, typer.Argument()],
-    worker_id: Annotated[str, typer.Argument()],
-    status: Annotated[WorktreeStatus, typer.Option("--status")],
+    run_id: str = typer.Argument(...),
+    worker_id: str = typer.Argument(...),
+    status: WorktreeStatus = _WORKTREE_STATUS_OPTION,
     failure_reason: Optional[str] = typer.Option(None, "--failure-reason"),
     path: str = typer.Option(".", "--path"),
 ) -> None:
@@ -1627,33 +1650,15 @@ def _pending_workflow_stop_document(
     help=r"\[Preview] Execute/resume the frozen workflow through one native host adapter.",
 )
 def pipeline_run(
-    provider: Annotated[
-        Provider,
-        typer.Option(
-            "--provider",
-            help="concrete installed host used for this invocation: claude or codex",
-        ),
-    ],
+    provider: Provider = _PIPELINE_PROVIDER_OPTION,
     path: str = typer.Argument(".", help="target project dir (default: .)"),
-    condition: Annotated[
-        Optional[list[str]],
-        typer.Option(
-            "--condition",
-            help="freeze a workflow decision as NAME=true|false; repeat as needed",
-        ),
-    ] = None,
+    condition: Optional[list[str]] = _PIPELINE_CONDITION_OPTION,
     context: str = typer.Option(
         "",
         "--context",
         help="bounded additional context supplied to each pending stage",
     ),
-    program_manifest: Annotated[
-        Optional[Path],
-        typer.Option(
-            "--program-manifest",
-            help="explicit project-contained frozen manifest required for Mode E",
-        ),
-    ] = None,
+    program_manifest: Optional[Path] = _PIPELINE_PROGRAM_MANIFEST_OPTION,
     wait_timeout_seconds: float = typer.Option(
         900.0,
         "--wait-timeout-seconds",
