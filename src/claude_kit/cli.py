@@ -557,9 +557,8 @@ def init(
                 migration_paths: tuple[str, ...] = ()
                 if request is not None:
                     legacy_manifest = StateLayout.legacy_claude().manifest
-                    needs_migration = (
-                        active_state_layout(project_fs) == StateLayout.legacy_claude()
-                    )
+                    state_layout = active_state_layout(project_fs)
+                    needs_migration = state_layout == StateLayout.legacy_claude()
                     if needs_migration and not migrate_state:
                         raise RuntimeInstallError(
                             "legacy mutable state is installed under .claude; rerun with "
@@ -578,7 +577,10 @@ def init(
                             "first, then `ckit upgrade <path> --runtime codex "
                             "--confirm-runtime-removal`"
                         )
-                    if migrate_state and needs_migration:
+                    # An explicit migration also owns untracked legacy state when
+                    # no authoritative layout exists. A neutral marker still wins,
+                    # matching the real transaction's layout-precedence rule.
+                    if migrate_state and state_layout != StateLayout.neutral():
                         migration_paths = preview_legacy_state_migration(
                             target
                         ).copied_paths
