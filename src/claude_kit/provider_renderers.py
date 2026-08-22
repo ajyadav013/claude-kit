@@ -31,10 +31,10 @@ from claude_kit.canonical_rules import (
 from claude_kit.canonical_skills import (
     CanonicalSkill,
     CanonicalSkillAsset,
+    SkillSourceKind,
     codex_reference_target,
     discover_canonical_skill_assets,
     discover_canonical_skills,
-    load_canonical_skill,
     project_codex_inline_tokens,
     project_codex_reference_tokens,
     project_codex_skill,
@@ -270,7 +270,8 @@ class CodexRenderer:
         if Provider.CODEX.value not in request.runtimes:
             raise ValueError("CodexRenderer requires a request selecting codex")
 
-        known_skill_ids = self._discover_skill_ids()
+        canonical_skills = discover_canonical_skills(self._payload_root)
+        known_skill_ids = frozenset(record.spec.id for record in canonical_skills)
         codex_servers = project_resolved_servers(
             resolved_plan.mcp_servers,
             resolved_plan.mcp_server_specs,
@@ -299,10 +300,12 @@ class CodexRenderer:
             resolved_plan,
             selected_inventory["skill"],
             selected_inventory=selected_inventory,
+            canonical_skills=canonical_skills,
         )
         skill_assets = self._read_selected_skill_assets(
             resolved_plan,
             selected_inventory=selected_inventory,
+            canonical_skills=canonical_skills,
         )
         output: list[ProjectionFile] = []
 
@@ -353,7 +356,7 @@ class CodexRenderer:
                     )
                 )
 
-        for asset, path in skill_assets:
+        for asset, path, content in skill_assets:
             component = (
                 f"artifact://skill-reference-{asset.relative_path.stem}"
                 if asset.skill_id == "_references"
@@ -363,9 +366,7 @@ class CodexRenderer:
                 _text_file(
                     component=component,
                     path=path,
-                    content=project_codex_skill_asset(
-                        asset, selected_inventory=selected_inventory
-                    ),
+                    content=content,
                     executable=asset.executable,
                     media_type=_skill_asset_media_type(asset.relative_path),
                 )
@@ -407,11 +408,6 @@ class CodexRenderer:
         for item in output:
             _assert_no_provider_leakage(item.text_content, location=item.path)
         return tuple(output)
-
-    def _discover_skill_ids(self) -> frozenset[str]:
-        return frozenset(
-            record.spec.id for record in discover_canonical_skills(self._payload_root)
-        )
 
     def _read_selected_agents(
         self,
@@ -496,30 +492,27 @@ class CodexRenderer:
         skill_invocations: frozenset[str],
         *,
         selected_inventory: Mapping[str, frozenset[str]],
+        canonical_skills: tuple[CanonicalSkill, ...],
     ) -> list[tuple[str, dict[str, Any], str]]:
-        sources: list[CanonicalSkill] = [
-            load_canonical_skill(
-                self._payload_root,
-                self._payload_root
-                / "canonical"
-                / "skills"
-                / "core"
-                / f"{component_id}.md",
-            )
-            for component_id in plan.skills
+        by_kind_and_id = {
+            (record.kind, record.spec.id): record for record in canonical_skills
+        }
+        selected = [
+            (SkillSourceKind.CORE, component_id) for component_id in plan.skills
         ]
         if plan.org is not None:
-            sources.extend(
-                load_canonical_skill(
-                    self._payload_root,
-                    self._payload_root
-                    / "canonical"
-                    / "skills"
-                    / "org"
-                    / f"{component_id}.md",
-                )
+            selected.extend(
+                (SkillSourceKind.ORG, component_id)
                 for component_id in plan.org.org_skills
             )
+        try:
+            sources = [by_kind_and_id[item] for item in selected]
+        except KeyError as exc:
+            kind, component_id = exc.args[0]
+            raise ValueError(
+                f"selected {kind.value} skill has no canonical definition: "
+                f"{component_id}"
+            ) from exc
         records: list[tuple[str, dict[str, Any], str]] = []
         seen: set[str] = set()
         for source in sources:
@@ -552,7 +545,8 @@ class CodexRenderer:
         plan: ResolvedPlan,
         *,
         selected_inventory: Mapping[str, frozenset[str]],
-    ) -> list[tuple[CanonicalSkillAsset, str]]:
+        canonical_skills: tuple[CanonicalSkill, ...],
+    ) -> list[tuple[CanonicalSkillAsset, str, str]]:
         """Return selected auxiliary assets plus cross-owner link closure."""
         all_assets = discover_canonical_skill_assets(self._payload_root)
         assets_by_source_path = {
@@ -567,7 +561,7 @@ class CodexRenderer:
 
         selected_sources = [
             record
-            for record in discover_canonical_skills(self._payload_root)
+            for record in canonical_skills
             if record.spec.id in selected_skill_ids
         ]
         for source in selected_sources:
@@ -585,6 +579,12 @@ class CodexRenderer:
                         f"reference {reference_id!r}"
                     ) from exc
 
+        projected_assets = {
+            path: project_codex_skill_asset(
+                asset, selected_inventory=selected_inventory
+            )
+            for path, asset in included.items()
+        }
         documents: list[tuple[str, str]] = [
             (
                 f"skills/{record.spec.id}/SKILL.md",
@@ -595,13 +595,7 @@ class CodexRenderer:
             for record in selected_sources
         ]
         queued_assets = set(included)
-        documents.extend(
-            (
-                path,
-                project_codex_skill_asset(asset, selected_inventory=selected_inventory),
-            )
-            for path, asset in included.items()
-        )
+        documents.extend((path, projected_assets[path]) for path in included)
         for document_path, content in documents:
             for target in _local_markdown_targets(document_path, content):
                 asset = assets_by_source_path.get(target)
@@ -626,19 +620,16 @@ class CodexRenderer:
                     continue
                 included[target] = asset
                 queued_assets.add(target)
-                documents.append(
-                    (
-                        target,
-                        project_codex_skill_asset(
-                            asset, selected_inventory=selected_inventory
-                        ),
-                    )
+                projected_assets[target] = project_codex_skill_asset(
+                    asset, selected_inventory=selected_inventory
                 )
+                documents.append((target, projected_assets[target]))
 
         return [
             (
                 asset,
                 ".agents/skills/" + source_path.removeprefix("skills/"),
+                projected_assets[source_path],
             )
             for source_path, asset in sorted(included.items())
         ]

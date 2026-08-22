@@ -4,10 +4,36 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import ExitStack
 
-from claude_kit import validator
+import pytest
+
+from claude_kit import scaffold, validator
 from claude_kit.models import InitOptions
 from tests._helpers import install, live_matrix
+
+
+def _self_test_matrix_id(overrides: dict[str, str]) -> str:
+    """Return a stable, readable pytest id for one installable catalog combination."""
+    return (
+        f"frontend={overrides['frontend_language']}:{overrides['frontend_framework']}-"
+        f"backend={overrides['backend_language']}:{overrides['backend_framework']}-"
+        f"db={overrides['database']}-profile={overrides['profile']}-scope={overrides['scope']}"
+    )
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Expand the live install matrix into independently schedulable pytest nodes."""
+    if "self_test_matrix_overrides" not in metafunc.fixturenames:
+        return
+
+    with ExitStack() as stack:
+        combinations = live_matrix(scaffold.payload_dir(stack))
+    metafunc.parametrize(
+        "self_test_matrix_overrides",
+        combinations,
+        ids=_self_test_matrix_id,
+    )
 
 
 def test_install_writes_the_full_tree(tmp_path, payload):
@@ -132,28 +158,35 @@ def test_no_docker_anywhere(tmp_path, payload):
     assert offenders == [], f"unexpected Docker files: {offenders}"
 
 
-def test_self_test_matrix_resolves_installs_and_validates(tmp_path, payload):
+def test_self_test_matrix_covers_minimum_live_surface(payload):
+    """Guard against accidentally dropping a live catalog dimension from the sweep."""
+    combinations = live_matrix(payload)
+    assert len(combinations) >= 24, (
+        f"matrix too small ({len(combinations)}) — a live stack may be missing"
+    )
+
+
+def test_self_test_matrix_resolves_installs_and_validates(
+    tmp_path,
+    payload,
+    self_test_matrix_overrides,
+):
     """Brief #2 P2-5: sweep EVERY live frontend × backend × database × profile × scope. Each combo
     must resolve, install, validate green, carry gates, and stay Docker-free — the matrix where
     silent breakage hides. New live stacks (e.g. the Go backend) auto-join via catalog.list_options."""
-    combos = live_matrix(payload)
-    # 1 frontend × 2 live backends (fastapi, go) × 2 dbs × 3 profiles × 2 scopes = 24.
-    assert len(combos) >= 24, (
-        f"matrix too small ({len(combos)}) — a live stack may be missing"
-    )
-    for i, overrides in enumerate(combos):
-        target = tmp_path / f"combo{i}"
-        plan = install(payload, target, **overrides)
-        ok, messages = validator.validate(target)
-        assert ok, f"validate failed for {overrides}:\n" + "\n".join(messages)
-        assert plan.gates, f"no gates resolved for {overrides}"
-        offenders = [
-            p.name
-            for p in (target / ".claude").rglob("*")
-            if p.is_file()
-            and (p.name == "Dockerfile" or p.name.startswith("docker-compose"))
-        ]
-        assert offenders == [], f"Docker artifact for {overrides}: {offenders}"
+    overrides = self_test_matrix_overrides
+    target = tmp_path / "combo"
+    plan = install(payload, target, **overrides)
+    ok, messages = validator.validate(target)
+    assert ok, f"validate failed for {overrides}:\n" + "\n".join(messages)
+    assert plan.gates, f"no gates resolved for {overrides}"
+    offenders = [
+        p.name
+        for p in (target / ".claude").rglob("*")
+        if p.is_file()
+        and (p.name == "Dockerfile" or p.name.startswith("docker-compose"))
+    ]
+    assert offenders == [], f"Docker artifact for {overrides}: {offenders}"
 
 
 def test_init_options_round_trips_and_records_files(tmp_path, payload):

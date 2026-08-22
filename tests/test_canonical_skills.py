@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
 import stat
@@ -14,6 +15,7 @@ from types import ModuleType
 import pytest
 import yaml
 
+from claude_kit import canonical_skills as canonical_skills_module
 from claude_kit.canonical_skills import (
     CanonicalSkill,
     CanonicalSkillError,
@@ -160,6 +162,141 @@ def test_complete_reviewed_skill_and_command_inventory() -> None:
     assert canonical_destinations == expected_destinations
 
 
+def test_canonical_skill_discovery_cache_reuses_and_invalidates_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "payload"
+    for kind in ("core", "org"):
+        shutil.copytree(
+            ROOT / "canonical" / "skills" / kind,
+            root / "canonical" / "skills" / kind,
+        )
+    (root / "schemas").mkdir()
+    shutil.copy2(
+        ROOT / "schemas" / "canonical-skill.schema.json",
+        root / "schemas" / "canonical-skill.schema.json",
+    )
+    load_skill = canonical_skills_module.load_canonical_skill
+    calls = 0
+
+    def counted_load_skill(payload_root: Path, path: Path) -> CanonicalSkill:
+        nonlocal calls
+        calls += 1
+        return load_skill(payload_root, path)
+
+    monkeypatch.setattr(
+        canonical_skills_module, "load_canonical_skill", counted_load_skill
+    )
+    first = discover_canonical_skills(root)
+    assert calls == len(first)
+
+    second = discover_canonical_skills(root)
+    assert second is first
+    assert calls == len(first)
+
+    changed_source = root / "canonical" / "skills" / "core" / "sdlc.md"
+    before_metadata = changed_source.stat()
+    before_fingerprint = canonical_skills_module._canonical_skill_discovery_fingerprint(
+        root
+    )
+    original = changed_source.read_text(encoding="utf-8")
+    replacement = original.replace("pipeline", "workflow", 1)
+    assert len(replacement) == len(original)
+    changed_source.write_text(
+        replacement,
+        encoding="utf-8",
+    )
+    os.utime(
+        changed_source,
+        ns=(before_metadata.st_atime_ns, before_metadata.st_mtime_ns),
+    )
+    after_fingerprint = canonical_skills_module._canonical_skill_discovery_fingerprint(
+        root
+    )
+    path_key = "canonical/skills/core/sdlc.md"
+    before_record = next(
+        record for record in before_fingerprint if record[0] == path_key
+    )
+    after_record = next(record for record in after_fingerprint if record[0] == path_key)
+    assert before_record[-1] != after_record[-1]
+
+    changed = discover_canonical_skills(root)
+    assert changed is not first
+    assert calls == len(first) + len(changed)
+
+
+def test_canonical_skill_discovery_cache_rejects_replaced_source_symlink(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "payload"
+    for kind in ("core", "org"):
+        shutil.copytree(
+            ROOT / "canonical" / "skills" / kind,
+            root / "canonical" / "skills" / kind,
+        )
+    (root / "schemas").mkdir()
+    shutil.copy2(
+        ROOT / "schemas" / "canonical-skill.schema.json",
+        root / "schemas" / "canonical-skill.schema.json",
+    )
+    discover_canonical_skills(root)
+
+    source = root / "canonical" / "skills" / "core" / "sdlc.md"
+    target = root / "sdlc-target.md"
+    shutil.copy2(source, target)
+    source.unlink()
+    try:
+        source.symlink_to(target)
+    except OSError as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+
+    with pytest.raises(CanonicalSkillError, match="must not be a symlink"):
+        discover_canonical_skills(root)
+
+
+def test_canonical_skill_discovery_rejects_source_change_during_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "payload"
+    for kind in ("core", "org"):
+        shutil.copytree(
+            ROOT / "canonical" / "skills" / kind,
+            root / "canonical" / "skills" / kind,
+        )
+    (root / "schemas").mkdir()
+    shutil.copy2(
+        ROOT / "schemas" / "canonical-skill.schema.json",
+        root / "schemas" / "canonical-skill.schema.json",
+    )
+    load_skill = canonical_skills_module.load_canonical_skill
+    source = root / "canonical" / "skills" / "core" / "sdlc.md"
+    original = source.read_text(encoding="utf-8")
+    changed = False
+
+    def mutating_load_skill(payload_root: Path, path: Path) -> CanonicalSkill:
+        nonlocal changed
+        record = load_skill(payload_root, path)
+        if not changed:
+            changed = True
+            source.write_text(
+                original.replace("pipeline", "workflow", 1),
+                encoding="utf-8",
+            )
+        return record
+
+    monkeypatch.setattr(
+        canonical_skills_module, "load_canonical_skill", mutating_load_skill
+    )
+    with pytest.raises(CanonicalSkillError, match="changed during discovery"):
+        discover_canonical_skills(root)
+
+    source.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(canonical_skills_module, "load_canonical_skill", load_skill)
+    restored = discover_canonical_skills(root)
+    sdlc = next(record for record in restored if record.spec.id == "sdlc")
+    assert "pipeline" in sdlc.spec.description
+
+
 def test_complete_canonical_skill_asset_inventory_and_modes() -> None:
     assets = discover_canonical_skill_assets(ROOT)
     direct = tuple(asset for asset in assets if asset.skill_id != "_references")
@@ -278,6 +415,7 @@ def test_canonical_skill_assets_ignore_only_interpreter_bytecode_cache(
     records = discover_canonical_skill_assets(root)
 
     assert len(records) == 543
+    assert discover_canonical_skill_assets(root) is records
     assert all("__pycache__" not in record.canonical_path.parts for record in records)
 
     (cache / "unexpected.txt").write_text("not interpreter cache\n", encoding="utf-8")

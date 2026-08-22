@@ -52,6 +52,7 @@ schema = [
 ]
 dev = [
   "pytest>=8.0",
+  "pytest-xdist>=3.6,<4",
   "build>=1.2",
   "hatchling>=1.25",
   "twine>=5.0",

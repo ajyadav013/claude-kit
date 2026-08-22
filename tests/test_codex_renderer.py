@@ -24,6 +24,7 @@ from claude_kit.canonical_rules import (
     selected_rule_layers,
 )
 from claude_kit.canonical_skills import (
+    SkillSourceKind,
     discover_canonical_skill_assets,
     discover_canonical_skills,
     raw_skill_invocations,
@@ -310,6 +311,31 @@ def test_codex_agent_renderer_uses_schema_validated_catalog_mappings(payload, tm
     policy_path.write_text(yaml.safe_dump(policy, sort_keys=False), encoding="utf-8")
     with pytest.raises(ProviderCompatibilityError, match="sandbox_mapping"):
         CodexRenderer(root)
+
+
+def test_selected_core_skill_cannot_resolve_from_organization_source(
+    payload: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    skills = list(discover_canonical_skills(payload))
+    index = next(
+        index for index, record in enumerate(skills) if record.spec.id == "sdlc"
+    )
+    skills[index] = replace(skills[index], kind=SkillSourceKind.ORG)
+    monkeypatch.setattr(
+        "claude_kit.provider_renderers.discover_canonical_skills",
+        lambda _root: tuple(skills),
+    )
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+
+    with pytest.raises(
+        ValueError, match="selected core skill has no canonical definition: sdlc"
+    ):
+        tuple(
+            CodexRenderer(payload).render(
+                plan, InstallRequest(selection=selection, runtime=Runtime.CODEX)
+            )
+        )
 
 
 def test_manual_only_skills_emit_openai_policy(codex_projection):

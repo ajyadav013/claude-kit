@@ -18,6 +18,7 @@ jobs:
   test:
     name: test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +35,19 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
       - name: Run tests
-        run: python -m pytest -q
+        run: >-
+          python -m pytest -q
+          --durations=50
+          --durations-min=1
+          -k "not test_self_test_matrix_resolves_installs_and_validates"
+      - name: Run live scaffold matrix in parallel
+        run: >-
+          python -m pytest -vv
+          -n 4
+          --dist=worksteal
+          --durations=25
+          --durations-min=1
+          tests/test_scaffold.py::test_self_test_matrix_resolves_installs_and_validates
 
   runtime-unit:
     name: runtime-unit

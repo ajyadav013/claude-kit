@@ -85,6 +85,19 @@ def test_ci_builds_once_and_wheel_smoke_downloads_that_artifact():
     assert "release_preflight.py verify" in wheel_smoke
 
 
+def test_ci_splits_only_the_expensive_live_matrix_for_bounded_parallelism():
+    test_job = CI.split("  test:\n", 1)[1].split("\n  runtime-unit:", 1)[0]
+    matrix_node = (
+        "tests/test_scaffold.py::test_self_test_matrix_resolves_installs_and_validates"
+    )
+
+    assert '-k "not test_self_test_matrix_resolves_installs_and_validates"' in test_job
+    assert matrix_node in test_job
+    assert "-n 4" in test_job
+    assert "--dist=worksteal" in test_job
+    assert "timeout-minutes: 180" in test_job
+
+
 def test_ci_runs_official_claude_validator_at_pinned_minimum_and_current():
     assert "claude-compatibility.yaml" in CI
     assert "@anthropic-ai/claude-code@" in CI

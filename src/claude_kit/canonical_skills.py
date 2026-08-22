@@ -8,10 +8,13 @@ permission wire syntax is valid in this source tree.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import stat
 from dataclasses import dataclass
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
@@ -69,6 +72,51 @@ _PROVIDER_LEAKAGE = (
 
 class CanonicalSkillError(ValueError):
     """Raised when canonical skill or command source is invalid."""
+
+
+_SourceFingerprint = tuple[tuple[str, int, int, int, int, int, int, str], ...]
+
+
+def _source_tree_fingerprint(
+    paths: Iterable[Path], *, boundary: Path
+) -> _SourceFingerprint:
+    """Return a cheap cache key that changes with source bytes or topology."""
+    records: list[tuple[str, int, int, int, int, int, int, str]] = []
+    for path in paths:
+        try:
+            metadata = path.lstat()
+        except OSError as exc:
+            raise CanonicalSkillError(
+                f"cannot inspect canonical source {path}: {exc}"
+            ) from exc
+        if stat.S_ISLNK(metadata.st_mode):
+            raise CanonicalSkillError(f"canonical source must not be a symlink: {path}")
+        if stat.S_ISREG(metadata.st_mode):
+            try:
+                content_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError as exc:
+                raise CanonicalSkillError(
+                    f"cannot read canonical source {path}: {exc}"
+                ) from exc
+        elif stat.S_ISDIR(metadata.st_mode):
+            content_digest = ""
+        else:
+            raise CanonicalSkillError(
+                f"canonical source must be a regular file or directory: {path}"
+            )
+        records.append(
+            (
+                path.relative_to(boundary).as_posix(),
+                metadata.st_mode,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_ctime_ns,
+                metadata.st_dev,
+                metadata.st_ino,
+                content_digest,
+            )
+        )
+    return tuple(records)
 
 
 class SkillSourceKind(str, Enum):
@@ -570,12 +618,27 @@ def load_canonical_command(payload_root: Path, path: Path) -> CanonicalCommand:
     )
 
 
-def discover_canonical_skills(payload_root: Path) -> tuple[CanonicalSkill, ...]:
-    """Return all canonical skills in deterministic generated-path order."""
-    root = Path(payload_root)
+def _canonical_skill_discovery_fingerprint(
+    root: Path,
+) -> _SourceFingerprint:
     source_root = root / "canonical" / "skills"
     if not source_root.is_dir():
         raise CanonicalSkillError(f"canonical skill root does not exist: {source_root}")
+    sources = tuple(
+        path for path in sorted(source_root.glob("*/*.md")) if path.name != "README.md"
+    )
+    return _source_tree_fingerprint(
+        (*sources, root / "schemas" / "canonical-skill.schema.json"),
+        boundary=root,
+    )
+
+
+@lru_cache(maxsize=16)
+def _discover_canonical_skills_cached(
+    root: Path,
+    _fingerprint: _SourceFingerprint,
+) -> tuple[CanonicalSkill, ...]:
+    source_root = root / "canonical" / "skills"
     records = tuple(
         load_canonical_skill(root, path)
         for path in sorted(source_root.glob("*/*.md"))
@@ -584,7 +647,26 @@ def discover_canonical_skills(payload_root: Path) -> tuple[CanonicalSkill, ...]:
     destinations = [record.destination.as_posix() for record in records]
     if len(destinations) != len(set(destinations)):
         raise CanonicalSkillError("canonical skills resolve to duplicate destinations")
+    if _canonical_skill_discovery_fingerprint(root) != _fingerprint:
+        raise CanonicalSkillError("canonical skill sources changed during discovery")
     return tuple(sorted(records, key=lambda record: record.destination.as_posix()))
+
+
+def discover_canonical_skills(payload_root: Path) -> tuple[CanonicalSkill, ...]:
+    """Return all canonical skills in deterministic generated-path order.
+
+    Canonical validation is expensive but its inputs are immutable during an
+    ordinary render. A content-addressed metadata fingerprint keeps repeated
+    renders fast while invalidating the cache for bytes, mode, topology, or
+    schema changes.
+    """
+    root = Path(payload_root)
+    fingerprint = _canonical_skill_discovery_fingerprint(root)
+    records = _discover_canonical_skills_cached(root, fingerprint)
+    if _canonical_skill_discovery_fingerprint(root) != fingerprint:
+        _discover_canonical_skills_cached.cache_clear()
+        raise CanonicalSkillError("canonical skill sources changed during discovery")
+    return records
 
 
 def discover_canonical_commands(payload_root: Path) -> tuple[CanonicalCommand, ...]:
@@ -606,23 +688,30 @@ def discover_canonical_commands(payload_root: Path) -> tuple[CanonicalCommand, .
     return tuple(sorted(records, key=lambda record: record.spec.id))
 
 
-def discover_canonical_skill_assets(
-    payload_root: Path,
-) -> tuple[CanonicalSkillAsset, ...]:
-    """Return the validated canonical auxiliary-skill inventory.
-
-    The first path segment is either a real canonical skill id or ``_references``
-    for shared checklist artifacts. Remaining segments stay skill-relative so
-    projections preserve Markdown links and bundled-script paths without reading
-    a generated compatibility tree.
-    """
-    root = Path(payload_root)
+def _canonical_skill_asset_discovery_fingerprint(
+    root: Path,
+) -> _SourceFingerprint:
     source_root = root / "canonical" / "skills" / "assets"
     if not source_root.is_dir():
         raise CanonicalSkillError(
             f"canonical skill asset root does not exist: {source_root}"
         )
-    known_skill_ids = {record.spec.id for record in discover_canonical_skills(root)}
+    return _source_tree_fingerprint(sorted(source_root.rglob("*")), boundary=root)
+
+
+@lru_cache(maxsize=8)
+def _discover_canonical_skill_assets_cached(
+    root: Path,
+    _asset_fingerprint: _SourceFingerprint,
+    _skill_fingerprint: _SourceFingerprint,
+) -> tuple[CanonicalSkillAsset, ...]:
+    """Load one fingerprinted auxiliary-skill inventory."""
+
+    source_root = root / "canonical" / "skills" / "assets"
+    known_skill_ids = {
+        record.spec.id
+        for record in _discover_canonical_skills_cached(root, _skill_fingerprint)
+    }
     records: list[CanonicalSkillAsset] = []
     for source in sorted(source_root.rglob("*")):
         if source.is_symlink():
@@ -698,7 +787,40 @@ def discover_canonical_skill_assets(
             )
         )
     _ensure_unique_skill_asset_destinations(records)
+    if _canonical_skill_discovery_fingerprint(root) != _skill_fingerprint:
+        raise CanonicalSkillError("canonical skill sources changed during discovery")
+    if _canonical_skill_asset_discovery_fingerprint(root) != _asset_fingerprint:
+        raise CanonicalSkillError("canonical skill assets changed during discovery")
     return tuple(sorted(records, key=lambda record: record.destination.as_posix()))
+
+
+def discover_canonical_skill_assets(
+    payload_root: Path,
+) -> tuple[CanonicalSkillAsset, ...]:
+    """Return the validated canonical auxiliary-skill inventory.
+
+    The first path segment is either a real canonical skill id or ``_references``
+    for shared checklist artifacts. Remaining segments stay skill-relative so
+    projections preserve Markdown links and bundled-script paths without reading
+    a generated compatibility tree. Fingerprinted caching avoids re-reading the
+    multi-megabyte corpus while still invalidating on source or schema changes.
+    """
+    root = Path(payload_root)
+    skill_fingerprint = _canonical_skill_discovery_fingerprint(root)
+    asset_fingerprint = _canonical_skill_asset_discovery_fingerprint(root)
+    records = _discover_canonical_skill_assets_cached(
+        root,
+        asset_fingerprint,
+        skill_fingerprint,
+    )
+    if _canonical_skill_discovery_fingerprint(root) != skill_fingerprint:
+        _discover_canonical_skills_cached.cache_clear()
+        _discover_canonical_skill_assets_cached.cache_clear()
+        raise CanonicalSkillError("canonical skill sources changed during discovery")
+    if _canonical_skill_asset_discovery_fingerprint(root) != asset_fingerprint:
+        _discover_canonical_skill_assets_cached.cache_clear()
+        raise CanonicalSkillError("canonical skill assets changed during discovery")
+    return records
 
 
 def _ensure_unique_skill_asset_destinations(
