@@ -10,6 +10,7 @@ pause_for_human: []
 references:
 - rule://quality-gates
 - rule://risk-classification
+- skill://review-sprint-plan
 ---
 
 # Review Sprint Plan (product lens)
@@ -57,7 +58,7 @@ Stop and escalate if the plan and scope fundamentally disagree (route back to sc
 
 ## Example
 ```
-/review-sprint-plan docs/planning/<slug>/sprint.md
+{{skill_invocation:skill://review-sprint-plan}} docs/planning/<slug>/sprint.md
 → checks priority vs impact, scope→plan coverage, user-testable criteria,
   sequencing leaves coherent states, rollback readiness
 → verdict + Issues to Fix / Improvements + coverage table + main gap

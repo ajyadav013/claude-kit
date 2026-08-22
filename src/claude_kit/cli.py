@@ -56,7 +56,7 @@ from claude_kit.runtime_scaffold import (
     preview_runtime_install,
 )
 from claude_kit.secure_fs import ProjectFS
-from claude_kit.state import detect_state_layout
+from claude_kit.state import active_state_layout, detect_state_layout
 from claude_kit.state_migration import (
     StateMigrationError,
     migrate_legacy_state,
@@ -557,16 +557,28 @@ def init(
                 migration_paths: tuple[str, ...] = ()
                 if request is not None:
                     legacy_manifest = StateLayout.legacy_claude().manifest
-                    neutral_manifest = StateLayout.neutral().manifest
-                    needs_migration = project_fs.is_file(
-                        legacy_manifest
-                    ) and not project_fs.is_file(neutral_manifest)
+                    needs_migration = (
+                        active_state_layout(project_fs) == StateLayout.legacy_claude()
+                    )
                     if needs_migration and not migrate_state:
                         raise RuntimeInstallError(
                             "legacy mutable state is installed under .claude; rerun with "
                             "--migrate-state to copy it transactionally into .ckit"
                         )
-                    if migrate_state:
+                    if (
+                        needs_migration
+                        and migrate_state
+                        and request.runtime is Runtime.CODEX
+                        and project_fs.is_file(legacy_manifest)
+                    ):
+                        raise RuntimeInstallError(
+                            "migrating legacy Claude state directly to Codex would "
+                            "remove the installed Claude projection without confirmation "
+                            "or a recoverable backup; run `ckit migrate-state <path>` "
+                            "first, then `ckit upgrade <path> --runtime codex "
+                            "--confirm-runtime-removal`"
+                        )
+                    if migrate_state and needs_migration:
                         migration_paths = preview_legacy_state_migration(
                             target
                         ).copied_paths
@@ -639,11 +651,9 @@ def init(
         if runtime_choice is not None:
             request = InstallRequest(plan.selection, runtime_choice)
             try:
-                legacy_manifest = StateLayout.legacy_claude().manifest
-                neutral_manifest = StateLayout.neutral().manifest
-                needs_migration = project_fs.is_file(
-                    legacy_manifest
-                ) and not project_fs.is_file(neutral_manifest)
+                needs_migration = (
+                    active_state_layout(project_fs) == StateLayout.legacy_claude()
+                )
                 if needs_migration and not migrate_state:
                     raise RuntimeInstallError(
                         "legacy mutable state is installed under .claude; rerun with "

@@ -26,7 +26,7 @@ is not installed under any of its names. When an installer is available on PATH 
   block above** and proceed only if a CLI name now resolves.
 - **"Skip"** — or if the install fails, or no installer is on PATH: STOP — do not scaffold
   anything. Tell the user the CLI is required, show both install commands below, and have them
-  re-run this `init` skill. Do not silently fall back to a partial install.
+  re-run the init skill. Do not silently fall back to a partial install.
 
 Never ask when the CLI is already present, and never ask when no installer exists on PATH (nothing
 to offer — go straight to the stop-with-instructions):

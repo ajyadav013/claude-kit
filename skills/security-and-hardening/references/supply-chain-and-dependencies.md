@@ -108,14 +108,15 @@ Everything above audits *code* dependencies. An agent-config artifact — a thir
 definition, MCP server entry, or hook — is a dependency whose payload is **instructions executed with
 your agent's privileges**: prose the agent follows, frontmatter that grants tools, scripts that run
 deterministically, env vars that route credentials. The attack surface is different (hidden Unicode
-instructions, over-broad `allowed-tools:`, credential mis-routing) and so is the sharpest footgun: a
+instructions, over-broad tool grants, credential mis-routing) and so is the sharpest footgun: a
 stdio MCP entry **executes its command the moment a client loads the config**, so "adding it to
 inspect its tools" is already running untrusted code.
 
 The **canonical intake procedure** — provenance pinning (repo + SHA), structural read, the
 deterministic hidden-content scan, and never-load-to-inspect — lives in the `dependency-verification`
 skill's *Agent-config supply chain* section. Apply it before any third-party artifact enters
-`.claude/` or `.mcp.json`; this reference only records where it fits in the audit stack.
+the host's agent configuration or `.mcp.json`; this reference only records where
+it fits in the audit stack.
 
 ## The credential-ownership routing test
 

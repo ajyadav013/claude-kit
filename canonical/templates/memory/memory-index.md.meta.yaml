@@ -4,6 +4,5 @@ description: Durable agent-memory index
 category: memory
 format: markdown
 destination: templates/agent-memory/MEMORY.md
-provider_placeholders:
-- provider.name.agent
+provider_placeholders: []
 references: []

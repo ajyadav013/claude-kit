@@ -16,7 +16,7 @@ A catalog of class-level (low-level) design vocabulary — how to carve responsi
 - Writing or reviewing any wait/notify, locking, or shared-mutable-state code
 - Auditing a shutdown path, worker pool, or pipeline for stranded waiters and deadlock conditions
 - Working an LLD interview problem — the 33-problem map below links a worked object model for each
-- Preparing the object-design section of a spec for `spec-driven-development` or the `the sdlc skill` pipeline
+- Preparing the object-design section of a spec for `spec-driven-development` or the the sdlc skill pipeline
 
 System-level architecture (estimation, caching, fan-out, service boundaries) belongs to `system-design-patterns`; this skill is the layer below it — the object model inside one process.
 

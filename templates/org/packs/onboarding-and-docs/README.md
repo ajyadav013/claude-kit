@@ -12,16 +12,16 @@ they never write or run code.
 
 ## Role → component mapping
 This pack bundles components that already ship with claude-kit (reused, not duplicated) plus one skill
-added by the org layer. It does not introduce competing agents — codebase discovery uses the built-in
-**Explore** research agent.
+added by the org layer. It does not introduce competing agents — codebase discovery uses a
+host-native read-only research role when available.
 
 | Need | Use |
 |------|-----|
-| Get a guided tour of an unfamiliar repo | `/repo-onboarding` → `Explore` (discovery) → `technical-architect` |
-| Discover where things live | `Explore` agent (read-only codebase search) |
+| Get a guided tour of an unfamiliar repo | `/repo-onboarding` → read-only research → `technical-architect` |
+| Discover where things live | a read-only codebase-research role |
 | Explain how a module works / fits together | `technical-architect` (analysis only, see `code-organization.md`) |
 | Generate or update architecture docs / ADRs | `/documentation-and-adrs` |
-| Bring docs back in sync with the code | `/refresh-docs` (the `/docs-update` flow) |
+| Bring docs back in sync with the code | `/refresh-docs` (the `.claude/skills/refresh-docs/SKILL.md` workflow) |
 | Ground answers in the actual source | `/source-driven-development` |
 | Curate the right context for a task | `/context-engineering` |
 | Find / understand which skills apply | `/using-agent-skills` |
@@ -36,9 +36,9 @@ None special — this pack is read-and-explain only, so the standard repo hooks 
 
 ## Examples
 ```
-/repo-onboarding   # → Explore maps the repo, technical-architect explains the architecture + an onboarding path
-/docs-update Sync the docs after the checkout refactor   # → refresh-docs + documentation-and-adrs
-/repo-onboarding the data-store layer   # → focused tour of one module
+Use `/repo-onboarding` for a guided repo tour and onboarding path.
+Use `/refresh-docs` to sync the docs after the checkout refactor.
+Use `/repo-onboarding` for a focused tour of the data-store layer.
 ```
 
 ## Autonomy & risk

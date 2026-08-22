@@ -11,6 +11,9 @@ references:
 - rule://human-in-the-loop
 - rule://quality-gates
 - rule://risk-classification
+- skill://accessibility-review
+- skill://review-ux-flow
+- skill://ui-ux-design
 ---
 
 # Review UX Flow (product lens, static)
@@ -55,14 +58,15 @@ A verdict, separated **Issues to Fix** / **Improvements**, and a **state-coverag
 Low / Cosmetic** (`rule://quality-gates`).
 
 ## Stop conditions
-Stop and route elsewhere if the request is really an accessibility audit (`/accessibility-review`), a
-visual/design-system review (`/ui-ux-design`), or a live behavioral test (the `tester` lane) — this
+Stop and route elsewhere if the request is really an accessibility audit
+(`{{skill_invocation:skill://accessibility-review}}`), a visual/design-system review
+(`{{skill_invocation:skill://ui-ux-design}}`), or a live behavioral test (the `tester` lane) — this
 skill is the static product-UX lens only. Escalate ambiguous product intent via
 `rule://human-in-the-loop`.
 
 ## Example
 ```
-/review-ux-flow the checkout flow
+{{skill_invocation:skill://review-ux-flow}} the checkout flow
 → reads the route/components/state, walks each step
 → flags a dead-end on payment failure, missing empty-cart state, ambiguous "Continue" copy
 → verdict + Issues to Fix / Improvements + per-step state-coverage table

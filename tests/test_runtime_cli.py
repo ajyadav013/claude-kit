@@ -384,6 +384,176 @@ def test_legacy_runtime_transition_requires_and_preserves_explicit_state_migrati
     assert manifest["runtimes"] == ["claude", "codex"]
 
 
+@pytest.mark.parametrize(
+    "marker_field",
+    ["manifest", "stack_snapshot", "pipeline_snapshot", "continuity"],
+)
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_each_authoritative_legacy_marker_requires_explicit_runtime_migration(
+    tmp_path, marker_field, dry_run
+):
+    target = tmp_path / f"legacy-{marker_field}-{'preview' if dry_run else 'real'}"
+    marker = target / getattr(StateLayout.legacy_claude(), marker_field)
+    marker.parent.mkdir(parents=True)
+    marker.write_bytes(f"KEEP-{marker_field}\n".encode())
+    before = _tree_snapshot(target)
+    command = ["init", str(target), "--defaults", "--runtime", "claude"]
+    if dry_run:
+        command.append("--dry-run")
+
+    result = runner.invoke(app, command)
+
+    assert result.exit_code == 1, result.output
+    assert "--migrate-state" in result.output
+    assert _tree_snapshot(target) == before
+    assert not (target / StateLayout.neutral().root).exists()
+
+
+def test_continuity_only_legacy_state_is_migrated_before_runtime_install(tmp_path):
+    target = tmp_path / "continuity-only"
+    legacy = target / StateLayout.legacy_claude().continuity
+    legacy.parent.mkdir(parents=True)
+    expected = b"# Legacy continuity\n\nKEEP-ME\n"
+    legacy.write_bytes(expected)
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            str(target),
+            "--defaults",
+            "--runtime",
+            "claude",
+            "--migrate-state",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (target / StateLayout.neutral().continuity).read_bytes() == expected
+    assert legacy.read_bytes() == expected
+    manifest = json.loads((target / StateLayout.neutral().manifest).read_text())
+    assert manifest["runtimes"] == ["claude"]
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_neutral_marker_precedence_skips_stranded_legacy_migration(tmp_path, dry_run):
+    target = tmp_path / ("neutral-preview" if dry_run else "neutral-real")
+    neutral = target / StateLayout.neutral().continuity
+    neutral.parent.mkdir(parents=True)
+    expected = b"# Neutral continuity\n\nKEEP-ME\n"
+    neutral.write_bytes(expected)
+    legacy_manifest = target / StateLayout.legacy_claude().manifest
+    legacy_manifest.parent.mkdir(parents=True)
+    legacy_manifest.write_text("not authoritative JSON\n", encoding="utf-8")
+    before = _tree_snapshot(target)
+    command = [
+        "init",
+        str(target),
+        "--defaults",
+        "--runtime",
+        "claude",
+        "--migrate-state",
+    ]
+    if dry_run:
+        command.extend(("--dry-run", "--json"))
+
+    result = runner.invoke(app, command)
+
+    assert result.exit_code == 0, result.output
+    assert neutral.read_bytes() == expected
+    assert legacy_manifest.read_text(encoding="utf-8") == "not authoritative JSON\n"
+    if dry_run:
+        assert _tree_snapshot(target) == before
+        assert (
+            StateLayout.neutral().manifest in json.loads(result.output)["would_write"]
+        )
+    else:
+        manifest = json.loads((target / StateLayout.neutral().manifest).read_text())
+        assert manifest["runtimes"] == ["claude"]
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_legacy_claude_to_codex_requires_confirmed_backed_up_transition(
+    tmp_path, dry_run
+):
+    target = tmp_path / ("legacy-codex-preview" if dry_run else "legacy-codex")
+    legacy = runner.invoke(app, ["init", str(target), "--defaults"])
+    assert legacy.exit_code == 0, legacy.output
+    before = _tree_snapshot(target)
+
+    command = [
+        "init",
+        str(target),
+        "--defaults",
+        "--runtime",
+        "codex",
+        "--migrate-state",
+    ]
+    if dry_run:
+        command.append("--dry-run")
+    result = runner.invoke(
+        app,
+        command,
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+
+    assert result.exit_code == 1, result.output
+    assert "recoverable backup" in result.output
+    assert "ckit migrate-state <path>" in result.output
+    assert "--confirm-runtime-removal" in result.output
+    assert _tree_snapshot(target) == before
+    assert (target / ".claude").is_dir()
+    assert not (target / ".ckit").exists()
+    assert not (target / ".codex").exists()
+    assert not list(target.glob(".ckit.bak-*"))
+
+
+def test_legacy_claude_to_codex_two_step_transition_creates_backup(tmp_path):
+    target = tmp_path / "legacy-codex-confirmed"
+    config = tmp_path / "legacy-codex-selection.yaml"
+    config.write_text("profile: lean\n", encoding="utf-8")
+    legacy = runner.invoke(
+        app,
+        ["init", str(target), "--config", str(config)],
+    )
+    assert legacy.exit_code == 0, legacy.output
+    legacy_continuity = target / ".claude/CONTINUITY.md"
+    legacy_continuity.write_text(
+        "# Legacy continuity\n\nPreserve this in state and backup.\n",
+        encoding="utf-8",
+    )
+    expected_continuity = legacy_continuity.read_bytes()
+
+    migrated = runner.invoke(
+        app,
+        ["migrate-state", str(target)],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+    assert migrated.exit_code == 0, migrated.output
+
+    transitioned = runner.invoke(
+        app,
+        [
+            "upgrade",
+            str(target),
+            "--runtime",
+            "codex",
+            "--confirm-runtime-removal",
+        ],
+        env={"CKIT_EXPERIMENTAL": "1"},
+    )
+
+    assert transitioned.exit_code == 0, transitioned.output
+    manifest = json.loads((target / StateLayout.neutral().manifest).read_text())
+    assert manifest["runtimes"] == ["codex"]
+    assert not (target / ".claude").exists()
+    assert (target / ".codex").is_dir()
+    backups = list(target.glob(".ckit.bak-*/providers/.claude"))
+    assert len(backups) == 1
+    assert (backups[0] / "CONTINUITY.md").read_bytes() == expected_continuity
+    assert (target / ".ckit/CONTINUITY.md").read_bytes() == expected_continuity
+
+
 def test_init_migration_and_runtime_install_roll_back_as_one_operation(tmp_path):
     target = tmp_path / "legacy-with-user-codex"
     config = tmp_path / "selection.yaml"

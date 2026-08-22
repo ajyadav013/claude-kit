@@ -10,7 +10,9 @@ request_input:
   mode: optional
   hint: '[idea description]'
 pause_for_human: []
-references: []
+references:
+- skill://scope
+- skill://triage
 ---
 
 Add a new idea to the backlog. The user will describe the idea as: {{request}}
@@ -38,11 +40,11 @@ Follow these steps:
 7. **Summarize**: Tell the user:
    - Item #{N} added to `docs/backlog/unsorted.md`
    - Your suggested horizon placement
-   - Remind them to run `/triage N` to move it into the right horizon file
+   - Remind them to run `{{skill_invocation:skill://triage}} N` to move it into the right horizon file
 
 ## Guidelines
 
-- Keep the description concise but specific — enough context for `/scope` to work with later
+- Keep the description concise but specific — enough context for `{{skill_invocation:skill://scope}}` to work with later
 - Infer priority from urgency cues in the user's description
 - If the user gives a very brief description, expand it into something actionable but don't over-engineer
 - If the idea is clearly related to existing items, mention them in "Related items"

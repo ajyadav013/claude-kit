@@ -26,7 +26,7 @@ added by the org layer. It does not introduce competing agents.
 | Build a small internal tool | `internal-tools-builder` (plan + delegate only) |
 | Turn a customer ticket into a fix | `command://customer-issue-to-fix` → `support-ticket-engineer` |
 | Shape a data/reporting workflow | `data-workflow-agent` (design only) |
-| Learn what a repo does before changing it | `command://repo-onboarding` → `Explore` |
+| Learn what a repo does before changing it | `command://repo-onboarding` → a read-only research role |
 | Decide how risky a change is | `risk-classifier` agent (`risk-classification.md`) |
 
 ## Rules it leans on
@@ -40,9 +40,9 @@ the project's test runner has coverage for the change).
 
 ## Examples
 ```
-/prototype-to-production "Make my onboarding-checklist prototype real"   # → scoped tasks + tests + approval
-/customer-issue-to-fix "Users say the export button does nothing"        # → reproduced issue → safe fix → review
-/feature-from-idea "Let operators bulk-tag records in the admin view"    # → clarified brief → scoped task
+Use `{{skill_invocation:skill://prototype-to-production}}` to turn an onboarding-checklist prototype into scoped, tested, approval-gated work.
+Use `{{skill_invocation:skill://customer-issue-to-fix}}` to reproduce and safely route a broken export-button report.
+Use `{{skill_invocation:skill://feature-from-idea}}` to turn a bulk-tagging idea into a clarified brief and scoped task.
 ```
 
 ## Autonomy & risk

@@ -12,6 +12,7 @@ from typing import Any, Mapping
 import jsonschema
 import yaml
 
+from claude_kit.canonical_skills import raw_skill_invocations
 from claude_kit.components import SymbolicRef
 
 CANONICAL_TEMPLATE_SCHEMA_VERSION = 1
@@ -32,6 +33,7 @@ _LEAKAGE = (
     re.compile(r"\b(?:CLAUDE|CODEX)_[A-Z0-9_]+\b"),
     re.compile(r"\b(?:CLAUDE|AGENTS)\.md\b"),
     re.compile(r"(?<![\w./:-])/(?:claude-kit:[a-z-]+|sdlc\b)"),
+    re.compile(r"(?:\bExplore agent\b|`Explore`|\*\*Explore\*\*)"),
 )
 
 # This is intentionally closed: settings/hooks/scripts and agent/skill/rule files are
@@ -136,11 +138,16 @@ _UniqueKeyLoader.add_constructor(
 )
 
 
-def provider_template_leakage(text: str) -> tuple[str, ...]:
+def provider_template_leakage(
+    text: str,
+    *,
+    known_skill_ids: tuple[str, ...] | frozenset[str] = (),
+) -> tuple[str, ...]:
     """Return provider-specific syntax found in a canonical template body."""
-    return tuple(
+    provider_matches = tuple(
         match.group(0) for pattern in _LEAKAGE for match in pattern.finditer(text)
     )
+    return provider_matches + raw_skill_invocations(text, known_skill_ids)
 
 
 def _load_schema(root: Path) -> dict[str, Any]:
@@ -208,7 +215,12 @@ def load_canonical_template(root: Path, body_path: Path) -> CanonicalTemplate:
         raise CanonicalTemplateError(
             f"canonical template {source} body must not be empty"
         )
-    leakage = provider_template_leakage(content)
+    known_skill_ids = frozenset(
+        candidate.stem
+        for candidate in (payload_root / "canonical" / "skills").glob("*/*.md")
+        if candidate.name != "README.md"
+    )
+    leakage = provider_template_leakage(content, known_skill_ids=known_skill_ids)
     if leakage:
         raise CanonicalTemplateError(
             f"canonical template {source} contains provider syntax: "

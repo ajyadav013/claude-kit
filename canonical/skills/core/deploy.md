@@ -15,6 +15,9 @@ references:
 - command://sdlc
 - rule://continuity
 - rule://risk-classification
+- skill://ci-cd-and-automation
+- skill://deploy
+- skill://shipping-and-launch
 - state://configuration
 - state://continuity
 - state://deploy-config
@@ -29,12 +32,12 @@ nothing below assumes a specific CI provider, orchestrator, or cloud.
 
 | Usage | What it does |
 |-------|-------------|
-| `/deploy` | Commit + push (+ merge to the integration branch) + trigger the deployment |
-| `/deploy fix: use internal URL` | Same, with a custom commit description |
-| `/deploy commit-only` | Commit + push only — no merge, no deploy |
-| `/deploy no-deploy` | Commit + push + merge, skip the deploy trigger |
-| `/deploy setup` | (Re-)run the interview and rewrite `state://deploy-config` |
-| `/deploy loop` | Full ship loop: implement → commit → deploy → monitor → verify → test → repeat |
+| `{{skill_invocation:skill://deploy}}` | Commit + push (+ merge to the integration branch) + trigger the deployment |
+| `{{skill_invocation:skill://deploy}} fix: use internal URL` | Same, with a custom commit description |
+| `{{skill_invocation:skill://deploy}} commit-only` | Commit + push only — no merge, no deploy |
+| `{{skill_invocation:skill://deploy}} no-deploy` | Commit + push + merge, skip the deploy trigger |
+| `{{skill_invocation:skill://deploy}} setup` | (Re-)run the interview and rewrite `state://deploy-config` |
+| `{{skill_invocation:skill://deploy}} loop` | Full ship loop: implement → commit → deploy → monitor → verify → test → repeat |
 
 ---
 
@@ -213,5 +216,6 @@ compaction and a fresh session can resume exactly where it stopped (see
 Provision infrastructure · merge to a production branch that requires human review · run
 destructive runtime commands · bypass the profile's quality gates for the code itself. It
 executes an **existing, human-designed delivery path** and verifies the result — it does not
-invent one. If the project has no delivery path yet, that's `/ci-cd-and-automation` and
-`/shipping-and-launch` territory first.
+invent one. If the project has no delivery path yet, that's
+`{{skill_invocation:skill://ci-cd-and-automation}}` and
+`{{skill_invocation:skill://shipping-and-launch}}` territory first.

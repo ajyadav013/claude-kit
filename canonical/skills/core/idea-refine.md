@@ -32,7 +32,7 @@ This skill is primarily an interactive dialogue. Invoke it with an idea, and the
 
 ```bash
 # Optional: Initialize the ideas directory
-bash /mnt/skills/user/idea-refine/scripts/idea-refine.sh
+bash {{skill_asset:skill://idea-refine/scripts/idea-refine.sh}}
 ```
 
 **Trigger Phrases:**

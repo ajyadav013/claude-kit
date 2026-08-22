@@ -15,7 +15,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import yaml
 
@@ -27,9 +27,14 @@ CODEX_PLUGIN_ROOT = Path("providers/codex/claude-kit")
 from claude_kit.canonical_skills import (  # noqa: E402
     CanonicalCommand,
     CanonicalSkill,
+    CanonicalSkillAsset,
     RequestMode,
     discover_canonical_commands,
+    discover_canonical_skill_assets,
     discover_canonical_skills,
+    project_codex_inline_tokens,
+    project_codex_skill,
+    project_codex_skill_asset,
 )
 from claude_kit.components import Capability, InvocationMode  # noqa: E402
 
@@ -53,7 +58,115 @@ _EXTERNAL_LITERALS = {
     "external-plugin-collection": "claude-plugins-official",
     "external-skill-collection": "claude-night-market",
     "external-status-extension": "claude-hud",
+    "external-shannon-cli-max-output-tokens": "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+    "external-shannon-cli-use-bedrock": "CLAUDE_CODE_USE_BEDROCK",
+    "external-shannon-cli-use-vertex": "CLAUDE_CODE_USE_VERTEX",
+    "external-shannon-cli-adaptive-thinking": "CLAUDE_ADAPTIVE_THINKING",
 }
+
+_CLAUDE_ORCHESTRATION_APPENDIX = """## Claude Code host appendix
+
+### Where personas live
+
+Plugin subagents live in `agents/` at the plugin root. This repository's
+`.claude-plugin/plugin.json` manifest makes `agents/code-reviewer.md`,
+`agents/security-auditor.md`, and `agents/test-engineer.md` discoverable when
+the plugin is enabled; no extra path configuration is required.
+
+### Subagents versus Agent Teams
+
+Claude Code exposes two parallelism primitives. Use subagents for independent
+fan-out whose results return to the main session. Use Agent Teams only when
+workers must message one another or coordinate through a shared task list.
+
+| | Subagents | Agent Teams |
+|--|-----------|-------------|
+| Coordination | Main session fans out; workers report back | Teammates message one another and share a task list |
+| Context | One context per subagent | One context per teammate |
+| Best fit | Independent reports with one merge | Collaborative investigation or adversarial debate |
+| Status | Stable | Experimental; requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` |
+| Cost | Lower | Higher; every teammate is a separate model instance |
+
+The same persona definitions work in both modes. When used as subagents they
+report to the main session. When used as teammates their persona instructions
+are appended to the team-coordination prompt and they can challenge one
+another directly.
+
+The `skills` and `mcpServers` persona-frontmatter fields apply to subagents but
+are ignored for teammates. Teammates inherit project and user session settings.
+If a persona requires a skill or MCP server in both modes, configure it at the
+session level.
+
+### Platform-enforced nesting rules
+
+- Subagents cannot spawn other subagents.
+- Teammates cannot create nested teams.
+
+These restrictions enforce the no-persona-trees rule. Keep the main session as
+the orchestration owner instead of trying to work around them.
+
+### Built-in subagents
+
+Check the built-ins before defining a custom research persona:
+
+| Built-in | Purpose |
+|----------|---------|
+| `Explore` | Read-only codebase search and analysis for research isolation |
+| `Plan` | Read-only research during plan mode |
+| `general-purpose` | Multi-step work that needs exploration and modification |
+
+Do not redefine them. Add specialist personas such as `code-reviewer`,
+`security-auditor`, and `test-engineer` alongside them.
+
+### Plugin-agent frontmatter
+
+Plugin subagents do not honor `hooks`, `mcpServers`, or `permissionMode`; those
+fields are silently ignored. A persona that truly needs those fields must be
+copied into `.claude/agents/` or `~/.claude/agents/` and treated as user- or
+project-owned configuration.
+
+Supported plugin-agent fields include `name`, `description`, `tools`,
+`disallowedTools`, `model`, `maxTurns`, `skills`, `memory`, `background`,
+`effort`, `isolation`, `color`, and `initialPrompt`. Choose an explicit model
+only when the persona's cost or reasoning needs justify it; for example, Haiku
+can fit a bounded coverage scan, Sonnet a routine review, and Opus a deep
+security analysis.
+
+### Parallel dispatch
+
+Parallel fan-out requires multiple Agent tool calls in one assistant turn.
+Putting the calls in sequential turns serializes the workers. Require one
+explicit merge after all workers return.
+
+### Competing-hypothesis debugging with Agent Teams
+
+Use Agent Teams when several plausible causes fit an intermittent failure and
+workers must actively disprove one another. For example, one teammate can
+investigate races and blocking calls, a second authentication and synchronous
+network boundaries, and a third tests that distinguish the hypotheses. Ask
+them to message counter-evidence directly and converge only when at least two
+can rule out the alternatives.
+
+This is different from a ship review. A ship review needs independent lenses
+and one verdict; competing-hypothesis debugging needs discussion among the
+investigators. Agent Teams therefore earns its higher cost only when the
+cross-worker debate materially improves the conclusion.
+
+Agent Teams requires Claude Code v2.1.32 or later and this one-time setting:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
+```
+
+When the investigation finishes, tell the lead to clean up the team. Teammates
+lack the lead's complete team context and must not own cleanup.
+
+---
+"""
 _EXTERNAL_ASSISTANT_SKILLS = {
     "anthropic-vertex-integration",
     "code-simplification",
@@ -674,11 +787,43 @@ def _project_semantics(
             codex_plugin_context=codex_plugin_context,
         )
 
+    def project_token(
+        source: str,
+        pattern: str,
+        resolve: Callable[[re.Match[str]], str],
+    ) -> str:
+        compiled = re.compile(pattern)
+        if provider == "codex":
+            return project_codex_inline_tokens(source, compiled, resolve)
+        return compiled.sub(resolve, source)
+
     text = text.replace(
         "{{state_dir:state://agent-memory}}",
         ".claude/agent-memory/" if provider == "claude" else ".ckit/agent-memory/",
     )
     text = re.sub(
+        r"\{\{skill_asset:skill://([a-z0-9][a-z0-9._-]*)/"
+        r"([a-zA-Z0-9][a-zA-Z0-9._/-]*)\}\}",
+        lambda match: (
+            f".claude/skills/{match.group(1)}/{match.group(2)}"
+            if provider == "claude"
+            else (
+                match.group(2)
+                if codex_plugin_context
+                else f".agents/skills/{match.group(1)}/{match.group(2)}"
+            )
+        ),
+        text,
+    )
+    text = project_token(
+        text,
+        r"\{\{skill_invocation:skill://([a-z0-9][a-z0-9._-]*)\}\}",
+        lambda match: (
+            f"/{match.group(1)}" if provider == "claude" else f"${match.group(1)}"
+        ),
+    )
+    text = project_token(
+        text,
         r"\{\{ref:(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)"
         r"://([a-z0-9][a-z0-9._-]*)\}\}",
         lambda match: _reference_target(
@@ -688,7 +833,6 @@ def _project_semantics(
             codex_skill_reference_base=codex_skill_reference_base,
             codex_plugin_context=codex_plugin_context,
         ),
-        text,
     )
     for marker in ("command_alias", "short_command"):
         prefix = "/claude-kit:" if marker == "command_alias" else "/"
@@ -700,10 +844,10 @@ def _project_semantics(
                 return f"the {match.group(1)} skill"
             return f"the `{match.group(1)}` skill"
 
-        text = re.sub(
+        text = project_token(
+            text,
             rf"\{{\{{{marker}:command://([a-z0-9][a-z0-9._-]*)\}}\}}",
             project_command,
-            text,
         )
     # Wrapper forms preserve whether the legacy prose named a skill file or a
     # directory.  They still contain a declared symbolic skill reference.
@@ -720,16 +864,16 @@ def _project_semantics(
                 return f"the {match.group(1)} skill"
             return f".agents/skills/{match.group(1)}{suffix}"
 
-        text = re.sub(
+        text = project_token(
+            text,
             rf"\{{\{{{marker}:skill://([a-z0-9][a-z0-9._-]*)\}}\}}",
             project_skill,
-            text,
         )
-    text = re.sub(
+    text = project_token(
+        text,
         r"\b(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)"
         r"://([a-z0-9][a-z0-9._-]*)",
         reference,
-        text,
     )
 
     host = "Claude" if provider == "claude" else "Codex"
@@ -868,7 +1012,7 @@ def _adapt_codex_command(record: CanonicalCommand, body: str) -> str:
     """Apply the native Codex runtime contract to one canonical command adapter."""
     command_id = record.spec.id
     if command_id == "abort":
-        return body.replace("`the sdlc skill`", "the `sdlc` skill")
+        return body.replace("the sdlc skill", "the `sdlc` skill")
 
     if command_id == "sdlc":
         body = body.replace(
@@ -885,7 +1029,7 @@ def _adapt_codex_command(record: CanonicalCommand, body: str) -> str:
         old = (
             "2. **Installed config** — list what's present under `.ckit/`: counts of "
             "`rules/`, `agents/`,\n   `skills/`, and `hooks/`. Note if any are missing "
-            "(suggest `the init skill`)."
+            "(suggest the init skill)."
         )
         new = (
             "2. **Installed config** — check each native surface separately: `AGENTS.md`,\n"
@@ -1037,22 +1181,40 @@ def render_claude_skill(record: CanonicalSkill) -> str:
     )
 
 
+def render_claude_skill_asset(asset: CanonicalSkillAsset) -> str:
+    """Project one canonical auxiliary asset to the Claude compatibility tree."""
+    content = asset.content
+    if (
+        asset.skill_id == "_references"
+        and asset.relative_path.name == "orchestration-patterns.md"
+    ):
+        marker = "{{provider_appendix:orchestration-patterns}}"
+        if content.count(marker) != 1:
+            raise ValueError(
+                "orchestration reference must declare exactly one provider appendix marker"
+            )
+        content = content.replace(marker, _CLAUDE_ORCHESTRATION_APPENDIX)
+    return _project_semantics(content, provider="claude")
+
+
 def render_codex_skill(
     record: CanonicalSkill | CanonicalCommand,
     *,
     plugin_context: bool = False,
 ) -> str:
     """Render a Codex-discoverable document with supported frontmatter only."""
-    component_id = (
-        record.spec.id
-        if isinstance(record, CanonicalSkill)
-        else record.adapter_skill_id
-    )
-    description = (
-        _project_semantics(record.spec.description, provider="codex")
-        if isinstance(record, CanonicalSkill)
-        else _CODEX_COMMAND_DESCRIPTIONS[record.spec.id]
-    )
+    if isinstance(record, CanonicalSkill):
+        projection = project_codex_skill(record, plugin_context=plugin_context)
+        return _yaml_frontmatter(
+            {
+                "name": projection.name,
+                "description": projection.description,
+            },
+            projection.instructions,
+        )
+
+    component_id = record.adapter_skill_id
+    description = _CODEX_COMMAND_DESCRIPTIONS[record.spec.id]
     metadata = {
         "name": component_id,
         "description": description,
@@ -1119,66 +1281,21 @@ def render_codex_policy(record: CanonicalSkill | CanonicalCommand) -> str | None
     )
 
 
-def render_codex_reference(reference_id: str, source: str) -> str:
-    """Adapt a shared legacy reference for a self-contained Codex skill.
-
-    Four checklist references are already host-neutral.  The orchestration
-    catalog contains a Claude-specific platform appendix; the Codex projection
-    keeps the shared patterns and anti-patterns, replacing that appendix with
-    an explicit capability-gated host contract.
-    """
-    if reference_id != "orchestration-patterns":
-        return source if source.endswith("\n") else source + "\n"
-
-    compatibility = source.find("## Claude Code compatibility")
-    anti_patterns = source.find("## Anti-patterns")
-    if compatibility < 0 or anti_patterns < 0 or compatibility >= anti_patterns:
-        raise ValueError(
-            "orchestration reference is missing its reviewed compatibility boundaries"
-        )
-    shared = source[:compatibility]
-    shared = re.sub(
-        r"\*\*On Claude Code, use the built-in `Explore` subagent\*\*.*?\n",
-        "**Use a host-native read-only research worker when available.** "
-        "Otherwise delegate with an explicit read-only scope and require a compact digest.\n",
-        shared,
-    )
-    host_contract = """## Host compatibility
-
-Map each persona to a host-native delegated worker when one is available. If
-named agents or teammate messaging are unavailable, embed the persona's
-instructions in a generic delegated task. Treat nested delegation, shared task
-lists, and teammate messaging as capability-gated; keep orchestration in the
-main session when a capability is absent. Parallel fan-out still requires
-independent workers and one explicit merge in the main session.
-
----
-
-"""
-    generic = shared + host_contract + source[anti_patterns:]
-    replacements = {
-        "slash commands": "explicit workflow skills",
-        "slash command": "explicit workflow skill",
-        "Slash commands": "Explicit workflow skills",
-        "Claude Code's Workflow tool": "a host workflow runner",
-        ".claude/rules/evals.md": ".ckit/rules/evals.md",
-        "Agent-Teams adversarial example above": "independent-verifier pattern",
-        "team of parallel Claudes": "team of parallel assistants",
-        "dynamic workflows in Claude Code": "dynamic workflows in an agent harness",
-    }
-    for old, new in replacements.items():
-        generic = generic.replace(old, new)
-    generic = re.sub(
-        r"(?<![\w/])/(review|test|code-simplify|ship|spec|plan|build|work|sdlc)\b",
-        lambda match: f"the {match.group(1)} skill",
-        generic,
-    )
-    return generic.rstrip() + "\n"
-
-
 def _codex_plugin_payloads(root: Path) -> dict[Path, str]:
     plugin_root = root / CODEX_PLUGIN_ROOT
     outputs: dict[Path, str] = {}
+    assets = discover_canonical_skill_assets(root)
+    shared_assets = {
+        asset.relative_path.stem: asset
+        for asset in assets
+        if asset.skill_id == "_references"
+    }
+    for asset in assets:
+        if asset.skill_id == "_references":
+            continue
+        outputs[plugin_root / "skills" / asset.skill_id / asset.relative_path] = (
+            project_codex_skill_asset(asset, plugin_context=True)
+        )
     records: tuple[CanonicalSkill | CanonicalCommand, ...] = (
         *(
             record
@@ -1205,15 +1322,14 @@ def _codex_plugin_payloads(root: Path) -> dict[Path, str]:
             if not reference.uri.startswith(prefix):
                 continue
             reference_id = reference.uri.removeprefix(prefix)
-            source_path = root / "skills" / "_references" / f"{reference_id}.md"
-            if not source_path.is_file():
+            try:
+                source_asset = shared_assets[reference_id]
+            except KeyError as exc:
                 raise ValueError(
-                    f"missing shared skill reference for {record.spec.id}: {source_path}"
-                )
+                    f"missing shared skill reference for {record.spec.id}: {reference_id}"
+                ) from exc
             outputs[skill_root / "references" / f"{reference_id}.md"] = (
-                render_codex_reference(
-                    reference_id, source_path.read_text(encoding="utf-8")
-                )
+                project_codex_skill_asset(source_asset, plugin_context=True)
             )
     return outputs
 
@@ -1260,6 +1376,12 @@ def generated_payloads(root: Path = ROOT) -> dict[Path, str]:
         root / record.destination: render_claude_skill(record)
         for record in discover_canonical_skills(root)
     }
+    outputs.update(
+        {
+            root / asset.destination: render_claude_skill_asset(asset)
+            for asset in discover_canonical_skill_assets(root)
+        }
+    )
     for command in discover_canonical_commands(root):
         outputs[root / "skills" / command.adapter_skill_id / "SKILL.md"] = (
             render_claude_command_adapter(command)
@@ -1272,10 +1394,14 @@ def generated_payloads(root: Path = ROOT) -> dict[Path, str]:
 def _existing_payloads(root: Path) -> set[Path]:
     paths = {
         path
-        for path in (root / "skills").glob("*/SKILL.md")
-        if path.parent.name != "_references"
+        for path in (root / "skills").glob("*/**/*")
+        if path.is_file() and path.name != "README.md"
     }
-    paths.update((root / "templates/org/skills").glob("*/SKILL.md"))
+    paths.update(
+        path
+        for path in (root / "templates/org/skills").glob("*/**/*")
+        if path.is_file() and path.name != "README.md"
+    )
     paths.update((root / "commands").glob("*.md"))
     codex_skill_root = root / CODEX_PLUGIN_ROOT / "skills"
     if codex_skill_root.is_dir():
@@ -1283,8 +1409,44 @@ def _existing_payloads(root: Path) -> set[Path]:
     return {path for path in paths if path.is_file()}
 
 
+def generated_asset_modes(root: Path = ROOT) -> dict[Path, int]:
+    """Return exact POSIX-mode expectations for every generated auxiliary asset."""
+    assets = discover_canonical_skill_assets(root)
+    modes = {root / asset.destination: asset.mode for asset in assets}
+    shared = {
+        asset.relative_path.stem: asset
+        for asset in assets
+        if asset.skill_id == "_references"
+    }
+    for asset in assets:
+        if asset.skill_id == "_references":
+            continue
+        modes[
+            root / CODEX_PLUGIN_ROOT / "skills" / asset.skill_id / asset.relative_path
+        ] = asset.mode
+    for record in discover_canonical_skills(root):
+        if record.kind.value != "core":
+            continue
+        for reference in record.spec.references:
+            prefix = "artifact://skill-reference-"
+            if not reference.uri.startswith(prefix):
+                continue
+            reference_id = reference.uri.removeprefix(prefix)
+            source = shared[reference_id]
+            modes[
+                root
+                / CODEX_PLUGIN_ROOT
+                / "skills"
+                / record.spec.id
+                / "references"
+                / f"{reference_id}.md"
+            ] = source.mode
+    return modes
+
+
 def check(root: Path = ROOT) -> list[str]:
     expected = generated_payloads(root)
+    expected_modes = generated_asset_modes(root)
     diagnostics: list[str] = []
     for path, content in expected.items():
         relative = path.relative_to(root).as_posix()
@@ -1292,6 +1454,10 @@ def check(root: Path = ROOT) -> list[str]:
             diagnostics.append(f"missing generated skill/command: {relative}")
         elif path.read_text(encoding="utf-8") != content:
             diagnostics.append(f"stale generated skill/command: {relative}")
+        if path.is_file() and path in expected_modes:
+            actual_mode = path.stat().st_mode & 0o777
+            if actual_mode != expected_modes[path]:
+                diagnostics.append(f"stale generated asset mode: {relative}")
     for path in sorted(_existing_payloads(root) - set(expected)):
         diagnostics.append(
             "unmanaged skill/command outside canonical source: "
@@ -1302,6 +1468,7 @@ def check(root: Path = ROOT) -> list[str]:
 
 def write(root: Path = ROOT) -> int:
     expected = generated_payloads(root)
+    expected_modes = generated_asset_modes(root)
     unmanaged = sorted(_existing_payloads(root) - set(expected))
     if unmanaged:
         for path in unmanaged:
@@ -1313,10 +1480,19 @@ def write(root: Path = ROOT) -> int:
         return 1
     changed = 0
     for path, content in expected.items():
-        if path.is_file() and path.read_text(encoding="utf-8") == content:
+        content_current = path.is_file() and path.read_text(encoding="utf-8") == content
+        mode_current = (
+            path not in expected_modes
+            or not path.is_file()
+            or path.stat().st_mode & 0o777 == expected_modes[path]
+        )
+        if content_current and mode_current:
             continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        if not content_current:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        if path in expected_modes:
+            path.chmod(expected_modes[path])
         changed += 1
         print(f"generated {path.relative_to(root).as_posix()}")
     print(f"skill/command payloads current ({len(expected)} files, {changed} changed)")

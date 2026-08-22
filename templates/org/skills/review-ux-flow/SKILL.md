@@ -45,8 +45,9 @@ A verdict, separated **Issues to Fix** / **Improvements**, and a **state-coverag
 Low / Cosmetic** (`.claude/rules/quality-gates.md`).
 
 ## Stop conditions
-Stop and route elsewhere if the request is really an accessibility audit (`/accessibility-review`), a
-visual/design-system review (`/ui-ux-design`), or a live behavioral test (the `tester` lane) — this
+Stop and route elsewhere if the request is really an accessibility audit
+(`/accessibility-review`), a visual/design-system review
+(`/ui-ux-design`), or a live behavioral test (the `tester` lane) — this
 skill is the static product-UX lens only. Escalate ambiguous product intent via
 `.claude/rules/human-in-the-loop.md`.
 

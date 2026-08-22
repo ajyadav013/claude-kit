@@ -243,7 +243,7 @@ Two complementary cutover strategies — both keep rollback fast:
 - **Blue/green** — run two identical production environments (blue = current, green = new). Deploy to the idle one, smoke-test it, then flip the router/load balancer in a single switch. Rollback is instant: flip back. Choose it when you need an atomic cutover and a clean, immediate revert and can afford two full environments.
 - **Canary** — keep one environment and shift a *percentage* of traffic (or users, via a flag) to the new version — 5% → 25% → 50% → 100% — watching error rate, latency, and business metrics at each step before advancing. Choose it to limit blast radius on real traffic, tolerating both versions running at once.
 
-Pick blue/green for atomic switch + instant revert, canary for gradual observable exposure. Either way, define the advance / hold / rollback thresholds **before** you start — reuse the Rollout Decision Thresholds table in `the shipping-and-launch skill` rather than inventing new ones.
+Pick blue/green for atomic switch + instant revert, canary for gradual observable exposure. Either way, define the advance / hold / rollback thresholds **before** you start — reuse the Rollout Decision Thresholds table in the shipping-and-launch skill rather than inventing new ones.
 
 ### Staged Rollouts
 

@@ -6,6 +6,7 @@ import configparser
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,11 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
+
+from claude_kit import catalog
+from claude_kit.models import InstallRequest
+from claude_kit.runtime_scaffold import install_runtime
+from tests._helpers import make_selection
 
 try:  # pragma: no cover - Python 3.11+
     import tomllib
@@ -80,6 +86,17 @@ REQUIRED_PR_CHECKS = {
     "wheel-smoke-claude",
     "wheel-smoke-codex",
 }
+
+# Match rooted machine-home paths without treating URLs or repository paths such as
+# `app/home/router.py` as host-specific. File URLs still match because the rooted path itself is
+# unsafe to persist in a fixture or emitted tree.
+MACHINE_HOME_PATTERNS = (
+    re.compile(r"(?<![A-Za-z0-9._-])/(?:Users|home)/[A-Za-z0-9._-]+"),
+    re.compile(
+        r"(?<![A-Za-z0-9._-])[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9._-]+",
+        re.IGNORECASE,
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -302,6 +319,71 @@ def _assert_archive_names_are_portable(names: list[str]) -> None:
         assert not (set(path.parts) & FORBIDDEN_ARCHIVE_PARTS), raw
         assert path.name != ".DS_Store", raw
         assert path.suffix != ".pyc", raw
+
+
+def _machine_home_path(text: str) -> str | None:
+    for pattern in MACHINE_HOME_PATTERNS:
+        match = pattern.search(text)
+        if match is not None:
+            return match.group(0)
+    return None
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    (
+        ("/Users/alice/work/project", True),
+        ("/home/alice/work/project", True),
+        (r"C:\Users\alice\work\project", True),
+        ("D:/Users/alice/work/project", True),
+        ("file:///Users/alice/work/project", True),
+        ("app/home/router.py", False),
+        ("https://example.com/home/router", False),
+        ("docs/Users/guide.md", False),
+        ("/home.html", False),
+        ("/root/parent/child", False),
+        ("/root/.config/gcloud", False),
+    ),
+)
+def test_machine_home_path_matcher_has_precise_boundaries(text, expected):
+    assert (_machine_home_path(text) is not None) is expected
+
+
+def test_all_checked_in_fixtures_exclude_absolute_machine_home_paths() -> None:
+    fixture_root = REPO_ROOT / "tests" / "fixtures"
+    checked = []
+    for path in sorted(fixture_root.rglob("*")):
+        if not path.is_file():
+            continue
+        checked.append(path)
+        text = path.read_text(encoding="utf-8")
+        assert _machine_home_path(text) is None, path.relative_to(REPO_ROOT)
+    assert checked, "fixture scan must not pass vacuously"
+
+
+@pytest.mark.parametrize("runtime", ("claude", "codex", "both"))
+def test_representative_runtime_tree_excludes_absolute_machine_home_paths(
+    payload, tmp_path, runtime
+):
+    selection = make_selection(
+        payload,
+        profile="enterprise",
+        scope="organization",
+        org_packs=True,
+    )
+    plan = catalog.resolve(payload, selection)
+    target = tmp_path / runtime
+
+    install_runtime(payload, target, plan, InstallRequest(selection, runtime))
+
+    emitted = []
+    for path in sorted(target.rglob("*")):
+        if not path.is_file():
+            continue
+        emitted.append(path)
+        text = path.read_text(encoding="utf-8")
+        assert _machine_home_path(text) is None, path.relative_to(target)
+    assert emitted, "runtime tree scan must not pass vacuously"
 
 
 def test_fixed_epoch_builds_are_byte_reproducible(

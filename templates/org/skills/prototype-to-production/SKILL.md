@@ -17,7 +17,8 @@ Someone has a working-but-unsafe prototype — "this CSV upload script we run by
 feature" — and wants it productionized through the normal pipeline instead of shipped as-is.
 
 ## Who should use it
-Founders, operators, PMs. Engineers can use it too, but may prefer `/security-and-hardening` directly.
+Founders, operators, PMs. Engineers can use it too, but may prefer
+`/security-and-hardening` directly.
 
 ## Required inputs
 The prototype/script and what it does. Helpful: who will use it, what data it touches, and how it runs today.
@@ -33,7 +34,8 @@ The prototype/script and what it does. Helpful: who will use it, what data it to
 `founder-prototype-agent` (frame the prototype + its gaps) → `risk-classifier` (tier it) →
 `security-reviewer` (define hardening: validation, authn/authz, rate limits, secrets) →
 `orchestrator` (run the build lane: `developer`, `sdlc-code-reviewer`, `tester`). Use
-`/security-and-hardening` and `/test-driven-development` under the hood; respect
+`/security-and-hardening` and
+`/test-driven-development` under the hood; respect
 `.claude/rules/prototype-boundaries.md` and prototype-to-task-conversion concepts.
 
 ## Quality gates

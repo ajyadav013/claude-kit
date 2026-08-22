@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import yaml
@@ -14,15 +16,48 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
 from claude_kit import catalog
-from claude_kit.models import InitOptions, InstallRequest, Runtime, StateLayout
+from claude_kit.models import (
+    FileRecord,
+    InitOptions,
+    InstallRequest,
+    Runtime,
+    StateLayout,
+)
 from claude_kit.provider_renderers import CodexRenderer
 from claude_kit.runtime_scaffold import (
     RuntimeInstallError,
     _merge_agents,
     install_runtime,
     preview_runtime_install,
+    render_runtime_artifacts,
     transition_runtime,
 )
+
+_LEGACY_TEMPLATE_PATH = ".ckit/artifacts/templates/adr.md"
+
+
+def _add_legacy_template_record(
+    target: Path, *, baseline: bytes, live: bytes | None = None
+) -> bytes:
+    """Model one obsolete native manifest record from the prior release."""
+
+    path = target / _LEGACY_TEMPLATE_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(baseline if live is None else live)
+    manifest = target / StateLayout.neutral().manifest
+    options = InitOptions.from_dict(json.loads(manifest.read_text(encoding="utf-8")))
+    options.files.append(
+        FileRecord(
+            path=_LEGACY_TEMPLATE_PATH,
+            sha256=hashlib.sha256(baseline).hexdigest(),
+            owner="kit",
+            provider="shared",
+            component_id="artifact://templates",
+        )
+    )
+    encoded = (json.dumps(options.to_dict(), indent=2) + "\n").encode("utf-8")
+    manifest.write_bytes(encoded)
+    return encoded
 
 
 @pytest.mark.parametrize(
@@ -50,7 +85,13 @@ def test_fresh_native_runtime_install_has_one_neutral_control_plane(
         assert (target / ".claude/agents/orchestrator.md").is_file()
         assert (target / ".codex/agents/orchestrator.toml").is_file()
     assert (target / ".ckit/CONTINUITY.md").is_file()
-    assert (target / ".ckit/agent-memory/MEMORY.md").is_file()
+    memory_index = target / ".ckit/agent-memory/MEMORY.md"
+    assert memory_index.is_file()
+    memory_text = memory_index.read_text(encoding="utf-8")
+    assert "across coding-agent sessions" in memory_text
+    assert "across Claude sessions" not in memory_text
+    assert "across Codex sessions" not in memory_text
+    assert (target / ".ckit/artifacts/.gitkeep").is_file()
     loop = target / ".ckit/scripts/sdlc-loop.sh"
     assert loop.is_file()
     assert loop.stat().st_mode & 0o111
@@ -80,6 +121,211 @@ def test_fresh_native_runtime_install_has_one_neutral_control_plane(
     assert snapshot["gates"] == plan.gates
 
 
+def test_dual_runtime_has_no_redundant_shared_template_projection(payload, tmp_path):
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="both")
+
+    _projection, artifacts = render_runtime_artifacts(
+        payload, tmp_path / "both", plan, request
+    )
+
+    native_template_content = {
+        artifact.content
+        for artifact in artifacts
+        if artifact.path.startswith((".claude/templates/", ".ckit/templates/"))
+    }
+    redundant_shared = {
+        artifact.path
+        for artifact in artifacts
+        if artifact.provider == "shared"
+        and artifact.owner == "kit"
+        and artifact.content in native_template_content
+    }
+    assert native_template_content
+    assert redundant_shared == set()
+    assert not any(
+        artifact.path.startswith(".ckit/artifacts/templates/") for artifact in artifacts
+    )
+
+
+def test_reinstall_retires_hash_matched_legacy_template(payload, tmp_path):
+    target = tmp_path / "legacy-template"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    install_runtime(payload, target, plan, request)
+    _add_legacy_template_record(target, baseline=b"legacy duplicate template\n")
+
+    _projection, preview = preview_runtime_install(payload, target, plan, request)
+
+    assert _LEGACY_TEMPLATE_PATH in preview
+    assert (target / _LEGACY_TEMPLATE_PATH).is_file()
+
+    log = install_runtime(payload, target, plan, request)
+
+    assert not (target / _LEGACY_TEMPLATE_PATH).exists()
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert _LEGACY_TEMPLATE_PATH not in {record.path for record in options.files}
+    assert any(
+        f"retired duplicate legacy template {_LEGACY_TEMPLATE_PATH}" in line
+        for line in log
+    )
+    assert (target / ".ckit/artifacts/.gitkeep").is_file()
+
+
+def test_reinstall_preserves_modified_legacy_template_but_retires_ownership(
+    payload, tmp_path
+):
+    target = tmp_path / "modified-legacy-template"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    install_runtime(payload, target, plan, request)
+    modified = b"user notes based on the old duplicate template\n"
+    _add_legacy_template_record(
+        target,
+        baseline=b"legacy duplicate template\n",
+        live=modified,
+    )
+
+    _projection, preview = preview_runtime_install(payload, target, plan, request)
+
+    assert _LEGACY_TEMPLATE_PATH not in preview
+    assert (target / _LEGACY_TEMPLATE_PATH).read_bytes() == modified
+
+    log = install_runtime(payload, target, plan, request)
+
+    assert (target / _LEGACY_TEMPLATE_PATH).read_bytes() == modified
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert _LEGACY_TEMPLATE_PATH not in {record.path for record in options.files}
+    assert any(
+        f"preserved user-modified legacy template {_LEGACY_TEMPLATE_PATH}" in line
+        for line in log
+    )
+
+    # Once ownership is retired, later reinits continue treating the bytes as
+    # untracked user content.
+    install_runtime(payload, target, plan, request)
+    assert (target / _LEGACY_TEMPLATE_PATH).read_bytes() == modified
+
+
+def test_legacy_template_retirement_refuses_nonregular_destination(payload, tmp_path):
+    target = tmp_path / "nonregular-legacy-template"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    install_runtime(payload, target, plan, request)
+    manifest = target / StateLayout.neutral().manifest
+    options = InitOptions.from_dict(json.loads(manifest.read_text(encoding="utf-8")))
+    options.files.append(
+        FileRecord(
+            path=_LEGACY_TEMPLATE_PATH,
+            sha256=hashlib.sha256(b"legacy duplicate template\n").hexdigest(),
+            owner="kit",
+            provider="shared",
+            component_id="artifact://templates",
+        )
+    )
+    manifest.write_text(json.dumps(options.to_dict(), indent=2) + "\n")
+    (target / _LEGACY_TEMPLATE_PATH).mkdir(parents=True)
+    before = manifest.read_bytes()
+
+    with pytest.raises(RuntimeInstallError, match="not a regular file"):
+        preview_runtime_install(payload, target, plan, request)
+    with pytest.raises(RuntimeInstallError, match="not a regular file"):
+        install_runtime(payload, target, plan, request)
+
+    assert (target / _LEGACY_TEMPLATE_PATH).is_dir()
+    assert manifest.read_bytes() == before
+
+
+def test_legacy_template_retirement_rolls_back_with_later_install_failure(
+    payload, tmp_path, monkeypatch
+):
+    from claude_kit import runtime_scaffold
+
+    target = tmp_path / "retirement-rollback"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    install_runtime(payload, target, plan, request)
+    before_manifest = _add_legacy_template_record(
+        target, baseline=b"legacy duplicate template\n"
+    )
+    before_template = (target / _LEGACY_TEMPLATE_PATH).read_bytes()
+
+    def fail_after_retirement(*_args, **_kwargs):
+        raise RuntimeError("injected post-retirement failure")
+
+    monkeypatch.setattr(runtime_scaffold, "_write_artifact", fail_after_retirement)
+    with pytest.raises(RuntimeError, match="post-retirement failure"):
+        install_runtime(payload, target, plan, request)
+
+    assert (target / _LEGACY_TEMPLATE_PATH).read_bytes() == before_template
+    assert (target / StateLayout.neutral().manifest).read_bytes() == before_manifest
+    assert not (target / StateLayout.neutral().journal).exists()
+
+
+@pytest.mark.parametrize(
+    "marker_field",
+    ["manifest", "stack_snapshot", "pipeline_snapshot", "continuity"],
+)
+def test_runtime_spine_refuses_each_authoritative_legacy_state_marker(
+    payload, tmp_path, marker_field
+):
+    target = tmp_path / f"legacy-{marker_field}"
+    marker = target / getattr(StateLayout.legacy_claude(), marker_field)
+    marker.parent.mkdir(parents=True)
+    expected = f"KEEP-{marker_field}\n".encode()
+    marker.write_bytes(expected)
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+
+    with pytest.raises(RuntimeInstallError, match="--migrate-state"):
+        install_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection=selection, runtime="claude"),
+        )
+
+    assert marker.read_bytes() == expected
+    assert not (target / StateLayout.neutral().root).exists()
+    assert not list(target.glob(".claude-kit-txn-*"))
+
+
+def test_neutral_marker_precedence_ignores_stranded_legacy_manifest(payload, tmp_path):
+    target = tmp_path / "neutral-authoritative"
+    neutral_continuity = target / StateLayout.neutral().continuity
+    neutral_continuity.parent.mkdir(parents=True)
+    expected = b"# Neutral continuity\n\nKEEP-ME\n"
+    neutral_continuity.write_bytes(expected)
+    legacy_manifest = target / StateLayout.legacy_claude().manifest
+    legacy_manifest.parent.mkdir(parents=True)
+    legacy_manifest.write_text("not authoritative JSON\n", encoding="utf-8")
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime="claude"),
+    )
+
+    assert neutral_continuity.read_bytes() == expected
+    assert legacy_manifest.read_text(encoding="utf-8") == "not authoritative JSON\n"
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert options.runtimes == ["claude"]
+
+
 def test_codex_managed_files_preserve_user_prose_comments_and_are_idempotent(
     payload, tmp_path
 ):
@@ -105,6 +351,34 @@ def test_codex_managed_files_preserve_user_prose_comments_and_are_idempotent(
     assert config.count("# ckit:managed:start") == 1
     assert config.count("# ckit:managed:end") == 1
     assert tomllib.loads(config)["history"]["persistence"] == "save-all"
+
+
+def test_runtime_validation_preserves_only_scoped_shannon_cli_settings(
+    payload, tmp_path
+):
+    selection = catalog.defaults(payload)
+    selection.profile = "standard"
+    plan = catalog.resolve(payload, selection)
+
+    _projection, artifacts = render_runtime_artifacts(
+        payload,
+        tmp_path / "shannon-runtime-validation",
+        plan,
+        InstallRequest(selection=selection, runtime="codex"),
+    )
+    paths = {artifact.path: artifact.content.decode("utf-8") for artifact in artifacts}
+    names = {
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_ADAPTIVE_THINKING",
+    }
+
+    for path in (
+        ".agents/skills/shannon-ai-pentest/SKILL.md",
+        ".agents/skills/shannon-ai-pentest/references/operating-guide.md",
+    ):
+        assert all(name in paths[path] for name in names)
 
 
 def test_agents_merge_compacts_only_inline_rules_to_preserve_user_prose(payload):

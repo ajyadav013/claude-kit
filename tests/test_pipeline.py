@@ -3620,7 +3620,7 @@ def test_managed_worker_controls_are_frozen_but_mutable_context_is_not(
     artifact_template_path = next(
         item["path"]
         for item in manifest["files"]
-        if item["owner"] == "kit" and "/artifacts/templates/" in item["path"]
+        if item["owner"] == "kit" and item["path"].startswith(".claude/templates/")
     )
     worker_template = tmp_path / workspace["target_path"] / artifact_template_path
     original_template = worker_template.read_bytes()

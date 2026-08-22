@@ -33,8 +33,10 @@ any deadline or no-touch areas.
 
 ## Agents to delegate to
 `risk-classifier` (assign the tier per `.claude/rules/prompt-to-task-conversion.md`) → then route:
-ideas to `/feature-from-idea`, prototypes to `/prototype-to-production`, bugs/issues to
-`/customer-issue-to-fix`, unfamiliar repos to `/repo-onboarding`. Use `Explore` to read context first.
+ideas to `/feature-from-idea`, prototypes to
+`/prototype-to-production`, bugs/issues to
+`/customer-issue-to-fix`, and unfamiliar repos to
+`/repo-onboarding`. Start with a read-only context pass.
 
 ## Quality gates
 Goal, scope, and out-of-scope are explicit; success is measurable; a risk tier is assigned; the plan

@@ -8,10 +8,11 @@ explicitly while the scaffold migration is still under construction.
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import yaml
 
@@ -27,6 +28,18 @@ from claude_kit.canonical_rules import (
     render_codex_rule_layer,
     selected_rule_layers,
 )
+from claude_kit.canonical_skills import (
+    CanonicalSkill,
+    CanonicalSkillAsset,
+    codex_reference_target,
+    discover_canonical_skill_assets,
+    discover_canonical_skills,
+    load_canonical_skill,
+    project_codex_inline_tokens,
+    project_codex_reference_tokens,
+    project_codex_skill,
+    project_codex_skill_asset,
+)
 from claude_kit.canonical_templates import (
     CanonicalTemplate,
     TemplateFormat,
@@ -35,6 +48,7 @@ from claude_kit.canonical_templates import (
 from claude_kit.components import (
     Capability,
     HookEvent,
+    InvocationMode,
     ModelTier,
     NestedDelegationPolicy,
     PermissionClass,
@@ -51,6 +65,8 @@ from claude_kit.provider_compatibility import (
 from claude_kit.render import render_text
 
 _AGENTS_MAX_BYTES = 32 * 1024
+_MARKDOWN_LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+_FENCED_BLOCK_RE = re.compile(r"(?:```|~~~).*?(?:```|~~~)", re.DOTALL)
 _CAPTURE_SCRIPT = "capture-learnings.sh"
 _TELEMETRY_SCRIPT = "capture-ticket-telemetry.sh"
 _CODEX_TEMPLATE_PLACEHOLDERS = {
@@ -80,6 +96,22 @@ _FORBIDDEN_TEXT = (
     re.compile(r"CLAUDE\.md"),
     re.compile(r"\.claude(?:/|\\)"),
     re.compile(r"(?<![\w./:-])/(?:claude-kit:[a-z-]+|sdlc\b)"),
+)
+_SHANNON_EXTERNAL_CLI_ENV_NAMES = frozenset(
+    {
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_ADAPTIVE_THINKING",
+    }
+)
+_SHANNON_CODEX_DOCUMENTS = frozenset(
+    {
+        ".agents/skills/shannon-ai-pentest/SKILL.md",
+        ".agents/skills/shannon-ai-pentest/references/operating-guide.md",
+        "providers/codex/claude-kit/skills/shannon-ai-pentest/SKILL.md",
+        "providers/codex/claude-kit/skills/shannon-ai-pentest/references/operating-guide.md",
+    }
 )
 
 _CODEX_HOOK_EVENTS: dict[HookEvent, str] = {
@@ -238,22 +270,49 @@ class CodexRenderer:
         if Provider.CODEX.value not in request.runtimes:
             raise ValueError("CodexRenderer requires a request selecting codex")
 
-        skill_invocations = self._discover_skill_ids()
+        known_skill_ids = self._discover_skill_ids()
         codex_servers = project_resolved_servers(
             resolved_plan.mcp_servers,
             resolved_plan.mcp_server_specs,
             Provider.CODEX.value,
         )
+        rules = selected_rule_layers(self._payload_root, resolved_plan)
+        selected_agent_ids = set(resolved_plan.agents)
+        selected_agent_ids.update(resolved_plan.overlay_agents)
+        selected_skill_ids = set(resolved_plan.skills)
+        if resolved_plan.org is not None:
+            selected_agent_ids.update(resolved_plan.org.org_agents)
+            selected_skill_ids.update(resolved_plan.org.org_skills)
+        selected_inventory = {
+            "agent": frozenset(selected_agent_ids),
+            "skill": frozenset(selected_skill_ids),
+            "rule": frozenset(layer.id for layer in rules),
+            "command": frozenset({"abort", "init", "status"} | selected_skill_ids),
+        }
         agents = self._read_selected_agents(
             resolved_plan,
-            skill_invocations,
+            selected_inventory["skill"],
+            selected_inventory=selected_inventory,
             mcp_server_ids=tuple(codex_servers),
         )
-        skills = self._read_selected_skills(resolved_plan, skill_invocations)
-        rules = selected_rule_layers(self._payload_root, resolved_plan)
+        skills = self._read_selected_skills(
+            resolved_plan,
+            selected_inventory["skill"],
+            selected_inventory=selected_inventory,
+        )
+        skill_assets = self._read_selected_skill_assets(
+            resolved_plan,
+            selected_inventory=selected_inventory,
+        )
         output: list[ProjectionFile] = []
 
-        agents_document = _render_agents_document(resolved_plan, agents, skills, rules)
+        agents_document = _render_agents_document(
+            resolved_plan,
+            agents,
+            skills,
+            rules,
+            selected_inventory=selected_inventory,
+        )
         output.append(
             _text_file(
                 component="artifact://agents-instructions",
@@ -294,12 +353,32 @@ class CodexRenderer:
                     )
                 )
 
+        for asset, path in skill_assets:
+            component = (
+                f"artifact://skill-reference-{asset.relative_path.stem}"
+                if asset.skill_id == "_references"
+                else f"skill://{asset.skill_id}"
+            )
+            output.append(
+                _text_file(
+                    component=component,
+                    path=path,
+                    content=project_codex_skill_asset(
+                        asset, selected_inventory=selected_inventory
+                    ),
+                    executable=asset.executable,
+                    media_type=_skill_asset_media_type(asset.relative_path),
+                )
+            )
+
         for layer in rules:
             output.append(
                 _text_file(
                     component=f"rule://{layer.id}",
                     path=f".ckit/rules/{layer.id}.md",
-                    content=render_codex_rule_layer(layer),
+                    content=render_codex_rule_layer(
+                        layer, selected_inventory=selected_inventory
+                    ),
                     media_type="text/markdown",
                 )
             )
@@ -307,12 +386,13 @@ class CodexRenderer:
         output.extend(
             self._render_templates(
                 resolved_plan,
-                skill_invocations,
+                known_skill_ids,
+                selected_inventory=selected_inventory,
                 agent_count=len(agents),
                 skill_count=len(skills),
             )
         )
-        hook_files = self._render_hooks(resolved_plan, skill_invocations)
+        hook_files = self._render_hooks(resolved_plan, selected_inventory["skill"])
         output.extend(hook_files)
         output.append(
             _text_file(
@@ -329,15 +409,8 @@ class CodexRenderer:
         return tuple(output)
 
     def _discover_skill_ids(self) -> frozenset[str]:
-        roots = (
-            self._payload_root / "skills",
-            self._payload_root / "templates" / "org" / "skills",
-        )
         return frozenset(
-            path.parent.name
-            for root in roots
-            if root.is_dir()
-            for path in root.glob("*/SKILL.md")
+            record.spec.id for record in discover_canonical_skills(self._payload_root)
         )
 
     def _read_selected_agents(
@@ -345,6 +418,7 @@ class CodexRenderer:
         plan: ResolvedPlan,
         skill_invocations: frozenset[str],
         *,
+        selected_inventory: Mapping[str, frozenset[str]],
         mcp_server_ids: tuple[str, ...],
     ) -> list[tuple[str, dict[str, Any], str]]:
         sources: list[CanonicalAgent] = []
@@ -406,41 +480,175 @@ class CodexRenderer:
                         "nested_delegation": source.spec.nested_delegation.value,
                         "mcp_server_ids": mcp_server_ids,
                     },
-                    _render_codex_agent_instructions(source, skill_invocations),
+                    _render_codex_agent_instructions(
+                        source,
+                        skill_invocations,
+                        selected_inventory=selected_inventory,
+                        profile=plan.selection.profile,
+                    ),
                 )
             )
         return records
 
     def _read_selected_skills(
-        self, plan: ResolvedPlan, skill_invocations: frozenset[str]
+        self,
+        plan: ResolvedPlan,
+        skill_invocations: frozenset[str],
+        *,
+        selected_inventory: Mapping[str, frozenset[str]],
     ) -> list[tuple[str, dict[str, Any], str]]:
-        sources = [
-            (
-                component_id,
-                self._payload_root / "skills" / component_id / "SKILL.md",
+        sources: list[CanonicalSkill] = [
+            load_canonical_skill(
+                self._payload_root,
+                self._payload_root
+                / "canonical"
+                / "skills"
+                / "core"
+                / f"{component_id}.md",
             )
             for component_id in plan.skills
         ]
         if plan.org is not None:
             sources.extend(
-                (
-                    component_id,
+                load_canonical_skill(
+                    self._payload_root,
                     self._payload_root
-                    / "templates"
-                    / "org"
+                    / "canonical"
                     / "skills"
-                    / component_id
-                    / "SKILL.md",
+                    / "org"
+                    / f"{component_id}.md",
                 )
                 for component_id in plan.org.org_skills
             )
-        return self._read_components(sources, skill_invocations, require_name=True)
+        records: list[tuple[str, dict[str, Any], str]] = []
+        seen: set[str] = set()
+        for source in sources:
+            if source.spec.id in seen:
+                continue
+            seen.add(source.spec.id)
+            projection = project_codex_skill(
+                source, selected_inventory=selected_inventory
+            )
+            metadata: dict[str, Any] = {
+                "name": projection.name,
+                "description": projection.description,
+            }
+            if source.spec.invocation is InvocationMode.EXPLICIT:
+                metadata["disable-model-invocation"] = True
+            records.append(
+                (
+                    source.spec.id,
+                    metadata,
+                    _project_codex_skill_invocations(
+                        projection.instructions, skill_invocations
+                    ).strip()
+                    + "\n",
+                )
+            )
+        return records
+
+    def _read_selected_skill_assets(
+        self,
+        plan: ResolvedPlan,
+        *,
+        selected_inventory: Mapping[str, frozenset[str]],
+    ) -> list[tuple[CanonicalSkillAsset, str]]:
+        """Return selected auxiliary assets plus cross-owner link closure."""
+        all_assets = discover_canonical_skill_assets(self._payload_root)
+        assets_by_source_path = {
+            asset.destination.as_posix(): asset for asset in all_assets
+        }
+        selected_skill_ids = selected_inventory["skill"]
+        included: dict[str, CanonicalSkillAsset] = {
+            path: asset
+            for path, asset in assets_by_source_path.items()
+            if asset.skill_id in selected_skill_ids
+        }
+
+        selected_sources = [
+            record
+            for record in discover_canonical_skills(self._payload_root)
+            if record.spec.id in selected_skill_ids
+        ]
+        for source in selected_sources:
+            for reference in source.spec.references:
+                prefix = "artifact://skill-reference-"
+                if not reference.uri.startswith(prefix):
+                    continue
+                reference_id = reference.uri.removeprefix(prefix)
+                source_path = f"skills/_references/{reference_id}.md"
+                try:
+                    included[source_path] = assets_by_source_path[source_path]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"selected skill {source.spec.id!r} requires missing shared "
+                        f"reference {reference_id!r}"
+                    ) from exc
+
+        documents: list[tuple[str, str]] = [
+            (
+                f"skills/{record.spec.id}/SKILL.md",
+                project_codex_skill(
+                    record, selected_inventory=selected_inventory
+                ).instructions,
+            )
+            for record in selected_sources
+        ]
+        queued_assets = set(included)
+        documents.extend(
+            (
+                path,
+                project_codex_skill_asset(asset, selected_inventory=selected_inventory),
+            )
+            for path, asset in included.items()
+        )
+        for document_path, content in documents:
+            for target in _local_markdown_targets(document_path, content):
+                asset = assets_by_source_path.get(target)
+                if asset is None:
+                    parts = Path(target).parts
+                    selected_skill_target = (
+                        len(parts) == 3
+                        and parts[0] == "skills"
+                        and parts[1] in selected_skill_ids
+                        and parts[2] == "SKILL.md"
+                    ) or (
+                        len(parts) == 2
+                        and parts[0] == "skills"
+                        and parts[1] in selected_skill_ids
+                    )
+                    if selected_skill_target:
+                        continue
+                    raise ValueError(
+                        f"selected skill asset link is missing: {document_path} -> {target}"
+                    )
+                if target in queued_assets:
+                    continue
+                included[target] = asset
+                queued_assets.add(target)
+                documents.append(
+                    (
+                        target,
+                        project_codex_skill_asset(
+                            asset, selected_inventory=selected_inventory
+                        ),
+                    )
+                )
+
+        return [
+            (
+                asset,
+                ".agents/skills/" + source_path.removeprefix("skills/"),
+            )
+            for source_path, asset in sorted(included.items())
+        ]
 
     def _render_templates(
         self,
         plan: ResolvedPlan,
-        skill_invocations: frozenset[str],
+        known_skill_ids: frozenset[str],
         *,
+        selected_inventory: Mapping[str, frozenset[str]],
         agent_count: int,
         skill_count: int,
     ) -> tuple[ProjectionFile, ...]:
@@ -467,7 +675,8 @@ class CodexRenderer:
                 record,
                 plan,
                 context,
-                skill_invocations,
+                known_skill_ids,
+                selected_inventory,
             )
             media_type = (
                 "application/yaml"
@@ -483,37 +692,6 @@ class CodexRenderer:
                 )
             )
         return tuple(output)
-
-    def _read_components(
-        self,
-        sources: Iterable[tuple[str, Path]],
-        skill_invocations: frozenset[str],
-        *,
-        require_name: bool,
-    ) -> list[tuple[str, dict[str, Any], str]]:
-        records: list[tuple[str, dict[str, Any], str]] = []
-        seen: set[str] = set()
-        for component_id, path in sources:
-            if component_id in seen:
-                continue
-            seen.add(component_id)
-            metadata, body = _read_frontmatter(path)
-            if require_name and not _non_empty_string(metadata.get("name")):
-                raise ValueError(f"{path} frontmatter is missing name")
-            if not _non_empty_string(metadata.get("description")):
-                raise ValueError(f"{path} frontmatter is missing description")
-            metadata = dict(metadata)
-            metadata["description"] = _adapt_text(
-                str(metadata["description"]), skill_invocations
-            )
-            records.append(
-                (
-                    component_id,
-                    metadata,
-                    _adapt_text(body, skill_invocations).strip() + "\n",
-                )
-            )
-        return records
 
     def _render_hooks(
         self, plan: ResolvedPlan, skill_invocations: frozenset[str]
@@ -697,7 +875,8 @@ def _render_codex_template(
     record: CanonicalTemplate,
     plan: ResolvedPlan,
     context: dict[str, str],
-    skill_invocations: frozenset[str],
+    known_skill_ids: frozenset[str],
+    selected_inventory: Mapping[str, frozenset[str]],
 ) -> str:
     """Project one canonical template without preserving host-specific assumptions."""
     rendered = record.content
@@ -718,10 +897,36 @@ def _render_codex_template(
         raise ValueError(
             f"canonical template {record.id!r} retained a provider placeholder"
         )
-    rendered = _project_codex_agent_references(rendered, skill_invocations)
+    skill_invocation_re = re.compile(
+        r"\{\{skill_invocation:skill://([a-z0-9][a-z0-9._-]*)\}\}"
+    )
+    rendered = project_codex_inline_tokens(
+        rendered,
+        skill_invocation_re,
+        lambda match: (
+            f"${match.group(1)}"
+            if match.group(1) in selected_inventory["skill"]
+            else codex_reference_target(
+                "skill",
+                match.group(1),
+                skill_reference_base=None,
+                plugin_context=False,
+                selected_inventory=selected_inventory,
+            )
+        ),
+    )
+    rendered = _project_codex_agent_references(
+        rendered,
+        selected_inventory["skill"],
+        selected_inventory,
+    )
     if record.format is TemplateFormat.JINJA_MARKDOWN:
         rendered = render_text(rendered, context)
-    rendered = _project_codex_template_slash_commands(rendered, skill_invocations)
+    rendered = _project_codex_template_slash_commands(
+        rendered,
+        known_skill_ids,
+        selected_inventory,
+    )
     rendered = rendered.replace(
         "auto-discovered .ckit/ locations", "provider-projected native locations"
     )
@@ -739,17 +944,38 @@ def _render_codex_template(
 
 
 def _project_codex_template_slash_commands(
-    text: str, skill_invocations: frozenset[str]
+    text: str,
+    known_skill_ids: frozenset[str],
+    selected_inventory: Mapping[str, frozenset[str]],
 ) -> str:
-    """Convert legacy example slash invocations left as prose in canonical templates."""
+    """Fail closed for known legacy skill invocations without touching URL routes."""
+
+    if not known_skill_ids:
+        return text
+    names = "|".join(
+        re.escape(name) for name in sorted(known_skill_ids, key=len, reverse=True)
+    )
 
     def replace(match: re.Match[str]) -> str:
         component_id = match.group(1)
-        if component_id in skill_invocations:
+        if component_id in selected_inventory["skill"]:
             return f"${component_id}"
-        return f"the `{component_id}` skill"
+        return codex_reference_target(
+            "skill",
+            component_id,
+            skill_reference_base=None,
+            plugin_context=False,
+            selected_inventory=selected_inventory,
+        )
 
-    return re.sub(r"(?<![\w./:-])/([a-z][a-z0-9-]+)\b", replace, text)
+    invocation_re = re.compile(
+        rf"(?<![\w./:-])/({names})(?=$|[\s`),:;!?\]}}]|\.(?![a-zA-Z0-9]))"
+    )
+    return project_codex_inline_tokens(
+        text,
+        invocation_re,
+        replace,
+    )
 
 
 def _adapt_codex_readme(text: str, plan: ResolvedPlan) -> str:
@@ -777,6 +1003,10 @@ AGENTS.md                         managed workflow, gate, and selected-rule inst
 Codex loads `AGENTS.md` as project instructions, discovers named roles under
 `.codex/agents/`, discovers skills under `.agents/skills/`, reads project MCP servers from
 `.codex/config.toml`, and uses `.codex/hooks.json` for the selected lifecycle adapters.
+
+Only concrete paths and `$skill` invocations in this guide are installed for this selection.
+Later capability matrices describe the broader package catalog; optional-component labels are
+context only and are not runnable in this project.
 """
     text = re.sub(
         r"## What got installed\n.*?(?=\n## Privacy — learning capture)",
@@ -836,6 +1066,43 @@ def _text_file(
     )
 
 
+def _skill_asset_media_type(path: Path) -> str:
+    return {
+        ".md": "text/markdown",
+        ".py": "text/x-python",
+        ".sh": "text/x-shellscript",
+        ".txt": "text/plain",
+    }[path.suffix.lower()]
+
+
+def _local_markdown_targets(document_path: str, text: str) -> tuple[str, ...]:
+    """Resolve local Markdown links against a virtual generated skill tree."""
+    targets: list[str] = []
+    document = _FENCED_BLOCK_RE.sub("", text)
+    for match in _MARKDOWN_LINK_RE.finditer(document):
+        raw = match.group(1).strip()
+        if raw.startswith("<") and ">" in raw:
+            raw = raw[1 : raw.index(">")]
+        else:
+            raw = raw.split(maxsplit=1)[0]
+        raw = raw.split("#", 1)[0]
+        if (
+            not raw
+            or raw.startswith(("/", "#"))
+            or "{" in raw
+            or "}" in raw
+            or "://" in raw
+            or raw.startswith(("mailto:", "data:"))
+        ):
+            continue
+        resolved = posixpath.normpath(
+            posixpath.join(posixpath.dirname(document_path), raw)
+        )
+        if resolved.startswith("skills/"):
+            targets.append(resolved)
+    return tuple(dict.fromkeys(targets))
+
+
 def _one_existing(component_id: str, candidates: Iterable[Path]) -> Path:
     existing = [candidate for candidate in candidates if candidate.is_file()]
     if len(existing) != 1:
@@ -847,48 +1114,54 @@ def _one_existing(component_id: str, candidates: Iterable[Path]) -> Path:
     return existing[0]
 
 
-def _read_frontmatter(path: Path) -> tuple[dict[str, Any], str]:
-    if not path.is_file():
-        raise FileNotFoundError(f"selected component does not exist: {path}")
-    text = path.read_text(encoding="utf-8")
-    lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
-        raise ValueError(f"{path} is missing YAML frontmatter")
-    end = next(
-        (
-            index
-            for index, line in enumerate(lines[1:], start=1)
-            if line.strip() == "---"
-        ),
-        None,
-    )
-    if end is None:
-        raise ValueError(f"{path} has unterminated YAML frontmatter")
-    parsed = yaml.safe_load("".join(lines[1:end]))
-    if not isinstance(parsed, dict):
-        raise ValueError(f"{path} frontmatter must be a mapping")
-    return parsed, "".join(lines[end + 1 :])
-
-
-def _non_empty_string(value: object) -> bool:
-    return isinstance(value, str) and bool(value.strip())
-
-
 def _codex_agent_reference(
-    kind: str, component_id: str, skill_invocations: frozenset[str]
+    kind: str,
+    component_id: str,
+    skill_invocations: frozenset[str],
+    selected_inventory: Mapping[str, frozenset[str]],
 ) -> str:
     if kind == "agent":
-        return f".codex/agents/{component_id}.toml"
+        if component_id in selected_inventory["agent"]:
+            return f".codex/agents/{component_id}.toml"
+        return codex_reference_target(
+            kind,
+            component_id,
+            skill_reference_base=None,
+            plugin_context=False,
+            selected_inventory=selected_inventory,
+        )
     if kind == "skill":
-        return f"${component_id}" if component_id in skill_invocations else component_id
+        if component_id in skill_invocations:
+            return f"${component_id}"
+        return codex_reference_target(
+            kind,
+            component_id,
+            skill_reference_base=None,
+            plugin_context=False,
+            selected_inventory=selected_inventory,
+        )
     if kind == "rule":
-        return f".ckit/rules/{component_id}.md"
+        if component_id in selected_inventory["rule"]:
+            return f".ckit/rules/{component_id}.md"
+        return codex_reference_target(
+            kind,
+            component_id,
+            skill_reference_base=None,
+            plugin_context=False,
+            selected_inventory=selected_inventory,
+        )
     if kind == "command":
         if component_id in skill_invocations:
             return f"${component_id}"
         if component_id in {"init", "status", "abort"}:
             return f"`ckit {component_id}`"
-        return f"the `{component_id}` action"
+        return codex_reference_target(
+            "skill",
+            component_id,
+            skill_reference_base=None,
+            plugin_context=False,
+            selected_inventory=selected_inventory,
+        )
     if kind == "state":
         return {
             "continuity": ".ckit/CONTINUITY.md",
@@ -908,20 +1181,27 @@ def _codex_agent_reference(
 
 
 def _project_codex_agent_references(
-    text: str, skill_invocations: frozenset[str]
+    text: str,
+    skill_invocations: frozenset[str],
+    selected_inventory: Mapping[str, frozenset[str]],
 ) -> str:
-    kinds = "agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact"
-    return re.sub(
-        rf"\b({kinds})://([a-z0-9][a-z0-9._-]*)",
-        lambda match: _codex_agent_reference(
-            match.group(1), match.group(2), skill_invocations
-        ),
+    return project_codex_reference_tokens(
         text,
+        lambda kind, component_id: _codex_agent_reference(
+            kind,
+            component_id,
+            skill_invocations,
+            selected_inventory,
+        ),
     )
 
 
 def _render_codex_agent_instructions(
-    source: CanonicalAgent, skill_invocations: frozenset[str]
+    source: CanonicalAgent,
+    skill_invocations: frozenset[str],
+    *,
+    selected_inventory: Mapping[str, frozenset[str]],
+    profile: str,
 ) -> str:
     spec = source.spec
     capabilities = (
@@ -933,7 +1213,13 @@ def _render_codex_agent_instructions(
     )
     write_scope = ", ".join(f"`{scope}`" for scope in spec.write_scope) or "none"
     required_skills = (
-        ", ".join(f"${reference.id}" for reference in spec.required_skills) or "none"
+        ", ".join(
+            _codex_agent_reference(
+                "skill", reference.id, skill_invocations, selected_inventory
+            )
+            for reference in spec.required_skills
+        )
+        or "none"
     )
     contract = (
         "## Semantic role contract\n\n"
@@ -945,9 +1231,12 @@ def _render_codex_agent_instructions(
         f"- Model tier: `{spec.model_tier.value}`\n"
         f"- Required skills: {required_skills}\n"
         f"- Workflow tier: `{source.workflow_tier.value}`\n\n"
+        f"Only components installed for the `{profile}` profile are active. Optional-component "
+        "labels are context only; do not dispatch, invoke, or rely on them. This boundary does "
+        "not relax the ordered gates in `AGENTS.md`.\n\n"
     )
     instructions = _project_codex_agent_references(
-        spec.instructions, skill_invocations
+        spec.instructions, skill_invocations, selected_inventory
     ).strip()
     return contract + instructions + "\n"
 
@@ -1053,6 +1342,8 @@ def _render_agents_document(
     agents: list[tuple[str, dict[str, Any], str]],
     skills: list[tuple[str, dict[str, Any], str]],
     rules: tuple[RuleLayer, ...],
+    *,
+    selected_inventory: Mapping[str, frozenset[str]],
 ) -> str:
     selected_agents = {component_id for component_id, _, _ in agents}
     lines = [
@@ -1135,7 +1426,11 @@ def _render_agents_document(
 
     base = "\n".join(lines).rstrip() + "\n\n"
     remaining = _AGENTS_MAX_BYTES - len(base.encode("utf-8")) - 1
-    compiled = compile_codex_rule_layers(rules, max_bytes=remaining)
+    compiled = compile_codex_rule_layers(
+        rules,
+        max_bytes=remaining,
+        selected_inventory=selected_inventory,
+    )
     rendered = base + compiled.markdown
     size = len(rendered.encode("utf-8"))
     if size >= _AGENTS_MAX_BYTES:
@@ -1209,6 +1504,21 @@ def _toml_value(value: object) -> str:
     raise ValueError(f"unsupported TOML value type: {type(value).__name__}")
 
 
+def _project_codex_skill_invocations(
+    text: str, skill_invocations: frozenset[str]
+) -> str:
+    if not skill_invocations:
+        return text
+    names = "|".join(
+        re.escape(name) for name in sorted(skill_invocations, key=len, reverse=True)
+    )
+    return re.sub(
+        rf"(?<![\w./:-])/({names})(?=$|[\s`),.:])",
+        lambda match: f"${match.group(1)}",
+        text,
+    )
+
+
 def _adapt_text(
     text: str, skill_invocations: frozenset[str], *, script: bool = False
 ) -> str:
@@ -1243,21 +1553,14 @@ def _adapt_text(
     adapted = adapted.replace("$ARGUMENTS", "the user's supplied request")
     adapted = adapted.replace("AskUserQuestion", "request_user_input")
     adapted = adapted.replace("Claude Code", "Codex")
+    adapted = re.sub(r"(--provider(?:=|\s+))claude\b", r"\1codex", adapted)
 
     adapted = re.sub(
         r"(?<![\w./:-])/claude-kit:(init|status|abort)\b",
         lambda match: f"`ckit {match.group(1)}`",
         adapted,
     )
-    if skill_invocations:
-        names = "|".join(
-            re.escape(name) for name in sorted(skill_invocations, key=len, reverse=True)
-        )
-        adapted = re.sub(
-            rf"(?<![\w./:-])/({names})(?=$|[\s`),.:])",
-            lambda match: f"${match.group(1)}",
-            adapted,
-        )
+    adapted = _project_codex_skill_invocations(adapted, skill_invocations)
     builtins = {
         "clear": "the fresh-task action",
         "compact": "context compaction",
@@ -1276,14 +1579,36 @@ def _adapt_text(
     return adapted
 
 
+def codex_provider_leakage_scan_text(text: str, *, location: str) -> str:
+    """Remove only reviewed external-tool literals before host-wire scanning.
+
+    Shannon's own public CLI uses environment variables whose historical names
+    contain ``CLAUDE_CODE``. They configure Shannon, not the Codex host. Keep
+    those exact names only in Shannon's projected skill and operating guide;
+    every other path and every unrecognized variable remains subject to the
+    normal fail-closed provider-leakage checks.
+    """
+    normalized = location.replace("\\", "/")
+    if not any(
+        normalized == allowed or normalized.endswith("/" + allowed)
+        for allowed in _SHANNON_CODEX_DOCUMENTS
+    ):
+        return text
+    scanned = text
+    for name in sorted(_SHANNON_EXTERNAL_CLI_ENV_NAMES):
+        scanned = re.sub(rf"(?<![A-Z0-9_]){re.escape(name)}(?![A-Z0-9_])", "", scanned)
+    return scanned
+
+
 def _assert_no_provider_leakage(text: str, *, location: str) -> None:
+    scanned = codex_provider_leakage_scan_text(text, location=location)
     for pattern in _FORBIDDEN_TEXT:
-        match = pattern.search(text)
+        match = pattern.search(scanned)
         if match:
-            excerpt = text[max(0, match.start() - 20) : match.end() + 20]
+            excerpt = scanned[max(0, match.start() - 20) : match.end() + 20]
             raise ValueError(
                 f"provider leakage in {location}: {match.group(0)!r} near {excerpt!r}"
             )
 
 
-__all__ = ["CodexRenderer"]
+__all__ = ["CodexRenderer", "codex_provider_leakage_scan_text"]

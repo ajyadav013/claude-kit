@@ -283,17 +283,18 @@ surface. Measured on a React + FastAPI + PostgreSQL project, individual scope:
 
 | Profile | Agents | Skills | Rules |
 |---------|-------:|-------:|------:|
-| `lean` | 8 | 15 | 36 |
-| `standard` (default) | 26 | 43 | 36 |
-| `enterprise` | 31 | 108 | 36 |
+| `lean` | 9 | 32 | 36 |
+| `standard` (default) | 28 | 65 | 36 |
+| `enterprise` | 32 | 113 | 36 |
 
 - **Rules are profile-independent** — every profile installs the same 25 core rules + the selected
   stack's overlays (11 for this stack = 36); rigor changes the *agents and gates*, not the rule set.
 - **Installs are stack-true** — every lane offers `none`, and a lane you don't have installs
   nothing: a backend-only project gets no React rules, frontend skills, or npm commands.
-- **`enterprise` installs the whole skill collection** — including stacks you didn't select. That's
-  disk footprint, not always-resident context, but prefer `standard` for a tighter install. See
-  [`docs/skill-audit.md`](docs/skill-audit.md).
+- **`enterprise` remains stack-true** — it adds the profile-wide operate, review, security, and
+  platform capabilities, while stack-owned skills still arrive only through the selected stack
+  overlays. It no longer installs the whole payload. The historical over-install analysis and its
+  resolution are recorded in [`docs/skill-audit.md`](docs/skill-audit.md).
 
 Organization scope adds teams, 5 autonomy levels, review strictness, and capability packs — see
 [`docs/org-capabilities.md`](docs/org-capabilities.md).

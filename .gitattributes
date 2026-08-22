@@ -7,5 +7,12 @@
 # Python scripts at the repo root need LF (shebang lines: gen_hooks.py, init.sh helpers)
 scripts/*.py text eol=lf
 
+# Auxiliary skill references are migrated byte-for-byte from the established
+# compatibility payload. Some Markdown hard breaks and code samples contain
+# intentional trailing spaces; keep those bytes while retaining every other
+# whitespace check for these files and the rest of the repository.
+canonical/skills/assets/** whitespace=-trailing-space
+providers/codex/claude-kit/skills/**/references/** whitespace=-trailing-space
+
 # Windows batch scripts, if any ever added, must stay CRLF
 # *.bat text eol=crlf

@@ -37,5 +37,5 @@ Every PR description states, in plain language:
   (`rule://autonomy-levels`); opening or merging to a protected branch needs human approval.
 
 > Part of {{ provider.executable.cli }}'s organization capability layer. Enforced by the `guard-push-main` hook. The
-> `/git-workflow-and-versioning` skill drives branching and PRs interactively, and the `pr-raiser` agent
+> The `git-workflow-and-versioning` skill drives branching and PRs interactively, and the `pr-raiser` agent
 > opens the PR. Cross-refs `rule://quality-gates`, `rule://autonomy-levels`.

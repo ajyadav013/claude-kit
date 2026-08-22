@@ -8,7 +8,7 @@ paths:
 
 # Model Tiers
 
-Each agent declares an explicit `model:` in its frontmatter — pick the tier deliberately. Three tiers
+Each agent declares a semantic model tier in its definition — pick the tier deliberately. Three tiers
 balance capability against cost (the most capable model costs several times the cheapest per token), so
 spend the strongest reasoning where a wrong answer is expensive and the cheapest where the work is
 mechanical. This is the concrete assignment policy behind the "resource-aware effort" guidance in
@@ -33,17 +33,17 @@ tier — they are focused specialists/personas, not deep-reasoning orchestrators
 ## Notes
 
 - **Per-session promotion.** For a high-risk change (auth, migrations, billing) or a SEV1 incident,
-  start the session on the most capable model, or temporarily bump a Default agent's frontmatter to
+  start the session on the most capable model, or temporarily raise a Default agent's semantic tier to
   `opus`. The senior-dev reviewers and `incident-responder` are the most common candidates. See
   `.claude/rules/human-in-the-loop.md` for when such changes are human-gated.
 - **`owasp-reviewer` stays `opus`** (vulnerability reasoning) even though its sibling scanners
   (`secret-scanner`, `dependency-scanner`, `policy-validator`) are `sonnet` (pattern/tool work).
-- **Re-map when names/prices change.** Keep the tier *intent* (Critical / Default / Fast); swap the
-  concrete alias if Anthropic's model lineup shifts.
+- **Re-map when names/prices change.** Keep the tier *intent* (Critical / Default / Fast); provider
+  adapters may swap concrete aliases as their model lineups shift.
 
 ## Probe before fan-out
 
-Tier availability is a property of the *deployment*, not the payload — an alias in frontmatter can
+Tier availability is a property of the *deployment*, not the payload — a tier mapping can
 name a model the provider account doesn't serve, and the failure signature is an **instant,
 zero-token spawn death**, easily mistaken for an agent bug. So before a run's **first** fan-out:
 probe-spawn one trivial agent (a one-word reply) per model tier the run plans to use. A tier whose

@@ -34,9 +34,9 @@ project's linter, formatter, and type/build checks gate every release path.
 
 ## Examples
 ```
-/release-plan Cut the next release: changelog, deploy steps, rollout + monitoring   # → shipping-and-launch
-/rollback-plan Document how to revert the latest deploy and verify recovery          # → shipping-and-launch
-/incident-runbook Draft a runbook for elevated error rates on the data store         # → incident-postmortem + incident-responder
+Use `{{skill_invocation:skill://shipping-and-launch}}` to cut the next release: changelog, deploy steps, rollout + monitoring.
+Use `{{skill_invocation:skill://shipping-and-launch}}` to document how to revert the latest deploy and verify recovery.
+Use `{{skill_invocation:skill://incident-postmortem}}` to draft a runbook for elevated error rates on the data store.
 ```
 
 ## Autonomy & risk

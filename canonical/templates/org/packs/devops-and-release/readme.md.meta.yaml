@@ -16,3 +16,5 @@ references:
 - rule://branch-and-pr-policy
 - rule://devops-observability
 - rule://risk-classification
+- skill://incident-postmortem
+- skill://shipping-and-launch

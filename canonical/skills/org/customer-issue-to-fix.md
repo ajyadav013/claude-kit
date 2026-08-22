@@ -11,6 +11,10 @@ pause_for_human: []
 references:
 - rule://autonomy-levels
 - rule://risk-classification
+- skill://customer-issue-to-fix
+- skill://debugging-and-error-recovery
+- skill://test-driven-development
+- skill://triage
 ---
 
 # Customer Issue to Fix
@@ -27,8 +31,9 @@ A support engineer has a customer complaint — "customer cannot export invoices
 it reproduced, diagnosed, and fixed through the normal pipeline rather than hot-patched.
 
 ## Who should use it
-Support engineers, customer success, operators. Engineers can use it too, but may prefer `/triage`
-and `/debugging-and-error-recovery` directly.
+Support engineers, customer success, operators. Engineers can use it too, but may prefer
+`{{skill_invocation:skill://triage}}` and
+`{{skill_invocation:skill://debugging-and-error-recovery}}` directly.
 
 ## Required inputs
 The reported symptom in the customer's words. Helpful: logs, repro steps, environment, affected accounts.
@@ -42,8 +47,10 @@ The reported symptom in the customer's words. Helpful: logs, repro steps, enviro
 
 ## Agents to delegate to
 `support-ticket-engineer` (shape the bug report and reproduction) → `risk-classifier` (tier it) →
-`orchestrator` (run the fix lane: `developer`, `sdlc-code-reviewer`, `tester`). Use `/triage`,
-`/debugging-and-error-recovery`, and `/test-driven-development` under the hood.
+`orchestrator` (run the fix lane: `developer`, `sdlc-code-reviewer`, `tester`). Use
+`{{skill_invocation:skill://triage}}`,
+`{{skill_invocation:skill://debugging-and-error-recovery}}`, and
+`{{skill_invocation:skill://test-driven-development}}` under the hood.
 
 ## Quality gates
 Reproduction is deterministic (or marked intermittent with conditions); suspected code paths are
@@ -62,7 +69,7 @@ level (`rule://autonomy-levels`).
 
 ## Example
 ```
-/customer-issue-to-fix Customer cannot export invoices over 10MB
+{{skill_invocation:skill://customer-issue-to-fix}} Customer cannot export invoices over 10MB
 → asks: exact error? every time? which plan/region? logs/error ID?
 → reproduces with a >10MB invoice; suspected paths: export handler + size limit
 → fix proposal: raise/stream the limit; risk: medium (touches export path → confirm)

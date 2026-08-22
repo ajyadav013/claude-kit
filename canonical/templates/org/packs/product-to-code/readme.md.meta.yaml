@@ -11,7 +11,9 @@ references:
 - command://idea-refine
 - command://interview-me
 - command://planning-and-task-breakdown
-- command://prd-to-stories
 - command://prompt-to-safe-task
 - command://scope
 - command://spec-driven-development
+- skill://feature-from-idea
+- skill://planning-and-task-breakdown
+- skill://prompt-to-safe-task

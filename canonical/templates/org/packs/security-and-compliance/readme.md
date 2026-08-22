@@ -37,9 +37,9 @@ These agents **plan and delegate** — they review, classify, and flag; they do 
 
 ## Examples
 ```
-/security-review Harden the session-handling path before launch       # → security-and-hardening
-/threat-model Map the abuse cases for the new public upload endpoint   # → threat-model
-/dependency-audit Flag risky/outdated packages in the data store layer # → security-verification + dependency-scanner
+Use `{{skill_invocation:skill://security-and-hardening}}` to harden the session-handling path before launch.
+Use `{{skill_invocation:skill://threat-model}}` to map abuse cases for the new public upload endpoint.
+Use `{{skill_invocation:skill://security-verification}}` to flag risky or outdated packages in the data-store layer.
 ```
 
 ## Autonomy & risk

@@ -174,7 +174,7 @@ different autonomy levels per repo, and measure adoption.
 | DevOps / release | `command://deploy`, `command://shipping-and-launch`, `command://ci-cd-and-automation` | `devops-engineer`, `pr-raiser`, `observability-engineer` | `devops-observability`, `branch-and-pr-policy` | `guard-push-main` | `command://deploy loop` until the release verifies clean |
 | Incident response | `command://incident-postmortem` | `incident-responder` | `devops-observability` | `audit-log` | `command://incident-postmortem` after a SEV1 |
 | Documentation | `command://documentation-and-adrs`, `command://refresh-docs` | `technical-architect` | `documentation` | — | `command://refresh-docs` after an API change |
-{% if scope == "organization" %}| Onboarding | `command://repo-onboarding` | `Explore`, `technical-architect` | `documentation`, `code-organization` | — | `command://repo-onboarding` for a new hire |
+{% if scope == "organization" %}| Onboarding | `command://repo-onboarding` | read-only research role, `technical-architect` | `documentation`, `code-organization` | — | `command://repo-onboarding` for a new hire |
 | Data analysis | (planning, read-only) | `data-workflow-agent` | `production-data-policy`, `pii-policy` | — | plan a report query safely |
 | Customer-support engineering | `command://customer-issue-to-fix` | `support-ticket-engineer`, `developer`, `tester` | `risk-classification` | — | `command://customer-issue-to-fix` invoice export |
 | Internal tools | `command://prototype-to-production`, `command://feature-from-idea` | `internal-tools-builder`, `founder-prototype-agent` | `non-engineer-safe-coding`, `prototype-boundaries` | `warn-sensitive-files` | build an internal admin utility |
@@ -225,21 +225,21 @@ become skills · repeated mistakes that should become rules.
 ```text
 # Engineer — behavior-preserving refactor (reads files, classifies risk, plans, proposes tests,
 #            small changes, invokes code + test review)
-/code-simplification Simplify the billing service without changing behavior
+{{skill_invocation:skill://code-simplification}} Simplify the billing service without changing behavior
 
 # QA — regression coverage (finds modules, proposes unit/integration/e2e tests, writes + validates,
 #      summarizes coverage gaps)
-/test-driven-development Add regression coverage for failed password-reset links
+{{skill_invocation:skill://test-driven-development}} Add regression coverage for failed password-reset links
 {% if scope == "organization" %}
 # PM — idea to reviewable plan (asks product questions, writes acceptance criteria + stories,
 #      routes to engineering, STOPS for approval before any code)
-/feature-from-idea Add team invites to the admin dashboard
+{{skill_invocation:skill://feature-from-idea}} Add team invites to the admin dashboard
 
 # Support — issue to fix (repro report, asks for logs/steps, finds code paths, proposes fix +
 #           validation checklist)
-/customer-issue-to-fix Customer cannot export invoices over 10MB
+{{skill_invocation:skill://customer-issue-to-fix}} Customer cannot export invoices over 10MB
 
 # Founder/operator — prototype to production (identifies risks, asks about users + data sensitivity,
 #                    adds validation/auth/error handling/logging/tests, requires review)
-/prototype-to-production Turn this internal CSV upload script into a safe admin feature
+{{skill_invocation:skill://prototype-to-production}} Turn this internal CSV upload script into a safe admin feature
 {% endif %}```

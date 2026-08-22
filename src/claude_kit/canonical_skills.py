@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 import jsonschema
 import yaml
@@ -27,6 +27,20 @@ _REFERENCE_RE = re.compile(
     r"://[a-z0-9][a-z0-9._-]*"
 )
 _PAUSE_RE = re.compile(r"\{\{pause_for_human:([a-z0-9][a-z0-9._-]*)\}\}")
+_SKILL_ASSET_RE = re.compile(
+    r"\{\{skill_asset:skill://([a-z0-9][a-z0-9._-]*)/"
+    r"([a-zA-Z0-9][a-zA-Z0-9._/-]*)\}\}"
+)
+_CROSS_SKILL_LINK_RE = re.compile(
+    r"\[([^\]\n]+)\]\(\.\./([a-z0-9][a-z0-9._-]*)"
+    r"(?:/SKILL\.md|/)?(?:#[^)\s]+)?\)"
+)
+_INLINE_CODE_SPAN_RE = re.compile(r"(?<!`)`(?!`)([^`\n]+)(?<!`)`(?!`)")
+_CODEX_COMPONENT_ID_PATTERN = r"[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?"
+_CODEX_SYMBOLIC_REFERENCE_RE = re.compile(
+    r"\b(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)"
+    rf"://({_CODEX_COMPONENT_ID_PATTERN})"
+)
 
 # Match host wire syntax, not ordinary prose such as "read the file" or a
 # domain concept such as an Anthropic API.  Explicit external-provider examples
@@ -49,6 +63,7 @@ _PROVIDER_LEAKAGE = (
     re.compile(r"\b(?:TaskCreate|TaskGet|TaskList|TaskUpdate|SendMessage)\b"),
     re.compile(r"\bmcp__[a-zA-Z0-9_-]+\b"),
     re.compile(r"(?<![\w./:-])/(?:claude-kit:[a-z-]+|sdlc\b)"),
+    re.compile(r"(?:\bExplore agent\b|`Explore`)"),
 )
 
 
@@ -130,6 +145,27 @@ class CanonicalSkill:
         if self.kind is SkillSourceKind.CORE:
             return Path("skills") / self.spec.id / "SKILL.md"
         return Path("templates/org/skills") / self.spec.id / "SKILL.md"
+
+
+@dataclass(frozen=True)
+class CanonicalSkillAsset:
+    """One provider-neutral support file owned by a canonical skill."""
+
+    skill_id: str
+    relative_path: Path
+    canonical_path: Path
+    content: str
+    mode: int
+
+    @property
+    def executable(self) -> bool:
+        """Whether the canonical file carries any executable bit."""
+        return bool(self.mode & 0o111)
+
+    @property
+    def destination(self) -> Path:
+        """Claude compatibility destination generated from this source."""
+        return Path("skills") / self.skill_id / self.relative_path
 
 
 @dataclass(frozen=True)
@@ -245,12 +281,96 @@ def _validate_schema(
     )
 
 
-def provider_leakage(text: str) -> tuple[str, ...]:
+def raw_skill_invocations(
+    text: str, known_skill_ids: tuple[str, ...] | frozenset[str]
+) -> tuple[str, ...]:
+    """Return raw slash invocations for known portable skills."""
+    ids = tuple(sorted(set(known_skill_ids), key=len, reverse=True))
+    if not ids:
+        return ()
+    names = "|".join(re.escape(component_id) for component_id in ids)
+    pattern = re.compile(
+        rf"(?<![\w./:-])/({names})(?=$|[\s`),:;!?\]}}]|\.(?![a-zA-Z0-9]))"
+    )
+    invocations: list[str] = []
+    for match in pattern.finditer(text):
+        line_start = text.rfind("\n", 0, match.start()) + 1
+        prefix = text[line_start : match.start()]
+        if re.search(
+            r"\b(?:GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+`?$",
+            prefix,
+            flags=re.IGNORECASE,
+        ):
+            continue
+        invocations.append(match.group(0))
+    return tuple(invocations)
+
+
+def provider_leakage(
+    text: str,
+    *,
+    known_skill_ids: tuple[str, ...] | frozenset[str] = (),
+) -> tuple[str, ...]:
     """Return provider-specific wire syntax found in canonical text."""
-    return tuple(
+    provider_matches = tuple(
         match.group(0)
         for pattern in _PROVIDER_LEAKAGE
         for match in pattern.finditer(text)
+    )
+    return provider_matches + raw_skill_invocations(text, known_skill_ids)
+
+
+def _codex_target_is_bare(target: str) -> bool:
+    """Whether a resolved target is one native token/path rather than prose."""
+    return bool(target) and "`" not in target and re.search(r"\s", target) is None
+
+
+def project_codex_inline_tokens(
+    text: str,
+    pattern: re.Pattern[str],
+    resolve: Callable[[re.Match[str]], str],
+) -> str:
+    """Project semantic tokens without creating nested Markdown code spans.
+
+    Canonical prose commonly wraps a semantic token plus arguments in one code
+    span. A selected native token/path keeps that single span. If any resolved
+    target is descriptive prose or already contains its own code span, the
+    canonical outer span is removed and only other bare targets are formatted.
+    Tokens outside inline code are then projected normally.
+    """
+
+    def project_span(span: re.Match[str]) -> str:
+        content = span.group(1)
+        matches = tuple(pattern.finditer(content))
+        if not matches:
+            return span.group(0)
+        targets = tuple(resolve(match).strip() for match in matches)
+        plain_context = any(not _codex_target_is_bare(target) for target in targets)
+        parts: list[str] = []
+        cursor = 0
+        for match, target in zip(matches, targets):
+            parts.append(content[cursor : match.start()])
+            if plain_context and _codex_target_is_bare(target):
+                parts.append(f"`{target}`")
+            else:
+                parts.append(target)
+            cursor = match.end()
+        parts.append(content[cursor:])
+        projected = "".join(parts)
+        return projected if plain_context else f"`{projected}`"
+
+    projected = _INLINE_CODE_SPAN_RE.sub(project_span, text)
+    return pattern.sub(resolve, projected)
+
+
+def project_codex_reference_tokens(
+    text: str, resolve: Callable[[str, str], str]
+) -> str:
+    """Project wrapped and bare symbolic references with Markdown context."""
+    return project_codex_inline_tokens(
+        text,
+        _CODEX_SYMBOLIC_REFERENCE_RE,
+        lambda match: resolve(match.group(1), match.group(2)),
     )
 
 
@@ -303,7 +423,16 @@ def _validate_semantics(
         raise CanonicalSkillError(
             f"request marker in {source} requires optional or required request_input"
         )
-    instruction_refs = set(_REFERENCE_RE.findall(description + "\n" + body))
+    semantic_text = description + "\n" + body
+    for skill_id, relative_path in _SKILL_ASSET_RE.findall(semantic_text):
+        if skill_id != source.stem or ".." in Path(relative_path).parts:
+            raise CanonicalSkillError(
+                f"invalid skill-relative asset marker in {source}: "
+                f"skill://{skill_id}/{relative_path}"
+            )
+    instruction_refs = set(
+        _REFERENCE_RE.findall(_SKILL_ASSET_RE.sub("", semantic_text))
+    )
     declared_refs = {reference.uri for reference in references}
     if instruction_refs != declared_refs:
         missing = ", ".join(sorted(instruction_refs - declared_refs)) or "none"
@@ -320,7 +449,14 @@ def load_canonical_skill(payload_root: Path, path: Path) -> CanonicalSkill:
     source = Path(path)
     raw, body = _read_frontmatter(source)
     _validate_schema(raw, _load_schema(root, "canonical-skill.schema.json"), source)
-    leakage = provider_leakage(source.read_text(encoding="utf-8"))
+    known_skill_ids = frozenset(
+        candidate.stem
+        for candidate in (root / "canonical" / "skills").glob("*/*.md")
+        if candidate.name != "README.md"
+    )
+    leakage = provider_leakage(
+        source.read_text(encoding="utf-8"), known_skill_ids=known_skill_ids
+    )
     if leakage:
         raise CanonicalSkillError(
             f"canonical skill {source} contains provider syntax: "
@@ -376,7 +512,14 @@ def load_canonical_command(payload_root: Path, path: Path) -> CanonicalCommand:
     source = Path(path)
     raw, body = _read_frontmatter(source)
     _validate_schema(raw, _load_schema(root, "canonical-command.schema.json"), source)
-    leakage = provider_leakage(source.read_text(encoding="utf-8"))
+    known_skill_ids = frozenset(
+        candidate.stem
+        for candidate in (root / "canonical" / "skills").glob("*/*.md")
+        if candidate.name != "README.md"
+    )
+    leakage = provider_leakage(
+        source.read_text(encoding="utf-8"), known_skill_ids=known_skill_ids
+    )
     if leakage:
         raise CanonicalSkillError(
             f"canonical command {source} contains provider syntax: "
@@ -463,18 +606,527 @@ def discover_canonical_commands(payload_root: Path) -> tuple[CanonicalCommand, .
     return tuple(sorted(records, key=lambda record: record.spec.id))
 
 
+def discover_canonical_skill_assets(
+    payload_root: Path,
+) -> tuple[CanonicalSkillAsset, ...]:
+    """Return the validated canonical auxiliary-skill inventory.
+
+    The first path segment is either a real canonical skill id or ``_references``
+    for shared checklist artifacts. Remaining segments stay skill-relative so
+    projections preserve Markdown links and bundled-script paths without reading
+    a generated compatibility tree.
+    """
+    root = Path(payload_root)
+    source_root = root / "canonical" / "skills" / "assets"
+    if not source_root.is_dir():
+        raise CanonicalSkillError(
+            f"canonical skill asset root does not exist: {source_root}"
+        )
+    known_skill_ids = {record.spec.id for record in discover_canonical_skills(root)}
+    records: list[CanonicalSkillAsset] = []
+    for source in sorted(source_root.rglob("*")):
+        if source.is_symlink():
+            raise CanonicalSkillError(
+                f"canonical skill asset must not be a symlink: {source}"
+            )
+        if not source.is_file():
+            continue
+        relative = source.relative_to(source_root)
+        # Installing the wheel may byte-compile the bundled Python helper even
+        # though it is package data rather than an importable module.  Ignore
+        # only that interpreter-generated cache shape; every other unexpected
+        # file under the canonical tree remains fail-closed.
+        if "__pycache__" in relative.parts:
+            if source.suffix == ".pyc":
+                continue
+            raise CanonicalSkillError(
+                f"canonical skill asset cache directory has an unexpected file: {source}"
+            )
+        if len(relative.parts) < 2:
+            raise CanonicalSkillError(
+                f"canonical skill asset must be <skill-id>/<path>: {relative}"
+            )
+        skill_id = relative.parts[0]
+        asset_path = Path(*relative.parts[1:])
+        if skill_id != "_references" and skill_id not in known_skill_ids:
+            raise CanonicalSkillError(
+                f"canonical skill asset has no canonical owner {skill_id!r}: {source}"
+            )
+        if skill_id == "_references" and len(asset_path.parts) != 1:
+            raise CanonicalSkillError(
+                f"shared skill references must be flat files: {source}"
+            )
+        if any(part in {"", ".", ".."} for part in asset_path.parts):
+            raise CanonicalSkillError(
+                f"canonical skill asset has an unsafe relative path: {source}"
+            )
+        if source.suffix.lower() not in {".md", ".py", ".sh", ".txt"}:
+            raise CanonicalSkillError(
+                f"canonical skill asset has an unsupported type: {source}"
+            )
+        try:
+            content = source.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise CanonicalSkillError(
+                f"cannot read canonical skill asset {source}: {exc}"
+            ) from exc
+        if not content:
+            raise CanonicalSkillError(
+                f"canonical skill asset must not be empty: {source}"
+            )
+        if skill_id == "_references":
+            leakage = provider_leakage(
+                content, known_skill_ids=frozenset(known_skill_ids)
+            )
+            if leakage:
+                raise CanonicalSkillError(
+                    f"canonical shared skill reference {source} contains provider syntax: "
+                    + ", ".join(sorted(set(leakage)))
+                )
+        mode = source.stat().st_mode & 0o777
+        if mode not in {0o644, 0o755}:
+            raise CanonicalSkillError(
+                f"canonical skill asset has unsupported mode {mode:#o}: {source}"
+            )
+        records.append(
+            CanonicalSkillAsset(
+                skill_id=skill_id,
+                relative_path=asset_path,
+                canonical_path=source,
+                content=content,
+                mode=mode,
+            )
+        )
+    _ensure_unique_skill_asset_destinations(records)
+    return tuple(sorted(records, key=lambda record: record.destination.as_posix()))
+
+
+def _ensure_unique_skill_asset_destinations(
+    records: Iterable[CanonicalSkillAsset],
+) -> None:
+    """Reject aliases that collide on case-insensitive target filesystems."""
+    destinations: dict[str, str] = {}
+    for record in records:
+        destination = record.destination.as_posix()
+        destination_key = destination.casefold()
+        prior = destinations.get(destination_key)
+        if prior is not None:
+            raise CanonicalSkillError(
+                "canonical skill assets resolve to duplicate destination: "
+                f"{prior} and {destination}"
+            )
+        destinations[destination_key] = destination
+
+
+@dataclass(frozen=True)
+class CodexSkillProjection:
+    """Provider-native Codex text projected from one canonical skill."""
+
+    name: str
+    description: str
+    instructions: str
+
+
+_CODEX_EXTERNAL_LITERALS = {
+    "external-model-current-balanced": "claude-sonnet-4-6",
+    "external-model-versioned-balanced": "claude-sonnet-4@20250514",
+    "external-model-legacy-balanced": "claude-3-5-sonnet-v2@20241022",
+    "external-model-legacy-fast": "claude-3-5-haiku@20241022",
+    "external-model-family-balanced": "claude-sonnet-4",
+    "external-model-multimodal": "gpt-4o",
+    "external-model-env-balanced": "CLAUDE_SONNET_MODEL",
+    "external-model-env-deep": "CLAUDE_OPUS_MODEL",
+    "external-plugin-collection": "claude-plugins-official",
+    "external-skill-collection": "claude-night-market",
+    "external-status-extension": "claude-hud",
+    "external-shannon-cli-max-output-tokens": "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+    "external-shannon-cli-use-bedrock": "CLAUDE_CODE_USE_BEDROCK",
+    "external-shannon-cli-use-vertex": "CLAUDE_CODE_USE_VERTEX",
+    "external-shannon-cli-adaptive-thinking": "CLAUDE_ADAPTIVE_THINKING",
+}
+_CODEX_TOOL_TERMS = {
+    "file_read": "file reading",
+    "file_write": "file creation",
+    "file_edit": "file editing",
+    "file_glob": "file discovery",
+    "file_search": "text search",
+    "shell": "shell execution",
+    "delegate": "delegation",
+    "skill": "skill invocation",
+    "task_create": "task-ledger creation",
+    "task_get": "task-ledger lookup",
+    "task_list": "task-ledger listing",
+    "task_update": "task-ledger update",
+    "message": "worker messaging",
+}
+_CODEX_FIXED_COMMANDS = frozenset({"abort", "init", "status"})
+
+
+def _unavailable_reference(kind: str, component_id: str) -> str:
+    if kind == "agent":
+        return (
+            f"the optional `{component_id}` role "
+            "(not installed for this selection; do not dispatch)"
+        )
+    if kind in {"skill", "command"}:
+        return (
+            f"the optional `{component_id}` skill "
+            "(not installed for this selection; do not invoke)"
+        )
+    if kind == "rule":
+        return (
+            f"the optional `{component_id}` engineering rule "
+            "(not installed for this selection; do not rely on it)"
+        )
+    raise ValueError(f"unsupported selection-aware reference kind: {kind!r}")
+
+
+def codex_reference_target(
+    kind: str,
+    component_id: str,
+    *,
+    skill_reference_base: str | None,
+    plugin_context: bool,
+    selected_inventory: Mapping[str, frozenset[str]] | None,
+) -> str:
+    selected = None if selected_inventory is None else selected_inventory.get(kind)
+    if kind == "command" and selected_inventory is not None and selected is None:
+        selected = frozenset(
+            _CODEX_FIXED_COMMANDS | selected_inventory.get("skill", frozenset())
+        )
+    is_available = selected is None or component_id in selected
+    if kind == "agent":
+        return (
+            f".codex/agents/{component_id}.toml"
+            if is_available
+            else _unavailable_reference(kind, component_id)
+        )
+    if kind == "skill":
+        if not is_available:
+            return _unavailable_reference(kind, component_id)
+        return (
+            f"the {component_id} skill"
+            if plugin_context
+            else f".agents/skills/{component_id}/SKILL.md"
+        )
+    if kind == "rule":
+        if not is_available:
+            return _unavailable_reference(kind, component_id)
+        return component_id if plugin_context else f".ckit/rules/{component_id}.md"
+    if kind == "command":
+        if not is_available:
+            return _unavailable_reference(kind, component_id)
+        if component_id in _CODEX_FIXED_COMMANDS:
+            return f"`ckit {component_id}`"
+        return f"the {component_id} skill" if plugin_context else f"${component_id}"
+    if kind == "state":
+        return {
+            "root": ".ckit",
+            "continuity": ".ckit/CONTINUITY.md",
+            "agent-memory": ".ckit/agent-memory/",
+            "agent-memory-index": ".ckit/agent-memory/MEMORY.md",
+            "pipeline-snapshot": ".ckit/state/pipeline-snapshot.json",
+            "ticket-board": ".ckit/state/ticket-board.html",
+            "workflow": ".ckit/state/",
+            "stack-catalog": ".ckit/config/stack-catalog.snapshot.yaml",
+            "init-options": ".ckit/config/init-options.json",
+            "deploy-config": ".ckit/config/deploy.yaml",
+            "configuration": ".ckit/config/",
+        }.get(component_id, f".ckit/state/{component_id}")
+    if kind == "artifact":
+        return {
+            "project-instructions": "AGENTS.md",
+            "alternate-project-instructions": (
+                "CLAUDE.md" if plugin_context else "an alternate runtime's instructions"
+            ),
+            "mcp-configuration": ".codex/config.toml",
+            "skill-library": ".agents/skills",
+            "rule-library": (
+                ".ckit/rules"
+                if plugin_context
+                else "the installed engineering-rule library"
+            ),
+            "change-proposal-template": ".ckit/templates/change-proposal.md",
+            "stack-rule-pattern": (
+                ".ckit/rules/<stack>-patterns.md"
+                if plugin_context
+                else "the installed stack-specific engineering rule"
+            ),
+            "skill-domain-example": ".agents/skills/<domain>/SKILL.md",
+            "skill-domain-directory": ".agents/skills/<domain>/",
+        }.get(
+            component_id,
+            (
+                f"{skill_reference_base or '.agents/skills/_references'}/"
+                f"{component_id.removeprefix('skill-reference-')}.md"
+                if component_id.startswith("skill-reference-")
+                else component_id
+            ),
+        )
+    return f"{kind}://{component_id}"
+
+
+def _project_codex_skill_semantics(
+    text: str,
+    *,
+    plugin_context: bool,
+    selected_inventory: Mapping[str, frozenset[str]] | None,
+) -> str:
+    skill_reference_base = "references" if plugin_context else None
+
+    def reference(match: re.Match[str]) -> str:
+        return codex_reference_target(
+            match.group(1),
+            match.group(2),
+            skill_reference_base=skill_reference_base,
+            plugin_context=plugin_context,
+            selected_inventory=selected_inventory,
+        )
+
+    def cross_skill_link(match: re.Match[str]) -> str:
+        label, component_id = match.group(1), match.group(2)
+        selected = (
+            None if selected_inventory is None else selected_inventory.get("skill")
+        )
+        if selected is not None and component_id not in selected:
+            return f"{label} ({_unavailable_reference('skill', component_id)})"
+        return f"[{label}](../{component_id}/SKILL.md)"
+
+    text = text.replace("{{state_dir:state://agent-memory}}", ".ckit/agent-memory/")
+    text = _CROSS_SKILL_LINK_RE.sub(cross_skill_link, text)
+    text = _SKILL_ASSET_RE.sub(
+        lambda match: (
+            match.group(2)
+            if plugin_context
+            else f".agents/skills/{match.group(1)}/{match.group(2)}"
+        ),
+        text,
+    )
+    skill_invocation_re = re.compile(
+        r"\{\{skill_invocation:skill://([a-z0-9][a-z0-9._-]*)\}\}"
+    )
+    text = project_codex_inline_tokens(
+        text,
+        skill_invocation_re,
+        lambda match: (
+            f"${match.group(1)}"
+            if selected_inventory is None
+            or selected_inventory.get("skill") is None
+            or match.group(1) in selected_inventory["skill"]
+            else _unavailable_reference("skill", match.group(1))
+        ),
+    )
+    ref_marker_re = re.compile(
+        r"\{\{ref:(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)"
+        r"://([a-z0-9][a-z0-9._-]*)\}\}"
+    )
+    text = project_codex_inline_tokens(
+        text,
+        ref_marker_re,
+        reference,
+    )
+    for marker in ("command_alias", "short_command"):
+        marker_re = re.compile(
+            rf"\{{\{{{marker}:command://([a-z0-9][a-z0-9._-]*)\}}\}}",
+        )
+        text = project_codex_inline_tokens(
+            text,
+            marker_re,
+            lambda match: codex_reference_target(
+                "command",
+                match.group(1),
+                skill_reference_base=skill_reference_base,
+                plugin_context=plugin_context,
+                selected_inventory=selected_inventory,
+            ),
+        )
+    for marker, suffix in (
+        ("skill_file", "/SKILL.md"),
+        ("skill_dir", "/"),
+        ("skill_path", ""),
+    ):
+
+        def project_skill(match: re.Match[str], suffix: str = suffix) -> str:
+            component_id = match.group(1)
+            selected = (
+                None if selected_inventory is None else selected_inventory.get("skill")
+            )
+            if selected is not None and component_id not in selected:
+                return _unavailable_reference("skill", component_id)
+            if plugin_context:
+                return f"the {component_id} skill"
+            return f".agents/skills/{component_id}{suffix}"
+
+        marker_re = re.compile(rf"\{{\{{{marker}:skill://([a-z0-9][a-z0-9._-]*)\}}\}}")
+        text = project_codex_inline_tokens(
+            text,
+            marker_re,
+            project_skill,
+        )
+    text = project_codex_reference_tokens(
+        text,
+        lambda kind, component_id: codex_reference_target(
+            kind,
+            component_id,
+            skill_reference_base=skill_reference_base,
+            plugin_context=plugin_context,
+            selected_inventory=selected_inventory,
+        ),
+    )
+
+    replacements = {
+        "{{request}}": "the invocation request",
+        "{{pause_for_human:input}}": "pause and request user input",
+        "{{host:title}}": "Codex",
+        "{{host:product}}": "Codex",
+        "{{host:lower}}": "codex",
+        "{{host:upper}}": "CODEX",
+        "{{external_assistant:title}}": "Claude",
+        "{{external_assistant:lower}}": "claude",
+        "{{external_assistant:upper}}": "CLAUDE",
+        "{{kit:distribution}}": "claude-code-kit",
+        "{{kit:legacy-cli}}": "claude-sdlc",
+        "{{kit:cli}}": "ckit",
+        "{{kit:sidecar-suffix}}": ".claude-kit",
+        "{{domain_literal:task-list-component}}": "TaskList",
+        "{{provider_metadata:tool-allowlist}}": (
+            "provider-native tool allowlist metadata"
+        ),
+        "{{external_permission:alternate-review-read-only}}": "--approval-mode plan",
+        "{{capture_worker:job}}": "configured background capture adapter",
+        "{{host_feature:statusline-api}}": (
+            "the host's status interface, where available"
+        ),
+        "{{host_feature:dynamic-workflows}}": (
+            "a native dynamic-workflow facility, where supported"
+        ),
+        "{{host_constraint:nested-delegation}}": (
+            "the active host or policy prevents nested delegation"
+        ),
+        "{{model_tier:balanced-title}}": "Balanced",
+        "{{model_tier:balanced}}": "balanced",
+        "{{model_tier:deep-title}}": "Deep",
+        "{{model_tier:deep}}": "deep",
+        "{{model_tier:fast-title}}": "Fast",
+        "{{model_tier:fast}}": "fast",
+        "{{alternate_runtime:title}}": "an alternate model runtime",
+        "{{alternate_runtime:full-title}}": "an alternate model runtime",
+        "{{alternate_runtime:cli-title}}": "an alternate model CLI",
+        "{{alternate_runtime:exec}}": "<alternate-model-cli> exec",
+        "{{alternate_runtime:binary}}": "<alternate-model-cli>",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    for key, literal in _CODEX_EXTERNAL_LITERALS.items():
+        text = text.replace(f"{{{{external_literal:{key}}}}}", literal)
+    for key, value in _CODEX_TOOL_TERMS.items():
+        text = text.replace(f"{{{{tool:{key}}}}}", value)
+    text = re.sub(
+        r"\{\{kit_env:([a-z0-9-]+)\}\}",
+        lambda match: "CKIT_" + match.group(1).upper().replace("-", "_"),
+        text,
+    )
+    text = re.sub(
+        r"\{\{host_env:([a-z0-9-]+)\}\}",
+        lambda match: "<host-env:" + match.group(1) + ">",
+        text,
+    )
+    unresolved = re.findall(r"\{\{[a-z][a-z0-9_-]*:[^{}]+\}\}", text)
+    if unresolved:
+        raise CanonicalSkillError(
+            f"unresolved Codex semantic markers: {sorted(set(unresolved))}"
+        )
+    return text
+
+
+def project_codex_skill(
+    record: CanonicalSkill,
+    *,
+    plugin_context: bool = False,
+    selected_inventory: Mapping[str, frozenset[str]] | None = None,
+) -> CodexSkillProjection:
+    """Project one canonical skill into native Codex metadata and instructions."""
+    return CodexSkillProjection(
+        name=record.spec.id,
+        description=_project_codex_skill_semantics(
+            record.spec.description,
+            plugin_context=plugin_context,
+            selected_inventory=selected_inventory,
+        ),
+        instructions=_project_codex_skill_semantics(
+            record.spec.instructions,
+            plugin_context=plugin_context,
+            selected_inventory=selected_inventory,
+        ),
+    )
+
+
+def project_codex_skill_asset(
+    asset: CanonicalSkillAsset,
+    *,
+    plugin_context: bool = False,
+    selected_inventory: Mapping[str, frozenset[str]] | None = None,
+) -> str:
+    """Project one canonical text asset without changing skill-relative links."""
+    content = asset.content
+    if (
+        asset.skill_id == "_references"
+        and asset.relative_path.name == "orchestration-patterns.md"
+    ):
+        content = _adapt_codex_orchestration_reference(content)
+    return _project_codex_skill_semantics(
+        content,
+        plugin_context=plugin_context,
+        selected_inventory=selected_inventory,
+    )
+
+
+def _adapt_codex_orchestration_reference(source: str) -> str:
+    """Insert the provider-owned Codex appendix into the neutral reference."""
+    marker = "{{provider_appendix:orchestration-patterns}}"
+    if source.count(marker) != 1:
+        raise CanonicalSkillError(
+            "orchestration reference must declare exactly one provider appendix marker"
+        )
+    appendix = """## Codex host appendix
+
+Project skills live under `.agents/skills/`, while named project workers live
+under `.codex/agents/`. Map each persona to a native delegated worker when the
+active Codex surface exposes that capability. If named workers or worker
+messaging are unavailable, embed the persona instructions in a generic
+delegated task and require a typed result.
+
+Treat nested delegation, shared task ledgers, worker messaging, and parallel
+dispatch as capability-gated. Keep orchestration in the main session whenever
+a capability is absent. Parallel fan-out still requires independent workers
+and one explicit merge in the main session.
+
+---
+"""
+    return source.replace(marker, appendix).rstrip() + "\n"
+
+
 __all__ = [
     "CANONICAL_SKILL_SCHEMA_VERSION",
+    "CodexSkillProjection",
     "CanonicalCommand",
     "CanonicalSkill",
+    "CanonicalSkillAsset",
     "CanonicalSkillError",
     "PausePoint",
     "RequestInput",
     "RequestMode",
     "SkillSourceKind",
+    "codex_reference_target",
     "discover_canonical_commands",
+    "discover_canonical_skill_assets",
     "discover_canonical_skills",
     "load_canonical_command",
     "load_canonical_skill",
     "provider_leakage",
+    "project_codex_inline_tokens",
+    "project_codex_reference_tokens",
+    "project_codex_skill",
+    "project_codex_skill_asset",
+    "raw_skill_invocations",
 ]

@@ -10,3 +10,6 @@ references:
 - command://security-and-hardening
 - command://security-verification
 - command://threat-model
+- skill://security-and-hardening
+- skill://security-verification
+- skill://threat-model

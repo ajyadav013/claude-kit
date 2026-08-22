@@ -9,7 +9,8 @@ request_input:
   mode: optional
   hint: '[item number or "all"]'
 pause_for_human: []
-references: []
+references:
+- skill://backlog
 ---
 
 Triage unsorted backlog items. Argument: {{request}}
@@ -87,7 +88,7 @@ If the argument is a specific item number, triage just that item. If the argumen
 
 ## Guidelines
 
-- Default to the horizon suggested by `/backlog` when the item was added, but let the user override
+- Default to the horizon suggested by `{{skill_invocation:skill://backlog}}` when the item was added, but let the user override
 - If an item is clearly a duplicate of an existing item, flag it and suggest merging or deleting
 - When adding to a horizon file, maintain the `---` separator between items
 - Keep the README index sorted by item number

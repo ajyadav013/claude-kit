@@ -43,12 +43,16 @@ from claude_kit.projection import (
     ProjectionPlan,
     RendererRegistry,
 )
-from claude_kit.provider_renderers import CodexRenderer
+from claude_kit.provider_renderers import (
+    CodexRenderer,
+    codex_provider_leakage_scan_text,
+)
 from claude_kit.secure_fs import (
     ProjectFS,
     ProjectTransaction,
     recover_interrupted_transaction,
 )
+from claude_kit.state import active_state_layout
 from claude_kit.state_migration import (
     StateMigrationResult,
     _apply_legacy_state_migration,
@@ -60,6 +64,8 @@ _TOML_START = "# ckit:managed:start"
 _TOML_END = "# ckit:managed:end"
 _AGENTS_MAX_BYTES = 32 * 1024
 _SIDECAR_SUFFIX = ".claude-kit"
+_LEGACY_TEMPLATE_COMPONENT = "artifact://templates"
+_LEGACY_TEMPLATE_PREFIX = f"{StateLayout.neutral().artifacts}/templates/"
 _PROTECTED_PATHS = (
     ".ckit",
     ".claude",
@@ -91,6 +97,12 @@ _GITIGNORE_ENTRIES = (
     "*.claude-kit",
     "*.codex-kit",
 )
+_MIGRATION_REMOVAL_ERROR = (
+    "migrating legacy state directly to the requested runtime would remove the "
+    "installed provider projection without confirmation or a recoverable backup; "
+    "run `ckit migrate-state <path>` first, then `ckit upgrade <path> --runtime "
+    "<runtime> --confirm-runtime-removal`"
+)
 
 
 class RuntimeInstallError(RuntimeError):
@@ -118,6 +130,15 @@ class RuntimeArtifact:
             owner=item.owner.value,
             executable=item.executable,
         )
+
+
+@dataclass(frozen=True)
+class _LegacyTemplateRetirement:
+    """Prior duplicate template records retired by a native reinstall."""
+
+    manifest_paths: frozenset[str]
+    removable_paths: tuple[str, ...]
+    preserved_paths: tuple[str, ...]
 
 
 def compile_runtime_projection(
@@ -207,10 +228,10 @@ def validate_projection(projection: ProjectionPlan) -> None:
                 raise RuntimeInstallError(
                     f"{item.path} requires non-empty name and description"
                 )
-        if item.provider == "codex" and re.search(
-            r"CLAUDE_CODE_|CLAUDE_PROJECT_DIR|\.claude(?:/|\\)", text
-        ):
-            raise RuntimeInstallError(f"Claude operational leakage in {item.path}")
+        if item.provider == "codex":
+            scanned = codex_provider_leakage_scan_text(text, location=item.path)
+            if re.search(r"CLAUDE_CODE_|CLAUDE_PROJECT_DIR|\.claude(?:/|\\)", scanned):
+                raise RuntimeInstallError(f"Claude operational leakage in {item.path}")
         if item.provider == "claude" and ".codex/" in text:
             raise RuntimeInstallError(f"Codex operational leakage in {item.path}")
 
@@ -288,6 +309,13 @@ def _shared_artifacts(
             component_id="state://temporary",
             owner="kit",
         ),
+        RuntimeArtifact(
+            path=f"{layout.artifacts}/.gitkeep",
+            content=b"",
+            provider="shared",
+            component_id="state://artifacts",
+            owner="kit",
+        ),
     ]
     memory = source / "templates" / "agent-memory"
     for path in sorted(memory.rglob("*")):
@@ -300,19 +328,6 @@ def _shared_artifacts(
                     provider="shared",
                     component_id="state://memory",
                     owner="user-editable",
-                )
-            )
-    templates = source / "templates" / "artifacts"
-    for path in sorted(templates.rglob("*")):
-        if path.is_file():
-            relative = path.relative_to(templates).as_posix()
-            output.append(
-                RuntimeArtifact(
-                    path=f"{layout.artifacts}/templates/{relative}",
-                    content=path.read_bytes(),
-                    provider="shared",
-                    component_id="artifact://templates",
-                    owner="kit",
                 )
             )
     scripts = source / "templates" / "scripts"
@@ -515,21 +530,15 @@ def _remove_managed_claude_mcp_servers(
 
 
 def _old_options(fs: ProjectFS) -> InitOptions | None:
-    """Return the installed manifest from either supported state layout."""
+    """Return the manifest from the authoritative existing state layout."""
 
-    for rel in (
-        StateLayout.neutral().manifest,
-        StateLayout.legacy_claude().manifest,
-    ):
-        if not fs.is_file(rel):
-            continue
-        try:
-            return InitOptions.from_dict(json.loads(fs.read_text(rel)))
-        except (ValueError, TypeError, json.JSONDecodeError) as exc:
-            raise RuntimeInstallError(
-                f"existing init-options is corrupt: {exc}"
-            ) from exc
-    return None
+    layout = active_state_layout(fs)
+    if layout is None or not fs.is_file(layout.manifest):
+        return None
+    try:
+        return InitOptions.from_dict(json.loads(fs.read_text(layout.manifest)))
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeInstallError(f"existing init-options is corrupt: {exc}") from exc
 
 
 def _old_records(fs: ProjectFS) -> dict[str, FileRecord]:
@@ -564,6 +573,49 @@ def _prior_managed_claude_mcp_ids(
 
 def _sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def _legacy_template_retirement(
+    fs: ProjectFS, records: dict[str, FileRecord]
+) -> _LegacyTemplateRetirement:
+    """Classify the retired duplicate-template surface without mutating it.
+
+    Older native manifests tracked a second copy of each canonical artifact
+    template under ``.ckit/artifacts/templates``.  Only the exact historical
+    component identity, ownership, provider, and path prefix qualify here.  A
+    qualifying live path must still be a link-free regular file; unchanged kit
+    bytes may be removed, while modified bytes become preserved user content.
+    In both cases the obsolete manifest ownership is retired.
+    """
+
+    manifest_paths: set[str] = set()
+    removable_paths: list[str] = []
+    preserved_paths: list[str] = []
+    for record in sorted(records.values(), key=lambda item: item.path):
+        if not (
+            record.owner == "kit"
+            and record.provider == "shared"
+            and record.component_id == _LEGACY_TEMPLATE_COMPONENT
+            and record.path.startswith(_LEGACY_TEMPLATE_PREFIX)
+        ):
+            continue
+        manifest_paths.add(record.path)
+        if not fs.exists(record.path):
+            continue
+        if not fs.is_file(record.path):
+            raise RuntimeInstallError(
+                "legacy duplicate template destination is not a regular file: "
+                f"{record.path}"
+            )
+        if _sha256(fs.read_bytes(record.path)) == record.sha256:
+            removable_paths.append(record.path)
+        else:
+            preserved_paths.append(record.path)
+    return _LegacyTemplateRetirement(
+        manifest_paths=frozenset(manifest_paths),
+        removable_paths=tuple(removable_paths),
+        preserved_paths=tuple(preserved_paths),
+    )
 
 
 def _write_artifact(
@@ -739,8 +791,12 @@ def preview_runtime_install(
     projection, artifacts = render_runtime_artifacts(source, target, plan, request)
     options = _old_options(fs)
     records = {record.path: record for record in options.files} if options else {}
+    retirement = _legacy_template_retirement(fs, records)
     managed_mcp_ids = _prior_managed_claude_mcp_ids(fs, options, records)
-    paths: list[str] = []
+    # Preview reports the exact hash-matched files that the transaction would
+    # remove. Modified legacy copies remain user content and are intentionally
+    # absent from this mutation list.
+    paths: list[str] = list(retirement.removable_paths)
     artifact_paths = {artifact.path for artifact in artifacts}
     if managed_mcp_ids and ".mcp.json" not in artifact_paths:
         _remove_managed_claude_mcp_servers(fs.read_text(".mcp.json"), managed_mcp_ids)
@@ -852,6 +908,24 @@ def _apply_runtime_files(
                 log.append("  • removed prior managed .mcp.lock.json")
             else:
                 log.append("  • preserved user-modified .mcp.lock.json")
+    retirement = _legacy_template_retirement(fs, previous)
+    for path in retirement.removable_paths:
+        # Recheck immediately before deletion. The transaction lease excludes
+        # cooperating lifecycle writers, and ProjectFS refuses link/reparse
+        # swaps and non-regular read targets.
+        record = previous[path]
+        if _sha256(fs.read_bytes(path)) != record.sha256:
+            log.append(
+                f"  • preserved user-modified legacy template {path}; "
+                "retired kit ownership"
+            )
+            continue
+        fs.unlink(path)
+        log.append(f"  • retired duplicate legacy template {path}")
+    for path in retirement.preserved_paths:
+        log.append(
+            f"  • preserved user-modified legacy template {path}; retired kit ownership"
+        )
     for artifact in artifacts:
         result = _write_artifact(
             fs,
@@ -870,7 +944,9 @@ def _apply_runtime_files(
         projection,
         installed,
         preserved_records=(
-            record for record in previous.values() if fs.is_file(record.path)
+            record
+            for record in previous.values()
+            if record.path not in retirement.manifest_paths and fs.is_file(record.path)
         ),
     )
     fs.write_bytes(StateLayout.neutral().manifest, manifest)
@@ -919,6 +995,18 @@ def install_runtime_with_state_migration(
     never leave a separately committed ``.ckit`` migration behind.
     """
 
+    target = Path(target).expanduser()
+    fs = ProjectFS(target)
+    if active_state_layout(fs) == StateLayout.legacy_claude():
+        legacy_options = _old_options(fs)
+        if legacy_options is not None and set(legacy_options.runtime.providers) - set(
+            request.runtime.providers
+        ):
+            # Refuse before projection work for a stable, actionable CLI error.
+            # The same check runs again under the transaction lease below to
+            # close a concurrent legacy-manifest change between check and use.
+            raise RuntimeInstallError(_MIGRATION_REMOVAL_ERROR)
+
     log, migration = _install_runtime_transaction(
         source,
         target,
@@ -959,13 +1047,14 @@ def _install_runtime_transaction(
         protected_paths=_PROTECTED_PATHS,
         journal_path=StateLayout.neutral().journal,
     ):
-        if migrate_legacy:
+        state_layout = active_state_layout(fs)
+        if migrate_legacy and state_layout == StateLayout.neutral():
+            migration = StateMigrationResult(migrated=False, already_neutral=True)
+        elif migrate_legacy:
             migration = _apply_legacy_state_migration(
                 fs, require_source=require_legacy_source
             )
-        elif fs.is_file(StateLayout.legacy_claude().manifest) and not fs.is_file(
-            StateLayout.neutral().manifest
-        ):
+        elif state_layout == StateLayout.legacy_claude():
             raise RuntimeInstallError(
                 "legacy mutable state is installed under .claude; rerun with "
                 "--migrate-state to copy it transactionally into .ckit"
@@ -975,13 +1064,22 @@ def _install_runtime_transaction(
             installed_options is not None
             and fs.is_file(StateLayout.neutral().manifest)
             and installed_options.runtime is not request.runtime
-            and not (migration is not None and migration.migrated)
         ):
-            raise RuntimeInstallError(
-                "installed runtime differs from the requested runtime; use "
-                "`ckit upgrade --runtime <runtime>` so provider removal is confirmed "
-                "and backed up"
-            )
+            if migration is not None and migration.migrated:
+                # Legacy Claude -> both is additive.  The migrated manifest still
+                # names Claude until this encompassing transaction writes the final
+                # dual-runtime manifest, so only provider removal is a transition.
+                removed_providers = set(installed_options.runtime.providers) - set(
+                    request.runtime.providers
+                )
+                if removed_providers:
+                    raise RuntimeInstallError(_MIGRATION_REMOVAL_ERROR)
+            else:
+                raise RuntimeInstallError(
+                    "installed runtime differs from the requested runtime; use "
+                    "`ckit upgrade --runtime <runtime>` so provider removal is "
+                    "confirmed and backed up"
+                )
         log.extend(
             _apply_runtime_files(
                 fs,

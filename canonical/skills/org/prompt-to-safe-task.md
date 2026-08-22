@@ -14,6 +14,11 @@ references:
 - rule://autonomy-levels
 - rule://prompt-to-task-conversion
 - rule://risk-classification
+- skill://customer-issue-to-fix
+- skill://feature-from-idea
+- skill://performance-optimization
+- skill://prototype-to-production
+- skill://repo-onboarding
 ---
 
 # Prompt to Safe Task
@@ -46,8 +51,10 @@ any deadline or no-touch areas.
 
 ## Agents to delegate to
 `risk-classifier` (assign the tier per `rule://prompt-to-task-conversion`) → then route:
-ideas to `/feature-from-idea`, prototypes to `/prototype-to-production`, bugs/issues to
-`/customer-issue-to-fix`, unfamiliar repos to `/repo-onboarding`. Use `Explore` to read context first.
+ideas to `{{skill_invocation:skill://feature-from-idea}}`, prototypes to
+`{{skill_invocation:skill://prototype-to-production}}`, bugs/issues to
+`{{skill_invocation:skill://customer-issue-to-fix}}`, and unfamiliar repos to
+`{{skill_invocation:skill://repo-onboarding}}`. Start with a read-only context pass.
 
 ## Quality gates
 Goal, scope, and out-of-scope are explicit; success is measurable; a risk tier is assigned; the plan
@@ -68,5 +75,5 @@ high/restricted, or if it exceeds the active autonomy level (`rule://autonomy-le
 → scope: the main dashboard view; out-of-scope: redesign, new metrics
 → risk: low–medium (read paths only; confirm if it touches the data store)
 → plan: measure baseline, then propose one change
-→ STOPS for approval → routes to /performance-optimization
+→ STOPS for approval → routes to {{skill_invocation:skill://performance-optimization}}
 ```

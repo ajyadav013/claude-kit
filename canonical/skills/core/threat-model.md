@@ -12,6 +12,7 @@ references:
 - rule://risk-classification
 - rule://secrets-policy
 - skill://security-and-hardening
+- skill://threat-model
 ---
 
 # Threat Model
@@ -99,7 +100,7 @@ a clear control, or exceeds the active autonomy level.
 
 ## Example
 ```
-/threat-model Add S3 presigned-URL upload for user avatars
+{{skill_invocation:skill://threat-model}} Add S3 presigned-URL upload for user avatars
 → assets: user files, bucket creds; entry: presign endpoint + client PUT; actors: authn user, anon
 → STRIDE: Tampering (oversized/again-after-expiry), Info disclosure (enumerable keys),
   EoP (writing outside user's prefix) → mitigations: size/content-type limit, per-user key prefix,

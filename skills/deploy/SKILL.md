@@ -197,5 +197,6 @@ compaction and a fresh session can resume exactly where it stopped (see
 Provision infrastructure · merge to a production branch that requires human review · run
 destructive runtime commands · bypass the profile's quality gates for the code itself. It
 executes an **existing, human-designed delivery path** and verifies the result — it does not
-invent one. If the project has no delivery path yet, that's `/ci-cd-and-automation` and
+invent one. If the project has no delivery path yet, that's
+`/ci-cd-and-automation` and
 `/shipping-and-launch` territory first.

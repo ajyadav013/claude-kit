@@ -17,3 +17,7 @@ references:
 - command://test-driven-development
 - command://unit-test
 - rule://risk-classification
+- skill://accessibility-review
+- skill://code-review-and-quality
+- skill://security-verification
+- skill://test-driven-development

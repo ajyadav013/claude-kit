@@ -291,4 +291,4 @@ export { Switch };
 - [radix-primitives-and-variants.md](references/radix-primitives-and-variants.md) — Radix primitive wrapping, variant API patterns, asChild/Slot polymorphism, data-state styling
 - [tailwind-theme-and-cn.md](references/tailwind-theme-and-cn.md) — Tailwind v4 @theme tokens, cn() utility, custom variants, keyframe animations, prefers-reduced-motion
 - [repo-evidence.md](references/repo-evidence.md) — source file paths and genericized snippets from production services
-- [frontend-repo-architecture](../frontend-repo-architecture) — where ui/ components live in the project structure
+- [frontend-repo-architecture](../frontend-repo-architecture/SKILL.md) — where ui/ components live in the project structure

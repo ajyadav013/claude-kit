@@ -348,7 +348,7 @@ reflecting it. The **record-replay** pattern gets both fidelity and determinism:
   then **replay** from fixtures on every subsequent run — no network, fast, deterministic, CI-friendly.
 - **Redact secrets at record time.** Strip `Authorization`, API keys, cookies, and any PII from the
   saved request/response before it lands in the repo — fixtures are committed and must never carry
-  credentials (ties to `the security-and-hardening skill` and `secret-scanner`).
+  credentials (ties to the security-and-hardening skill and `secret-scanner`).
 - **Match requests deliberately and re-record on drift.** Decide what identifies a recorded interaction
   (method + path + significant query/body), and **periodically re-record** so the fixtures track the
   live contract instead of rotting — a stale cassette is a mock in disguise. Pair with a real

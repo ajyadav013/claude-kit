@@ -14,7 +14,7 @@ A catalog of reusable high-level-design building blocks — how to size a worklo
 - Building anything with fan-out: notifications, social feeds, group chat, typeahead
 - Modeling time-bounded inventory (bookings, reservations, holds) or blob-heavy records
 - Debating whether to split a service — or diagnosing a distributed monolith
-- Preparing the design section of a spec for the `spec-driven-development` or `the sdlc skill` pipeline
+- Preparing the design section of a spec for the `spec-driven-development` or the sdlc skill pipeline
 
 ## Back-of-envelope estimation and read/write asymmetry
 

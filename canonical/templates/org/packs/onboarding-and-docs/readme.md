@@ -12,16 +12,16 @@ they never write or run code.
 
 ## Role → component mapping
 This pack bundles components that already ship with {{ provider.executable.cli }} (reused, not duplicated) plus one skill
-added by the org layer. It does not introduce competing agents — codebase discovery uses the built-in
-**Explore** research agent.
+added by the org layer. It does not introduce competing agents — codebase discovery uses a
+host-native read-only research role when available.
 
 | Need | Use |
 |------|-----|
-| Get a guided tour of an unfamiliar repo | `command://repo-onboarding` → `Explore` (discovery) → `technical-architect` |
-| Discover where things live | `Explore` agent (read-only codebase search) |
+| Get a guided tour of an unfamiliar repo | `command://repo-onboarding` → read-only research → `technical-architect` |
+| Discover where things live | a read-only codebase-research role |
 | Explain how a module works / fits together | `technical-architect` (analysis only, see `code-organization.md`) |
 | Generate or update architecture docs / ADRs | `command://documentation-and-adrs` |
-| Bring docs back in sync with the code | `command://refresh-docs` (the `command://docs-update` flow) |
+| Bring docs back in sync with the code | `command://refresh-docs` (the `skill://refresh-docs` workflow) |
 | Ground answers in the actual source | `command://source-driven-development` |
 | Curate the right context for a task | `command://context-engineering` |
 | Find / understand which skills apply | `command://using-agent-skills` |
@@ -36,9 +36,9 @@ None special — this pack is read-and-explain only, so the standard repo hooks 
 
 ## Examples
 ```
-/repo-onboarding   # → Explore maps the repo, technical-architect explains the architecture + an onboarding path
-/docs-update Sync the docs after the checkout refactor   # → refresh-docs + documentation-and-adrs
-/repo-onboarding the data-store layer   # → focused tour of one module
+Use `{{skill_invocation:skill://repo-onboarding}}` for a guided repo tour and onboarding path.
+Use `{{skill_invocation:skill://refresh-docs}}` to sync the docs after the checkout refactor.
+Use `{{skill_invocation:skill://repo-onboarding}}` for a focused tour of the data-store layer.
 ```
 
 ## Autonomy & risk

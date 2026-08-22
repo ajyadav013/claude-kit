@@ -18,6 +18,11 @@ from typing import Any, Callable, Iterable, Mapping, Optional, Sequence
 import jsonschema
 import yaml
 
+from claude_kit.canonical_skills import (
+    codex_reference_target,
+    project_codex_reference_tokens,
+    raw_skill_invocations,
+)
 from claude_kit.components import RuleSpec, SymbolicRef
 from claude_kit.models import ResolvedPlan
 
@@ -44,6 +49,13 @@ _PROVIDER_LEAKAGE = (
     re.compile(r"\b(?:CLAUDE|AGENTS)\.md\b"),
     re.compile(r"(?<![\w./:-])/(?:claude-kit:[a-z-]+|sdlc\b)"),
     re.compile(r"`(?:Read|Write|Edit|Glob|Grep|Bash|Agent)`"),
+    re.compile(
+        r"\b(?:Read\s*/\s*(?:Glob\s*/\s*)?Grep\s*/\s*Bash|"
+        r"Read\s*/\s*Glob\s*/\s*Grep|Glob\s*/\s*Grep|"
+        r"Grep\s*/\s*Bash|Write\s*/\s*Edit)\b"
+    ),
+    re.compile(r"`model:`"),
+    re.compile(r"(?:\bExplore agent\b|`Explore`)"),
 )
 
 
@@ -133,13 +145,18 @@ _UniqueKeyLoader.add_constructor(
 )
 
 
-def provider_rule_leakage(text: str) -> tuple[str, ...]:
+def provider_rule_leakage(
+    text: str,
+    *,
+    known_skill_ids: tuple[str, ...] | frozenset[str] = (),
+) -> tuple[str, ...]:
     """Return host wire syntax present in provider-neutral rule prose."""
-    return tuple(
+    provider_matches = tuple(
         match.group(0)
         for pattern in _PROVIDER_LEAKAGE
         for match in pattern.finditer(text)
     )
+    return provider_matches + raw_skill_invocations(text, known_skill_ids)
 
 
 def provider_placeholders(text: str) -> tuple[str, ...]:
@@ -234,7 +251,12 @@ def load_canonical_rule(payload_root: Path, body_path: Path) -> CanonicalRule:
         raise CanonicalRuleError(f"cannot read canonical rule {source}: {exc}") from exc
     if not content.strip():
         raise CanonicalRuleError(f"canonical rule {source} body must not be empty")
-    leakage = provider_rule_leakage(content)
+    known_skill_ids = frozenset(
+        candidate.stem
+        for candidate in (root / "canonical" / "skills").glob("*/*.md")
+        if candidate.name != "README.md"
+    )
+    leakage = provider_rule_leakage(content, known_skill_ids=known_skill_ids)
     if leakage:
         raise CanonicalRuleError(
             f"canonical rule {source} contains provider syntax: "
@@ -376,17 +398,38 @@ def selected_rule_layers(
     )
 
 
-def project_codex_rule_text(text: str) -> str:
+def project_codex_rule_text(
+    text: str,
+    *,
+    selected_inventory: Mapping[str, frozenset[str]] | None = None,
+) -> str:
     """Resolve neutral rule references/placeholders to truthful Codex-layer prose.
 
     Logical rule references point at complete explicit projections under ``.ckit``.
     Codex does not auto-discover that directory: AGENTS names it as the fallback for
     selected whole-rule bodies that do not fit its bounded inline summary.
     """
+
+    def selected_target(kind: str, item: str, available: str) -> str:
+        selected = None if selected_inventory is None else selected_inventory.get(kind)
+        if selected is None or item in selected:
+            return available
+        return codex_reference_target(
+            kind,
+            item,
+            skill_reference_base=None,
+            plugin_context=False,
+            selected_inventory=selected_inventory,
+        )
+
     reference_targets: Mapping[str, Callable[[str], str]] = {
-        "agent": lambda item: f".codex/agents/{item}.toml",
-        "skill": lambda item: f".agents/skills/{item}/SKILL.md",
-        "rule": lambda item: f"`.ckit/rules/{item}.md`",
+        "agent": lambda item: selected_target(
+            "agent", item, f".codex/agents/{item}.toml"
+        ),
+        "skill": lambda item: selected_target(
+            "skill", item, f".agents/skills/{item}/SKILL.md"
+        ),
+        "rule": lambda item: selected_target("rule", item, f".ckit/rules/{item}.md"),
         "command": lambda item: f"the `{item}` workflow entry point",
         "hook": lambda item: f"the `{item}` hook adapter",
         "workflow": lambda item: f"the `{item}` workflow",
@@ -411,15 +454,9 @@ def project_codex_rule_text(text: str) -> str:
         }.get(item, item),
     }
 
-    def replace_reference(match: re.Match[str]) -> str:
-        kind, item = match.group(1), match.group(2)
-        return reference_targets[kind](item)
-
-    projected = re.sub(
-        r"\b(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)"
-        r"://([a-z0-9][a-z0-9._-]*)",
-        replace_reference,
+    projected = project_codex_reference_tokens(
         text,
+        lambda kind, item: reference_targets[kind](item),
     )
     placeholders = {
         "{{ provider.path.config_root }}": ".ckit/",
@@ -465,7 +502,11 @@ def _codex_glob(path_glob: str) -> str:
     return path_glob
 
 
-def render_codex_rule_layer(layer: RuleLayer) -> str:
+def render_codex_rule_layer(
+    layer: RuleLayer,
+    *,
+    selected_inventory: Mapping[str, frozenset[str]] | None = None,
+) -> str:
     """Render one complete rule for AGENTS composition or explicit native loading."""
     applicability = "all project paths"
     if layer.path_globs:
@@ -475,7 +516,7 @@ def render_codex_rule_layer(layer: RuleLayer) -> str:
     return (
         f"## Rule: {layer.id}\n\n"
         f"Strength: {layer.strength}. Applies to: {applicability}.\n\n"
-        f"{project_codex_rule_text(layer.content).strip()}\n"
+        f"{project_codex_rule_text(layer.content, selected_inventory=selected_inventory).strip()}\n"
     )
 
 
@@ -492,7 +533,10 @@ def _omission_footer(ids: Sequence[str]) -> str:
 
 
 def compile_codex_rule_layers(
-    layers: Iterable[RuleLayer], *, max_bytes: int = DEFAULT_CODEX_RULE_BUDGET
+    layers: Iterable[RuleLayer],
+    *,
+    max_bytes: int = DEFAULT_CODEX_RULE_BUDGET,
+    selected_inventory: Mapping[str, frozenset[str]] | None = None,
 ) -> CompiledRuleLayers:
     """Compile whole rule bodies into deterministic Markdown within ``max_bytes``.
 
@@ -513,7 +557,10 @@ def compile_codex_rule_layers(
         candidate_omitted = omitted + list(ordered[index + 1 :])
         candidate = (
             intro
-            + "\n".join(render_codex_rule_layer(item) for item in candidate_included)
+            + "\n".join(
+                render_codex_rule_layer(item, selected_inventory=selected_inventory)
+                for item in candidate_included
+            )
             + _omission_footer([item.id for item in candidate_omitted])
         )
         if len(candidate.encode("utf-8")) <= max_bytes:
@@ -522,7 +569,10 @@ def compile_codex_rule_layers(
             omitted.append(layer)
     markdown = (
         intro
-        + "\n".join(render_codex_rule_layer(item) for item in included)
+        + "\n".join(
+            render_codex_rule_layer(item, selected_inventory=selected_inventory)
+            for item in included
+        )
         + _omission_footer([item.id for item in omitted])
     )
     encoded = markdown.encode("utf-8")

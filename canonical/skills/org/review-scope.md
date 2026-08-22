@@ -11,6 +11,8 @@ references:
 - rule://human-in-the-loop
 - rule://quality-gates
 - rule://risk-classification
+- skill://review-scope
+- skill://scope
 ---
 
 # Review Scope (product lens)
@@ -23,7 +25,7 @@ output of the `scope` skill, before sprint planning.
 **Risk tier:** low — read-only review, no changes. See `rule://risk-classification`.
 
 ## When to use
-A scope doc exists (from `/scope` or written by hand) and you want a product gate on it before it
+A scope doc exists (from `{{skill_invocation:skill://scope}}` or written by hand) and you want a product gate on it before it
 goes into a sprint plan. Drive it through the `pm-copilot` (or `staff-pm-reviewer`) persona.
 
 ## Required inputs
@@ -60,7 +62,7 @@ scope has no user-observable value at all, or if the request is to *rewrite* the
 
 ## Example
 ```
-/review-scope docs/planning/<slug>/scope.md
+{{skill_invocation:skill://review-scope}} docs/planning/<slug>/scope.md
 → scores success criteria (user-testable?), walks journeys for missing states,
   flags internal jargon, re-checks priorities vs impact, checks reversibility
 → verdict + Issues to Fix / Improvements + journey-coverage table + main gap

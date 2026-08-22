@@ -1,6 +1,6 @@
 # Agent Memory Index
 
-Categorized, durable learnings captured across Claude sessions for this project. Each entry
+Categorized, durable learnings captured across coding-agent sessions for this project. Each entry
 links to a detailed memory file. Captured via the `remember` skill; injected into context each
 session by the `load-learnings.sh` session-start hook.
 

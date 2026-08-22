@@ -9,10 +9,37 @@ ROOT = Path(__file__).parents[1]
 WORKFLOWS = list((ROOT / ".github" / "workflows").glob("*.yml"))
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 PUBLISH = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+PIN_LEDGER = (ROOT / "docs" / "operations" / "github-repository-settings.md").read_text(
+    encoding="utf-8"
+)
 
 
 def _action_refs(text: str) -> list[str]:
     return re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", text, re.MULTILINE)
+
+
+def _advertised_action_pins(text: str) -> list[tuple[str, str, str]]:
+    return [
+        (match.group("component"), match.group("ref"), match.group("sha"))
+        for match in re.finditer(
+            r"^\s*-?\s*uses:\s*(?P<component>[^@\s#]+)@"
+            r"(?P<sha>[0-9a-f]{40})\s+#\s+(?P<ref>\S+)\s*$",
+            text,
+            re.MULTILINE,
+        )
+    ]
+
+
+def _ledger_pins(text: str) -> set[tuple[str, str, str]]:
+    return {
+        (match.group("component"), match.group("ref"), match.group("sha"))
+        for match in re.finditer(
+            r"^\| `(?P<component>[^`]+)` \| `(?P<ref>[^`]+)` \| "
+            r"`(?P<sha>[0-9a-f]{40})` \|$",
+            text,
+            re.MULTILINE,
+        )
+    }
 
 
 def test_all_third_party_actions_are_pinned_to_full_commit_shas():
@@ -23,6 +50,29 @@ def test_all_third_party_actions_are_pinned_to_full_commit_shas():
     ]
     assert refs
     assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref) for ref in refs), refs
+
+
+def test_supply_chain_ledger_matches_every_tracked_workflow_action_pin():
+    refs = [
+        ref
+        for workflow in WORKFLOWS
+        for ref in _action_refs(workflow.read_text(encoding="utf-8"))
+    ]
+    advertised = [
+        pin
+        for workflow in WORKFLOWS
+        for pin in _advertised_action_pins(workflow.read_text(encoding="utf-8"))
+    ]
+    assert len(advertised) == len(refs), (
+        "every workflow action pin needs an audited ref comment"
+    )
+
+    workflow_pins = set(advertised)
+    workflow_components = {component for component, _ref, _sha in workflow_pins}
+    documented = {
+        pin for pin in _ledger_pins(PIN_LEDGER) if pin[0] in workflow_components
+    }
+    assert documented == workflow_pins
 
 
 def test_ci_builds_once_and_wheel_smoke_downloads_that_artifact():

@@ -29,8 +29,32 @@ def _has_state(fs: ProjectFS, layout: StateLayout) -> bool:
     )
 
 
+def active_state_layout(
+    target: str | Path | ProjectFS,
+) -> StateLayout | None:
+    """Return the authoritative existing layout, or ``None`` when uninstalled.
+
+    Accepting an existing :class:`ProjectFS` lets lifecycle callers reuse the
+    exact capability whose mutation lease they already hold. Neutral markers
+    retain precedence over every legacy marker, including a legacy manifest.
+    """
+
+    fs = (
+        target
+        if isinstance(target, ProjectFS)
+        else ProjectFS(Path(target).expanduser())
+    )
+    neutral = StateLayout.neutral()
+    legacy = StateLayout.legacy_claude()
+    if _has_state(fs, neutral):
+        return neutral
+    if _has_state(fs, legacy):
+        return legacy
+    return None
+
+
 def detect_state_layout(
-    target: str | Path,
+    target: str | Path | ProjectFS,
     *,
     fresh_default: StateLayout | None = None,
 ) -> StateLayout:
@@ -42,14 +66,7 @@ def detect_state_layout(
     creates directories or files.
     """
 
-    fs = ProjectFS(Path(target).expanduser())
-    neutral = StateLayout.neutral()
-    legacy = StateLayout.legacy_claude()
-    if _has_state(fs, neutral):
-        return neutral
-    if _has_state(fs, legacy):
-        return legacy
-    return fresh_default or neutral
+    return active_state_layout(target) or fresh_default or StateLayout.neutral()
 
 
 def state_path(
@@ -69,4 +86,4 @@ def state_path(
     return ProjectFS(Path(target).expanduser()).path(relative)
 
 
-__all__ = ["detect_state_layout", "state_path"]
+__all__ = ["active_state_layout", "detect_state_layout", "state_path"]

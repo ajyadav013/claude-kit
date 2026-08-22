@@ -12,6 +12,8 @@ references:
 - rule://human-in-the-loop
 - rule://quality-gates
 - rule://risk-classification
+- skill://archive-sprint
+- skill://review-sprint
 ---
 
 # Review Sprint (engineering-management retrospective)
@@ -26,7 +28,7 @@ real (not a stub), is it correct, and does the set still match the original scop
 
 ## When to use
 A sprint is marked complete (or about to be archived) and you want an EM-level verification before it
-counts as done — typically before `/archive-sprint`.
+counts as done — typically before `{{skill_invocation:skill://archive-sprint}}`.
 
 ## Required inputs
 The sprint plan (with its deliverable list), the scope document it derives from, and the codebase +
@@ -63,7 +65,7 @@ Defect Loop — this skill only reports).
 
 ## Example
 ```
-/review-sprint docs/planning/<slug>/sprint.md
+{{skill_invocation:skill://review-sprint}} docs/planning/<slug>/sprint.md
 → enumerates planned deliverables, verifies each exists/non-trivial/correct in the code
 → checks each acceptance criterion, cross-references plan vs scope, sweeps tech debt + CI
 → verdict + Issues to Fix / Improvements + deliverable-inventory table + main gap

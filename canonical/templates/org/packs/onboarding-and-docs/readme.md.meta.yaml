@@ -8,9 +8,10 @@ provider_placeholders:
 - provider.executable.cli
 references:
 - command://context-engineering
-- command://docs-update
 - command://documentation-and-adrs
 - command://refresh-docs
 - command://repo-onboarding
 - command://source-driven-development
 - command://using-agent-skills
+- skill://refresh-docs
+- skill://repo-onboarding

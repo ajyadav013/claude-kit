@@ -11,6 +11,9 @@ pause_for_human: []
 references:
 - rule://autonomy-levels
 - rule://risk-classification
+- skill://feature-from-idea
+- skill://planning-and-task-breakdown
+- skill://spec-driven-development
 ---
 
 # Feature from Idea
@@ -26,7 +29,8 @@ A non-engineer (or anyone) has an idea — "add team invites to the admin dashbo
 specced and built through the normal pipeline rather than hacked in.
 
 ## Who should use it
-PMs, founders, operators, designers. Engineers can use it too, but may prefer `/spec-driven-development`
+PMs, founders, operators, designers. Engineers can use it too, but may prefer
+`{{skill_invocation:skill://spec-driven-development}}`
 directly.
 
 ## Required inputs
@@ -42,7 +46,8 @@ A one-line description of the idea. Helpful: who it's for, why now, and any cons
 ## Agents to delegate to
 `pm-copilot` (shape the product side) → `risk-classifier` (tier it) → `spec-doc-writer` (formal spec) →
 `orchestrator` (run the build lane: `developer`, `sdlc-code-reviewer`, `tester`; frontend/backend split
-as needed). Use `/spec-driven-development` and `/planning-and-task-breakdown` under the hood.
+as needed). Use `{{skill_invocation:skill://spec-driven-development}}` and
+`{{skill_invocation:skill://planning-and-task-breakdown}}` under the hood.
 
 ## Quality gates
 Acceptance criteria are testable; scope + out-of-scope are explicit; risk tier assigned; **human
@@ -58,7 +63,7 @@ or it exceeds the active autonomy level (`rule://autonomy-levels`).
 
 ## Example
 ```
-/feature-from-idea Add team invites to the admin dashboard
+{{skill_invocation:skill://feature-from-idea}} Add team invites to the admin dashboard
 → asks: who can invite? roles? email vs link? seat limits?
 → acceptance criteria + P0/P1 stories; risk: medium (touches authz → confirm)
 → routes to spec-doc-writer → frontend + backend lanes

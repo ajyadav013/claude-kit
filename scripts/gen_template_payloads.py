@@ -88,9 +88,14 @@ def render_claude_template(record: CanonicalTemplate) -> str:
     """Project one canonical body to the existing Claude install contract."""
     kinds = "|".join(_REFERENCE_KINDS)
     rendered = re.sub(
+        r"\{\{skill_invocation:skill://([a-z0-9][a-z0-9._-]*)\}\}",
+        lambda match: f"/{match.group(1)}",
+        record.content,
+    )
+    rendered = re.sub(
         rf"\b({kinds})://([a-z0-9][a-z0-9._-]*)",
         lambda match: _reference_target(match.group(1), match.group(2)),
-        record.content,
+        rendered,
     )
     for name, value in _PROVIDER.items():
         rendered = re.sub(r"\{\{\s*" + re.escape(name) + r"\s*\}\}", value, rendered)

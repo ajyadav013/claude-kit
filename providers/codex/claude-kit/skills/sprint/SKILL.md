@@ -7,7 +7,7 @@ Generate a sprint plan for backlog item #the invocation request.
 
 ## Steps
 
-1. **Find the scope doc**: Look for the scope document in `docs/planning/*/scope.md` that corresponds to backlog item #the invocation request. If no scope doc exists, tell the user to run `/scope the invocation request` first.
+1. **Find the scope doc**: Look for the scope document in `docs/planning/*/scope.md` that corresponds to backlog item #the invocation request. If no scope doc exists, tell the user to run `$scope the invocation request` first.
 
 2. **Read the scope doc**: Understand all the component changes, data changes, route changes, and state changes.
 
@@ -85,4 +85,4 @@ see `quality-gates` §2.5.
 5. **Learnings** — actionable lessons for future sprints (check existing learnings in `docs/reference/post-sprint-learnings.md` to avoid duplicates)
 6. **Unresolved / carry-over** — issues discovered but not fixed, with enough detail to act on immediately in the next sprint
 
-**After writing the report**: Add any new learnings to `docs/reference/post-sprint-learnings.md`. Then run `/archive-sprint` to move docs to archive and update the backlog.
+**After writing the report**: Add any new learnings to `docs/reference/post-sprint-learnings.md`. Then run `$archive-sprint` to move docs to archive and update the backlog.

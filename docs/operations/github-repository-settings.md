@@ -121,20 +121,22 @@ The audit-time observed settings and their missing controls are recorded in
 [`docs/audits/trust-boundary-hardening-audit.md`](../audits/trust-boundary-hardening-audit.md).
 This file is a required-state runbook, not a claim that those manual settings were changed.
 
-## Supply-chain pin ledger (audited 2026-08-20)
+## Supply-chain pin ledger (audited 2026-08-22)
 
 The executable refs were resolved directly with `git ls-remote` against each upstream repository;
-the workflows execute the 40-character commit, while comments retain the human-readable ref.
+the workflows execute the 40-character commit (the dereferenced commit for annotated tags), while
+comments retain the human-readable ref.
 
 | Component | Audited upstream ref | Commit |
 |---|---|---|
 | `actions/checkout` | `v7` | `3d3c42e5aac5ba805825da76410c181273ba90b1` |
 | `actions/setup-python` | `v7` | `5fda3b95a4ea91299a34e894583c3862153e4b97` |
 | `actions/setup-node` | `v6` | `249970729cb0ef3589644e2896645e5dc5ba9c38` |
+| `actions/setup-node` | `v7.0.0` | `820762786026740c76f36085b0efc47a31fe5020` |
 | `actions/upload-artifact` | `v7` | `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` |
 | `actions/download-artifact` | `v8` | `3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` |
-| `actions/attest-build-provenance` | `v3` | `43d14bc2b83dec42d39ecae14e916627a18bb661` |
-| `actions/github-script` | `v9` | `373c709c69115d41ff229c7e5df9f8788daa9553` |
+| `actions/attest-build-provenance` | `v3` | `977bb373ede98d70efdf65b84cb5f73e068dcc2a` |
+| `actions/github-script` | `v9` | `3a2844b7e9c422d3c10d287c895573f7108da1b3` |
 | `pypa/gh-action-pypi-publish` | `release/v1` | `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` |
 | `rhysd/actionlint` | `v1.7.12` | `914e7df21a07ef503a81201c76d2b11c789d3fca` |
 | `openai/codex-action` | `v1` | `86365089eb2b84e0a8fb0717b304f8bdcb13b20e` |

@@ -17,26 +17,71 @@ A third install dimension joins `profile` (a subset) and `stack` (an overlay): *
 
 - **`catalog/org.yaml`** — the only place org behavior is decided: `scopes`, `teams`, the `autonomy`
   model, `strictness`, and the 7 `packs`. Read the same branch-free way as `profiles.yaml` / `mcp.yaml`.
-- **`templates/org/`** — the scope-gated payload, installed **only when `scope == organization`**:
-  - `org/skills/<skill>/SKILL.md` → `.claude/skills/` (auto-discovered)
-  - `org/agents/<agent>.md` → `.claude/agents/` (auto-discovered)
-  - `org/rules/<rule>.md` → `.claude/rules/` (auto-discovered)
-  - `org/packs/<pack>/{pack.yaml,README.md}` → `.claude/org-packs/<pack>/`
-  - `org/README.md` → `.claude/org-packs/README.md` (the registry & governance index)
+- **`templates/org/`** — the scope-gated payload, installed **only when `scope == organization`**.
+  The projection compiler maps each canonical input to the selected host instead of treating the
+  Claude path as provider-neutral:
+
+  | Canonical org input | Claude projection | Codex projection |
+  |---|---|---|
+  | `org/skills/<skill>/SKILL.md` | `.claude/skills/<skill>/SKILL.md` | `.agents/skills/<skill>/SKILL.md` |
+  | `org/agents/<agent>.md` | `.claude/agents/<agent>.md` | `.codex/agents/<agent>.toml` |
+  | `org/rules/<rule>.md` | `.claude/rules/<rule>.md` | `.ckit/rules/<rule>.md` |
+  | `org/packs/<pack>/{pack.yaml,README.md}` | `.claude/org-packs/<pack>/` | `.ckit/org-packs/<pack>/` |
+  | `org/README.md` | `.claude/org-packs/README.md` | `.ckit/org-packs/README.md` |
 
 `scope` defaults to **team**, so existing individual/team installs are unchanged except for two new
 always-on **core** rules (`autonomy-levels`, `risk-classification`). Autonomy and strictness are only
 prompted in organization scope.
 
-Why packs reference standard locations: Claude Code auto-discovers `.claude/{skills,agents,rules}` but
-**not** `.claude/org-packs/`. So runnable components install into the standard dirs; `org-packs/` is the
-governance/manifest layer — `pack.yaml` files name the components a role bundles and mark each
-`existing: true` (already in the kit, reused) or `existing: false` (added by the org layer).
+Why packs reference standard locations: hosts discover runnable components on their own native
+surfaces, not inside an `org-packs/` directory. The pack directories are the governance/manifest
+layer — `pack.yaml` files name the components a role bundles and mark each `existing: true` (already
+in the kit, reused) or `existing: false` (added by the org layer). A `both` install emits both native
+columns from one `ResolvedPlan`; it still has exactly one mutable manifest, continuity file, and
+pipeline ledger under `.ckit`.
+
+### Native organization output roots
+
+These are the additional output families an organization-scope install uses. The exact roster is
+profile/team/pack-selected; the emitted files inside these roots are pinned against the catalog by
+the runtime conformance tests.
+
+#### `--runtime claude`
+
+```text
+.claude/agents/
+.claude/org-packs/
+.claude/rules/
+.claude/skills/
+```
+
+#### `--runtime codex`
+
+```text
+.agents/skills/
+.ckit/org-packs/
+.ckit/rules/
+.codex/agents/
+```
+
+#### `--runtime both`
+
+```text
+.agents/skills/
+.ckit/org-packs/
+.ckit/rules/
+.claude/agents/
+.claude/org-packs/
+.claude/rules/
+.claude/skills/
+.codex/agents/
+```
 
 ## Autonomy model
 
-How much Claude may do before a human acts. Set per repo; default **assisted**. Each level lists (in
-`catalog/org.yaml`) the hooks it enables. Full text: `.claude/rules/autonomy-levels.md`.
+How much the selected host may do before a human acts. Set per repo; default **assisted**. Each level
+lists (in `catalog/org.yaml`) the hooks it enables. The rule projects to
+`.claude/rules/autonomy-levels.md` for Claude and `.ckit/rules/autonomy-levels.md` for Codex.
 
 | Level | May do | Must not, without a human | Hooks added |
 |-------|--------|----------------------------|-------------|
@@ -55,7 +100,9 @@ both `regulated` strictness **and** a frontend are in play.
 
 ## Risk classification
 
-Every task is classified before work starts (`.claude/rules/risk-classification.md`).
+Every task is classified before work starts. The rule is
+`.claude/rules/risk-classification.md` in Claude output and
+`.ckit/rules/risk-classification.md` in Codex output.
 
 | Tier | Examples | Required |
 |------|----------|----------|
@@ -178,23 +225,26 @@ role→component mapping.
 
 | Layer | Lives in | Use for |
 |-------|----------|---------|
-| **Project** | `.claude/`, `CLAUDE.md`, `.mcp.json` (committed) | what this repo needs |
-| **User** | `~/.claude/` (per developer, not committed) | personal preferences and overrides |
+| **Shared project state** | `.ckit/` (one manifest, continuity file, memory store, and pipeline ledger) | lifecycle and evidence used by either selected host |
+| **Claude project projection** | `.claude/`, `CLAUDE.md`, `.mcp.json` (committed as appropriate) | Claude-native discovery and configuration |
+| **Codex project projection** | `.agents/`, `.codex/`, `AGENTS.md` (committed as appropriate) | Codex-native discovery and configuration |
+| **User** | host-owned user configuration outside the project (not installed by `ckit init`) | personal preferences and overrides |
 | **Organization** | versioned, changelogged packs in an approved registry | shared, governed capabilities |
 
 **Never commit:** local secrets, `.env`, personal tokens, personal `settings.local.json`.
 
-Governance (see `.claude/org-packs/README.md`): add a skill/agent in `templates/org/…` and list it in
-the pack's `pack.yaml`; **reuse before creating** (never add a competing duplicate); retire duplicates
-via `/deprecation-and-migration`; have security/DevOps approve hooks and sensitive rules; version packs
-and roll out repo-by-repo with `claude-kit diff` → `claude-kit upgrade`; run different autonomy levels
-per repo; capture recurring prompts (→ skills) and mistakes (→ rules) via the `remember` skill.
+Governance (see `.claude/org-packs/README.md` in Claude output or `.ckit/org-packs/README.md` in Codex
+output): add a skill/agent in `templates/org/…` and list it in the pack's `pack.yaml`; **reuse before
+creating** (never add a competing duplicate); retire duplicates via `/deprecation-and-migration`;
+have security/DevOps approve hooks and sensitive rules; version packs and roll out repo-by-repo with
+`ckit diff` → `ckit upgrade`; run different autonomy levels per repo; capture recurring prompts
+(→ skills) and mistakes (→ rules) via the `remember` skill.
 
 ### Precedence & the bypass contract
 
 **Overrides only tighten.** Repo- and user-level settings may lower autonomy, add gates/denies, or
 escalate a warn to a block — never the reverse (allow = intersect, deny = union, autonomy =
-min(org, repo)); see `.claude/rules/autonomy-levels.md` "Precedence". The corollary is that every
+min(org, repo)); see the projected `autonomy-levels.md` rule's "Precedence" section. The corollary is that every
 *legitimate* way around the policy must be **named**, so none is discoverable-only. The kit's real
 bypass surfaces are exactly these:
 
@@ -202,8 +252,8 @@ bypass surfaces are exactly these:
 |----------------|------------------|---------------------|
 | `claude-kit upgrade --force` | edit-preserving upgrade (overwrites drifted kit files) | drifted originals are backed up as sidecars; diff first |
 | Sidecar take-ownership (keep your edit, discard the kit's `.claude-kit` sidecar) | kit ownership of a file | the manifest marks it user-owned from then on — upgrades stop touching it |
-| Breakglass (emergency human override) | a gate or block during an incident | scoped + logged per `.claude/rules/human-in-the-loop.md`; reviewed afterwards |
-| `bypassPermissions` mode | Claude Code's permission prompts | org-side `disableBypassPermissionsMode` can remove it entirely |
+| Breakglass (emergency human override) | a gate or block during an incident | scoped + logged per the projected `human-in-the-loop.md` rule; reviewed afterwards |
+| Claude Code `bypassPermissions` mode | Claude Code's permission prompts | org-side `disableBypassPermissionsMode` can remove it entirely; this is not a Codex control |
 
 Anything not on this list that circumvents policy is a finding, not a feature.
 

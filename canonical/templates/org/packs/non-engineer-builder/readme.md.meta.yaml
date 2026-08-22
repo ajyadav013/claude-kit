@@ -14,3 +14,6 @@ references:
 - command://prompt-to-safe-task
 - command://prototype-to-production
 - command://repo-onboarding
+- skill://customer-issue-to-fix
+- skill://feature-from-idea
+- skill://prototype-to-production

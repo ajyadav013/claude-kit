@@ -61,4 +61,9 @@ references:
 - command://unit-test
 - rule://autonomy-levels
 - rule://risk-classification
+- skill://code-simplification
+- skill://customer-issue-to-fix
+- skill://feature-from-idea
+- skill://prototype-to-production
+- skill://test-driven-development
 - state://agent-memory

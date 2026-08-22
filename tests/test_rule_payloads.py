@@ -24,6 +24,7 @@ from claude_kit.canonical_rules import (
     selected_rule_layers,
     selected_rule_records,
 )
+from claude_kit.canonical_skills import discover_canonical_skills
 from scripts.gen_rule_payloads import check as check_generated_rules
 from tests._helpers import make_selection
 
@@ -71,9 +72,14 @@ def test_complete_rule_surface_is_canonical(payload: Path) -> None:
 def test_every_canonical_rule_is_leak_free_and_has_exact_metadata(
     payload: Path,
 ) -> None:
+    known_skill_ids = frozenset(
+        record.spec.id for record in discover_canonical_skills(payload)
+    )
     for record in discover_canonical_rules(payload):
         source = record.body_path.read_text(encoding="utf-8")
-        assert provider_rule_leakage(source) == (), record.body_path
+        assert provider_rule_leakage(source, known_skill_ids=known_skill_ids) == (), (
+            record.body_path
+        )
         assert record.spec.content == source.strip()
         assert all(
             not path_glob.startswith((".claude/", ".codex/"))
@@ -85,6 +91,35 @@ def test_every_canonical_rule_is_leak_free_and_has_exact_metadata(
                 source,
             )
         )
+
+
+def test_rule_leakage_detects_spaced_tool_sequences_without_flagging_prose() -> None:
+    assert provider_rule_leakage("Use Read / Grep / Bash before acting.") == (
+        "Read / Grep / Bash",
+    )
+    assert provider_rule_leakage("Use Read/Grep/Bash before acting.") == (
+        "Read/Grep/Bash",
+    )
+    assert (
+        provider_rule_leakage(
+            "Read the file, search the codebase, then run a harmless shell command."
+        )
+        == ()
+    )
+
+
+def test_rule_leakage_detects_provider_worker_and_frontmatter_syntax_precisely() -> (
+    None
+):
+    assert provider_rule_leakage("Dispatch the Explore agent.") == ("Explore agent",)
+    assert provider_rule_leakage("Use `Explore` for discovery.") == ("`Explore`",)
+    assert provider_rule_leakage("Set `model:` in agent frontmatter.") == ("`model:`",)
+    assert (
+        provider_rule_leakage(
+            "Explore the Grafana Explore view with a semantic fast model tier."
+        )
+        == ()
+    )
 
 
 def test_generated_claude_rules_preserve_path_scopes(payload: Path) -> None:

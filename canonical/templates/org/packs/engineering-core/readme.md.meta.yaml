@@ -16,3 +16,5 @@ references:
 - command://sdlc
 - command://spec-driven-development
 - command://test-driven-development
+- skill://code-simplification
+- skill://test-driven-development

@@ -38,7 +38,7 @@ authenticated user, admin, service).
    input/RAG/tool content treated as instructions), insecure output handling (output executed/rendered
    without validation → Info disclosure / EoP), sensitive-info disclosure (PII to the provider), model
    DoS (token/cost), excessive agency (over-privileged model tools). Apply the input/output guardrails
-   in `the security-and-hardening skill` → *LLM / AI Feature Security* (opt-in; state any
+   in the security-and-hardening skill → *LLM / AI Feature Security* (opt-in; state any
    bypass as a residual risk).
 
 ## Red-team the model feature (offensive verification)
@@ -88,7 +88,7 @@ a clear control, or exceeds the active autonomy level.
 
 ## Example
 ```
-/threat-model Add S3 presigned-URL upload for user avatars
+$threat-model Add S3 presigned-URL upload for user avatars
 → assets: user files, bucket creds; entry: presign endpoint + client PUT; actors: authn user, anon
 → STRIDE: Tampering (oversized/again-after-expiry), Info disclosure (enumerable keys),
   EoP (writing outside user's prefix) → mitigations: size/content-type limit, per-user key prefix,

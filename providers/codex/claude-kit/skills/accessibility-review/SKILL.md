@@ -49,7 +49,7 @@ makes a P0 a release blocker that needs human sign-off.
 
 ## Example
 ```
-/accessibility-review the invite-teammate modal
+$accessibility-review the invite-teammate modal
 → P0: focus not trapped in modal + Esc doesn't close → add focus trap + Esc handler (WCAG 2.1.2/2.4.3)
 → P1: "✕" close button has no accessible name → aria-label="Close" (4.1.2)
 → P2: error text only red → add icon/text prefix (1.4.1); contrast 3.9:1 → darken to ≥4.5:1 (1.4.3)

@@ -84,44 +84,48 @@ that decide outcomes:
 
 ### First-party hook audit (run against this kit's own registry)
 
-All hooks in the shipped registry, in the reviewer's format — `EVENT:hook — gated|advisory —
-network`. **gated** = can block the action (exit 2 / deny); **advisory** = warn-or-context only,
-always exits 0. Every script degrades to a no-op without `jq`. Regenerate this table when the
-registry changes (`src/claude_kit/hooks.py` is the source of truth; `gen_hooks.py --check` pins the
-generated configs).
+All 23 project-scaffold registry hooks and the explicit plugin-only guard are listed in the
+reviewer's format — `EVENT:hook — gated|advisory — network`. **gated** = can deny an action or
+request a guarded Stop continuation; **advisory** = warn-or-context only. Regenerate this table when
+the registry changes (`src/claude_kit/hooks.py` is the source of truth; `gen_hooks.py --check` pins
+the generated configs).
 
 | Hook | Event | Mode | Network | In plugin hooks.json |
 |------|-------|------|---------|----------------------|
 | load-continuity | SessionStart | advisory | no | yes |
 | load-learnings | SessionStart | advisory | no | yes |
 | load-autonomy | SessionStart | advisory | no | yes |
-| capture-learnings-catchup | SessionStart | advisory | **indirect in Claude mode** — selected-provider model job; Codex historical catch-up no-ops; disclosed, opt-out `CLAUDE_KIT_NO_AUTOCAPTURE=1` | yes |
+| capture-learnings-catchup | SessionStart | advisory | **indirect in Claude mode** — selected-provider model job; Codex historical catch-up no-ops; disclosed, opt-out `CLAUDE_KIT_NO_AUTOCAPTURE=1` | no |
 | guard-rm-rf | PreToolUse | **gated** (inline) | no | yes |
 | guard-push-main | PreToolUse | **gated** | no | yes |
 | guard-destructive-git | PreToolUse | **gated** | no | yes |
 | protect-secrets | PreToolUse | **gated** (inline) | no | yes |
 | guard-commit-secrets | PreToolUse | **gated** | no | yes |
+| guard-kubectl-delete | PreToolUse | **gated** | no | yes — plugin only |
 | validate-settings | PreToolUse | **gated** | no | yes |
 | warn-shared-modules | PreToolUse | advisory | no | yes |
 | warn-llm-io | PreToolUse | advisory | no | yes |
 | warn-sensitive-files | PreToolUse | advisory | no | yes |
-| warn-large-edits | PreToolUse | advisory | no | starter only |
-| validate-frontmatter | PreToolUse | advisory | no | starter only |
-| warn-missing-tests | PostToolUse | advisory | no | starter only |
-| audit-log | PostToolUse | advisory | no | starter only |
-| lint-fix | Stop | advisory (runs the project's linter) | no | yes |
-| type-check | Stop | advisory (runs the project's type-checker) | no | yes |
+| warn-large-edits | PreToolUse | advisory | no | no |
+| validate-frontmatter | PreToolUse | advisory | no | no |
+| warn-missing-tests | PostToolUse | advisory | no | no |
+| audit-log | PostToolUse | advisory | no | no |
+| lint-fix | Stop | **gated once** (may request one guarded continuation after running the project linter) | no | yes |
+| type-check | Stop | **gated once** (may request one guarded continuation after running the project type checker) | no | yes |
 | verify-continuity-writeback | Stop | **gated once** (requests one guarded continuation when continuity is stale) | no | yes |
-| capture-learnings-stop | Stop | advisory | indirect — selected-provider classifier + opt-out as above | starter only |
-| capture-ticket-telemetry | Stop | advisory | no — local transcript metadata only; Codex no-ops | starter only |
-| capture-learnings | SessionEnd | advisory | indirect — selected-provider classifier + opt-out as above | yes |
+| capture-learnings-stop | Stop | advisory | indirect — selected-provider classifier + opt-out as above | no |
+| capture-ticket-telemetry | Stop | advisory | no — local transcript metadata only; Codex no-ops | no |
+| capture-learnings | SessionEnd | advisory | indirect — selected-provider classifier + opt-out as above | no |
 
-**Audit result:** 23 registry hooks (16 ride the plugin's `hooks.json`; the rest install via the
-scaffolded starter configuration). One behavior family touches the network, *indirectly*, through a
-selected-provider background classifier (learning capture) — disclosed in the init interview,
-surfaced by `doctor`, and opt-out via `CLAUDE_KIT_NO_AUTOCAPTURE=1`. No hook makes a direct outbound call. All
-gated hooks are deterministic string/path guards with no data egress. This passes criteria 1–3
-above as of the audit date; re-run after any hook change.
+**Audit result:** the project-scaffold registry has 23 hooks. The static plugin's `hooks.json` has
+exactly 16 handlers: 15 registry hooks plus the plugin-only `guard-kubectl-delete`; it contains no
+learning-capture trigger. The remaining registry hooks are profile-selected project hooks or, for
+the capture family, explicit `capture_mode` selections. Learning capture is the only behavior
+family that touches the network indirectly through a selected-provider classifier; it is disclosed
+in the init interview, surfaced by `doctor`, and opt-out via `CLAUDE_KIT_NO_AUTOCAPTURE=1`. No hook
+makes a direct outbound call. Safety guards are deterministic and have no data egress; the local
+quality Stop hooks may run the project's linter or type checker and request one guarded
+continuation. This passes criteria 1–3 above as of the audit date; re-run after any hook change.
 
 ## Owner Submission Checklist
 

@@ -20,7 +20,7 @@ by the org layer. It does not introduce competing agents.
 | Get interviewed to surface requirements | `command://interview-me` (see `ambiguity-resolution.md`) |
 | Turn an idea into a feature brief | `command://feature-from-idea` → `pm-copilot` → `spec-doc-writer` |
 | Write a spec from a PRD | `command://spec-driven-development` → `spec-doc-writer` |
-| Split a PRD into user stories | `command://spec-driven-development` + `story-planner` (the `command://prd-to-stories` flow) |
+| Split a PRD into user stories | `command://spec-driven-development` + `story-planner` (using `skill://planning-and-task-breakdown`) |
 | Break stories into tasks | `command://planning-and-task-breakdown` → `story-planner` |
 | Bound what's in / out of scope | `command://scope` |
 | Sketch UI behavior for a story | `ui-designer` (design spec only) |
@@ -37,9 +37,9 @@ by the org layer. It does not introduce competing agents.
 
 ## Examples
 ```
-/feature-from-idea "Let users export their report as a shareable link"   # → spec + stories + tasks
-/prd-to-stories Onboarding checklist PRD   # → spec-driven-development + story-planner (stories + acceptance criteria)
-/prompt-to-safe-task "tidy up the settings copy"   # → scoped, approval-gated task
+Use `{{skill_invocation:skill://feature-from-idea}}` to turn a shareable-report-link idea into a spec, stories, and tasks.
+Use `{{skill_invocation:skill://planning-and-task-breakdown}}` to split the onboarding-checklist PRD into stories and acceptance criteria.
+Use `{{skill_invocation:skill://prompt-to-safe-task}}` to turn a settings-copy request into a scoped, approval-gated task.
 ```
 
 ## Autonomy & risk

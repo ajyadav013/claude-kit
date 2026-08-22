@@ -13,6 +13,9 @@ references:
 - rule://prototype-boundaries
 - rule://risk-classification
 - rule://secrets-policy
+- skill://prototype-to-production
+- skill://security-and-hardening
+- skill://test-driven-development
 ---
 
 # Prototype to Production
@@ -29,7 +32,8 @@ Someone has a working-but-unsafe prototype — "this CSV upload script we run by
 feature" — and wants it productionized through the normal pipeline instead of shipped as-is.
 
 ## Who should use it
-Founders, operators, PMs. Engineers can use it too, but may prefer `/security-and-hardening` directly.
+Founders, operators, PMs. Engineers can use it too, but may prefer
+`{{skill_invocation:skill://security-and-hardening}}` directly.
 
 ## Required inputs
 The prototype/script and what it does. Helpful: who will use it, what data it touches, and how it runs today.
@@ -45,7 +49,8 @@ The prototype/script and what it does. Helpful: who will use it, what data it to
 `founder-prototype-agent` (frame the prototype + its gaps) → `risk-classifier` (tier it) →
 `security-reviewer` (define hardening: validation, authn/authz, rate limits, secrets) →
 `orchestrator` (run the build lane: `developer`, `sdlc-code-reviewer`, `tester`). Use
-`/security-and-hardening` and `/test-driven-development` under the hood; respect
+`{{skill_invocation:skill://security-and-hardening}}` and
+`{{skill_invocation:skill://test-driven-development}}` under the hood; respect
 `rule://prototype-boundaries` and prototype-to-task-conversion concepts.
 
 ## Quality gates
@@ -65,7 +70,7 @@ ambiguous, hardening would change intended behavior, or it exceeds the active au
 
 ## Example
 ```
-/prototype-to-production Turn our internal CSV upload script into an admin feature
+{{skill_invocation:skill://prototype-to-production}} Turn our internal CSV upload script into an admin feature
 → asks: who uploads? what's in the CSV (PII)? what limits? what audit trail?
 → risk inventory: no authz, no validation, secrets in script, no rate limit; tier: high
 → hardening plan → routes to security-reviewer → developer + tester lanes

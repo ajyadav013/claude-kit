@@ -17,8 +17,9 @@ A support engineer has a customer complaint — "customer cannot export invoices
 it reproduced, diagnosed, and fixed through the normal pipeline rather than hot-patched.
 
 ## Who should use it
-Support engineers, customer success, operators. Engineers can use it too, but may prefer `/triage`
-and `/debugging-and-error-recovery` directly.
+Support engineers, customer success, operators. Engineers can use it too, but may prefer
+`/triage` and
+`/debugging-and-error-recovery` directly.
 
 ## Required inputs
 The reported symptom in the customer's words. Helpful: logs, repro steps, environment, affected accounts.
@@ -32,8 +33,10 @@ The reported symptom in the customer's words. Helpful: logs, repro steps, enviro
 
 ## Agents to delegate to
 `support-ticket-engineer` (shape the bug report and reproduction) → `risk-classifier` (tier it) →
-`orchestrator` (run the fix lane: `developer`, `sdlc-code-reviewer`, `tester`). Use `/triage`,
-`/debugging-and-error-recovery`, and `/test-driven-development` under the hood.
+`orchestrator` (run the fix lane: `developer`, `sdlc-code-reviewer`, `tester`). Use
+`/triage`,
+`/debugging-and-error-recovery`, and
+`/test-driven-development` under the hood.
 
 ## Quality gates
 Reproduction is deterministic (or marked intermittent with conditions); suspected code paths are

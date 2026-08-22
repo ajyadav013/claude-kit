@@ -12,6 +12,16 @@ from claude_kit.models import InstallRequest
 from claude_kit.runtime_scaffold import install_runtime
 
 ROOT = Path(__file__).parents[1]
+ORG_OUTPUT_FAMILIES = {
+    ".agents/skills/",
+    ".ckit/org-packs/",
+    ".ckit/rules/",
+    ".claude/agents/",
+    ".claude/org-packs/",
+    ".claude/rules/",
+    ".claude/skills/",
+    ".codex/agents/",
+}
 
 
 def _documented_families(runtime: str) -> set[str]:
@@ -19,6 +29,14 @@ def _documented_families(runtime: str) -> set[str]:
     pattern = rf"### `--runtime {runtime}`\n\n```text\n(?P<body>.*?)\n```"
     match = re.search(pattern, text, re.DOTALL)
     assert match is not None, f"missing documented layout for {runtime}"
+    return {line for line in match.group("body").splitlines() if line}
+
+
+def _documented_org_families(runtime: str) -> set[str]:
+    text = (ROOT / "docs/org-capabilities.md").read_text(encoding="utf-8")
+    pattern = rf"#### `--runtime {runtime}`\n\n```text\n(?P<body>.*?)\n```"
+    match = re.search(pattern, text, re.DOTALL)
+    assert match is not None, f"missing documented org layout for {runtime}"
     return {line for line in match.group("body").splitlines() if line}
 
 
@@ -69,3 +87,52 @@ def test_documented_default_layout_matches_fresh_install(payload, tmp_path, runt
     )
 
     assert _documented_families(runtime) == _installed_families(target)
+
+
+@pytest.mark.parametrize("runtime", ("claude", "codex", "both"))
+def test_documented_org_layout_matches_every_projected_org_roster(
+    payload, tmp_path, runtime
+):
+    selection = catalog.defaults(payload)
+    selection.profile = "enterprise"
+    selection.scope = "organization"
+    selection.org_packs = True
+    plan = catalog.resolve(payload, selection)
+    assert plan.org is not None
+    target = tmp_path / f"org-{runtime}"
+
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection=selection, runtime=runtime),
+    )
+
+    installed_org_families = _installed_families(target) & ORG_OUTPUT_FAMILIES
+    assert _documented_org_families(runtime) == installed_org_families
+
+    if runtime in {"claude", "both"}:
+        for agent in plan.org.org_agents:
+            assert (target / f".claude/agents/{agent}.md").is_file()
+        for skill in plan.org.org_skills:
+            assert (target / f".claude/skills/{skill}/SKILL.md").is_file()
+        for rule in plan.org.org_rules:
+            assert (target / f".claude/rules/{rule}").is_file()
+        for pack in plan.org.packs:
+            assert (target / f".claude/org-packs/{pack}/README.md").is_file()
+            assert (target / f".claude/org-packs/{pack}/pack.yaml").is_file()
+    else:
+        assert not (target / ".claude/org-packs").exists()
+
+    if runtime in {"codex", "both"}:
+        for agent in plan.org.org_agents:
+            assert (target / f".codex/agents/{agent}.toml").is_file()
+        for skill in plan.org.org_skills:
+            assert (target / f".agents/skills/{skill}/SKILL.md").is_file()
+        for rule in plan.org.org_rules:
+            assert (target / f".ckit/rules/{rule}").is_file()
+        for pack in plan.org.packs:
+            assert (target / f".ckit/org-packs/{pack}/README.md").is_file()
+            assert (target / f".ckit/org-packs/{pack}/pack.yaml").is_file()
+    else:
+        assert not (target / ".ckit/org-packs").exists()
