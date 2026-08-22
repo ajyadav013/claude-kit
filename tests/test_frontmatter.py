@@ -108,6 +108,9 @@ def test_claude_md_lists_exactly_the_slash_only_skills() -> None:
         p.parent.name
         for p in (REPO_ROOT / "skills").glob("*/SKILL.md")
         if _frontmatter(p).get("disable-model-invocation") is True
+        # Generated command adapters are reached exclusively through the stable
+        # slash-command wrappers, not through the user-facing routing prose.
+        and not p.parent.name.startswith("ckit-command-")
     }
     text = (REPO_ROOT / "templates" / "CLAUDE.md").read_text(encoding="utf-8")
     section = text.split("## Skill routing", 1)

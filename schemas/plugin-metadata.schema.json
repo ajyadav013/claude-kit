@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ajyadav013/claude-kit/schemas/plugin-metadata.schema.json",
+  "title": "Provider plugin metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "identity", "providers"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "identity": {"$ref": "#/$defs/identity"},
+    "providers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claude", "codex"],
+      "properties": {
+        "claude": {"$ref": "#/$defs/claude"},
+        "codex": {"$ref": "#/$defs/codex"}
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1},
+    "httpsUrl": {"type": "string", "pattern": "^https://"},
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "stringList": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/nonEmptyString"}
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "display_name",
+        "description",
+        "author",
+        "homepage",
+        "repository",
+        "license",
+        "keywords"
+      ],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "display_name": {"$ref": "#/$defs/nonEmptyString"},
+        "description": {"$ref": "#/$defs/nonEmptyString"},
+        "author": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "url"],
+          "properties": {
+            "name": {"$ref": "#/$defs/nonEmptyString"},
+            "url": {"$ref": "#/$defs/httpsUrl"}
+          }
+        },
+        "homepage": {"$ref": "#/$defs/httpsUrl"},
+        "repository": {"$ref": "#/$defs/httpsUrl"},
+        "license": {"$ref": "#/$defs/nonEmptyString"},
+        "keywords": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "claude": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_description", "marketplace"],
+      "properties": {
+        "manifest_description": {"$ref": "#/$defs/nonEmptyString"},
+        "marketplace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "description", "plugin_description", "keywords"],
+          "properties": {
+            "name": {"$ref": "#/$defs/identifier"},
+            "description": {"$ref": "#/$defs/nonEmptyString"},
+            "plugin_description": {"$ref": "#/$defs/nonEmptyString"},
+            "keywords": {"$ref": "#/$defs/stringList"}
+          }
+        }
+      }
+    },
+    "codex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skills", "interface", "marketplace"],
+      "properties": {
+        "skills": {"type": "string", "pattern": "^\\./"},
+        "interface": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "display_name",
+            "short_description",
+            "long_description",
+            "developer_name",
+            "category",
+            "capabilities",
+            "website_url",
+            "default_prompts"
+          ],
+          "properties": {
+            "display_name": {"$ref": "#/$defs/nonEmptyString"},
+            "short_description": {"$ref": "#/$defs/nonEmptyString"},
+            "long_description": {"$ref": "#/$defs/nonEmptyString"},
+            "developer_name": {"$ref": "#/$defs/nonEmptyString"},
+            "category": {"$ref": "#/$defs/nonEmptyString"},
+            "capabilities": {"$ref": "#/$defs/stringList"},
+            "website_url": {"$ref": "#/$defs/httpsUrl"},
+            "default_prompts": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 3,
+              "items": {"type": "string", "minLength": 1, "maxLength": 128}
+            }
+          }
+        },
+        "marketplace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "display_name", "source", "policy", "category"],
+          "properties": {
+            "name": {"$ref": "#/$defs/identifier"},
+            "display_name": {"$ref": "#/$defs/nonEmptyString"},
+            "source": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source", "path"],
+              "properties": {
+                "source": {"const": "local"},
+                "path": {"type": "string", "pattern": "^\\./"}
+              }
+            },
+            "policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["installation", "authentication"],
+              "properties": {
+                "installation": {
+                  "enum": ["NOT_AVAILABLE", "AVAILABLE", "INSTALLED_BY_DEFAULT"]
+                },
+                "authentication": {"enum": ["ON_INSTALL", "ON_USE"]}
+              }
+            },
+            "category": {"$ref": "#/$defs/nonEmptyString"}
+          }
+        }
+      }
+    }
+  }
+}

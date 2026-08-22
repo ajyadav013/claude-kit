@@ -95,7 +95,7 @@ generated configs).
 | load-continuity | SessionStart | advisory | no | yes |
 | load-learnings | SessionStart | advisory | no | yes |
 | load-autonomy | SessionStart | advisory | no | yes |
-| capture-learnings-catchup | SessionStart | advisory | **indirect** — spawns a background `claude` job (model API); disclosed, opt-out `CLAUDE_KIT_NO_AUTOCAPTURE=1` | yes |
+| capture-learnings-catchup | SessionStart | advisory | **indirect in Claude mode** — selected-provider model job; Codex historical catch-up no-ops; disclosed, opt-out `CLAUDE_KIT_NO_AUTOCAPTURE=1` | yes |
 | guard-rm-rf | PreToolUse | **gated** (inline) | no | yes |
 | guard-push-main | PreToolUse | **gated** | no | yes |
 | guard-destructive-git | PreToolUse | **gated** | no | yes |
@@ -111,13 +111,15 @@ generated configs).
 | audit-log | PostToolUse | advisory | no | starter only |
 | lint-fix | Stop | advisory (runs the project's linter) | no | yes |
 | type-check | Stop | advisory (runs the project's type-checker) | no | yes |
-| capture-learnings-stop | Stop | advisory | indirect — same `claude` job + opt-out as above | starter only |
-| capture-learnings | SessionEnd | advisory | indirect — same `claude` job + opt-out as above | yes |
+| verify-continuity-writeback | Stop | **gated once** (requests one guarded continuation when continuity is stale) | no | yes |
+| capture-learnings-stop | Stop | advisory | indirect — selected-provider classifier + opt-out as above | starter only |
+| capture-ticket-telemetry | Stop | advisory | no — local transcript metadata only; Codex no-ops | starter only |
+| capture-learnings | SessionEnd | advisory | indirect — selected-provider classifier + opt-out as above | yes |
 
-**Audit result:** 21 registry hooks (16 ride the plugin's `hooks.json`; the rest install via the
-scaffolded starter `settings.json`). One behavior family touches the network, *indirectly*, via a
-spawned `claude` background job (learning capture) — disclosed in the init interview, surfaced by
-`doctor`, and opt-out via `CLAUDE_KIT_NO_AUTOCAPTURE=1`. No hook makes a direct outbound call. All
+**Audit result:** 23 registry hooks (16 ride the plugin's `hooks.json`; the rest install via the
+scaffolded starter configuration). One behavior family touches the network, *indirectly*, through a
+selected-provider background classifier (learning capture) — disclosed in the init interview,
+surfaced by `doctor`, and opt-out via `CLAUDE_KIT_NO_AUTOCAPTURE=1`. No hook makes a direct outbound call. All
 gated hooks are deterministic string/path guards with no data egress. This passes criteria 1–3
 above as of the audit date; re-run after any hook change.
 

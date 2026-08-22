@@ -1,0 +1,39 @@
+# Org capability pack manifest. References components by name; they install in the standard
+# auto-discovered {{ provider.path.config_root }} locations. `existing: true` = ships with {{ provider.executable.cli }} already (reused, not
+# duplicated); `existing: false` = added by the org layer (templates/org/). NOTE: the flag tracks
+# org *wiring*, not file presence — a few `existing:false` hooks ship a script in core but are only
+# activated (registered into settings) by the org layer, so they are not duplicates of a core hook.
+id: product-to-code
+label: "Product to Code"
+version: 0.1.0
+purpose: >
+  Turn ideas, tickets, PRDs, and customer feedback into specs, user stories, acceptance criteria,
+  implementation plans, and reviewable tasks — the path from intent to ready-to-build work.
+teams: [product, founders]
+risk_default: medium
+
+skills:
+  - { name: idea-refine, existing: true }
+  - { name: interview-me, existing: true }
+  - { name: spec-driven-development, existing: true }
+  - { name: planning-and-task-breakdown, existing: true }
+  - { name: scope, existing: true }
+  - { name: feature-from-idea, existing: false }
+  - { name: prompt-to-safe-task, existing: false }
+  - { name: review-scope, existing: false }
+  - { name: review-sprint-plan, existing: false }
+agents:
+  - { name: pm-copilot, existing: false }
+  - { name: staff-pm-reviewer, existing: false }
+  - { name: spec-doc-writer, existing: true }
+  - { name: story-planner, existing: true }
+  - { name: ui-designer, existing: true }
+  - { name: orchestrator, existing: true }
+  - { name: risk-classifier, existing: true }
+rules:
+  - { name: ambiguity-resolution.md, existing: false }
+  - { name: prompt-to-task-conversion.md, existing: false }
+  - { name: non-engineer-safe-coding.md, existing: false }
+  - { name: goal-setting-and-monitoring.md, existing: true }
+hooks:
+  - { name: warn-large-edits, existing: false }

@@ -1,0 +1,13 @@
+schema_version: 1
+id: non-engineer-safe-coding
+description: Non-Engineer-Safe Coding
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://ambiguity-resolution
+- rule://autonomy-levels
+- rule://human-in-the-loop
+- rule://prompt-to-task-conversion
+- rule://risk-classification

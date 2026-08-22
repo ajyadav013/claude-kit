@@ -1,0 +1,6 @@
+interface:
+  display_name: Manual Test
+  short_description: Click through a feature in a real browser and verify it behaves
+    — navigate...
+policy:
+  allow_implicit_invocation: false

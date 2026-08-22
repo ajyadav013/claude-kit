@@ -1,0 +1,6 @@
+interface:
+  display_name: Archive Sprint
+  short_description: Archive a completed sprint's planning docs and update the backlog
+    status.
+policy:
+  allow_implicit_invocation: false

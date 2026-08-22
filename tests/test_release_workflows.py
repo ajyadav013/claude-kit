@@ -36,10 +36,19 @@ def test_ci_builds_once_and_wheel_smoke_downloads_that_artifact():
 
 
 def test_ci_runs_official_claude_validator_at_pinned_minimum_and_current():
-    assert "claude-code-compatibility.yaml" in CI
+    assert "claude-compatibility.yaml" in CI
     assert "@anthropic-ai/claude-code@" in CI
     assert "claude plugin validate . --strict" in CI
     assert "actionlint" in CI and "zizmor" in CI
+
+
+def test_ci_fetches_each_codex_validator_bundle_from_catalog_hashes():
+    assert '**entry["plugin_validator"]' in CI
+    assert "matrix.validate_plugin_sha256" in CI
+    assert "matrix.identifier_validation_sha256" in CI
+    assert "identifier_validation.py" in CI
+    assert "CODEX_PLUGIN_VALIDATOR" in CI
+    assert "VALIDATOR_SHA256: ebda00" not in CI
 
 
 def test_ci_exposes_the_pinned_actionlint_binary_to_later_steps():

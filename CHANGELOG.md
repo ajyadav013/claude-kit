@@ -38,6 +38,74 @@ promotes the exact artifacts verified by CI into PyPI and GitHub Releases.
   attestation, exact-artifact Trusted Publishing, post-publish digest verification, matching GitHub
   Release assets, and a documented partial-release recovery path. Workflow lint/security checks and
   a scheduled stable-version drift check now guard the release definitions.
+- **Provider-neutral projection architecture:** typed component/workflow semantics, symbolic
+  references, a branch-free `ResolvedPlan` seam, and a renderer registry compile one selection into
+  native Claude Code, Codex, or dual-runtime output. Canonical agents, skills, commands, rules, and
+  templates now generate the established Claude-compatible payload and feed the Codex renderer
+  without provider identifiers in the neutral source.
+- **Native Codex and `both` scaffolding in Preview:** `ckit init --runtime codex|both` emits native
+  `AGENTS.md`, `.agents/skills`, `.codex/agents/*.toml`, hooks, and MCP configuration. Deterministic
+  parsing/leakage/size tests, source-wheel-sdist installs, strict validation, `doctor`, normalized
+  hook allow/block controls, and cross-runtime ledger tests are covered; protected live-host persona,
+  permission, worktree, and remaining hook smokes are still promotion gates.
+- **One provider-neutral `.ckit` control plane** for fresh native installs: ownership/checksum
+  manifest, stack snapshot, upgrade journal, continuity, agent memory, artifacts, state, and scratch
+  data. Runtime transitions are transactional, preserve the installed selection, back up removed
+  provider surfaces, and require explicit confirmation.
+- **Non-destructive legacy state migration:** Preview `migrate-state` and `init --migrate-state`
+  transactionally copy mutable `.claude` state to `.ckit`, preserve legacy bytes, recover interrupted
+  work, and refuse conflicting destinations.
+- **Generated provider plugin metadata** from one catalog record. The isolated Codex 0.147/0.149
+  lifecycle covers marketplace add, native skill/hook discovery, plugin
+  add/installed-content/list/remove, and marketplace removal with credentials unset and `ON_USE`
+  authentication policy.
+- **Preview managed workflow execution:** `ckit pipeline run --provider claude|codex` freezes the
+  full Mode A–D workflow digest, mode-specific gates and owners, stable conditions, capability
+  attestations, attempts, and bounded output artifacts in the shared ledger; required owner-stage
+  success is enforced before a managed gate can resolve. A persistent run-owned integration
+  worktree preserves cross-stage visibility and is never merged automatically. Shell-capable
+  Claude routes require `process.descendant_containment`. Exact compatibility-pinned Codex hosts
+  have one bounded passive read-only/nondelegating lane after a fail-closed feature-lockdown probe;
+  every shell, write, delegation, browser, MCP, or external-effect Codex route still requires
+  descendant containment. The built-in subprocess backend does not attest that capability and
+  stops before spawn rather than overclaim portable containment.
+- **Authoritative managed evidence:** Modes A–D now freeze exact stage and gate evidence contracts.
+  Successful stages must return the complete typed evidence envelope; required fields, pass
+  predicates, and finding semantics are validated before normalized 0600 content-addressed records
+  are accepted. Gate and findings records are derived from the exact owner attempt, so an echoed
+  symbolic label, arbitrary replacement file, or caller-supplied zero count cannot close a managed
+  gate.
+- **Portable dispatch messaging:** Claude's managed adapter uses the host's stream-JSON input to
+  deliver bounded corrections to an active worker. Codex retains queued pre-start messages on its
+  default isolated one-shot path. An opt-in passive-only app-server adapter now supports bounded
+  steer/interrupt with an ephemeral read-only thread, isolated home, strict feature/MCP clamps, and
+  pinned protocol checks; credentialed model behavior remains unproven, so it is not the default or
+  a parity claim.
+- **Runtime-selectable learning capture:** Codex no longer falls through to the `claude` executable.
+  Its opt-in capture path runs a compatibility-pinned, read-only, tool-disabled classifier over a
+  bounded filtered Git diff; trusted Python validates strict JSON and performs the only contained
+  `.ckit/agent-memory` writes. Historical Codex transcript catch-up remains unavailable.
+- **Frozen Mode E and external-action contracts:** strict schemas and typed loaders bind program
+  manifests to ordered gates, audit verification, restore points, exact inventories/counts, and
+  detached approval digests. The Preview program executor now binds waves, units, budgets, attempts,
+  content-addressed evidence, program gates, Git-index-aware checkpoints, and cross-provider
+  no-replay into the authoritative `.ckit` ledger. Bundled adapters still stop before shell/write
+  units, and irreversible work remains stopped until an externally isolated signer and broker can
+  consume one exact authorization; typed contracts alone are never authorization.
+- **Managed human stops fail closed:** generic local approval evidence is not a trustworthy,
+  stage-scoped one-shot authorization. Managed `approved` resolutions are therefore unsupported
+  and remain pending; `rejected` records only a replan/abort decision. Legacy manual runs retain
+  their existing approval record compatibility.
+- **Typed managed closeout boundary:** the workflow now runs local final checks and commit-bound PR
+  planning in `pull-request-prepare`, then reaches a separate typed
+  `repository.pull-request.create` leaf requiring exactly `external.mutation`. The final leaf cannot
+  fall back to a native role or inherit the preparer's capability attestation; it remains stopped
+  until a genuinely external signer and credential broker consume its exact action scope.
+- **Protected native-behavior workflow definition:** a scheduled/manual-only matrix installs the
+  exact wheel in isolated homes and exercises real projected instructions, skills, a read-only
+  named role, generated hook allow/block/advisory/Stop behavior, and one shared Mode-D ledger. Codex
+  uses a byte-identical root-owned system-hook copy while retaining the protected read-only action
+  profile. No credentialed run has been recorded yet, so Codex and `both` remain Preview.
 
 ### Changed
 
@@ -55,6 +123,15 @@ promotes the exact artifacts verified by CI into PyPI and GitHub Releases.
   export, and pipeline writes; plugin discovery and read-only inspection remain available.
 - Local evidence hashes are described as **content-integrity checks**, not tamper evidence: an actor
   able to edit both a ledger and its adjacent hash can rewrite both.
+- New documentation and automation recommend the short `ckit` entry point. The package name remains
+  `claude-code-kit`; `claude-kit` and `claude-sdlc` remain supported console aliases.
+- Provider-neutral `CKIT_*` environment variables are preferred. Matching legacy
+  `CLAUDE_KIT_*` experimental/capture variables and legacy `SDLC_*` loop knobs remain accepted during
+  their documented compatibility windows.
+- The versioned unattended-loop interface is installed once at `.ckit/scripts/sdlc-loop.sh` and
+  selects Claude or Codex with `CKIT_RUNTIME`, but new iterations currently fail closed before host
+  launch. Portable process groups cannot contain deliberately re-sessioned descendants, so the kit
+  does not mint an automated transition token until a real containment primitive is available.
 
 ### Security
 
@@ -73,6 +150,14 @@ promotes the exact artifacts verified by CI into PyPI and GitHub Releases.
 
 ### Migration
 
+- For a fresh native install, use `ckit init --runtime claude`. Codex and dual-host modes require
+  `CKIT_EXPERIMENTAL=1` and remain Preview: `ckit init --runtime codex|both`.
+- Existing projects with mutable state under `.claude` must opt in to `--migrate-state` (or run the
+  Preview `ckit migrate-state`) before a native runtime transition. If both roots exist, `.ckit` is
+  authoritative; legacy files remain intact for the bounded compatibility window.
+- Use `ckit upgrade --runtime ...` for later transitions. Removing Claude or Codex native files
+  requires `--confirm-runtime-removal`; the removed surface is backed up before commit.
+
 - Existing installations upgrade in place. Re-run `claude-kit init` (merge) or `claude-kit upgrade`
   to persist gate definitions in the stack snapshot. Start a new run with `pipeline start`, or use
   `pipeline adopt --reason ... --adopted-by ...` to migrate readable schema-v1 work in flight.
@@ -83,6 +168,16 @@ promotes the exact artifacts verified by CI into PyPI and GitHub Releases.
   conditional gates must supply `--condition` and `--evidence`.
 
 ### Not adopted (deliberately)
+
+- **A Codex parity/GA claim** — native artifact and isolated packaging/plugin lifecycle tests are
+  necessary but do not prove every protected live-host agent, permission, worktree, and hook
+  behavior. Codex and `both` remain Preview with explicit degraded/unsupported mappings.
+- **Hard-coded Codex models or invented permission equivalence** — semantic tiers and permission
+  intent are preserved, while the active Codex model and native sandbox/approval policy remain
+  authoritative.
+- **Parallel provider source trees or duplicate state ledgers** — canonical components compile into
+  generated host output, and `both` uses one `.ckit`; drift-prone Claude/Codex payload copies and
+  separate gate histories were rejected.
 
 - **Authenticated/signed evidence, mechanical test-result parsers, and policy-as-code** — local
   hashing now has accurate semantics; signed envelopes and parser-backed verification are separate
@@ -96,6 +191,11 @@ promotes the exact artifacts verified by CI into PyPI and GitHub Releases.
 - **Changing GitHub repository or PyPI environment settings from a workflow** — required controls
   are documented for maintainers and current settings were audited, but repository governance stays
   an explicit owner action.
+- **Automatic worktree-to-main merge, bundled writable Mode E execution, or irreversible program
+  execution** — the managed executor preserves its integration worktree for an explicit
+  human-reviewed handoff. The built-in adapters do not attest physical per-boundary write
+  containment, and no external approval broker consumes irreversible actions; neither boundary is
+  represented as successful parity.
 
 ## [0.82.0] — 2026-08-17
 

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.py"
+- '**/*.py'
 ---
 
 # Django backend patterns

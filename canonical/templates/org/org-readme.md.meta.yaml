@@ -1,0 +1,20 @@
+schema_version: 1
+id: org-readme
+description: Organization capability layer guide
+category: org
+format: markdown
+destination: templates/org/README.md
+provider_placeholders:
+- provider.executable.cli
+- provider.name.host
+- provider.path.agents
+- provider.path.config_root
+- provider.path.mcp_config
+- provider.path.project_instructions
+- provider.path.rules
+- provider.path.sdlc_readme
+- provider.path.skills
+- provider.path.user_config
+references:
+- rule://autonomy-levels
+- rule://risk-classification

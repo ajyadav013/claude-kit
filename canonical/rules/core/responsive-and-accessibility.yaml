@@ -1,0 +1,15 @@
+schema_version: 1
+id: responsive-and-accessibility
+description: Responsive & Accessibility
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.vue'
+- '**/*.svelte'
+- '**/*.css'
+- '**/*.scss'
+- '**/components/**'
+references: []

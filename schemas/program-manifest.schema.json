@@ -1,0 +1,353 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "program-manifest",
+  "title": "claude-kit frozen program manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "program_id",
+    "run_id",
+    "objective",
+    "source_commit",
+    "workflow_definition_digest",
+    "gate_definition_digest",
+    "selection_digest",
+    "revision",
+    "parent_digest",
+    "frozen",
+    "pre_change_restore_point",
+    "boundaries",
+    "lanes",
+    "waves",
+    "units",
+    "owners",
+    "gates",
+    "digest"
+  ],
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "program_id": {"$ref": "#/$defs/identifier"},
+    "run_id": {"$ref": "#/$defs/identifier"},
+    "objective": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "source_commit": {"$ref": "#/$defs/commit"},
+    "workflow_definition_digest": {"$ref": "#/$defs/digest"},
+    "gate_definition_digest": {"$ref": "#/$defs/digest"},
+    "selection_digest": {"$ref": "#/$defs/digest"},
+    "revision": {"type": "integer", "minimum": 1},
+    "parent_digest": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/digest"}
+      ]
+    },
+    "frozen": {"const": true},
+    "pre_change_restore_point": {"$ref": "#/$defs/restore_point_reference"},
+    "boundaries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/boundary"}
+    },
+    "lanes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {"$ref": "#/$defs/lane"}
+    },
+    "waves": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 1000,
+      "items": {"$ref": "#/$defs/wave"}
+    },
+    "units": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/unit"}
+    },
+    "owners": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/owner"}
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/gate"}
+    },
+    "digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "git_tag_ref": {
+      "type": "string",
+      "minLength": 11,
+      "maxLength": 264,
+      "pattern": "^refs/tags/[^\\s\\u0000-\\u001f\\\\]+$"
+    },
+    "identifier_array": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 10000,
+      "items": {"$ref": "#/$defs/identifier"}
+    },
+    "risk": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high", "restricted"]
+    },
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "path"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"type": "string", "enum": ["file", "tree"]},
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*\\\\)(?!.*//)(?!.*\\/$)[^\\u0000]+$"
+        }
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "boundary_ids", "unit_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "boundary_ids": {"$ref": "#/$defs/identifier_array"},
+        "unit_ids": {
+          "allOf": [
+            {"$ref": "#/$defs/identifier_array"},
+            {"minItems": 1}
+          ]
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hard_spawn_cap",
+        "max_attempts_per_unit",
+        "max_turns_per_worker",
+        "wall_clock_seconds",
+        "token_ceiling",
+        "on_exceed"
+      ],
+      "properties": {
+        "hard_spawn_cap": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "max_attempts_per_unit": {"type": "integer", "minimum": 1, "maximum": 100},
+        "max_turns_per_worker": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "wall_clock_seconds": {"type": "integer", "minimum": 1, "maximum": 604800},
+        "token_ceiling": {"type": "integer", "minimum": 1},
+        "on_exceed": {
+          "type": "string",
+          "enum": ["stop-spawning", "checkpoint-and-escalate"]
+        }
+      }
+    },
+    "inventory_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "artifact_digest",
+        "items_digest",
+        "item_count",
+        "expected_post_count"
+      ],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/identifier"},
+        "artifact_digest": {"$ref": "#/$defs/digest"},
+        "items_digest": {"$ref": "#/$defs/digest"},
+        "item_count": {"type": "integer", "minimum": 1},
+        "expected_post_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "restore_point_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag_ref",
+        "commit",
+        "verification_artifact_id",
+        "verification_digest"
+      ],
+      "properties": {
+        "tag_ref": {"$ref": "#/$defs/git_tag_ref"},
+        "commit": {"$ref": "#/$defs/commit"},
+        "verification_artifact_id": {"$ref": "#/$defs/identifier"},
+        "verification_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "approval_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_artifact_id",
+        "request_digest",
+        "action_digest",
+        "authorization_artifact_id",
+        "authorization_digest",
+        "inventory_artifact_digest",
+        "restore_point_commit"
+      ],
+      "properties": {
+        "request_artifact_id": {"$ref": "#/$defs/identifier"},
+        "request_digest": {"$ref": "#/$defs/digest"},
+        "action_digest": {"$ref": "#/$defs/digest"},
+        "authorization_artifact_id": {"$ref": "#/$defs/identifier"},
+        "authorization_digest": {"$ref": "#/$defs/digest"},
+        "inventory_artifact_digest": {"$ref": "#/$defs/digest"},
+        "restore_point_commit": {"$ref": "#/$defs/commit"}
+      }
+    },
+    "wave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "order",
+        "kind",
+        "parallel",
+        "risk",
+        "unit_ids",
+        "gate_ids",
+        "gate_wave_id",
+        "verifies_wave_id",
+        "budget"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "order": {"type": "integer", "minimum": 0},
+        "kind": {
+          "type": "string",
+          "enum": ["audit", "execution", "verification", "closeout"]
+        },
+        "parallel": {"type": "boolean"},
+        "risk": {"$ref": "#/$defs/risk"},
+        "unit_ids": {
+          "allOf": [
+            {"$ref": "#/$defs/identifier_array"},
+            {"minItems": 1}
+          ]
+        },
+        "gate_ids": {"$ref": "#/$defs/identifier_array"},
+        "gate_wave_id": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/identifier"}
+          ]
+        },
+        "verifies_wave_id": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/identifier"}
+          ]
+        },
+        "budget": {"$ref": "#/$defs/budget"}
+      }
+    },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "wave_id",
+        "lane_id",
+        "kind",
+        "objective",
+        "dependencies",
+        "boundary_ids",
+        "risk",
+        "irreversible",
+        "inventory",
+        "restore_point",
+        "approval",
+        "evidence"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "wave_id": {"$ref": "#/$defs/identifier"},
+        "lane_id": {"$ref": "#/$defs/identifier"},
+        "kind": {
+          "type": "string",
+          "enum": ["audit", "implementation", "gate-runner", "knowledge-closeout"]
+        },
+        "objective": {"type": "string", "minLength": 1, "maxLength": 8192},
+        "dependencies": {"$ref": "#/$defs/identifier_array"},
+        "boundary_ids": {"$ref": "#/$defs/identifier_array"},
+        "risk": {"$ref": "#/$defs/risk"},
+        "irreversible": {"type": "boolean"},
+        "inventory": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/inventory_reference"}
+          ]
+        },
+        "restore_point": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/restore_point_reference"}
+          ]
+        },
+        "approval": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/approval_reference"}
+          ]
+        },
+        "evidence": {
+          "allOf": [
+            {"$ref": "#/$defs/identifier_array"},
+            {"minItems": 1}
+          ]
+        }
+      }
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit_id", "route"],
+      "properties": {
+        "unit_id": {"$ref": "#/$defs/identifier"},
+        "route": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "kind", "wave_id", "owner_unit_id", "evidence"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "order": {"type": "integer", "minimum": 0},
+        "kind": {"type": "string", "enum": ["program-wave", "pipeline"]},
+        "wave_id": {"$ref": "#/$defs/identifier"},
+        "owner_unit_id": {"$ref": "#/$defs/identifier"},
+        "evidence": {
+          "allOf": [
+            {"$ref": "#/$defs/identifier_array"},
+            {"minItems": 1}
+          ]
+        }
+      }
+    }
+  }
+}

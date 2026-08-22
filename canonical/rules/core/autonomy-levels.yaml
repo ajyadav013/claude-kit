@@ -1,0 +1,12 @@
+schema_version: 1
+id: autonomy-levels
+description: Autonomy Levels
+strength: required
+applicability:
+  source: core
+path_globs: []
+references:
+- rule://human-in-the-loop
+- rule://mandatory-workflow
+- rule://quality-gates
+- rule://risk-classification

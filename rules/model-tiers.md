@@ -1,9 +1,9 @@
 ---
 paths:
-  - '.claude/agents/**'
-  - '.claude/skills/**'
-  - '**/agents/**'
-  - '**/skills/**'
+- .claude/agents/**
+- .claude/skills/**
+- '**/agents/**'
+- '**/skills/**'
 ---
 
 # Model Tiers
@@ -15,7 +15,7 @@ mechanical. This is the concrete assignment policy behind the "resource-aware ef
 `.claude/rules/reasoning-techniques.md`.
 
 > Adapted from a portfolio project's model-tiers rule; aligned to claude-kit's agent roster. Model
-> names are Claude tiers, not a tech stack — the tier *intent* matters more than the exact alias.
+> names are provider model tiers, not a tech stack — the tier *intent* matters more than the exact alias.
 
 ## Policy
 
@@ -48,7 +48,7 @@ name a model the provider account doesn't serve, and the failure signature is an
 zero-token spawn death**, easily mistaken for an agent bug. So before a run's **first** fan-out:
 probe-spawn one trivial agent (a one-word reply) per model tier the run plans to use. A tier whose
 probe dies instantly is unavailable here: **fall back one tier** (Fast → Default → Critical),
-record the override in `CONTINUITY.md`, and keep it for the rest of the run — don't re-discover the
+record the override in `.claude/CONTINUITY.md`, and keep it for the rest of the run — don't re-discover the
 same failure lane by lane. The probe also doubles as the credential-freshness check for long runs:
 verify auth by the probe's *behavior*, never by reading secrets or `.env`
 (`.claude/rules/agent-guardrails.md`). Deployment-neutral by design — probe tiers, not provider
@@ -109,33 +109,18 @@ Scale effort to the work, not the ceremony: pick the smallest profile that fits,
 tier table above plus `.claude/rules/reasoning-techniques.md` ("resource-aware effort") to avoid
 spending `opus` on mechanical turns.
 
-## Enforcing the tier policy (optional, Claude Code ≥ 2.1.178)
+## Enforcing the tier policy (provider adapter)
 
-Everything above is *advisory* — an agent (or a human) can still request any tier. Claude Code's
-permission rules can turn the policy into a hard gate: since 2.1.178, **deny and ask rules** match a
-tool's input parameters, e.g. `Agent(model:opus)`. The kit deliberately ships **no** permission rules
-(your permission posture is yours), but if opus spend needs a gate, add to your project or user
-settings:
+Everything above is advisory unless the active host can gate worker creation by semantic tier or
+logical agent id. A provider adapter may translate those two stable inputs into its native
+permission syntax. Keep that translation outside this rule: parameter-matching rules, aliases,
+headless prompt behavior, and settings locations differ by host and version.
 
-```json
-{
-  "permissions": {
-    "ask": ["Agent(model:opus)", "Agent(model:*opus*)"]
-  }
-}
-```
+When enforcement is available:
 
-Match semantics to know before relying on this (from the permissions reference):
-
-- **Only explicit parameters match.** A call that *omits* `model` is never matched — not even by
-  `Agent(model:*)`. The kit's Critical-tier agents get `opus` from their **frontmatter**, not from
-  the spawning call, so a `model:` rule does not gate `Agent(subagent_type: devils-advocate)`. To
-  gate a specific expensive agent, use an **agent-name rule** — `"ask": ["Agent(devils-advocate)"]`
-  — or edit that agent's frontmatter tier (the durable lever this rule already documents).
-- **Values compare literally, pre-normalization.** `Agent(model:opus)` matches the alias `opus` but
-  not a full model ID; the `Agent(model:*opus*)` wildcard form covers both.
-- **Deny/ask only.** Allow rules keep each tool's own specifier syntax (an allow on one parameter
-  wouldn't make the whole call safe).
-- **Headless changes the meaning.** Under `claude -p`, permission prompts become denials — an `ask`
-  rule *is* a deny there. Use `ask` interactively, and decide deliberately what an unattended run
-  should hard-deny (see `docs/autonomous-operation.md` in the kit repo).
+- Gate the logical **deep** tier and named high-cost agents, not a particular provider model alias.
+- Cover both a tier requested at dispatch time and a tier declared in agent metadata.
+- Treat unattended approval prompts as denials unless the provider explicitly documents another
+  safe behavior.
+- Keep the default kit policy provider-neutral and opt in to billing or organization-specific
+  permission gates at the project or user policy layer.

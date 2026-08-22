@@ -1,21 +1,21 @@
-"""Command-line interface for claude-kit (``claude-kit`` · aliases ``ckit`` / ``claude-sdlc``).
+"""Command-line interface for ckit (legacy aliases: ``claude-kit`` / ``claude-sdlc``).
 
-An evidence-gated SDLC for Claude Code, installed as **configuration** (no application code, no
-Docker): ``init`` asks ordered questions and lays down ``CLAUDE.md`` + ``.claude/`` (rules, the profile's
-agents/skills, hooks, artifact templates, config) + an optional ``.mcp.json`` and a README. Lifecycle
-commands — ``validate``, ``doctor``, ``diff``, ``upgrade``, ``list-options``, ``status`` — manage it.
+The installer resolves one evidence-gated SDLC plan and projects it into native Claude Code, Codex,
+or dual-host configuration. Lifecycle commands manage the shared state and provider surfaces.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import sys
 import time
 import webbrowser
 from contextlib import ExitStack
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Any, Optional
 
 import typer
 
@@ -34,35 +34,60 @@ from claude_kit import (
 )
 from claude_kit import export as exporter
 from claude_kit import tickets as tickets_mod
-from claude_kit.models import InitOptions, ResolvedPlan
+from claude_kit.hook_adapter import HookAdapterError, run_registered_hook
+from claude_kit.learning_capture import (
+    DEFAULT_CHANGED_FILES,
+    DEFAULT_CONTEXT_BYTES,
+    LearningCaptureError,
+    run_codex_learning_capture,
+)
+from claude_kit.models import (
+    InitOptions,
+    InstallRequest,
+    ResolvedPlan,
+    Runtime,
+    StateLayout,
+)
+from claude_kit.projection import Provider
+from claude_kit.runtime_scaffold import (
+    RuntimeInstallError,
+    install_runtime,
+    preview_runtime_install,
+)
 from claude_kit.secure_fs import ProjectFS
+from claude_kit.state import detect_state_layout
+from claude_kit.state_migration import StateMigrationError, migrate_legacy_state
+from claude_kit.worktrees import WorktreeError, WorktreeManager, WorktreeStatus
 
 # Planned-but-unimplemented commands are hidden from `--help` by default so they
 # can't be mistaken for working features. Set CLAUDE_KIT_EXPERIMENTAL=1 to surface
 # them (still marked "[planned]" and still exit non-zero). Evaluated at import.
-_EXPERIMENTAL = bool(os.environ.get("CLAUDE_KIT_EXPERIMENTAL"))
+_EXPERIMENTAL = bool(
+    os.environ.get("CKIT_EXPERIMENTAL") or os.environ.get("CLAUDE_KIT_EXPERIMENTAL")
+)
 
 BANNER = r"""
   ___ _      _   _ ___  ___   _  _____ _____
  / __| |    /_\ | | |   \| __| | |/ /_ _|_   _|
 | (__| |__ / _ \| |_| | |) | _|  | ' < | |  | |
- \___|____/_/ \_\\___/|___/|___| |_|\_\___| |_|   autonomous SDLC config for Claude Code
+ \___|____/_/ \_\\___/|___/|___| |_|\_\___| |_|   native SDLC config for Claude Code + Codex
 """
 
 # Shown after init when learning-capture is enabled, and mirrored in SECURITY.md / the project README.
 # Keep this wording in sync with those two (the "verbatim" privacy caveat).
 CAPTURE_PRIVACY_NOTICE = (
-    "Privacy — learning capture is ON: a background Claude job reads your session transcript and\n"
-    "changed files to record durable learnings under .claude/agent-memory/ (a committed store). It\n"
-    "skips secret-bearing files and redacts secret-shaped values, but transcripts can still hold\n"
-    "sensitive context — review new agent-memory entries before committing, and set\n"
-    "CLAUDE_KIT_NO_AUTOCAPTURE=1 to disable. Bound it with CLAUDE_KIT_CAPTURE_MAX_LINES/_MAX_BYTES."
+    "Privacy — learning capture is ON: a background selected-host job reads the host transcript\n"
+    "when available plus changed files, and records durable learnings under .ckit/agent-memory/\n"
+    "(a committed store). It skips secret-bearing files and redacts secret-shaped values, but host\n"
+    "context can still be sensitive — review entries before committing. Set\n"
+    "CKIT_NO_AUTOCAPTURE=1 to disable and bound it with CKIT_CAPTURE_MAX_LINES/_MAX_BYTES; legacy\n"
+    "CLAUDE_KIT_* names remain accepted during the compatibility window."
 )
 
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=False,
-    help="Scaffold and manage a Claude Code autonomous-SDLC configuration.",
+    help="Scaffold and manage native Claude Code/Codex evidence-gated SDLC configuration.",
 )
 research_app = typer.Typer(
     no_args_is_help=True, help="Research helpers (license-respecting)."
@@ -70,9 +95,14 @@ research_app = typer.Typer(
 app.add_typer(research_app, name="research", hidden=not _EXPERIMENTAL)
 pipeline_app = typer.Typer(
     no_args_is_help=True,
-    help="Inspect/mutate the /sdlc pipeline state files (does not run the pipeline).",
+    help="Run, inspect, or mutate the provider-neutral /sdlc pipeline.",
 )
 app.add_typer(pipeline_app, name="pipeline")
+worktree_app = typer.Typer(
+    no_args_is_help=True,
+    help="Manage provider-neutral, run-owned fallback worktrees.",
+)
+app.add_typer(worktree_app, name="worktree")
 
 
 def _version_callback(value: bool) -> None:
@@ -107,6 +137,174 @@ def _print_report(ok: bool, messages: list[str]) -> None:
         raise typer.Exit(1)
 
 
+@app.command("hook-run", hidden=True)
+def hook_run(
+    provider: Annotated[Runtime, typer.Option("--provider")],
+    hook_id: Annotated[str, typer.Option("--hook-id")],
+    path: str = typer.Option(".", "--path"),
+    plugin_root: Optional[str] = typer.Option(None, "--plugin-root"),
+    discover_project_root: bool = typer.Option(False, "--discover-project-root"),
+) -> None:
+    """Internal normalized hook entry point used by generated provider documents."""
+
+    if provider is Runtime.BOTH:
+        typer.echo("error: hook provider must be claude or codex", err=True)
+        raise typer.Exit(2)
+    try:
+        result = run_registered_hook(
+            provider.value,
+            hook_id,
+            sys.stdin.buffer.read(),
+            project_root=path,
+            plugin_root=plugin_root,
+            discover_project_root=discover_project_root,
+        )
+    except (HookAdapterError, OSError, ValueError) as exc:
+        typer.echo(f"hook adapter error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if result.stdout:
+        typer.echo(result.stdout, nl=False)
+    if result.stderr:
+        typer.echo(result.stderr, nl=False, err=True)
+    if result.exit_code:
+        raise typer.Exit(result.exit_code)
+
+
+@app.command("learning-capture", hidden=True)
+def learning_capture(
+    path: str = typer.Option(".", "--path"),
+    model: Optional[str] = typer.Option(None, "--model"),
+    max_files: int = typer.Option(DEFAULT_CHANGED_FILES, "--max-files"),
+    max_bytes: int = typer.Option(DEFAULT_CONTEXT_BYTES, "--max-bytes"),
+) -> None:
+    """Internal trusted writer for the isolated Codex learning-capture hook."""
+
+    try:
+        result = run_codex_learning_capture(
+            path,
+            model=model,
+            max_files=max_files,
+            max_bytes=max_bytes,
+        )
+    except (LearningCaptureError, OSError, ValueError) as exc:
+        typer.echo(f"learning capture error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(result.message)
+
+
+def _worktree_manager(path: str) -> WorktreeManager:
+    try:
+        return WorktreeManager(path)
+    except (OSError, ValueError, WorktreeError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+
+@worktree_app.command("create")
+def worktree_create(
+    run_id: str = typer.Argument(...),
+    worker_id: str = typer.Argument(...),
+    path: str = typer.Option(".", "--path"),
+    base_ref: str = typer.Option("HEAD", "--base-ref"),
+) -> None:
+    """Create one detached, bounded worktree and persist its ownership."""
+
+    try:
+        record = _worktree_manager(path).create(run_id, worker_id, base_ref=base_ref)
+    except WorktreeError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(record.to_dict(), sort_keys=True))
+
+
+@worktree_app.command("list")
+def worktree_list(
+    path: str = typer.Option(".", "--path"),
+    run_id: Optional[str] = typer.Option(None, "--run-id"),
+) -> None:
+    """List shared-state worktree ownership records as JSON."""
+
+    try:
+        records = _worktree_manager(path).records(run_id)
+    except WorktreeError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps([record.to_dict() for record in records], sort_keys=True))
+
+
+@worktree_app.command("mark")
+def worktree_mark(
+    run_id: Annotated[str, typer.Argument()],
+    worker_id: Annotated[str, typer.Argument()],
+    status: Annotated[WorktreeStatus, typer.Option("--status")],
+    failure_reason: Optional[str] = typer.Option(None, "--failure-reason"),
+    path: str = typer.Option(".", "--path"),
+) -> None:
+    """Mark a worker succeeded, failed, or aborted without deleting artifacts."""
+
+    try:
+        record = _worktree_manager(path).mark(
+            run_id, worker_id, status, failure_reason=failure_reason
+        )
+    except WorktreeError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(record.to_dict(), sort_keys=True))
+
+
+@worktree_app.command("cleanup")
+def worktree_cleanup(
+    run_id: str = typer.Argument(...),
+    worker_id: str = typer.Argument(...),
+    discard_changes: bool = typer.Option(False, "--discard-changes"),
+    discard_failed: bool = typer.Option(False, "--discard-failed"),
+    path: str = typer.Option(".", "--path"),
+) -> None:
+    """Remove one exact owned worktree, requiring explicit artifact-discard flags."""
+
+    try:
+        record = _worktree_manager(path).cleanup(
+            run_id,
+            worker_id,
+            discard_changes=discard_changes,
+            discard_failed=discard_failed,
+        )
+    except WorktreeError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps(record.to_dict(), sort_keys=True))
+
+
+@worktree_app.command("abort-run")
+def worktree_abort_run(
+    run_id: str = typer.Argument(...),
+    path: str = typer.Option(".", "--path"),
+) -> None:
+    """Mark active workers aborted and preserve every worktree for diagnosis."""
+
+    try:
+        records = _worktree_manager(path).abort_run(run_id)
+    except WorktreeError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps([record.to_dict() for record in records], sort_keys=True))
+
+
+@worktree_app.command("resume-run")
+def worktree_resume_run(
+    run_id: str = typer.Argument(...),
+    path: str = typer.Option(".", "--path"),
+) -> None:
+    """Verify exact ownership for every preserved worktree in a run."""
+
+    try:
+        records = _worktree_manager(path).resume_run(run_id)
+    except WorktreeError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    typer.echo(json.dumps([record.to_dict() for record in records], sort_keys=True))
+
+
 def _emit_report(ok: bool, messages: list[str], *, as_json: bool) -> None:
     """Print a check report as text (default) or a structured JSON object; exit code unchanged."""
     if as_json:
@@ -132,16 +330,25 @@ def _resolve_plan(src: Path, *, config: Optional[str], defaults: bool) -> Resolv
         raise typer.Exit(2) from exc
 
 
-def _print_dry_run(src: Path, target: Path, plan: ResolvedPlan) -> None:
+def _print_dry_run(
+    src: Path,
+    target: Path,
+    plan: ResolvedPlan,
+    request: InstallRequest | None = None,
+) -> None:
     """Print the resolved plan + the exact files a fresh install would write. Touches nothing."""
     sel = plan.selection
     stack_str = (
         f"{sel.frontend_framework}/{sel.frontend_language} + "
         f"{sel.backend_language}/{sel.backend_framework} + {sel.database}"
     )
-    _, paths = scaffold.preview_install(src, target, plan)
+    if request is None:
+        _, paths = scaffold.preview_install(src, target, plan)
+    else:
+        _, paths = preview_runtime_install(src, target, plan, request)
     typer.echo(f"\nDRY RUN — previewing install into {target} (no files written)\n")
     typer.echo(f"  profile : {sel.profile}    scope: {sel.scope}")
+    typer.echo(f"  runtime : {request.runtime.value if request else 'claude (legacy)'}")
     typer.echo(f"  stack   : {stack_str}")
     typer.echo(f"  MCP     : {', '.join(sorted(plan.mcp_servers)) or 'none'}")
     typer.echo(
@@ -162,13 +369,22 @@ def _print_dry_run(src: Path, target: Path, plan: ResolvedPlan) -> None:
     typer.echo("\nDRY RUN — nothing was written.")
 
 
-def _dry_run_doc(src: Path, target: Path, plan: ResolvedPlan) -> dict:
+def _dry_run_doc(
+    src: Path,
+    target: Path,
+    plan: ResolvedPlan,
+    request: InstallRequest | None = None,
+) -> dict:
     """The same plan + would-write file list as :func:`_print_dry_run`, as a JSON-able dict."""
     sel = plan.selection
-    _, paths = scaffold.preview_install(src, target, plan)
+    if request is None:
+        _, paths = scaffold.preview_install(src, target, plan)
+    else:
+        _, paths = preview_runtime_install(src, target, plan, request)
     return {
         "dry_run": True,
         "target": str(target),
+        "runtime": request.runtime.value if request else "claude",
         "profile": sel.profile,
         "scope": sel.scope,
         "stack": {
@@ -214,6 +430,22 @@ def init(
     config: Optional[str] = typer.Option(
         None, "--config", help="non-interactive; read the selection from a YAML file"
     ),
+    runtime: Optional[str] = typer.Option(
+        None,
+        "--runtime",
+        help=(
+            "native runtime projection: claude, codex, or both. Codex/both are preview "
+            "and require CKIT_EXPERIMENTAL=1 (legacy CLAUDE_KIT_EXPERIMENTAL is accepted)."
+        ),
+    ),
+    migrate_state: bool = typer.Option(
+        False,
+        "--migrate-state",
+        help=(
+            "explicitly copy a legacy .claude mutable control plane into .ckit before "
+            "applying a native runtime transition"
+        ),
+    ),
     force: bool = typer.Option(
         False,
         "--force",
@@ -241,8 +473,37 @@ def init(
         "generic catalog commands.",
     ),
 ) -> None:
-    """Scaffold a Claude Code SDLC configuration into a project."""
+    """Scaffold an evidence-gated SDLC configuration into a project."""
     non_interactive = defaults or config is not None
+    runtime_choice: Runtime | None
+    try:
+        if runtime is not None:
+            runtime_choice = Runtime.parse(runtime)
+        elif config is not None:
+            runtime_choice = prompts.runtime_from_config(config)
+        else:
+            runtime_choice = None
+    except (OSError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+    if runtime_choice is not None:
+        experimental = bool(
+            os.environ.get("CKIT_EXPERIMENTAL")
+            or os.environ.get("CLAUDE_KIT_EXPERIMENTAL")
+        )
+        if runtime_choice in {Runtime.CODEX, Runtime.BOTH} and not experimental:
+            typer.echo(
+                "error: Codex and dual-runtime installation are preview features; set "
+                "CKIT_EXPERIMENTAL=1 (or legacy CLAUDE_KIT_EXPERIMENTAL=1) and retry",
+                err=True,
+            )
+            raise typer.Exit(2)
+    if runtime_choice is None and migrate_state:
+        typer.echo(
+            "error: --migrate-state requires a runtime in --runtime or --config",
+            err=True,
+        )
+        raise typer.Exit(2)
     if json_out and not dry_run:
         typer.echo("error: --json is only supported together with --dry-run", err=True)
         raise typer.Exit(2)
@@ -271,13 +532,24 @@ def init(
         # --dry-run: resolve + preview only. Never create the target or write anything; skip the
         # existing-.claude handling and the install spine entirely.
         if dry_run:
-            plan = _resolve_plan(src, config=config, defaults=defaults)
-            if detect_commands is not None:
-                plan.selection.detect_commands = detect_commands
-            if json_out:
-                typer.echo(json.dumps(_dry_run_doc(src, target, plan), indent=2))
-            else:
-                _print_dry_run(src, target, plan)
+            try:
+                plan = _resolve_plan(src, config=config, defaults=defaults)
+                if detect_commands is not None:
+                    plan.selection.detect_commands = detect_commands
+                request = (
+                    InstallRequest(plan.selection, runtime_choice)
+                    if runtime_choice is not None
+                    else None
+                )
+                if json_out:
+                    typer.echo(
+                        json.dumps(_dry_run_doc(src, target, plan, request), indent=2)
+                    )
+                else:
+                    _print_dry_run(src, target, plan, request)
+            except (RuntimeInstallError, ValueError) as exc:
+                typer.echo(f"error: {exc}", err=True)
+                raise typer.Exit(1) from exc
             return
 
         if not target.exists():
@@ -294,7 +566,7 @@ def init(
             has_claude = project_fs.exists(".claude")
         except OSError as exc:
             raise _fs_failure("inspect", target / ".claude", exc) from exc
-        if has_claude:
+        if has_claude and runtime_choice is None:
             if force:
                 mode = "overwrite"
             elif non_interactive:
@@ -317,6 +589,59 @@ def init(
         plan = _resolve_plan(src, config=config, defaults=defaults)
         if detect_commands is not None:
             plan.selection.detect_commands = detect_commands
+
+        if runtime_choice is not None:
+            request = InstallRequest(plan.selection, runtime_choice)
+            try:
+                legacy_manifest = StateLayout.legacy_claude().manifest
+                neutral_manifest = StateLayout.neutral().manifest
+                if project_fs.is_file(legacy_manifest) and not project_fs.is_file(
+                    neutral_manifest
+                ):
+                    if not migrate_state:
+                        raise RuntimeInstallError(
+                            "legacy mutable state is installed under .claude; rerun with "
+                            "--migrate-state to copy it transactionally into .ckit"
+                        )
+                    migrated = migrate_legacy_state(target)
+                    typer.echo(
+                        "  • legacy mutable state migrated to .ckit"
+                        if migrated.migrated
+                        else "  • neutral state already current"
+                    )
+                typer.echo(
+                    f"\nckit: installing native {runtime_choice.value} projection into {target}"
+                )
+                for line in install_runtime(
+                    src,
+                    target,
+                    plan,
+                    request,
+                    force=force,
+                ):
+                    typer.echo(line)
+            except (RuntimeInstallError, StateMigrationError) as exc:
+                typer.echo(f"error: {exc}", err=True)
+                raise typer.Exit(1) from exc
+            except OSError as exc:
+                raise _fs_failure("write into", target, exc) from exc
+
+            if runtime_choice is Runtime.CLAUDE:
+                typer.echo(
+                    "\nDone. Open the project in Claude Code and run `/sdlc <your task>`."
+                )
+            elif runtime_choice is Runtime.CODEX:
+                typer.echo(
+                    "\nDone. Open the trusted project in Codex and invoke the `sdlc` skill."
+                )
+            else:
+                typer.echo(
+                    "\nDone. The project now has native Claude Code and Codex discovery "
+                    "surfaces backed by one .ckit state ledger."
+                )
+            if plan.selection.capture_mode != "off":
+                typer.echo("\n" + CAPTURE_PRIVACY_NOTICE)
+            return
 
         # 4) Install. Merge mode reconciles non-destructively (preserving the user's own files);
         # fresh / overwrite / backup all go through the destructive install spine.
@@ -350,13 +675,37 @@ def init(
         "\nDone. Open the project in Claude Code and run `/sdlc <your task>` to start the pipeline."
     )
     if plan.selection.capture_mode != "off":
-        typer.echo("\n" + CAPTURE_PRIVACY_NOTICE)
+        typer.echo("\n" + CAPTURE_PRIVACY_NOTICE.replace(".ckit/", ".claude/"))
     # The shell guard/notify hooks parse tool input with jq and no-op without it (see SECURITY.md).
     if not shutil.which("jq"):
         typer.echo(
             "\nNote: `jq` is not on PATH — the shell hooks (guards + learning capture) will silently "
             "no-op until you install it. The config, agents, skills, and CLI work regardless."
         )
+
+
+@app.command("migrate-state", hidden=not _EXPERIMENTAL)
+def migrate_state_command(
+    path: str = typer.Argument(
+        ".", help="installed project whose state should move to .ckit"
+    ),
+) -> None:
+    """Transactionally expand a legacy .claude control plane into neutral .ckit state."""
+
+    try:
+        result = migrate_legacy_state(path)
+    except (OSError, StateMigrationError) as exc:
+        typer.echo(f"error: state migration failed: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    if result.already_neutral:
+        typer.echo("OK    neutral .ckit state is already authoritative")
+    elif result.migrated:
+        typer.echo(
+            f"OK    migrated {len(result.copied_paths)} legacy state file(s) into .ckit; "
+            ".claude compatibility bytes were preserved"
+        )
+    else:
+        typer.echo("OK    no legacy mutable state was present; nothing changed")
 
 
 def _plan_for_export(
@@ -370,8 +719,18 @@ def _plan_for_export(
     falls back to the interactive prompt via :func:`_resolve_plan`.
     """
     fs = ProjectFS(target_dir)
-    opts_rel = ".claude/config/init-options.json"
-    if config is None and not defaults and fs.is_file(opts_rel):
+    opts_rel = next(
+        (
+            candidate
+            for candidate in (
+                StateLayout.neutral().manifest,
+                StateLayout.legacy_claude().manifest,
+            )
+            if fs.is_file(candidate)
+        ),
+        None,
+    )
+    if config is None and not defaults and opts_rel is not None:
         try:
             data = json.loads(fs.read_text(opts_rel))
             options = InitOptions.from_dict(data)
@@ -554,11 +913,43 @@ def upgrade(
     force: bool = typer.Option(
         False, "--force", help="overwrite user-modified kit files"
     ),
+    runtime: Optional[str] = typer.Option(
+        None,
+        "--runtime",
+        help="explicitly transition a native install to claude, codex, or both",
+    ),
+    confirm_runtime_removal: bool = typer.Option(
+        False,
+        "--confirm-runtime-removal",
+        help="confirm recoverable backup/removal of a provider projection",
+    ),
 ) -> None:
     """Refresh kit-owned files, backing up user-modified ones."""
+    runtime_choice: Runtime | None = None
+    if runtime is not None:
+        try:
+            runtime_choice = Runtime.parse(runtime)
+        except ValueError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+        if runtime_choice in {Runtime.CODEX, Runtime.BOTH} and not bool(
+            os.environ.get("CKIT_EXPERIMENTAL")
+            or os.environ.get("CLAUDE_KIT_EXPERIMENTAL")
+        ):
+            typer.echo(
+                "error: Codex runtime transitions are preview features; set "
+                "CKIT_EXPERIMENTAL=1 and retry",
+                err=True,
+            )
+            raise typer.Exit(2)
     entered_target = Path(path).expanduser()
     try:
-        result = upgrader.upgrade(entered_target, force=force)
+        result = upgrader.upgrade(
+            entered_target,
+            force=force,
+            runtime=runtime_choice,
+            confirm_runtime_removal=confirm_runtime_removal,
+        )
     except OSError as exc:
         raise _fs_failure("upgrade", entered_target, exc) from exc
     _print_report(*result)
@@ -606,49 +997,94 @@ def status(
     try:
         project_fs = ProjectFS(entered_target)
         target = project_fs.root
+        layout = detect_state_layout(target, fresh_default=StateLayout.legacy_claude())
     except OSError as exc:
         raise _fs_failure("inspect", entered_target, exc) from exc
-    dest = target / ".claude"
 
     # Collect the data once, then render as text or JSON without another filesystem read.
     components: dict[str, Optional[int]] = {}
+    provider_components: dict[str, dict[str, Optional[int]]] = {}
+    runtimes: list[str] = []
     selection: Optional[dict] = None
-    continuity = dest / "CONTINUITY.md"
     continuity_present = False
     continuity_lines: list[str] = []
+    pipeline_snapshot: dict = {}
     try:
-        installed = dest.is_dir()
+        manifest_present = project_fs.is_file(layout.manifest)
+        installed = manifest_present or (
+            layout == StateLayout.legacy_claude() and project_fs.is_dir(layout.root)
+        )
         if installed:
-            for name in ("rules", "agents", "skills", "hooks"):
-                d = dest / name
-                if not d.is_dir():
-                    components[name] = None
-                elif name == "skills":
-                    # A skill is a directory holding SKILL.md; skills/_references/ is shared
-                    # support content, not a skill — this matches validate's count.
-                    components[name] = sum(
-                        1 for p in d.iterdir() if (p / "SKILL.md").is_file()
-                    )
-                else:
-                    components[name] = sum(
-                        1 for p in d.iterdir() if p.name != ".gitkeep"
-                    )
-            options = dest / "config" / "init-options.json"
-            if options.is_file():
-                document = json.loads(
-                    project_fs.read_text(".claude/config/init-options.json")
-                )
+            parsed_options: InitOptions | None = None
+            if manifest_present:
+                document = json.loads(project_fs.read_text(layout.manifest))
                 parsed_options = InitOptions.from_dict(document)
                 with ExitStack() as stack:
                     catalog.resolve(
                         scaffold.payload_dir(stack), parsed_options.selection
                     )
                 selection = parsed_options.selection.to_dict()
-            continuity_present = continuity.is_file()
+
+            runtimes = parsed_options.runtimes if parsed_options else ["claude"]
+            if "claude" in runtimes:
+                component_dirs = {
+                    name: target / ".claude" / name
+                    for name in ("rules", "agents", "skills", "hooks")
+                }
+                claude_components: dict[str, Optional[int]] = {}
+                for name, directory in component_dirs.items():
+                    if not directory.is_dir():
+                        claude_components[name] = None
+                    elif name == "skills":
+                        # A skill is a directory holding SKILL.md; skills/_references/ is shared
+                        # support content, not a skill — this matches validate's count.
+                        claude_components[name] = sum(
+                            1
+                            for path in directory.iterdir()
+                            if (path / "SKILL.md").is_file()
+                        )
+                    else:
+                        claude_components[name] = sum(
+                            1 for path in directory.iterdir() if path.name != ".gitkeep"
+                        )
+                provider_components["claude"] = claude_components
+                components = dict(claude_components)
+            if "codex" in runtimes:
+                # Codex projects encode the rule set in AGENTS.md rather than a .codex/rules
+                # directory. The remaining component counts stay filesystem-backed just like the
+                # Claude view and never consult a synthetic .claude tree.
+                counted_codex: dict[str, Optional[int]] = {
+                    "rules": 1 if (target / "AGENTS.md").is_file() else None
+                }
+                codex_dirs = {
+                    "agents": target / ".codex" / "agents",
+                    "skills": target / ".agents" / "skills",
+                    "hooks": target / ".codex" / "hooks" / "scripts",
+                }
+                for name, directory in codex_dirs.items():
+                    if not directory.is_dir():
+                        counted_codex[name] = None
+                    elif name == "skills":
+                        counted_codex[name] = sum(
+                            1
+                            for path in directory.iterdir()
+                            if (path / "SKILL.md").is_file()
+                        )
+                    else:
+                        counted_codex[name] = sum(
+                            1 for path in directory.iterdir() if path.name != ".gitkeep"
+                        )
+                provider_components["codex"] = counted_codex
+                if "claude" not in runtimes:
+                    components = dict(counted_codex)
+            continuity_present = project_fs.is_file(layout.continuity)
             if continuity_present:
-                continuity_lines = continuity.read_text(
-                    encoding="utf-8", errors="replace"
-                ).splitlines()[:30]
+                continuity_lines = (
+                    project_fs.read_bytes(layout.continuity)
+                    .decode("utf-8", errors="replace")
+                    .splitlines()[:30]
+                )
+            pipeline_snapshot = tickets_mod.pipeline_stage(target)
     except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
         typer.echo(f"error: could not read installed selection: {exc}", err=True)
         raise typer.Exit(2) from exc
@@ -661,9 +1097,13 @@ def status(
                 {
                     "target": str(target),
                     "installed": installed,
+                    "runtimes": runtimes,
                     "components": components,
+                    "provider_components": provider_components,
                     "selection": selection,
                     "continuity": continuity_present,
+                    "state_layout": layout.to_dict(),
+                    "pipeline": pipeline_snapshot or None,
                 },
                 indent=2,
             )
@@ -674,9 +1114,19 @@ def status(
     if not installed:
         typer.echo("  not installed — run `claude-kit init` here.")
         return
+    typer.echo(f"  • runtimes: {', '.join(runtimes)}")
     for name in ("rules", "agents", "skills", "hooks"):
         n = components[name]
         typer.echo(f"  • {name}/: {n}" if n is not None else f"  • {name}/: (missing)")
+    if len(provider_components) > 1:
+        typer.echo("  • native projections:")
+        for provider in runtimes:
+            counts = provider_components.get(provider, {})
+            summary = ", ".join(
+                f"{name}={counts.get(name) if counts.get(name) is not None else 'missing'}"
+                for name in ("rules", "agents", "skills", "hooks")
+            )
+            typer.echo(f"      - {provider}: {summary}")
     if selection is not None:
         sel = selection
         typer.echo(
@@ -684,8 +1134,17 @@ def status(
             f"{sel.get('backend_language')}/{sel.get('backend_framework')} + "
             f"{sel.get('database')} · profile={sel.get('profile')} · mcp={sel.get('mcp') or 'none'}"
         )
+    if pipeline_snapshot:
+        stage = (
+            pipeline_snapshot.get("stage")
+            or pipeline_snapshot.get("phase")
+            or "unknown"
+        )
+        gate = pipeline_snapshot.get("last_gate_passed")
+        suffix = f" · last gate={gate}" if gate else ""
+        typer.echo(f"  • pipeline: {stage}{suffix}")
     if continuity_present:
-        typer.echo("\n  working memory (.claude/CONTINUITY.md):")
+        typer.echo(f"\n  working memory ({layout.continuity}):")
         for line in continuity_lines:
             typer.echo(f"    {line}")
     else:
@@ -707,7 +1166,7 @@ def write_board_html(store: "tickets_mod.Store", target: Path, refresh: int) -> 
     fs = ProjectFS(target)
     with fs.mutation_lease():
         return fs.write_text(
-            board_html.BOARD_REL,
+            board_html.board_rel(target),
             board_html.render_html(
                 store,
                 refresh=refresh,
@@ -961,6 +1420,291 @@ def privacy_report(
     _emit_report(*hooks.privacy_report(path), as_json=json_out)
 
 
+_WORKFLOW_CONDITION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _workflow_conditions(values: Optional[list[str]]) -> dict[str, bool]:
+    """Parse repeatable ``NAME=true|false`` decisions without guessing intent."""
+
+    decisions: dict[str, bool] = {}
+    for raw in values or []:
+        name, separator, raw_value = raw.partition("=")
+        name = name.strip()
+        value = raw_value.strip().lower()
+        if (
+            separator != "="
+            or not _WORKFLOW_CONDITION_RE.fullmatch(name)
+            or ".." in name
+            or value not in {"true", "false"}
+        ):
+            raise ValueError(
+                f"invalid workflow condition {raw!r}; expected NAME=true or NAME=false"
+            )
+        if name in decisions:
+            raise ValueError(f"workflow condition {name!r} was provided more than once")
+        decisions[name] = value == "true"
+    return decisions
+
+
+def _workflow_result_document(result: object) -> dict[str, Any]:
+    """Return the bounded, provider-neutral public view of an execution result."""
+
+    from claude_kit.dispatch import public_human_stop_text
+    from claude_kit.workflow_executor import WorkflowExecutionResult
+
+    if not isinstance(result, WorkflowExecutionResult):
+        raise TypeError("workflow executor returned an unsupported result")
+    human_stop = None
+    if result.human_stop is not None:
+        human_stop = {
+            "reason": result.human_stop.reason.value,
+            "message": public_human_stop_text(
+                result.human_stop.message,
+                fallback="managed execution requires a human decision",
+            ),
+            "requested_action": public_human_stop_text(
+                result.human_stop.requested_action,
+                fallback="inspect the private run artifacts and decide how to proceed",
+            ),
+        }
+    attempts = []
+    for attempt in result.attempts:
+        artifact = None
+        if attempt.artifact is not None:
+            artifact = {
+                "path": attempt.artifact.path,
+                "sha256": attempt.artifact.sha256,
+                "truncated": attempt.artifact.truncated,
+                "category": attempt.artifact.category,
+            }
+        attempts.append(
+            {
+                "stage": attempt.stage,
+                "role": attempt.role,
+                "dispatch_id": attempt.handle.id,
+                "attempt": attempt.handle.attempt,
+                "provider": attempt.handle.provider,
+                "status": attempt.status.value,
+                "evidence": [reference.uri for reference in attempt.evidence],
+                "error": attempt.error,
+                "artifact": artifact,
+            }
+        )
+    return {
+        "status": result.status.value,
+        "completed_stages": list(result.completed_stages),
+        "skipped_stages": list(result.skipped_stages),
+        "pending_gates": list(result.pending_gates),
+        "human_stop": human_stop,
+        "attempts": attempts,
+        "messages": list(result.messages),
+    }
+
+
+def _pending_workflow_stop_document(
+    snapshot: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Return a stable public checkpoint when a persisted human stop is pending."""
+
+    from claude_kit.dispatch import public_human_stop_text
+
+    raw_stops = snapshot.get("human_stops", [])
+    if not isinstance(raw_stops, list):
+        raise ValueError("active pipeline run has a malformed human-stop ledger")
+    pending = [
+        stop
+        for stop in raw_stops
+        if isinstance(stop, dict) and stop.get("status") == "pending"
+    ]
+    if not pending:
+        return None
+    if len(pending) != 1:
+        raise ValueError("active pipeline run has more than one pending human stop")
+    stop = pending[0]
+    stop_id = public_human_stop_text(stop.get("stop_id", ""), fallback="unknown-stop")
+    reason = public_human_stop_text(
+        stop.get("reason", ""), fallback="unsupported-required-capability"
+    )
+    message = public_human_stop_text(
+        stop.get("message", ""), fallback="managed execution requires a human decision"
+    )
+    requested_action = public_human_stop_text(
+        stop.get("requested_action", ""),
+        fallback="inspect the private run artifacts and resolve the pending pause",
+    )
+    stage = snapshot.get("stage")
+    pending_gates = [stage] if isinstance(stage, str) and stage.strip() else []
+    return {
+        "status": "human-stop",
+        "completed_stages": [],
+        "skipped_stages": [],
+        "pending_gates": pending_gates,
+        "human_stop": {
+            "stop_id": stop_id,
+            "reason": reason,
+            "message": message,
+            "requested_action": requested_action,
+        },
+        "attempts": [],
+        "messages": [
+            f"pending human stop {stop_id} must be resolved before managed execution resumes"
+        ],
+    }
+
+
+@pipeline_app.command(
+    "run",
+    hidden=not _EXPERIMENTAL,
+    help=r"\[Preview] Execute/resume the frozen workflow through one native host adapter.",
+)
+def pipeline_run(
+    provider: Annotated[
+        Provider,
+        typer.Option(
+            "--provider",
+            help="concrete installed host used for this invocation: claude or codex",
+        ),
+    ],
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+    condition: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--condition",
+            help="freeze a workflow decision as NAME=true|false; repeat as needed",
+        ),
+    ] = None,
+    context: str = typer.Option(
+        "",
+        "--context",
+        help="bounded additional context supplied to each pending stage",
+    ),
+    program_manifest: Annotated[
+        Optional[Path],
+        typer.Option(
+            "--program-manifest",
+            help="explicit project-contained frozen manifest required for Mode E",
+        ),
+    ] = None,
+    wait_timeout_seconds: float = typer.Option(
+        900.0,
+        "--wait-timeout-seconds",
+        min=1.0,
+        help="maximum bounded wait for each native worker attempt",
+    ),
+    json_out: bool = typer.Option(
+        False, "--json", help="emit the structured execution result as JSON"
+    ),
+) -> None:
+    """Execute an active managed run until a gate, human stop, failure, or completion.
+
+    The active ledger supplies the objective and mode.  Conditions are explicit and
+    frozen on first execution; provider switches resume the same ``.ckit`` ledger.
+    Mode E requires ``--program-manifest`` and remains Preview. Reversible,
+    contained units can progress; irreversible units stop at the broker boundary.
+    """
+
+    if not bool(
+        os.environ.get("CKIT_EXPERIMENTAL") or os.environ.get("CLAUDE_KIT_EXPERIMENTAL")
+    ):
+        typer.echo(
+            "error: structured workflow execution is Preview; set CKIT_EXPERIMENTAL=1 and retry",
+            err=True,
+        )
+        raise typer.Exit(2)
+    from claude_kit.process_dispatch import DispatchAdapterError
+    from claude_kit.workflow_executor import (
+        WorkflowExecutionStatus,
+        execute_bound_workflow,
+    )
+    from claude_kit.workflows import WorkflowValidationError
+
+    try:
+        decisions = _workflow_conditions(condition)
+        snapshot, snapshot_error = pipeline.snapshot_document(path)
+        if snapshot_error is not None or snapshot is None:
+            raise ValueError(snapshot_error or "no active pipeline run")
+        if snapshot.get("status") != "active":
+            raise ValueError(
+                "structured workflow execution requires an active pipeline run"
+            )
+        objective = snapshot.get("task")
+        mode = snapshot.get("mode")
+        if not isinstance(objective, str) or not objective.strip():
+            raise ValueError("active pipeline run has no valid task")
+        if not isinstance(mode, str) or not mode.strip():
+            raise ValueError("active pipeline run has no valid mode")
+
+        document = _pending_workflow_stop_document(snapshot)
+        if document is None:
+            result = execute_bound_workflow(
+                Path(path),
+                provider=provider.value,
+                objective=objective,
+                mode=mode,
+                conditions=decisions,
+                context=context,
+                program_manifest_path=program_manifest,
+                wait_timeout_seconds=wait_timeout_seconds,
+            )
+            document = _workflow_result_document(result)
+    except (
+        DispatchAdapterError,
+        OSError,
+        TypeError,
+        ValueError,
+        WorkflowValidationError,
+        WorktreeError,
+    ) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+    if json_out:
+        typer.echo(json.dumps(document, sort_keys=True))
+    else:
+        typer.echo(f"structured workflow: {document['status']}")
+        completed = document["completed_stages"]
+        skipped = document["skipped_stages"]
+        pending = document["pending_gates"]
+        typer.echo(
+            f"completed={len(completed)} skipped={len(skipped)} attempts={len(document['attempts'])}"
+        )
+        if pending:
+            typer.echo("pending gates: " + ", ".join(pending))
+        human_stop = document["human_stop"]
+        if isinstance(human_stop, dict):
+            typer.echo(
+                "human stop: "
+                + str(human_stop["reason"])
+                + " — "
+                + str(human_stop["message"])
+            )
+            typer.echo("requested action: " + str(human_stop["requested_action"]))
+        for attempt in document["attempts"]:
+            artifact = attempt.get("artifact")
+            if isinstance(artifact, dict):
+                typer.echo(
+                    "artifact "
+                    + str(attempt["stage"])
+                    + "#"
+                    + str(attempt["attempt"])
+                    + ": "
+                    + str(artifact["path"])
+                    + " sha256="
+                    + str(artifact["sha256"])
+                    + " category="
+                    + str(artifact["category"])
+                    + " truncated="
+                    + str(artifact["truncated"]).lower()
+                )
+        for message in document["messages"]:
+            typer.echo(str(message))
+
+    if document["status"] == WorkflowExecutionStatus.HUMAN_STOP.value:
+        raise typer.Exit(3)
+    if document["status"] == WorkflowExecutionStatus.FAILED.value:
+        raise typer.Exit(1)
+
+
 @pipeline_app.command("validate")
 def pipeline_validate(
     path: str = typer.Argument(".", help="target project dir (default: .)"),
@@ -1054,6 +1798,120 @@ def pipeline_resume(
 ) -> None:
     """Validate and resume an active run bound to this repository and branch."""
     _print_report(*pipeline.resume(path))
+
+
+@pipeline_app.command("reconcile-stale-attempt")
+def pipeline_reconcile_stale_attempt(
+    stage: str = typer.Argument(..., help="stage with the stale running claim"),
+    dispatch_id: str = typer.Option(
+        ..., "--dispatch-id", help="exact stale dispatch identifier"
+    ),
+    reconciled_by: str = typer.Option(
+        ..., "--reconciled-by", help="accountable operator performing recovery"
+    ),
+    evidence: str = typer.Option(
+        ...,
+        "--evidence",
+        help="project-contained operator record proving the coordinator stopped",
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Recover one provably side-effect-free stale Claude stage claim."""
+
+    _print_report(
+        *pipeline.reconcile_stale_stage_attempt(
+            path,
+            stage=stage,
+            dispatch_id=dispatch_id,
+            reconciled_by=reconciled_by,
+            evidence=evidence,
+        )
+    )
+
+
+@pipeline_app.command("reconcile-stale-program-attempt", hidden=True)
+def pipeline_reconcile_stale_program_attempt(
+    unit: str = typer.Argument(..., help="Mode E unit with the stale running claim"),
+    dispatch_id: str = typer.Option(
+        ..., "--dispatch-id", help="exact stale dispatch identifier"
+    ),
+    reconciled_by: str = typer.Option(
+        ..., "--reconciled-by", help="accountable operator performing recovery"
+    ),
+    evidence: str = typer.Option(
+        ...,
+        "--evidence",
+        help="project-contained operator record proving the coordinator stopped",
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Recover one unchanged, side-effect-free stale Mode E unit claim."""
+
+    _print_report(
+        *pipeline.reconcile_stale_program_attempt(
+            path,
+            unit_id=unit,
+            dispatch_id=dispatch_id,
+            reconciled_by=reconciled_by,
+            evidence=evidence,
+        )
+    )
+
+
+@pipeline_app.command("pause")
+def pipeline_pause(
+    reason: str = typer.Option(
+        ...,
+        "--reason",
+        help="portable stop reason (for example missing-requirements or external-side-effect)",
+    ),
+    message: str = typer.Option(..., "--message", help="why autonomous work must stop"),
+    requested_action: str = typer.Option(
+        ...,
+        "--requested-action",
+        help="the exact decision or input needed from a human",
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Persist a mandatory provider-neutral human stop on the active run."""
+
+    _print_report(
+        *pipeline.pause_for_human(
+            path,
+            reason=reason,
+            message=message,
+            requested_action=requested_action,
+        )
+    )
+
+
+@pipeline_app.command("resolve-pause")
+def pipeline_resolve_pause(
+    stop_id: str = typer.Argument(..., help="pending human-stop identifier"),
+    decision: str = typer.Option(..., "--decision", help="approved or rejected"),
+    resolved_by: str = typer.Option(
+        ..., "--resolved-by", help="accountable human making the decision"
+    ),
+    note: str = typer.Option(..., "--note", help="decision rationale and boundaries"),
+    evidence: Optional[str] = typer.Option(
+        None,
+        "--evidence",
+        help="project-contained approval record (required when approved)",
+    ),
+    path: str = typer.Argument(".", help="target project dir (default: .)"),
+) -> None:
+    """Resolve a pending stop; approved decisions require hashed local evidence."""
+
+    _print_report(
+        *pipeline.resolve_human_stop(
+            path,
+            stop_id,
+            decision=decision,
+            resolved_by=resolved_by,
+            note=note,
+            evidence=evidence,
+        )
+    )
 
 
 @pipeline_app.command("record-findings")

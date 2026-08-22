@@ -1,0 +1,14 @@
+schema_version: 1
+id: quality-gates
+description: Quality Gates, Severity & Blind Review
+strength: required
+applicability:
+  source: core
+path_globs: []
+references:
+- agent://devils-advocate
+- rule://documentation
+- rule://human-in-the-loop
+- rule://rarv-cycle
+- state://continuity
+- state://workflow

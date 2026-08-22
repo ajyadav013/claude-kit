@@ -27,7 +27,7 @@ zap-vapt-tool.zip
 # Do NOT add a bare `CONTINUITY.md` here: with no leading slash it matches at every
 # depth, and on case-insensitive filesystems (macOS default) it also swallows
 # rules/continuity.md — the tracked rule file.
-.claude/
+/.claude/
 
 # Local-only working artifacts — generated during development, never part of the distributable kit.
 # (Review write-ups, ad-hoc patches, and locally-gathered reference data.)

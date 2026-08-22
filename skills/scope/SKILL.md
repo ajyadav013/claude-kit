@@ -1,7 +1,7 @@
 ---
 name: scope
 description: Generate a detailed scope document for a backlog item by analyzing the codebase, dependencies, and reference docs.
-argument-hint: [backlog item number]
+argument-hint: '[backlog item number]'
 disable-model-invocation: true
 ---
 

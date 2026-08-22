@@ -1,0 +1,11 @@
+schema_version: 1
+id: ambiguity-resolution
+description: Ambiguity Resolution
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://human-in-the-loop
+- rule://prompt-to-task-conversion
+- rule://risk-classification

@@ -1,0 +1,13 @@
+schema_version: 1
+id: mobile-design-guidelines
+description: Mobile Design Guidelines
+strength: required
+applicability:
+  source: stack
+  stack_dir: frontend/react
+path_globs:
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.css'
+- '**/*.scss'
+references: []

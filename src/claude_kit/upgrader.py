@@ -21,6 +21,7 @@ contract shared by the other lifecycle commands.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import tempfile
@@ -32,10 +33,18 @@ import yaml
 
 from claude_kit import __version__, catalog, scaffold
 from claude_kit.models import (
-    UPGRADE_JOURNAL,
     FileRecord,
     InitOptions,
+    InstallRequest,
     ResolvedPlan,
+    Runtime,
+    StateLayout,
+)
+from claude_kit.runtime_scaffold import (
+    RuntimeInstallError,
+    install_runtime,
+    preview_runtime_install,
+    transition_runtime,
 )
 from claude_kit.secure_fs import (
     ProjectFS,
@@ -48,6 +57,7 @@ from claude_kit.validator import _load_init_options, _read_init_options
 
 #: Sidecar suffix for a new version of a user-modified, protected file.
 _SIDECAR_SUFFIX = ".claude-kit"
+_LEGACY_STATE_LAYOUT = StateLayout.legacy_claude()
 
 
 @dataclass(frozen=True)
@@ -115,7 +125,7 @@ def _diff_actions(
     """
     actions: list[_Action] = []
     fs = ProjectFS(target)
-    fs.assert_tree_safe(".claude")
+    fs.assert_tree_safe(_LEGACY_STATE_LAYOUT.root)
     for rel, rrec in sorted(ref.items()):
         rel = normalize_relative_path(rel)
         live = fs.assert_safe(rel)
@@ -168,11 +178,11 @@ def _compare(src: Path, target: str | Path) -> _Comparison | str:
     """
     target = Path(os.path.abspath(os.fspath(Path(target).expanduser())))
     fs = ProjectFS(target)
-    claude = target / ".claude"
-    if not fs.is_dir(".claude"):
+    claude = target / _LEGACY_STATE_LAYOUT.root
+    if not fs.is_dir(_LEGACY_STATE_LAYOUT.root):
         return "not-installed"
-    fs.assert_tree_safe(".claude")
-    snapshot_rel = ".claude/config/stack-catalog.snapshot.yaml"
+    fs.assert_tree_safe(_LEGACY_STATE_LAYOUT.root)
+    snapshot_rel = _LEGACY_STATE_LAYOUT.stack_snapshot
     if fs.is_file(snapshot_rel):
         try:
             snapshot = yaml.safe_load(fs.read_text(snapshot_rel))
@@ -204,7 +214,7 @@ def _compare(src: Path, target: str | Path) -> _Comparison | str:
     # reference itself is rendered into ref_root); otherwise discovered commands would diff.
     scaffold.install_sdlc(src, ref_root, plan, force=True, log=[], detect_target=target)
 
-    ref_opts = _load_init_options(ref_root / ".claude")
+    ref_opts = _load_init_options(ref_root / _LEGACY_STATE_LAYOUT.root)
     ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
     old_map = {r.path: r for r in old.files}
 
@@ -278,8 +288,121 @@ def _format_preview(cmp: _Comparison) -> list[str]:
     return msgs
 
 
+def _native_options(fs: ProjectFS) -> InitOptions:
+    """Load and fail closed on the runtime-neutral native manifest."""
+
+    try:
+        document = json.loads(fs.read_text(StateLayout.neutral().manifest))
+        if not isinstance(document, dict):
+            raise ValueError("document root must be an object")
+        options = InitOptions.from_dict(document)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise RuntimeInstallError(f"native init-options is corrupt: {exc}") from exc
+    if options.state_layout != StateLayout.neutral():
+        raise RuntimeInstallError(
+            "native install does not use the neutral state layout"
+        )
+    return options
+
+
+def _native_diff(fs: ProjectFS) -> tuple[bool, list[str]]:
+    """Validate and preview a native same-runtime refresh without mutation."""
+
+    try:
+        options = _native_options(fs)
+        with ExitStack() as stack:
+            src = scaffold.payload_dir(stack)
+            plan = catalog.resolve(src, options.selection)
+            request = InstallRequest(options.selection, options.runtime)
+            projection, desired = preview_runtime_install(src, fs.root, plan, request)
+    except (
+        FileNotFoundError,
+        OSError,
+        RuntimeInstallError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        return False, [f"FAIL  cannot preview native runtime upgrade: {exc}"]
+
+    missing = [path for path in desired if not fs.exists(path)]
+    drifted = [
+        record.path
+        for record in options.files
+        if record.owner in {"kit", "overlay"}
+        and fs.is_file(record.path)
+        and hashlib.sha256(fs.read_bytes(record.path)).hexdigest() != record.sha256
+    ]
+    messages = [
+        "OK    native upgrade preview validated for runtime(s): "
+        + ", ".join(options.runtimes),
+        f"INFO  rendering version: installed={options.rendering_version}, "
+        f"current={max(projection.rendering_versions.values())}",
+        f"INFO  desired inventory: {len(desired)} files; missing={len(missing)}; "
+        f"locally modified kit files={len(drifted)}",
+    ]
+    for path in missing[:10]:
+        messages.append(f"  add                         {path}")
+    for path in drifted[:10]:
+        messages.append(
+            f"  preserve local edit         {path} (new copy will use sidecar)"
+        )
+    if not missing and not drifted and options.claude_kit_version == __version__:
+        messages.append("OK    native install is structurally up to date")
+    return True, messages
+
+
+def _native_upgrade(
+    fs: ProjectFS,
+    *,
+    force: bool,
+    runtime: str | Runtime | None,
+    confirm_runtime_removal: bool,
+) -> tuple[bool, list[str]]:
+    """Refresh or explicitly transition one native runtime installation."""
+
+    try:
+        options = _native_options(fs)
+        selected = options.runtime if runtime is None else Runtime.parse(runtime)
+        with ExitStack() as stack:
+            source = scaffold.payload_dir(stack)
+            plan = catalog.resolve(source, options.selection)
+            request = InstallRequest(options.selection, selected)
+            if selected is options.runtime:
+                log = install_runtime(source, fs.root, plan, request, force=force)
+            else:
+                log = transition_runtime(
+                    source,
+                    fs.root,
+                    plan,
+                    request,
+                    force=force,
+                    confirm_removal=confirm_runtime_removal,
+                )
+    except (
+        FileNotFoundError,
+        OSError,
+        RuntimeInstallError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        return False, [f"FAIL  native runtime upgrade refused: {exc}"]
+    messages = list(log)
+    messages.append(
+        "OK    native runtime transition complete"
+        if selected is not options.runtime
+        else "OK    native runtime upgrade complete"
+    )
+    return True, messages
+
+
 def diff(target: str | Path) -> tuple[bool, list[str]]:
     """Preview what an upgrade would change (no writes). Returns ``(ok, messages)``."""
+    try:
+        fs = ProjectFS(target)
+        if fs.is_file(StateLayout.neutral().manifest):
+            return _native_diff(fs)
+    except (OSError, UnsafePathError) as exc:
+        return False, [f"FAIL  {exc}"]
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
         try:
@@ -294,7 +417,13 @@ def diff(target: str | Path) -> tuple[bool, list[str]]:
             _cleanup(result.ref_root)
 
 
-def upgrade(target: str | Path, *, force: bool = False) -> tuple[bool, list[str]]:
+def upgrade(
+    target: str | Path,
+    *,
+    force: bool = False,
+    runtime: str | Runtime | None = None,
+    confirm_runtime_removal: bool = False,
+) -> tuple[bool, list[str]]:
     """Apply the upgrade: refresh kit/overlay files, protect user edits, prune orphans.
 
     Args:
@@ -304,6 +433,24 @@ def upgrade(target: str | Path, *, force: bool = False) -> tuple[bool, list[str]
     Returns:
         ``(ok, messages)``.
     """
+    try:
+        native_fs = ProjectFS(target)
+        if native_fs.is_file(StateLayout.neutral().manifest):
+            return _native_upgrade(
+                native_fs,
+                force=force,
+                runtime=runtime,
+                confirm_runtime_removal=confirm_runtime_removal,
+            )
+    except (OSError, UnsafePathError) as exc:
+        return False, [f"FAIL  {exc}"]
+
+    if runtime is not None:
+        return False, [
+            "FAIL  runtime transitions require neutral .ckit state; run "
+            "`ckit migrate-state` or `ckit init --runtime <runtime> --migrate-state` first"
+        ]
+
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
         result: _Comparison | str | None = None
@@ -356,9 +503,9 @@ def merge_install(
             scaffold.install_sdlc(
                 src, ref_root, plan, force=True, log=[], detect_target=target
             )
-            ref_opts = _load_init_options(ref_root / ".claude")
+            ref_opts = _load_init_options(ref_root / _LEGACY_STATE_LAYOUT.root)
             ref = {r.path: r for r in ref_opts.files} if ref_opts else {}
-            old = _load_init_options(target / ".claude")
+            old = _load_init_options(target / _LEGACY_STATE_LAYOUT.root)
             old_map = {r.path: r for r in old.files} if old is not None else {}
             actions = _diff_actions(ref, old_map, target, backup_untracked=True)
             cmp = _Comparison(
@@ -384,8 +531,8 @@ def _apply(
     if not cmp.actions:
         # Backward compatibility: clear a schema-1 convergence-only journal left
         # by an older claude-kit after its baseline had already committed.
-        if journal and fs.is_file(f".claude/config/{UPGRADE_JOURNAL}"):
-            fs.unlink(f".claude/config/{UPGRADE_JOURNAL}")
+        if journal and fs.is_file(_LEGACY_STATE_LAYOUT.journal):
+            fs.unlink(_LEGACY_STATE_LAYOUT.journal)
             msgs.append(
                 "INFO  cleared a leftover upgrade journal (work already complete)"
             )
@@ -458,11 +605,13 @@ def _apply(
 
         # Adopt the canonical reference checksums rather than the live checksum of
         # a protected file whose user-owned contents were kept.
-        ref_config = ref_root / ".claude" / "config"
-        for name in ("init-options.json", "stack-catalog.snapshot.yaml"):
-            source = ref_config / name
+        for relative in (
+            _LEGACY_STATE_LAYOUT.manifest,
+            _LEGACY_STATE_LAYOUT.stack_snapshot,
+        ):
+            source = ref_root / relative
             if source.is_file():
-                fs.copy_file(source, f".claude/config/{name}")
+                fs.copy_file(source, relative)
 
     if backed_up:
         msgs.append(
@@ -499,7 +648,7 @@ def _explain_error(code: str, target: str | Path) -> tuple[bool, list[str]]:
         ]
     if code == "corrupt-options":
         return False, [
-            "FAIL  .claude/config/init-options.json is unreadable — it is not valid JSON, or a "
+            f"FAIL  {_LEGACY_STATE_LAYOUT.manifest} is unreadable — it is not valid JSON, or a "
             "recorded file path is not project-relative (a path containing '..' or a leading '/' "
             "is refused, since upgrade resolves recorded paths against this project and may "
             "delete them). Repair it, or re-run `claude-kit init --force` to re-create it"
@@ -507,11 +656,11 @@ def _explain_error(code: str, target: str | Path) -> tuple[bool, list[str]]:
     if code.startswith("invalid-selection:"):
         detail = code.partition(":")[2]
         return False, [
-            "FAIL  .claude/config/init-options.json contains a selection that does not resolve "
+            f"FAIL  {_LEGACY_STATE_LAYOUT.manifest} contains a selection that does not resolve "
             f"against this kit's catalog ({detail}) — repair it or re-run "
             "`claude-kit init --force`"
         ]
     return False, [
-        "FAIL  no .claude/config/init-options.json — this install predates upgrade tracking; "
+        f"FAIL  no {_LEGACY_STATE_LAYOUT.manifest} — this install predates upgrade tracking; "
         "re-run `claude-kit init --force` to start tracking"
     ]

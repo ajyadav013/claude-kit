@@ -49,9 +49,10 @@ ledger and never fall back to `close-gate --force`.
 ## 5. Fan out disjoint stories across orchestrators
 
 When ≥2 unblocked stories have disjoint file boundaries: one orchestrator per story group, each in
-its own `git worktree` (each gets its own CONTINUITY/snapshot). Merge in dependency order — you
-approve each mainline merge — then run the run-level gates (test coverage, security) on the merged
-output in the primary checkout.
+its own `git worktree`, but all groups use the primary checkout's single `.ckit` continuity file and
+pipeline ledger. Worktrees contain code and evidence artifacts, never a second snapshot. Merge in
+dependency order — you approve each mainline merge — then run the run-level gates (test coverage,
+security) on the merged output in the primary checkout.
 
 ## 6. Route ceremony by story risk; batch the mechanical tail
 

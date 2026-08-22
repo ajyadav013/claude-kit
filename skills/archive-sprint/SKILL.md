@@ -1,7 +1,7 @@
 ---
 name: archive-sprint
 description: Archive a completed sprint's planning docs and update the backlog status.
-argument-hint: [backlog item number]
+argument-hint: '[backlog item number]'
 disable-model-invocation: true
 ---
 

@@ -12,11 +12,21 @@ missing its `existing` flag) that referential checks don't.
 | `catalog-mcp.schema.json` | `catalog/mcp.yaml` | `check_catalog` / CI |
 | `catalog-capture.schema.json` | `catalog/capture.yaml` | `check_catalog` / CI |
 | `catalog-org.schema.json` | `catalog/org.yaml` | `check_catalog` / CI |
-| `claude-code-compatibility.schema.json` | pinned minimum/current Claude Code versions, features, and recognized events | `check_catalog` / CI / `doctor` |
+| `claude-compatibility.schema.json` | pinned minimum/current Claude Code versions plus event, agent, skill, plugin, and MCP contracts | `check_catalog` / CI / `doctor` |
+| `codex-compatibility.schema.json` | pinned Codex CLI versions, exact official validator-bundle hashes, and native feature/event/agent/skill/plugin capabilities | `check_catalog` / CI |
+| `plugin-metadata.schema.json` | canonical Claude Code + Codex plugin identity and provider presentation metadata | `check_catalog` / CI / manifest generation |
+| `canonical-agent.schema.json` | provider-neutral agent ID, description, capabilities, semantic model tier, permission/write/isolation/delegation policy, skills, and symbolic references | strict canonical loader / payload drift CI |
+| `canonical-skill.schema.json` | provider-neutral skill metadata, invocation policy, capabilities, and body source | strict canonical loader / payload drift CI |
+| `canonical-command.schema.json` | provider-neutral command aliases and request semantics | strict canonical loader / payload drift CI |
+| `canonical-rule.schema.json` | provider-neutral rule body plus applicability and path-glob metadata | strict canonical loader / payload drift CI |
+| `canonical-template.schema.json` | provider-neutral text template, format, destination role, and symbolic placeholders | strict canonical loader / payload drift CI |
+| `workflow.schema.json` | stages, role routing, dependencies, parallel lanes, ordered/conditional gates, retries, evidence, findings policy, and operating modes | strict workflow loader / digest tests / CI |
 | `org-pack.schema.json` | `templates/org/packs/<id>/pack.yaml` | `check_catalog` / CI |
 | `mcp-lock.schema.json` | `.mcp.lock.json` (a project's resolved MCP lock) | `validate --strict` |
-| `pipeline-snapshot.schema.json` | `.claude/state/pipeline-snapshot.json` | `validate --strict` |
-| `stack-catalog-snapshot.schema.json` | `.claude/config/stack-catalog.snapshot.yaml` | `validate --strict` |
+| `pipeline-snapshot.schema.json` | fresh `.ckit/state/pipeline-snapshot.json` (legacy `.claude/state/` remains readable during migration) | `validate --strict` |
+| `program-manifest.schema.json` | a frozen, content-addressed Mode E program plan before any program worker is dispatched | strict loader plus manifest/run binding; the Preview program executor records waves, units, attempts, evidence, gates, budgets, and checkpoints in `pipeline-snapshot.schema.json` |
+| `managed-approval.schema.json` | a detached, origin-bound authorization request/envelope and typed external-action receipt | strict managed-approval loader; schema validity alone is never authorization |
+| `stack-catalog-snapshot.schema.json` | fresh `.ckit/config/stack-catalog.snapshot.yaml` (legacy `.claude/config/` remains readable during migration) | `validate --strict` |
 
 ## Required dependency and fail-closed behavior
 
@@ -29,6 +39,25 @@ pip install claude-code-kit
 The historical `schema` extra remains as a compatibility alias. If a damaged installation lacks
 `jsonschema`, `validate --strict` fails closed rather than reporting an unvalidated artifact as safe;
 non-strict catalog inspection emits a warning.
+
+Canonical loaders additionally reject provider leakage rather than treating a schema-valid provider
+literal as portable. Claude/Codex tool names, provider model names, permission syntax, physical host
+paths, and host-only invocation variables belong in renderers. Symbolic references are resolved only
+at projection time.
+
+## Persisted runtime metadata
+
+`.ckit/config/init-options.json` is governed by the typed `InitOptions` contract rather than a
+standalone JSON Schema in this directory. Current schema v2 records:
+
+- the provider-neutral `Selection`;
+- one or more installed runtimes (`claude`, `codex`);
+- `StateLayout.neutral()` paths;
+- renderer and compatibility-catalog versions; and
+- per-file path, SHA-256, owner, provider, and logical component ID.
+
+A legacy schema-v1 document with no runtime is read as Claude-only. Explicit state migration writes
+the v2 neutral contract without deleting legacy bytes; unknown future schemas fail closed.
 
 ## Design: lenient where churn is likely
 

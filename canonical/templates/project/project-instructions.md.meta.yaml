@@ -1,0 +1,21 @@
+schema_version: 1
+id: project-instructions
+description: Project instruction entry point
+category: project
+format: markdown
+destination: templates/CLAUDE.md
+provider_placeholders:
+- provider.executable.cli
+- provider.path.agents
+- provider.path.rules
+- provider.path.skills
+references:
+- command://sdlc
+- rule://continuity
+- rule://devops-observability
+- rule://documentation
+- rule://mandatory-workflow
+- rule://quality-gates
+- rule://rarv-cycle
+- state://agent-memory
+- state://continuity

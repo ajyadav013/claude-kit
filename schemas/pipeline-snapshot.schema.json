@@ -1,268 +1,2096 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "pipeline-snapshot",
-  "title": "claude-kit runtime pipeline snapshot (pipeline-snapshot.json)",
-  "$defs": {
-    "profile": {
-      "type": "string",
-      "enum": ["lean", "standard", "enterprise"]
-    },
-    "scope": {
-      "type": "string",
-      "enum": ["individual", "team", "organization"]
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["A", "B", "C", "D", "E"]
-    },
-    "findingCounts": {
-      "type": "object",
-      "required": ["critical", "high", "medium", "low", "cosmetic"],
-      "properties": {
-        "critical": {"type": "integer", "minimum": 0},
-        "high": {"type": "integer", "minimum": 0},
-        "medium": {"type": "integer", "minimum": 0},
-        "low": {"type": "integer", "minimum": 0},
-        "cosmetic": {"type": "integer", "minimum": 0}
-      },
-      "additionalProperties": false
-    },
-    "findingsEvidence": {
-      "type": "object",
-      "required": [
-        "counts", "evidence_path", "evidence_sha256", "finding_set_digest",
-        "repository_commit", "recorded_at"
-      ],
-      "properties": {
-        "counts": {"$ref": "#/$defs/findingCounts"},
-        "evidence_path": {"type": "string", "minLength": 1},
-        "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "repository_commit": {"type": "string", "minLength": 1},
-        "recorded_at": {"type": "string", "minLength": 1}
-      },
-      "additionalProperties": false
-    },
-    "legacy": {
-      "type": "object",
-      "not": {"required": ["schema_version"]},
-      "properties": {
-        "schema": {"type": "integer", "const": 1},
-        "profile": {"$ref": "#/$defs/profile"},
-        "scope": {"$ref": "#/$defs/scope"},
-        "mode": {"$ref": "#/$defs/mode"},
-        "lanes": {"type": "object"},
-        "findings": {"type": "object"},
-        "open_findings": {"type": "object"},
-        "gate_evidence": {"type": "object"},
-        "last_gate_passed": {"type": ["string", "null"]},
-        "git": {
-          "type": "object",
-          "properties": {
-            "branch": {"type": "string"},
-            "sha": {"type": "string"},
-            "worktrees": {"type": "object"}
-          },
-          "additionalProperties": true
-        },
-        "pr": {
-          "type": "object",
-          "properties": {
-            "number": {"type": ["string", "integer"]},
-            "url": {"type": "string"},
-            "state": {"type": "string"},
-            "base": {"type": "string"},
-            "head": {"type": "string"}
-          },
-          "additionalProperties": true
-        }
-      },
-      "additionalProperties": true
-    },
-    "gateRecord": {
-      "type": "object",
-      "required": ["gate", "status", "recorded_at", "repository_commit"],
-      "properties": {
-        "gate": {"type": "string", "minLength": 1},
-        "status": {
-          "type": "string",
-          "enum": ["passed", "not-applicable", "accepted-risk", "failed", "aborted"]
-        },
-        "evidence_path": {"type": ["string", "null"]},
-        "evidence_sha256": {"type": ["string", "null"]},
-        "condition": {"type": "string"},
-        "condition_evidence_path": {"type": "string"},
-        "condition_evidence_sha256": {"type": "string"},
-        "reason": {"type": "string"},
-        "accepted_risk_ids": {
-          "type": "array",
-          "items": {"type": "string"},
-          "uniqueItems": true
-        },
-        "risk_clearance": {"$ref": "#/$defs/riskClearance"},
-        "verification": {"type": "string"},
-        "recorded_at": {"type": "string"},
-        "repository_commit": {"type": "string"}
-      },
-      "additionalProperties": true
-    },
-    "riskClearance": {
-      "type": "object",
-      "required": [
-        "reason", "cleared_by", "owner", "ticket", "revisit", "evidence_path",
-        "evidence_sha256", "cleared_at", "repository_commit", "finding_set_digest"
-      ],
-      "properties": {
-        "reason": {"type": "string", "minLength": 1},
-        "cleared_by": {"type": "string", "minLength": 1},
-        "owner": {"type": "string", "minLength": 1},
-        "ticket": {"type": "string", "minLength": 1},
-        "revisit": {"type": "string", "minLength": 1},
-        "evidence_path": {"type": "string", "minLength": 1},
-        "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "cleared_at": {"type": "string", "minLength": 1},
-        "repository_commit": {"type": "string", "minLength": 1},
-        "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
-      },
-      "additionalProperties": false
-    },
-    "acceptedRisk": {
-      "type": "object",
-      "required": [
-        "risk_id", "finding_id", "reason", "accepted_by", "owner", "ticket", "revisit",
-        "timestamp", "repository_commit", "affected_gate", "evidence_path",
-        "evidence_sha256", "medium_finding_count", "finding_set_digest", "finding_fingerprint",
-        "gate_definition_digest"
-      ],
-      "properties": {
-        "risk_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "finding_id": {"type": "string", "minLength": 1},
-        "reason": {"type": "string", "minLength": 1},
-        "accepted_by": {"type": "string", "minLength": 1},
-        "owner": {"type": "string", "minLength": 1},
-        "ticket": {"type": "string", "minLength": 1},
-        "revisit": {"type": "string", "minLength": 1},
-        "compensating_control": {"type": ["string", "null"]},
-        "timestamp": {"type": "string"},
-        "repository_commit": {"type": "string"},
-        "affected_gate": {"type": "string"},
-        "evidence_path": {"type": "string"},
-        "evidence_sha256": {"type": "string"},
-        "medium_finding_count": {"type": "integer", "minimum": 1},
-        "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "finding_fingerprint": {"type": "string"},
-        "gate_definition_digest": {"type": "string"}
-      },
-      "additionalProperties": false
-    },
-    "runArchive": {
-      "type": "object",
-      "required": [
-        "run_id", "status", "archived_at", "snapshot_sha256", "snapshot"
-      ],
-      "properties": {
-        "run_id": {"type": "string", "minLength": 1},
-        "status": {"type": "string", "enum": ["completed", "aborted"]},
-        "archived_at": {"type": "string", "minLength": 1},
-        "snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "snapshot": {"type": "object"}
-      },
-      "additionalProperties": false
-    },
-    "v2": {
-      "type": "object",
-      "required": [
-        "schema_version", "run_id", "repository_root", "branch", "starting_commit",
-        "current_commit", "kit_version", "profile", "scope", "mode", "ordered_gates",
-        "gate_definition_digest", "start_type", "created_at", "status", "task", "stage",
-        "open_findings", "findings_evidence", "accepted_risks", "gate_history"
-      ],
-      "properties": {
-        "schema_version": {"type": "integer", "const": 2},
-        "run_id": {"type": "string", "minLength": 1},
-        "repository_root": {"type": "string", "minLength": 1},
-        "branch": {"type": "string", "minLength": 1},
-        "starting_commit": {"type": "string", "minLength": 1},
-        "current_commit": {"type": "string", "minLength": 1},
-        "kit_version": {"type": "string", "minLength": 1},
-        "claude_code_version": {"type": ["string", "null"]},
-        "profile": {"$ref": "#/$defs/profile"},
-        "scope": {"$ref": "#/$defs/scope"},
-        "mode": {"$ref": "#/$defs/mode"},
-        "ordered_gates": {
-          "type": "array", "minItems": 1, "uniqueItems": true,
-          "items": {"type": "string", "minLength": 1}
-        },
-        "gate_definition_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "start_type": {"type": "string", "enum": ["fresh", "adopted"]},
-        "adoption": {"type": ["object", "null"]},
-        "created_at": {"type": "string"},
-        "completed_at": {"type": "string"},
-        "aborted_at": {"type": "string"},
-        "status": {"type": "string", "enum": ["active", "completed", "aborted"]},
-        "task": {"type": "string", "minLength": 1},
-        "stage": {"type": "string", "minLength": 1},
-        "next": {"type": "string"},
-        "lanes": {"type": "object"},
-        "open_findings": {"$ref": "#/$defs/findingCounts"},
-        "findings_evidence": {
-          "oneOf": [
-            {"type": "null"},
-            {"$ref": "#/$defs/findingsEvidence"}
-          ]
-        },
-        "gate_evidence": {"type": "object"},
-        "last_gate_passed": {"type": ["string", "null"]},
-        "last_gate_resolved": {"type": ["string", "null"]},
-        "accepted_risks": {"type": "array", "items": {"$ref": "#/$defs/acceptedRisk"}},
-        "accepted_risk_history": {
-          "type": "array",
-          "items": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "pipeline-snapshot",
+    "title": "claude-kit runtime pipeline snapshot (pipeline-snapshot.json)",
+    "$defs": {
+        "profile": {"type": "string", "enum": ["lean", "standard", "enterprise"]},
+        "scope": {"type": "string", "enum": ["individual", "team", "organization"]},
+        "mode": {"type": "string", "enum": ["A", "B", "C", "D", "E"]},
+        "findingCounts": {
             "type": "object",
-            "required": ["risk_id", "finding_id", "affected_gate", "superseded_at"],
+            "required": ["critical", "high", "medium", "low", "cosmetic"],
+            "properties": {
+                "critical": {"type": "integer", "minimum": 0},
+                "high": {"type": "integer", "minimum": 0},
+                "medium": {"type": "integer", "minimum": 0},
+                "low": {"type": "integer", "minimum": 0},
+                "cosmetic": {"type": "integer", "minimum": 0}
+            },
+            "additionalProperties": false
+        },
+        "managedFinding": {
+            "type": "object",
+            "required": [
+                "finding_id",
+                "severity",
+                "disposition",
+                "evidence",
+                "source_evidence_id",
+                "fingerprint"
+            ],
+            "properties": {
+                "finding_id": {"type": "string", "minLength": 1},
+                "severity": {
+                    "enum": ["critical", "high", "medium", "low", "info", "cosmetic"]
+                },
+                "disposition": {"type": "string", "minLength": 1},
+                "evidence": {"type": "array", "minItems": 1},
+                "source_evidence_id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                },
+                "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            },
+            "additionalProperties": false
+        },
+        "managedEvidenceRequirement": {
+            "type": "object",
+            "required": [
+                "kind",
+                "validation_profile",
+                "required_fields",
+                "project_contained"
+            ],
+            "properties": {
+                "kind": {
+                    "enum": [
+                        "artifact",
+                        "command-output",
+                        "verdict",
+                        "findings-report",
+                        "manifest",
+                        "approval",
+                        "restore-point"
+                    ]
+                },
+                "validation_profile": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                },
+                "required_fields": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "project_contained": {"const": true}
+            },
+            "additionalProperties": false
+        },
+        "managedFindingsPolicy": {
+            "type": "object",
+            "required": [
+                "severity_order",
+                "blocking_severities",
+                "pass_requires_zero",
+                "critical_high_waivable",
+                "uncited_finding",
+                "accepted_risk"
+            ],
+            "properties": {
+                "severity_order": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"enum": ["critical", "high", "medium", "low", "info"]}
+                },
+                "blocking_severities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"enum": ["critical", "high", "medium", "low", "info"]}
+                },
+                "pass_requires_zero": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"enum": ["critical", "high", "medium", "low", "info"]}
+                },
+                "critical_high_waivable": {"const": false},
+                "uncited_finding": {"enum": ["incomplete", "blocking"]},
+                "accepted_risk": {
+                    "type": "object",
+                    "required": ["allowed_severities", "required_fields"],
+                    "properties": {
+                        "allowed_severities": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {
+                                "enum": ["critical", "high", "medium", "low", "info"]
+                            }
+                        },
+                        "required_fields": {
+                            "type": "array",
+                            "minItems": 1,
+                            "uniqueItems": true,
+                            "items": {"type": "string", "minLength": 1}
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "additionalProperties": false
+        },
+        "managedEvidenceRecord": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "kind",
+                "run_id",
+                "stage",
+                "dispatch_id",
+                "dispatch_attempt",
+                "evidence_id",
+                "artifact_path",
+                "artifact_sha256",
+                "evidence_kind",
+                "validation_profile",
+                "required_fields",
+                "source_output_sha256",
+                "finding_ids"
+            ],
+            "properties": {
+                "schema_version": {"const": 1},
+                "kind": {"const": "managed-workflow-evidence"},
+                "run_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "stage": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "dispatch_id": {"type": "string", "minLength": 1},
+                "dispatch_attempt": {"type": "integer", "minimum": 1},
+                "evidence_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "artifact_path": {
+                    "type": "string",
+                    "pattern": "^\\.(ckit|claude)/artifacts/evidence/runs/"
+                },
+                "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "evidence_kind": {
+                    "enum": [
+                        "artifact",
+                        "command-output",
+                        "verdict",
+                        "findings-report",
+                        "manifest",
+                        "approval",
+                        "restore-point"
+                    ]
+                },
+                "validation_profile": {"type": "string", "minLength": 1},
+                "required_fields": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "source_output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "finding_ids": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                }
+            },
+            "additionalProperties": false
+        },
+        "workspaceCheckpoint": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "head_commit",
+                "tracked_digest",
+                "untracked_digest",
+                "content_digest"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 1},
+                "head_commit": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "tracked_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "untracked_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "content_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            },
+            "additionalProperties": false
+        },
+        "workspaceBinding": {
+            "type": "object",
+            "required": ["worker_id", "target_path", "base_commit"],
+            "properties": {
+                "worker_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "target_path": {"type": "string", "pattern": "^\\.\\./"},
+                "base_commit": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                }
+            },
+            "additionalProperties": false
+        },
+        "findingsEvidence": {
+            "type": "object",
+            "required": [
+                "counts",
+                "evidence_path",
+                "evidence_sha256",
+                "finding_set_digest",
+                "repository_commit",
+                "recorded_at"
+            ],
+            "properties": {
+                "counts": {"$ref": "#/$defs/findingCounts"},
+                "evidence_path": {"type": "string", "minLength": 1},
+                "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "repository_commit": {"type": "string", "minLength": 1},
+                "workspace_head_commit": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "workspace_content_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "managed_gate": {"type": "string", "minLength": 1},
+                "owner_stage": {"type": "string", "minLength": 1},
+                "owner_dispatch_id": {"type": "string", "minLength": 1},
+                "owner_dispatch_attempt": {"type": "integer", "minimum": 1},
+                "owner_output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "evidence_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "finding_ids": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "finding_index": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/managedFinding"}
+                },
+                "recorded_at": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+        },
+        "legacy": {
+            "type": "object",
+            "not": {"required": ["schema_version"]},
+            "properties": {
+                "schema": {"type": "integer", "const": 1},
+                "profile": {"$ref": "#/$defs/profile"},
+                "scope": {"$ref": "#/$defs/scope"},
+                "mode": {"$ref": "#/$defs/mode"},
+                "lanes": {"type": "object"},
+                "findings": {"type": "object"},
+                "open_findings": {"type": "object"},
+                "gate_evidence": {"type": "object"},
+                "last_gate_passed": {"type": ["string", "null"]},
+                "git": {
+                    "type": "object",
+                    "properties": {
+                        "branch": {"type": "string"},
+                        "sha": {"type": "string"},
+                        "worktrees": {"type": "object"}
+                    },
+                    "additionalProperties": true
+                },
+                "pr": {
+                    "type": "object",
+                    "properties": {
+                        "number": {"type": ["string", "integer"]},
+                        "url": {"type": "string"},
+                        "state": {"type": "string"},
+                        "base": {"type": "string"},
+                        "head": {"type": "string"}
+                    },
+                    "additionalProperties": true
+                }
+            },
             "additionalProperties": true
-          }
         },
-        "run_archives": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/runArchive"}
+        "gateRecord": {
+            "type": "object",
+            "required": ["gate", "status", "recorded_at", "repository_commit"],
+            "properties": {
+                "gate": {"type": "string", "minLength": 1},
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "passed",
+                        "not-applicable",
+                        "accepted-risk",
+                        "failed",
+                        "aborted"
+                    ]
+                },
+                "evidence_path": {"type": ["string", "null"]},
+                "evidence_sha256": {"type": ["string", "null"]},
+                "condition": {"type": "string"},
+                "condition_evidence_path": {"type": "string"},
+                "condition_evidence_sha256": {"type": "string"},
+                "condition_source_path": {"type": "string", "minLength": 1},
+                "condition_source_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "reason": {"type": "string"},
+                "owner_stage": {"type": "string", "minLength": 1},
+                "owner_dispatch_id": {"type": "string", "minLength": 1},
+                "owner_dispatch_attempt": {"type": "integer", "minimum": 1},
+                "owner_output_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "owner_skip_attestation_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "evidence_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "accepted_risk_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "uniqueItems": true
+                },
+                "risk_clearance": {"$ref": "#/$defs/riskClearance"},
+                "verification": {"type": "string"},
+                "recorded_at": {"type": "string"},
+                "repository_commit": {"type": "string"},
+                "workspace_head_commit": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "workspace_content_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "additionalProperties": true
         },
-        "gate_history": {"type": "array", "items": {"$ref": "#/$defs/gateRecord"}},
-        "legacy_migration": {
-          "type": "object",
-          "required": ["from_schema", "migrated_at", "legacy_snapshot_sha256", "legacy_snapshot"],
-          "properties": {
-            "from_schema": {"type": "integer", "const": 1},
-            "migrated_at": {"type": "string"},
-            "legacy_snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-            "legacy_snapshot": {"type": "object"}
-          },
-          "additionalProperties": false
+        "riskClearance": {
+            "type": "object",
+            "required": [
+                "reason",
+                "cleared_by",
+                "owner",
+                "ticket",
+                "revisit",
+                "evidence_path",
+                "evidence_sha256",
+                "cleared_at",
+                "repository_commit",
+                "finding_set_digest"
+            ],
+            "properties": {
+                "reason": {"type": "string", "minLength": 1},
+                "cleared_by": {"type": "string", "minLength": 1},
+                "owner": {"type": "string", "minLength": 1},
+                "ticket": {"type": "string", "minLength": 1},
+                "revisit": {"type": "string", "minLength": 1},
+                "evidence_path": {"type": "string", "minLength": 1},
+                "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "cleared_at": {"type": "string", "minLength": 1},
+                "repository_commit": {"type": "string", "minLength": 1},
+                "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "workspace_head_commit": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "workspace_content_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "additionalProperties": false
         },
-        "final_summary": {
-          "type": "object",
-          "required": [
-            "schema_version", "run_id", "status", "repository_commit", "completed_at",
-            "gate_definition_digest", "gates", "accepted_risks"
-          ],
-          "properties": {
-            "schema_version": {"type": "integer", "const": 2},
-            "run_id": {"type": "string", "minLength": 1},
-            "status": {"type": "string", "const": "completed"},
-            "repository_commit": {"type": "string", "minLength": 1},
-            "completed_at": {"type": "string"},
-            "gate_definition_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-            "gates": {"type": "array", "items": {"type": "object"}},
-            "accepted_risks": {"type": "array", "items": {"$ref": "#/$defs/acceptedRisk"}}
-          },
-          "additionalProperties": false
+        "acceptedRisk": {
+            "type": "object",
+            "required": [
+                "risk_id",
+                "finding_id",
+                "reason",
+                "accepted_by",
+                "owner",
+                "ticket",
+                "revisit",
+                "timestamp",
+                "repository_commit",
+                "affected_gate",
+                "evidence_path",
+                "evidence_sha256",
+                "medium_finding_count",
+                "finding_set_digest",
+                "finding_fingerprint",
+                "gate_definition_digest"
+            ],
+            "properties": {
+                "risk_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "finding_id": {"type": "string", "minLength": 1},
+                "reason": {"type": "string", "minLength": 1},
+                "accepted_by": {"type": "string", "minLength": 1},
+                "owner": {"type": "string", "minLength": 1},
+                "ticket": {"type": "string", "minLength": 1},
+                "revisit": {"type": "string", "minLength": 1},
+                "compensating_control": {"type": ["string", "null"]},
+                "timestamp": {"type": "string"},
+                "repository_commit": {"type": "string"},
+                "affected_gate": {"type": "string"},
+                "evidence_path": {"type": "string"},
+                "evidence_sha256": {"type": "string"},
+                "medium_finding_count": {"type": "integer", "minimum": 1},
+                "finding_set_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "finding_fingerprint": {"type": "string"},
+                "gate_definition_digest": {"type": "string"},
+                "workspace_head_commit": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "workspace_content_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "additionalProperties": false
+        },
+        "staleAttemptReconciliation": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "kind",
+                "run_id",
+                "stage",
+                "dispatch_id",
+                "dispatch_attempt",
+                "reason",
+                "reconciled_by",
+                "reconciled_at",
+                "evidence_path",
+                "evidence_sha256",
+                "workspace_head_commit",
+                "workspace_content_digest",
+                "provider_control_surface_digest",
+                "workflow_definition_digest"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 1},
+                "kind": {
+                    "type": "string",
+                    "const": "operator-stale-attempt-reconciliation"
+                },
+                "run_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "stage": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "dispatch_id": {"type": "string", "minLength": 1},
+                "dispatch_attempt": {"type": "integer", "minimum": 1},
+                "reason": {"type": "string", "const": "coordinator-crash"},
+                "reconciled_by": {"type": "string", "minLength": 1, "maxLength": 256},
+                "reconciled_at": {"type": "string", "minLength": 1},
+                "evidence_path": {
+                    "type": "string",
+                    "pattern": "^\\.(ckit|claude)/artifacts/reconciliation/"
+                },
+                "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "workspace_head_commit": {
+                    "type": "string",
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                },
+                "workspace_content_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "provider_control_surface_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "workflow_definition_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "additionalProperties": false
+        },
+        "stageRecord": {
+            "type": "object",
+            "required": [
+                "stage",
+                "status",
+                "role",
+                "provider",
+                "dispatch_id",
+                "attempt",
+                "dispatch_attempt",
+                "required_capabilities",
+                "attested_capabilities",
+                "started_at",
+                "repository_commit"
+            ],
+            "properties": {
+                "stage": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "status": {
+                    "type": "string",
+                    "enum": ["running", "succeeded", "failed", "cancelled"]
+                },
+                "route": {
+                    "type": ["string", "null"],
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                },
+                "role": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "provider": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "dispatch_id": {"type": "string", "minLength": 1},
+                "attempt": {"type": "integer", "minimum": 1},
+                "dispatch_attempt": {"type": "integer", "minimum": 1},
+                "required_capabilities": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "enum": [
+                            "filesystem.read",
+                            "filesystem.write",
+                            "filesystem.search",
+                            "shell",
+                            "delegation",
+                            "delegation.message",
+                            "workflow.ledger",
+                            "browser",
+                            "human.input",
+                            "mcp",
+                            "external.mutation",
+                            "process.descendant_containment"
+                        ]
+                    }
+                },
+                "attested_capabilities": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "enum": [
+                            "filesystem.read",
+                            "filesystem.write",
+                            "filesystem.search",
+                            "shell",
+                            "delegation",
+                            "delegation.message",
+                            "workflow.ledger",
+                            "browser",
+                            "human.input",
+                            "mcp",
+                            "external.mutation",
+                            "process.descendant_containment"
+                        ]
+                    }
+                },
+                "workspace_checkpoint_before": {
+                    "oneOf": [{"type": "null"}, {"$ref": "#/$defs/workspaceCheckpoint"}]
+                },
+                "started_at": {"type": "string", "minLength": 1},
+                "repository_commit": {"type": "string", "minLength": 1},
+                "completed_at": {"type": "string", "minLength": 1},
+                "completion_commit": {"type": "string", "minLength": 1},
+                "output_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "output_path": {"type": ["string", "null"], "minLength": 1},
+                "output_artifact_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "workspace_checkpoint": {
+                    "oneOf": [{"type": "null"}, {"$ref": "#/$defs/workspaceCheckpoint"}]
+                },
+                "evidence": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "evidence_records": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/managedEvidenceRecord"}
+                },
+                "findings": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/managedFinding"}
+                },
+                "finding_counts": {"$ref": "#/$defs/findingCounts"},
+                "error": {"type": ["string", "null"]},
+                "reconciliation": {"$ref": "#/$defs/staleAttemptReconciliation"}
+            },
+            "additionalProperties": false,
+            "allOf": [
+                {
+                    "if": {"required": ["reconciliation"]},
+                    "then": {
+                        "properties": {"status": {"const": "cancelled"}},
+                        "required": [
+                            "completed_at",
+                            "completion_commit",
+                            "output_path",
+                            "output_artifact_sha256",
+                            "workspace_checkpoint",
+                            "evidence",
+                            "error"
+                        ]
+                    }
+                }
+            ]
+        },
+        "managedExecution": {
+            "type": "object",
+            "required": [
+                "workflow_id",
+                "workflow_schema_version",
+                "workflow_definition_digest",
+                "mode",
+                "ordered_gates",
+                "gate_definition_digest",
+                "gate_owner_stages",
+                "providers",
+                "provider_projection_digest",
+                "provider_control_surface_digest",
+                "workspace",
+                "active_stages",
+                "active_stage_dependencies",
+                "active_stage_requirements",
+                "active_stage_routes"
+            ],
+            "properties": {
+                "workflow_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "workflow_schema_version": {"type": "integer", "minimum": 1},
+                "workflow_definition_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "mode": {"$ref": "#/$defs/mode"},
+                "ordered_gates": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "gate_definition_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "gate_owner_stages": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                    }
+                },
+                "providers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"enum": ["claude", "codex"]}
+                },
+                "provider_projection_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "provider_control_surface_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "workspace": {"$ref": "#/$defs/workspaceBinding"},
+                "binding_workspace_checkpoint": {"$ref": "#/$defs/workspaceCheckpoint"},
+                "active_stages": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"}
+                },
+                "active_stage_dependencies": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                        }
+                    }
+                },
+                "active_stage_requirements": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                            "enum": [
+                                "filesystem.read",
+                                "filesystem.write",
+                                "filesystem.search",
+                                "shell",
+                                "delegation",
+                                "delegation.message",
+                                "workflow.ledger",
+                                "browser",
+                                "human.input",
+                                "mcp",
+                                "external.mutation",
+                                "process.descendant_containment"
+                            ]
+                        }
+                    }
+                },
+                "active_stage_routes": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "required": [
+                                    "route",
+                                    "role",
+                                    "resolution",
+                                    "required_capabilities",
+                                    "permission",
+                                    "write_scope",
+                                    "isolation",
+                                    "nested_delegation"
+                                ],
+                                "properties": {
+                                    "execution_kind": {"const": "native-role"},
+                                    "route": {
+                                        "type": "string",
+                                        "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                                    },
+                                    "role": {
+                                        "type": "string",
+                                        "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                                    },
+                                    "resolution": {"enum": ["primary", "fallback"]},
+                                    "required_capabilities": {
+                                        "type": "array",
+                                        "uniqueItems": true,
+                                        "items": {
+                                            "enum": [
+                                                "filesystem.read",
+                                                "filesystem.write",
+                                                "filesystem.search",
+                                                "shell",
+                                                "delegation",
+                                                "delegation.message",
+                                                "workflow.ledger",
+                                                "browser",
+                                                "human.input",
+                                                "mcp",
+                                                "external.mutation",
+                                                "process.descendant_containment"
+                                            ]
+                                        }
+                                    },
+                                    "permission": {
+                                        "enum": [
+                                            "read_only",
+                                            "workspace_write",
+                                            "external_effect"
+                                        ]
+                                    },
+                                    "write_scope": {
+                                        "type": "array",
+                                        "uniqueItems": true,
+                                        "items": {"type": "string", "minLength": 1}
+                                    },
+                                    "isolation": {
+                                        "enum": [
+                                            "none",
+                                            "preferred",
+                                            "required",
+                                            "native"
+                                        ]
+                                    },
+                                    "nested_delegation": {
+                                        "enum": ["forbidden", "allowed", "required"]
+                                    }
+                                },
+                                "additionalProperties": false
+                            },
+                            {
+                                "type": "object",
+                                "required": [
+                                    "execution_kind",
+                                    "action_kind",
+                                    "required_capabilities"
+                                ],
+                                "properties": {
+                                    "execution_kind": {
+                                        "const": "typed-external-action"
+                                    },
+                                    "action_kind": {
+                                        "const": "repository.pull-request.create"
+                                    },
+                                    "required_capabilities": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "maxItems": 1,
+                                        "items": {"const": "external.mutation"}
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        ]
+                    }
+                },
+                "evidence_contract_version": {"const": 1},
+                "active_stage_evidence": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                        }
+                    }
+                },
+                "gate_evidence": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                        }
+                    }
+                },
+                "evidence_requirements": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "$ref": "#/$defs/managedEvidenceRequirement"
+                    }
+                },
+                "findings_policy": {"$ref": "#/$defs/managedFindingsPolicy"}
+            },
+            "additionalProperties": false
+        },
+        "executionBinding": {
+            "type": "object",
+            "required": ["kind", "schema_version", "contract_digest"],
+            "properties": {
+                "kind": {"const": "managed"},
+                "schema_version": {"const": 1},
+                "contract_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "additionalProperties": false
+        },
+        "skippedStageRecord": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "stage",
+                "condition",
+                "decision",
+                "dependencies",
+                "dependency_states",
+                "not_applicable_condition",
+                "workflow_definition_digest",
+                "workspace_checkpoint",
+                "attestation_sha256",
+                "attested_at",
+                "repository_commit"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 1},
+                "stage": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "condition": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "decision": {"type": "boolean", "const": false},
+                "dependencies": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"}
+                },
+                "dependency_states": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {
+                        "enum": ["succeeded", "skipped", "inactive"]
+                    }
+                },
+                "not_applicable_condition": {
+                    "type": ["string", "null"],
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                },
+                "workflow_definition_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "workspace_checkpoint": {"$ref": "#/$defs/workspaceCheckpoint"},
+                "attestation_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "attested_at": {"type": "string", "minLength": 1},
+                "repository_commit": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+        },
+        "managedCompletion": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "workflow_definition_digest",
+                "active_stages",
+                "stage_state_digest",
+                "workspace_checkpoint",
+                "attested_at",
+                "repository_commit"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 1},
+                "workflow_definition_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "active_stages": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"}
+                },
+                "stage_state_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "workspace_checkpoint": {"$ref": "#/$defs/workspaceCheckpoint"},
+                "attested_at": {"type": "string", "minLength": 1},
+                "repository_commit": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+        },
+        "programArtifactVerification": {
+            "type": "object",
+            "required": [
+                "run_id",
+                "manifest_digest",
+                "unit_id",
+                "kind",
+                "artifact_id",
+                "artifact_path",
+                "artifact_sha256",
+                "details",
+                "verified_at",
+                "repository_commit"
+            ],
+            "properties": {
+                "run_id": {"type": "string", "minLength": 1},
+                "manifest_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "unit_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "manifest",
+                        "inventory",
+                        "restore-point",
+                        "approval-request",
+                        "approval-authorization",
+                        "evidence"
+                    ]
+                },
+                "artifact_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "artifact_path": {"type": "string", "minLength": 1},
+                "artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "details": {"type": "object"},
+                "verified_at": {"type": "string", "minLength": 1},
+                "repository_commit": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+        },
+        "programStaleAttemptReconciliation": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "kind",
+                "run_id",
+                "program_manifest_digest",
+                "unit_id",
+                "dispatch_id",
+                "attempt",
+                "provider",
+                "route",
+                "reason",
+                "reconciled_by",
+                "reconciled_at",
+                "evidence_path",
+                "evidence_sha256",
+                "workspace_checkpoint"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 1},
+                "kind": {
+                    "type": "string",
+                    "const": "operator-stale-program-attempt-reconciliation"
+                },
+                "run_id": {"type": "string", "minLength": 1},
+                "program_manifest_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "unit_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "dispatch_id": {"type": "string", "minLength": 1},
+                "attempt": {"type": "integer", "minimum": 1},
+                "provider": {"type": "string", "enum": ["claude", "codex"]},
+                "route": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "reason": {"type": "string", "const": "coordinator-crash"},
+                "reconciled_by": {"type": "string", "minLength": 1, "maxLength": 256},
+                "reconciled_at": {"type": "string", "minLength": 1},
+                "evidence_path": {"type": "string", "minLength": 1},
+                "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "workspace_checkpoint": {"$ref": "#/$defs/workspaceCheckpoint"}
+            },
+            "additionalProperties": false
+        },
+        "programAttempt": {
+            "type": "object",
+            "required": [
+                "sequence",
+                "unit_id",
+                "wave_id",
+                "provider",
+                "route",
+                "dispatch_id",
+                "attempt",
+                "required_capabilities",
+                "attested_capabilities",
+                "status",
+                "claimed_at",
+                "claim_commit",
+                "pre_workspace_checkpoint",
+                "post_workspace_checkpoint",
+                "changed_paths",
+                "boundary_snapshot_digest",
+                "evidence",
+                "evidence_verifications",
+                "output_sha256",
+                "output_path",
+                "output_artifact_sha256",
+                "error",
+                "token_upper_bound",
+                "physical_boundary_containment"
+            ],
+            "properties": {
+                "sequence": {"type": "integer", "minimum": 1},
+                "unit_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "wave_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "provider": {"type": "string", "enum": ["claude", "codex"]},
+                "route": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "dispatch_id": {"type": "string", "minLength": 1},
+                "attempt": {"type": "integer", "minimum": 1},
+                "required_capabilities": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "attested_capabilities": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["running", "succeeded", "failed", "cancelled"]
+                },
+                "claimed_at": {"type": "string", "minLength": 1},
+                "claim_commit": {"type": "string", "minLength": 1},
+                "completed_at": {"type": "string", "minLength": 1},
+                "completion_commit": {"type": "string", "minLength": 1},
+                "pre_workspace_checkpoint": {"$ref": "#/$defs/workspaceCheckpoint"},
+                "post_workspace_checkpoint": {
+                    "oneOf": [{"type": "null"}, {"$ref": "#/$defs/workspaceCheckpoint"}]
+                },
+                "changed_paths": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "boundary_snapshot_digest": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "evidence": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "pattern": "^artifact://"}
+                },
+                "evidence_verifications": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/programArtifactVerification"}
+                },
+                "output_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "output_path": {"type": ["string", "null"]},
+                "output_artifact_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "error": {"type": ["string", "null"]},
+                "token_upper_bound": {"type": "integer", "minimum": 0},
+                "physical_boundary_containment": {
+                    "oneOf": [
+                        {"type": "null"},
+                        {
+                            "type": "object",
+                            "required": [
+                                "schema_version",
+                                "kind",
+                                "enforcement",
+                                "issuer",
+                                "policy",
+                                "boundary_digest",
+                                "provider",
+                                "route",
+                                "dispatch_id",
+                                "unit_id",
+                                "workspace_target",
+                                "pre_workspace_checkpoint_digest",
+                                "attestation_sha256"
+                            ],
+                            "properties": {
+                                "schema_version": {"type": "integer", "const": 1},
+                                "kind": {
+                                    "type": "string",
+                                    "const": "physical-program-boundary-containment"
+                                },
+                                "enforcement": {
+                                    "type": "string",
+                                    "const": "adapter-physical-no-follow"
+                                },
+                                "issuer": {
+                                    "type": "string",
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+                                },
+                                "policy": {
+                                    "type": "string",
+                                    "enum": ["bounded-writes", "deny-all-writes"]
+                                },
+                                "boundary_digest": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                },
+                                "provider": {
+                                    "type": "string",
+                                    "enum": ["claude", "codex"]
+                                },
+                                "route": {"type": "string", "minLength": 1},
+                                "dispatch_id": {"type": "string", "minLength": 1},
+                                "unit_id": {"type": "string", "minLength": 1},
+                                "workspace_target": {"type": "string", "minLength": 1},
+                                "pre_workspace_checkpoint_digest": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                },
+                                "attestation_sha256": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    ]
+                },
+                "reconciliation": {"$ref": "#/$defs/programStaleAttemptReconciliation"}
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "status": {"enum": ["succeeded", "failed", "cancelled"]}
+                        },
+                        "required": ["status"]
+                    },
+                    "then": {
+                        "required": ["completed_at", "completion_commit"],
+                        "properties": {
+                            "post_workspace_checkpoint": {
+                                "$ref": "#/$defs/workspaceCheckpoint"
+                            },
+                            "boundary_snapshot_digest": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "output_path": {"type": "string", "minLength": 1},
+                            "output_artifact_sha256": {
+                                "type": "string",
+                                "pattern": "^[0-9a-f]{64}$"
+                            }
+                        }
+                    }
+                }
+            ],
+            "additionalProperties": false
+        },
+        "programGateCheckpoint": {
+            "type": "object",
+            "required": [
+                "gate_id",
+                "status",
+                "kind",
+                "wave_id",
+                "owner_unit_id",
+                "owner_dispatch_id",
+                "owner_attempt",
+                "provider",
+                "route",
+                "evidence",
+                "verification_records",
+                "workspace_checkpoint",
+                "recorded_at",
+                "repository_commit"
+            ],
+            "properties": {
+                "gate_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "status": {"type": "string", "const": "passed"},
+                "kind": {"type": "string", "enum": ["program-wave", "pipeline"]},
+                "wave_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "owner_unit_id": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$"
+                },
+                "owner_dispatch_id": {"type": "string", "minLength": 1},
+                "owner_attempt": {"type": "integer", "minimum": 1},
+                "provider": {"type": "string", "enum": ["claude", "codex"]},
+                "route": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "evidence": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string"}
+                },
+                "verification_records": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/programArtifactVerification"}
+                },
+                "workspace_checkpoint": {"$ref": "#/$defs/workspaceCheckpoint"},
+                "recorded_at": {"type": "string", "minLength": 1},
+                "repository_commit": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+        },
+        "programWaveState": {
+            "type": "object",
+            "required": [
+                "status",
+                "started_at",
+                "completed_at",
+                "spawns_used",
+                "turns_used",
+                "token_upper_bound_used",
+                "wall_clock_elapsed_seconds",
+                "budget_exhausted"
+            ],
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "running", "completed"]
+                },
+                "started_at": {"type": ["string", "null"]},
+                "completed_at": {"type": ["string", "null"]},
+                "spawns_used": {"type": "integer", "minimum": 0},
+                "turns_used": {"type": "integer", "minimum": 0},
+                "token_upper_bound_used": {"type": "integer", "minimum": 0},
+                "wall_clock_elapsed_seconds": {"type": "integer", "minimum": 0},
+                "budget_exhausted": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+        },
+        "programExecution": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "binding",
+                "manifest",
+                "previous_manifest_digest",
+                "manifest_history",
+                "program_id",
+                "objective",
+                "providers",
+                "provider_projection_digest",
+                "provider_control_surface_digest",
+                "workspace",
+                "binding_workspace_checkpoint",
+                "pre_change_restore_point",
+                "evidence_requirements",
+                "program_wave_evidence_policy",
+                "program_blocking_severities",
+                "ordered_waves",
+                "ordered_units",
+                "ordered_program_gates",
+                "waves",
+                "units",
+                "gates",
+                "status",
+                "created_at",
+                "current_wave",
+                "audit_gate_completed",
+                "wave_states",
+                "unit_attempts",
+                "completed_units",
+                "gate_checkpoints",
+                "safeguard_verifications"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 1},
+                "binding": {
+                    "type": "object",
+                    "required": [
+                        "manifest_digest",
+                        "revision",
+                        "parent_digest",
+                        "run_id",
+                        "source_commit",
+                        "workflow_definition_digest",
+                        "gate_definition_digest",
+                        "selection_digest",
+                        "pipeline_gate_ids"
+                    ],
+                    "properties": {
+                        "manifest_digest": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "revision": {"type": "integer", "minimum": 1},
+                        "parent_digest": {
+                            "type": ["string", "null"],
+                            "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "run_id": {"type": "string", "minLength": 1},
+                        "source_commit": {
+                            "type": "string",
+                            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                        },
+                        "workflow_definition_digest": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "gate_definition_digest": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "selection_digest": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "pipeline_gate_ids": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "manifest": {
+                    "type": "object",
+                    "required": [
+                        "path",
+                        "digest",
+                        "file_sha256",
+                        "revision",
+                        "parent_digest"
+                    ],
+                    "properties": {
+                        "path": {"type": "string", "minLength": 1},
+                        "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                        "file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                        "revision": {"type": "integer", "minimum": 1},
+                        "parent_digest": {
+                            "type": ["string", "null"],
+                            "pattern": "^[0-9a-f]{64}$"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "previous_manifest_digest": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "manifest_history": {"type": "array", "items": {"type": "object"}},
+                "program_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                "objective": {"type": "string", "minLength": 1},
+                "providers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"enum": ["claude", "codex"]}
+                },
+                "provider_projection_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "provider_control_surface_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "workspace": {"$ref": "#/$defs/workspaceBinding"},
+                "binding_workspace_checkpoint": {"$ref": "#/$defs/workspaceCheckpoint"},
+                "pre_change_restore_point": {"type": "object"},
+                "evidence_requirements": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "required": [
+                            "validation_profile",
+                            "kind",
+                            "required_fields",
+                            "project_contained"
+                        ],
+                        "properties": {
+                            "validation_profile": {
+                                "type": "string",
+                                "enum": [
+                                    "scope-record",
+                                    "command-evidence",
+                                    "review-verdict",
+                                    "test-report",
+                                    "security-report",
+                                    "closeout-record"
+                                ]
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "artifact",
+                                    "command-output",
+                                    "verdict",
+                                    "findings-report",
+                                    "manifest",
+                                    "approval",
+                                    "restore-point"
+                                ]
+                            },
+                            "required_fields": {
+                                "type": "array",
+                                "minItems": 1,
+                                "uniqueItems": true,
+                                "items": {"type": "string", "minLength": 1}
+                            },
+                            "project_contained": {"type": "boolean", "const": true}
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "program_blocking_severities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "enum": ["critical", "high", "medium", "low", "info"]
+                    }
+                },
+                "program_wave_evidence_policy": {
+                    "type": "object",
+                    "required": ["read-only", "mutating", "verification", "closeout"],
+                    "properties": {
+                        "read-only": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {"type": "string"}
+                        },
+                        "mutating": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {"type": "string"}
+                        },
+                        "verification": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {"type": "string"}
+                        },
+                        "closeout": {
+                            "type": "array",
+                            "uniqueItems": true,
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "ordered_waves": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string"}
+                },
+                "ordered_units": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string"}
+                },
+                "ordered_program_gates": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string"}
+                },
+                "waves": {"type": "object", "additionalProperties": {"type": "object"}},
+                "units": {"type": "object", "additionalProperties": {"type": "object"}},
+                "gates": {"type": "object", "additionalProperties": {"type": "object"}},
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "completed", "aborted"]
+                },
+                "created_at": {"type": "string", "minLength": 1},
+                "completed_at": {"type": "string", "minLength": 1},
+                "aborted_at": {"type": "string", "minLength": 1},
+                "current_wave": {"type": ["string", "null"]},
+                "audit_gate_completed": {"type": "boolean"},
+                "wave_states": {
+                    "type": "object",
+                    "additionalProperties": {"$ref": "#/$defs/programWaveState"}
+                },
+                "unit_attempts": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/programAttempt"}
+                },
+                "completed_units": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string"}
+                },
+                "gate_checkpoints": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/programGateCheckpoint"}
+                },
+                "safeguard_verifications": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/programArtifactVerification"}
+                },
+                "completion_workspace_checkpoint": {
+                    "$ref": "#/$defs/workspaceCheckpoint"
+                },
+                "completion_workflow_definition_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "completion_state_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"status": {"const": "completed"}},
+                        "required": ["status"]
+                    },
+                    "then": {
+                        "required": [
+                            "completed_at",
+                            "completion_workspace_checkpoint",
+                            "completion_workflow_definition_digest",
+                            "completion_state_digest"
+                        ]
+                    }
+                }
+            ],
+            "additionalProperties": false
+        },
+        "runArchive": {
+            "type": "object",
+            "required": [
+                "run_id",
+                "status",
+                "archived_at",
+                "snapshot_sha256",
+                "snapshot"
+            ],
+            "properties": {
+                "run_id": {"type": "string", "minLength": 1},
+                "status": {"type": "string", "enum": ["completed", "aborted"]},
+                "archived_at": {"type": "string", "minLength": 1},
+                "snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "snapshot": {"$ref": "#/$defs/v2"}
+            },
+            "additionalProperties": false
+        },
+        "humanStop": {
+            "type": "object",
+            "required": [
+                "stop_id",
+                "reason",
+                "message",
+                "requested_action",
+                "status",
+                "requested_at",
+                "repository_commit",
+                "resume_next"
+            ],
+            "properties": {
+                "stop_id": {"type": "string", "minLength": 1},
+                "reason": {
+                    "type": "string",
+                    "enum": [
+                        "missing-requirements",
+                        "scope-expansion",
+                        "irreversible-operation",
+                        "external-side-effect",
+                        "retry-budget-exhausted",
+                        "conflicting-evidence",
+                        "unsupported-required-capability"
+                    ]
+                },
+                "message": {"type": "string", "minLength": 1},
+                "requested_action": {"type": "string", "minLength": 1},
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "approved", "rejected"]
+                },
+                "requested_at": {"type": "string", "minLength": 1},
+                "repository_commit": {"type": "string", "minLength": 1},
+                "resume_next": {"type": "string"},
+                "resolved_by": {"type": "string", "minLength": 1},
+                "resolution_note": {"type": "string", "minLength": 1},
+                "resolved_at": {"type": "string", "minLength": 1},
+                "resolution_commit": {"type": "string", "minLength": 1},
+                "evidence_path": {"type": ["string", "null"]},
+                "evidence_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "additionalProperties": false
+        },
+        "headlessTransitionAllowance": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "run_id",
+                "starting_gate",
+                "starting_history_length",
+                "token_digest",
+                "coordinator_digest",
+                "created_at",
+                "expires_at",
+                "consumed"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 1},
+                "run_id": {"type": "string", "minLength": 1},
+                "starting_gate": {"type": "string", "minLength": 1},
+                "starting_history_length": {"type": "integer", "minimum": 0},
+                "token_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "coordinator_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "coordinator_closed_at": {"type": "string", "minLength": 1},
+                "created_at": {"type": "string", "minLength": 1},
+                "expires_at": {"type": "string", "minLength": 1},
+                "consumed": {"type": "boolean"},
+                "consumed_at": {"type": "string", "minLength": 1},
+                "action": {
+                    "type": "string",
+                    "enum": ["close-gate", "not-applicable", "accept-risk", "complete"]
+                },
+                "gate": {"type": "string", "minLength": 1}
+            },
+            "additionalProperties": false
+        },
+        "v2": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "run_id",
+                "repository_root",
+                "branch",
+                "starting_commit",
+                "current_commit",
+                "kit_version",
+                "profile",
+                "scope",
+                "mode",
+                "ordered_gates",
+                "gate_definition_digest",
+                "start_type",
+                "created_at",
+                "status",
+                "task",
+                "stage",
+                "open_findings",
+                "findings_evidence",
+                "accepted_risks",
+                "gate_history"
+            ],
+            "properties": {
+                "schema_version": {"type": "integer", "const": 2},
+                "run_id": {"type": "string", "minLength": 1},
+                "repository_root": {"type": "string", "minLength": 1},
+                "branch": {"type": "string", "minLength": 1},
+                "starting_commit": {"type": "string", "minLength": 1},
+                "current_commit": {"type": "string", "minLength": 1},
+                "kit_version": {"type": "string", "minLength": 1},
+                "claude_code_version": {"type": ["string", "null"]},
+                "profile": {"$ref": "#/$defs/profile"},
+                "scope": {"$ref": "#/$defs/scope"},
+                "mode": {"$ref": "#/$defs/mode"},
+                "ordered_gates": {
+                    "type": "array",
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "gate_definition_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "selection_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "start_type": {"type": "string", "enum": ["fresh", "adopted"]},
+                "adoption": {"type": ["object", "null"]},
+                "created_at": {"type": "string"},
+                "completed_at": {"type": "string"},
+                "aborted_at": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "completed", "aborted"]
+                },
+                "task": {"type": "string", "minLength": 1},
+                "stage": {"type": "string", "minLength": 1},
+                "next": {"type": "string"},
+                "lanes": {"type": "object"},
+                "open_findings": {"$ref": "#/$defs/findingCounts"},
+                "findings_evidence": {
+                    "oneOf": [{"type": "null"}, {"$ref": "#/$defs/findingsEvidence"}]
+                },
+                "gate_evidence": {"type": "object"},
+                "last_gate_passed": {"type": ["string", "null"]},
+                "last_gate_resolved": {"type": ["string", "null"]},
+                "accepted_risks": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/acceptedRisk"}
+                },
+                "stage_history": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/stageRecord"}
+                },
+                "condition_decisions": {
+                    "type": "object",
+                    "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+                    "additionalProperties": {"type": "boolean"}
+                },
+                "skipped_stage_history": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/skippedStageRecord"}
+                },
+                "managed_execution": {"$ref": "#/$defs/managedExecution"},
+                "execution_binding": {"$ref": "#/$defs/executionBinding"},
+                "managed_completion": {"$ref": "#/$defs/managedCompletion"},
+                "program_execution": {"$ref": "#/$defs/programExecution"},
+                "headless_transition_allowance": {
+                    "$ref": "#/$defs/headlessTransitionAllowance"
+                },
+                "human_stops": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/humanStop"}
+                },
+                "accepted_risk_history": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "risk_id",
+                            "finding_id",
+                            "affected_gate",
+                            "superseded_at"
+                        ],
+                        "additionalProperties": true
+                    }
+                },
+                "run_archives": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/runArchive"}
+                },
+                "gate_history": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/gateRecord"}
+                },
+                "legacy_migration": {
+                    "type": "object",
+                    "required": [
+                        "from_schema",
+                        "migrated_at",
+                        "legacy_snapshot_sha256",
+                        "legacy_snapshot"
+                    ],
+                    "properties": {
+                        "from_schema": {"type": "integer", "const": 1},
+                        "migrated_at": {"type": "string"},
+                        "legacy_snapshot_sha256": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "legacy_snapshot": {"type": "object"}
+                    },
+                    "additionalProperties": false
+                },
+                "final_summary": {
+                    "type": "object",
+                    "required": [
+                        "schema_version",
+                        "run_id",
+                        "status",
+                        "repository_commit",
+                        "completed_at",
+                        "gate_definition_digest",
+                        "gates",
+                        "accepted_risks"
+                    ],
+                    "properties": {
+                        "schema_version": {"type": "integer", "const": 2},
+                        "run_id": {"type": "string", "minLength": 1},
+                        "status": {"type": "string", "const": "completed"},
+                        "repository_commit": {"type": "string", "minLength": 1},
+                        "completed_at": {"type": "string"},
+                        "gate_definition_digest": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{64}$"
+                        },
+                        "gates": {"type": "array", "items": {"type": "object"}},
+                        "accepted_risks": {
+                            "type": "array",
+                            "items": {"$ref": "#/$defs/acceptedRisk"}
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "required": ["managed_execution"],
+                        "properties": {"status": {"const": "active"}}
+                    },
+                    "then": {
+                        "required": ["execution_binding"],
+                        "properties": {
+                            "managed_execution": {
+                                "required": [
+                                    "evidence_contract_version",
+                                    "active_stage_evidence",
+                                    "gate_evidence",
+                                    "evidence_requirements",
+                                    "findings_policy",
+                                    "binding_workspace_checkpoint"
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "if": {
+                        "required": ["managed_execution"],
+                        "properties": {
+                            "managed_execution": {
+                                "anyOf": [
+                                    {"required": ["evidence_contract_version"]},
+                                    {"required": ["active_stage_evidence"]},
+                                    {"required": ["gate_evidence"]},
+                                    {"required": ["evidence_requirements"]},
+                                    {"required": ["findings_policy"]},
+                                    {"required": ["binding_workspace_checkpoint"]}
+                                ]
+                            }
+                        }
+                    },
+                    "then": {
+                        "required": ["execution_binding"],
+                        "properties": {
+                            "managed_execution": {
+                                "required": [
+                                    "evidence_contract_version",
+                                    "active_stage_evidence",
+                                    "gate_evidence",
+                                    "evidence_requirements",
+                                    "findings_policy",
+                                    "binding_workspace_checkpoint"
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "if": {"required": ["execution_binding"]},
+                    "then": {
+                        "required": ["managed_execution"],
+                        "properties": {
+                            "managed_execution": {
+                                "required": [
+                                    "evidence_contract_version",
+                                    "active_stage_evidence",
+                                    "gate_evidence",
+                                    "evidence_requirements",
+                                    "findings_policy",
+                                    "binding_workspace_checkpoint"
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "if": {"required": ["managed_execution"]},
+                    "then": {
+                        "required": ["stage_history", "skipped_stage_history"],
+                        "properties": {
+                            "stage_history": {
+                                "type": "array",
+                                "items": {
+                                    "allOf": [
+                                        {"$ref": "#/$defs/stageRecord"},
+                                        {
+                                            "required": [
+                                                "route",
+                                                "workspace_checkpoint_before"
+                                            ],
+                                            "properties": {
+                                                "workspace_checkpoint_before": {
+                                                    "$ref": "#/$defs/workspaceCheckpoint"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "if": {
+                                                "properties": {
+                                                    "status": {
+                                                        "enum": [
+                                                            "succeeded",
+                                                            "failed",
+                                                            "cancelled"
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["status"]
+                                            },
+                                            "then": {
+                                                "required": [
+                                                    "output_path",
+                                                    "output_artifact_sha256",
+                                                    "workspace_checkpoint"
+                                                ],
+                                                "properties": {
+                                                    "output_path": {
+                                                        "type": "string",
+                                                        "pattern": "^\\.(ckit|claude)/artifacts/dispatch/"
+                                                    },
+                                                    "output_artifact_sha256": {
+                                                        "type": "string",
+                                                        "pattern": "^[0-9a-f]{64}$"
+                                                    },
+                                                    "workspace_checkpoint": {
+                                                        "$ref": "#/$defs/workspaceCheckpoint"
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "if": {
+                                                "properties": {
+                                                    "status": {"const": "succeeded"}
+                                                },
+                                                "required": ["status"]
+                                            },
+                                            "then": {
+                                                "required": [
+                                                    "output_sha256",
+                                                    "evidence_records",
+                                                    "findings",
+                                                    "finding_counts"
+                                                ],
+                                                "properties": {
+                                                    "output_sha256": {
+                                                        "type": "string",
+                                                        "pattern": "^[0-9a-f]{64}$"
+                                                    },
+                                                    "evidence_records": {
+                                                        "type": "array",
+                                                        "minItems": 1,
+                                                        "items": {
+                                                            "$ref": "#/$defs/managedEvidenceRecord"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            },
+                            "findings_evidence": {
+                                "oneOf": [
+                                    {"type": "null"},
+                                    {
+                                        "allOf": [
+                                            {"$ref": "#/$defs/findingsEvidence"},
+                                            {
+                                                "required": [
+                                                    "workspace_head_commit",
+                                                    "workspace_content_digest"
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ]
+                            },
+                            "gate_history": {
+                                "type": "array",
+                                "items": {
+                                    "allOf": [
+                                        {"$ref": "#/$defs/gateRecord"},
+                                        {
+                                            "if": {
+                                                "properties": {
+                                                    "status": {
+                                                        "enum": [
+                                                            "passed",
+                                                            "not-applicable",
+                                                            "accepted-risk"
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["status"]
+                                            },
+                                            "then": {
+                                                "required": [
+                                                    "workspace_head_commit",
+                                                    "workspace_content_digest"
+                                                ]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "if": {
+                        "required": ["managed_execution"],
+                        "properties": {"status": {"const": "completed"}}
+                    },
+                    "then": {"required": ["managed_completion"]}
+                },
+                {
+                    "if": {"required": ["program_execution"]},
+                    "then": {
+                        "required": ["stage_history", "skipped_stage_history"],
+                        "properties": {
+                            "mode": {"const": "E"},
+                            "stage_history": {"type": "array", "maxItems": 0},
+                            "skipped_stage_history": {"type": "array", "maxItems": 0}
+                        },
+                        "not": {"required": ["managed_execution"]}
+                    }
+                },
+                {
+                    "if": {
+                        "required": ["program_execution"],
+                        "properties": {"status": {"const": "completed"}}
+                    },
+                    "then": {
+                        "properties": {
+                            "program_execution": {
+                                "properties": {"status": {"const": "completed"}},
+                                "required": ["status"]
+                            }
+                        }
+                    }
+                }
+            ],
+            "additionalProperties": true
         }
-      },
-      "additionalProperties": true
-    }
-  },
-  "oneOf": [
-    {"$ref": "#/$defs/legacy"},
-    {"$ref": "#/$defs/v2"}
-  ]
+    },
+    "oneOf": [{"$ref": "#/$defs/legacy"}, {"$ref": "#/$defs/v2"}]
 }

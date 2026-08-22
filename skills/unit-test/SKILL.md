@@ -1,7 +1,7 @@
 ---
 name: unit-test
 description: Write unit tests for frontend components and hooks. Follows testing best practices focusing on user behavior over implementation details. Adapts to the project's test runner and component framework.
-argument-hint: [component or hook name]
+argument-hint: '[component or hook name]'
 disable-model-invocation: true
 ---
 

@@ -1,0 +1,19 @@
+schema_version: 1
+id: reasoning-techniques
+description: Reasoning Techniques
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+references:
+- rule://agent-guardrails
+- rule://agent-resilience
+- rule://evals
+- rule://human-in-the-loop
+- rule://model-tiers
+- rule://quality-gates
+- rule://rarv-cycle

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -26,6 +27,9 @@ from claude_kit.validator import KNOWN_EVENTS
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
 HOOKS_FILE = REPO_ROOT / "hooks" / "hooks.json"
+CODEX_PLUGIN_ROOT = REPO_ROOT / "providers" / "codex" / "claude-kit"
+CODEX_HOOKS_FILE = CODEX_PLUGIN_ROOT / "hooks" / "hooks.json"
+CODEX_HOOK_SCRIPTS = CODEX_PLUGIN_ROOT / "hooks" / "scripts"
 
 pytestmark = pytest.mark.skipif(
     not PLUGIN_MANIFEST.exists(),
@@ -135,6 +139,262 @@ def test_static_hook_files_match_registry() -> None:
     ), (
         "templates/settings.json drifted from the registry — run `python scripts/gen_hooks.py`"
     )
+    assert gen._render(hooks.generate_codex_plugin_hooks_json()) == (
+        CODEX_HOOKS_FILE.read_text(encoding="utf-8")
+    ), "native Codex plugin hooks drifted — run `python scripts/gen_hooks.py`"
+
+    expected_scripts = set(hooks.plugin_script_names())
+    assert {path.name for path in CODEX_HOOK_SCRIPTS.glob("*.sh")} == expected_scripts
+    for name in expected_scripts:
+        assert (CODEX_HOOK_SCRIPTS / name).read_text(encoding="utf-8") == (
+            gen.render_codex_plugin_script(name)
+        )
+
+
+def test_codex_plugin_hooks_are_native_self_contained_and_leak_free() -> None:
+    """The nested plugin must not depend on Claude paths or a pip-installed ckit adapter."""
+    from claude_kit import hooks
+
+    document = json.loads(CODEX_HOOKS_FILE.read_text(encoding="utf-8"))
+    entries = [
+        entry
+        for groups in document["hooks"].values()
+        for group in groups
+        for entry in group["hooks"]
+    ]
+    assert len(entries) == len(hooks.PLUGIN_HOOK_IDS) + len(hooks.PLUGIN_ONLY_HOOKS)
+    assert not any("ckit hook-run" in entry["command"] for entry in entries)
+    script_commands = [
+        entry["command"] for entry in entries if "/hooks/scripts/" in entry["command"]
+    ]
+    assert script_commands
+    assert all(
+        "${PLUGIN_ROOT}/hooks/scripts/" in command for command in script_commands
+    )
+
+    matchers = {
+        group["matcher"] for groups in document["hooks"].values() for group in groups
+    }
+    assert "Bash|exec_command|shell|unified_exec" in matchers
+    assert "Read|read_file" in matchers
+    assert "Edit|MultiEdit|Write|apply_patch" in matchers
+    assert "Write|apply_patch" in matchers
+
+    forbidden = re.compile(
+        r"CLAUDE_(?:PROJECT_DIR|PLUGIN_ROOT|CODE_)|\.claude(?:/|\\)|"
+        r"\bClaude(?: Code)?\b|\bclaude-kit\b"
+    )
+    generated = [CODEX_HOOKS_FILE, *sorted(CODEX_HOOK_SCRIPTS.glob("*.sh"))]
+    for path in generated:
+        match = forbidden.search(path.read_text(encoding="utf-8"))
+        assert match is None, f"{path.relative_to(REPO_ROOT)} leaked {match.group(0)!r}"
+
+
+def test_static_codex_plugin_secret_guard_remains_honestly_read_only() -> None:
+    """Shell-read enforcement belongs to the exact-wheel scaffolded adapter, not this subset."""
+    groups = json.loads(CODEX_HOOKS_FILE.read_text(encoding="utf-8"))["hooks"][
+        "PreToolUse"
+    ]
+    protect_groups = [
+        group
+        for group in groups
+        if any(
+            "refusing to read a secrets file" in entry.get("command", "")
+            for entry in group["hooks"]
+        )
+    ]
+    assert len(protect_groups) == 1
+    assert protect_groups[0]["matcher"] == "Read|read_file"
+    assert "unified_exec" not in protect_groups[0]["matcher"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_static_codex_sessionstart_scripts_find_root_from_nested_cwd(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    nested = repo / "src" / "package"
+    memory = repo / ".ckit" / "agent-memory"
+    memory.mkdir(parents=True)
+    nested.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / ".ckit" / "CONTINUITY.md").write_text(
+        "nested-root-continuity\n", encoding="utf-8"
+    )
+    (memory / "MEMORY.md").write_text(
+        "# Memory\n\n- [Nested root lesson](patterns/root.md) — test\n",
+        encoding="utf-8",
+    )
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(tmp_path / "home"),
+        "PLUGIN_ROOT": str(CODEX_PLUGIN_ROOT),
+    }
+
+    continuity = subprocess.run(
+        ["bash", str(CODEX_HOOK_SCRIPTS / "load-continuity.sh")],
+        cwd=nested,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    learnings = subprocess.run(
+        ["bash", str(CODEX_HOOK_SCRIPTS / "load-learnings.sh")],
+        cwd=nested,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert continuity.returncode == 0, continuity.stderr
+    assert "nested-root-continuity" in continuity.stdout
+    assert learnings.returncode == 0, learnings.stderr
+    assert "Nested root lesson" in learnings.stdout
+    assert not (nested / ".ckit").exists()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_static_codex_root_resolver_rejects_symlinked_state(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    nested = repo / "nested"
+    outside = tmp_path / "outside"
+    nested.mkdir(parents=True)
+    outside.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (outside / "CONTINUITY.md").write_text("must-not-load\n", encoding="utf-8")
+    (repo / ".ckit").symlink_to(outside, target_is_directory=True)
+
+    result = subprocess.run(
+        ["bash", str(CODEX_HOOK_SCRIPTS / "load-continuity.sh")],
+        cwd=nested,
+        env={
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": str(tmp_path / "home"),
+            "PLUGIN_ROOT": str(CODEX_PLUGIN_ROOT),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == result.stderr == ""
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+def test_static_codex_writeback_stop_uses_native_continuation_and_loop_guard(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    nested = repo / "nested"
+    nested.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    continuity = repo / ".ckit" / "CONTINUITY.md"
+    continuity.parent.mkdir()
+    continuity.write_text("# Continuity\n", encoding="utf-8")
+    changed = repo / "src.py"
+    changed.write_text("x = 1\n", encoding="utf-8")
+    os.utime(continuity, (1_700_000_000, 1_700_000_000))
+    os.utime(changed, (1_700_000_010, 1_700_000_010))
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(tmp_path / "home"),
+        "PLUGIN_ROOT": str(CODEX_PLUGIN_ROOT),
+    }
+
+    first = subprocess.run(
+        [
+            "bash",
+            str(CODEX_HOOK_SCRIPTS / "verify-continuity-writeback.sh"),
+        ],
+        input=json.dumps({"hook_event_name": "Stop", "stop_hook_active": False}),
+        cwd=nested,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    guarded = subprocess.run(
+        [
+            "bash",
+            str(CODEX_HOOK_SCRIPTS / "verify-continuity-writeback.sh"),
+        ],
+        input=json.dumps({"hook_event_name": "Stop", "stop_hook_active": True}),
+        cwd=nested,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert first.returncode == 0, first.stderr
+    assert json.loads(first.stdout)["decision"] == "block"
+    assert "RARV step 4" in json.loads(first.stdout)["reason"]
+    assert guarded.returncode == 0
+    assert guarded.stdout == guarded.stderr == ""
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+@pytest.mark.parametrize(
+    ("script_name", "package_script", "diagnostic", "npm_exit"),
+    [
+        ("lint-fix.sh", "lint", "problem: static lint", 0),
+        ("type-check.sh", "typecheck", "error TS2304", 1),
+    ],
+)
+def test_static_codex_feedback_stops_use_native_continuation_and_loop_guard(
+    tmp_path: Path,
+    script_name: str,
+    package_script: str,
+    diagnostic: str,
+    npm_exit: int,
+) -> None:
+    repo = tmp_path / "repo"
+    nested = repo / "nested"
+    nested.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "package.json").write_text(
+        json.dumps({"scripts": {package_script: "tool"}}), encoding="utf-8"
+    )
+    shim = tmp_path / "bin"
+    shim.mkdir()
+    npm = shim / "npm"
+    npm.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{diagnostic}'\nexit {npm_exit}\n",
+        encoding="utf-8",
+    )
+    npm.chmod(0o755)
+    env = {
+        "PATH": f"{shim}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "HOME": str(tmp_path / "home"),
+        "PLUGIN_ROOT": str(CODEX_PLUGIN_ROOT),
+        "CKIT_AUTOFIX": "1",
+    }
+
+    def invoke(active: bool) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(CODEX_HOOK_SCRIPTS / script_name)],
+            input=json.dumps({"hook_event_name": "Stop", "stop_hook_active": active}),
+            cwd=nested,
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+    first = invoke(False)
+    guarded = invoke(True)
+    assert first.returncode == 0, first.stderr
+    assert json.loads(first.stdout)["decision"] == "block"
+    assert diagnostic in json.loads(first.stdout)["reason"]
+    assert guarded.returncode == 0
+    assert guarded.stdout == guarded.stderr == ""
 
 
 def test_gen_hooks_check_reports_in_sync() -> None:
@@ -211,12 +471,16 @@ def test_script_git_guards_suppress_jq_errors() -> None:
 
 
 INIT_COMMAND = REPO_ROOT / "commands" / "init.md"
+INIT_COMMAND_SKILL = REPO_ROOT / "skills" / "ckit-command-init" / "SKILL.md"
 INIT_SH = REPO_ROOT / "scripts" / "init.sh"
 
 
 def test_init_command_requires_cli_and_fails_loud() -> None:
     """/claude-kit:init must require the CLI and refuse to silently degrade when it's absent."""
-    text = INIT_COMMAND.read_text(encoding="utf-8")
+    wrapper = INIT_COMMAND.read_text(encoding="utf-8")
+    assert "allowed-tools: Skill" in wrapper
+    assert "ckit-command-init" in wrapper
+    text = INIT_COMMAND_SKILL.read_text(encoding="utf-8")
     assert "CKIT_CLI_MISSING" in text and "STOP" in text, (
         "must detect a missing CLI and stop"
     )
@@ -258,6 +522,50 @@ def test_init_script_is_a_non_mutating_cli_dispatcher(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "No project files were changed" in result.stderr
     assert not target.exists()
+
+
+@pytest.mark.parametrize("runtime", ["codex", "both"])
+def test_init_script_forwards_native_runtime_to_ckit(
+    tmp_path: Path, runtime: str
+) -> None:
+    """The compatibility launcher preserves the explicit native runtime argument byte-for-byte."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    capture = tmp_path / "argv.txt"
+    executable = bin_dir / "ckit"
+    executable.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CKIT_CAPTURE"\n',
+        encoding="utf-8",
+    )
+    executable.chmod(0o755)
+    target = tmp_path / "project"
+
+    result = subprocess.run(
+        [
+            "bash",
+            str(INIT_SH),
+            str(target),
+            "--defaults",
+            "--runtime",
+            runtime,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{bin_dir}:/usr/bin:/bin",
+            "CKIT_CAPTURE": str(capture),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert capture.read_text(encoding="utf-8").splitlines() == [
+        "init",
+        str(target),
+        "--defaults",
+        "--runtime",
+        runtime,
+    ]
 
 
 # --- functional rm-rf guard behaviour (order-independent recursive+force regex) ----------------

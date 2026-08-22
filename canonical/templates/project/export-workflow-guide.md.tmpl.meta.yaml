@@ -1,0 +1,9 @@
+schema_version: 1
+id: export-workflow-guide
+description: Single-agent exported workflow guide
+category: project
+format: jinja-markdown
+destination: templates/export/sdlc-workflow-guide.md.tmpl
+provider_placeholders:
+- provider.executable.cli
+references: []

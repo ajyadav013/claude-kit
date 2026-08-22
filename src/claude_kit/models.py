@@ -11,17 +11,197 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from pathlib import PurePosixPath
 from typing import Any
 
-#: Schema version of the persisted ``.claude/config/init-options.json`` document.
-INIT_OPTIONS_SCHEMA = 1
+from claude_kit.components import MCPServerSpec
+
+#: Schema version of the persisted runtime-neutral ``init-options.json`` document.
+INIT_OPTIONS_SCHEMA = 2
 
 #: Filename (under ``.claude/config/``) of the transactional upgrade journal.
 UPGRADE_JOURNAL = "upgrade-in-progress.json"
 
 #: Schema version of the upgrade-journal document.
 UPGRADE_JOURNAL_SCHEMA = 1
+
+
+class Runtime(str, Enum):
+    """A requested native host projection.
+
+    ``both`` is an installation mode rather than a third provider.  Persisted
+    manifests therefore record its two concrete providers in :attr:`providers`.
+    Keeping this outside :class:`Selection` preserves the branch-free catalog
+    invariant: runtime affects projection and installation, never stack/profile
+    resolution.
+    """
+
+    CLAUDE = "claude"
+    CODEX = "codex"
+    BOTH = "both"
+
+    @classmethod
+    def parse(cls, value: str | Runtime) -> Runtime:
+        """Return a validated runtime value with a concise error on bad input."""
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value).strip().lower())
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in cls)
+            raise ValueError(f"runtime must be one of: {allowed}") from exc
+
+    @property
+    def providers(self) -> tuple[str, ...]:
+        """Concrete provider ids represented by this installation mode."""
+        if self is Runtime.BOTH:
+            return (Runtime.CLAUDE.value, Runtime.CODEX.value)
+        return (self.value,)
+
+    @classmethod
+    def from_providers(cls, providers: list[str] | tuple[str, ...]) -> Runtime:
+        """Reconstruct the installation mode from persisted concrete providers."""
+        normalized = tuple(str(item).strip().lower() for item in providers)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError(
+                "runtimes must contain claude, codex, or both concrete providers exactly once"
+            )
+        if normalized == (cls.CLAUDE.value,):
+            return cls.CLAUDE
+        if normalized == (cls.CODEX.value,):
+            return cls.CODEX
+        if (
+            set(normalized) == {cls.CLAUDE.value, cls.CODEX.value}
+            and len(normalized) == 2
+        ):
+            return cls.BOTH
+        raise ValueError(
+            "runtimes must contain claude, codex, or both concrete providers exactly once"
+        )
+
+
+@dataclass(frozen=True)
+class StateLayout:
+    """Provider-neutral locations for mutable kit state.
+
+    Fresh installations use :meth:`neutral`; :meth:`legacy_claude` keeps old
+    ``.claude`` installations readable during the expand/contract migration.
+    Every path is project-relative and containment-checked at construction.
+    """
+
+    name: str
+    root: str
+    manifest: str
+    stack_snapshot: str
+    pipeline_snapshot: str
+    journal: str
+    continuity: str
+    memory: str
+    artifacts: str
+    state: str
+    temporary: str
+
+    def __post_init__(self) -> None:
+        """Reject layouts that could escape the project or split their root."""
+        root = contained_relpath(self.root)
+        if "/" in root:
+            raise ValueError(
+                "state layout root must be one top-level project directory"
+            )
+        object.__setattr__(self, "root", root)
+        for attr in (
+            "manifest",
+            "stack_snapshot",
+            "pipeline_snapshot",
+            "journal",
+            "continuity",
+            "memory",
+            "artifacts",
+            "state",
+            "temporary",
+        ):
+            value = contained_relpath(getattr(self, attr))
+            if value != root and not value.startswith(root + "/"):
+                raise ValueError(f"state layout {attr} must be contained under {root}/")
+            object.__setattr__(self, attr, value)
+
+    @classmethod
+    def neutral(cls) -> StateLayout:
+        """Layout for every new Claude, Codex, or dual-runtime installation."""
+        return cls(
+            name="neutral-v1",
+            root=".ckit",
+            manifest=".ckit/config/init-options.json",
+            stack_snapshot=".ckit/config/stack-catalog.snapshot.yaml",
+            pipeline_snapshot=".ckit/state/pipeline-snapshot.json",
+            journal=".ckit/config/upgrade-in-progress.json",
+            continuity=".ckit/CONTINUITY.md",
+            memory=".ckit/agent-memory",
+            artifacts=".ckit/artifacts",
+            state=".ckit/state",
+            temporary=".ckit/tmp",
+        )
+
+    @classmethod
+    def legacy_claude(cls) -> StateLayout:
+        """Compatibility layout used by pre-v2 Claude-only installations."""
+        return cls(
+            name="legacy-claude-v1",
+            root=".claude",
+            manifest=".claude/config/init-options.json",
+            stack_snapshot=".claude/config/stack-catalog.snapshot.yaml",
+            pipeline_snapshot=".claude/state/pipeline-snapshot.json",
+            journal=".claude/config/upgrade-in-progress.json",
+            continuity=".claude/CONTINUITY.md",
+            memory=".claude/agent-memory",
+            artifacts=".claude/artifacts",
+            state=".claude/state",
+            temporary=".claude/tmp",
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        """Return a stable JSON-serialisable layout document."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> StateLayout:
+        """Parse a persisted layout, accepting only the two supported layouts."""
+        if not isinstance(data, dict):
+            raise ValueError("state_layout must be an object")
+        name = data.get("name")
+        known = {
+            "neutral-v1": cls.neutral(),
+            "legacy-claude-v1": cls.legacy_claude(),
+        }
+        if name not in known:
+            raise ValueError(f"unsupported state layout {name!r}")
+        expected = known[str(name)]
+
+        def required_string(key: str) -> str:
+            value = data.get(key)
+            if not isinstance(value, str):
+                raise ValueError(f"state layout {key} must be a string")
+            return value
+
+        supplied = cls(
+            name=required_string("name"),
+            root=required_string("root"),
+            manifest=required_string("manifest"),
+            stack_snapshot=required_string("stack_snapshot"),
+            pipeline_snapshot=required_string("pipeline_snapshot"),
+            journal=required_string("journal"),
+            continuity=required_string("continuity"),
+            memory=required_string("memory"),
+            artifacts=required_string("artifacts"),
+            state=required_string("state"),
+            temporary=required_string("temporary"),
+        )
+        if supplied != expected:
+            raise ValueError(
+                f"state layout {name!r} does not match its canonical paths"
+            )
+        return supplied
 
 
 def _read_schema_version(data: dict[str, Any], *, current: int, document: str) -> int:
@@ -40,9 +220,9 @@ def _read_schema_version(data: dict[str, Any], *, current: int, document: str) -
             f"unsupported future {document} schema_version {value} "
             f"(maximum supported: {current})"
         )
-    if value != current:
+    if value < 1:
         raise ValueError(
-            f"unsupported {document} schema_version {value} (supported: {current})"
+            f"unsupported {document} schema_version {value} (minimum supported: 1)"
         )
     return value
 
@@ -153,6 +333,28 @@ class Selection:
         kwargs = {k: v for k, v in data.items() if k in known}
         kwargs.setdefault("mcp", [])
         return cls(**kwargs)
+
+
+@dataclass(frozen=True)
+class InstallRequest:
+    """Installation choices applied after provider-neutral catalog resolution.
+
+    The resolver consumes :attr:`selection` exactly as it did before.  The
+    projection compiler consumes :attr:`runtime`, preventing provider concerns
+    from leaking into the stack/profile catalog.
+    """
+
+    selection: Selection
+    runtime: Runtime = Runtime.CLAUDE
+
+    def __post_init__(self) -> None:
+        """Normalize string construction while retaining a typed public API."""
+        object.__setattr__(self, "runtime", Runtime.parse(self.runtime))
+
+    @property
+    def runtimes(self) -> tuple[str, ...]:
+        """Concrete provider ids to persist and project."""
+        return self.runtime.providers
 
 
 @dataclass
@@ -305,7 +507,11 @@ class ResolvedPlan:
         gates: Quality-gate ids active for the chosen profile (∪ strictness gates in org scope).
         gate_definitions: Canonical policy metadata for each active gate, in execution order.
         gate_definition_digest: Stable digest of the ordered active gate definitions.
-        mcp_servers: Mapping of selected MCP server id to its ``.mcp.json`` config fragment.
+        mcp_servers: Backward-compatible mapping of selected MCP server id to its native-neutral
+            config fragment.
+        mcp_server_specs: Full semantic MCP records. Their ids and provider configs must match
+            ``mcp_servers`` so runtime support, authentication, and health-check intent cannot be
+            discarded between catalog resolution and projection.
         context: Flat string context for rendering ``CLAUDE.md`` / ``README`` (labels + commands).
         stack_dirs: Mapping of selected stack kind to its ``templates/stacks`` subdir.
         org: The resolved org capability layer, or ``None`` for individual/team scope.
@@ -327,6 +533,51 @@ class ResolvedPlan:
     stack_dirs: dict[str, str]
     org: OrgPlan | None = None
     detected_commands: dict[str, str] | None = None
+    mcp_server_specs: dict[str, MCPServerSpec] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Keep compatibility fragments and semantic MCP records in lockstep."""
+
+        # Config-only plans remain accepted for callers of the pre-IR public
+        # dataclass. Catalog resolution always supplies semantic records; when
+        # present they are authoritative and must match the compatibility view.
+        if not self.mcp_server_specs:
+            return
+        config_ids = set(self.mcp_servers)
+        spec_ids = set(self.mcp_server_specs)
+        if config_ids != spec_ids:
+            missing_specs = sorted(config_ids - spec_ids)
+            missing_configs = sorted(spec_ids - config_ids)
+            details: list[str] = []
+            if missing_specs:
+                details.append("missing semantic specs: " + ", ".join(missing_specs))
+            if missing_configs:
+                details.append(
+                    "missing config fragments: " + ", ".join(missing_configs)
+                )
+            raise ValueError("resolved MCP ids differ (" + "; ".join(details) + ")")
+        for server_id, spec in self.mcp_server_specs.items():
+            if not isinstance(spec, MCPServerSpec):
+                raise ValueError(
+                    f"resolved MCP server {server_id!r} must be an MCPServerSpec"
+                )
+            if spec.id != server_id:
+                raise ValueError(
+                    f"resolved MCP key {server_id!r} does not match spec id {spec.id!r}"
+                )
+            if spec.provider_config != self.mcp_servers[server_id]:
+                raise ValueError(
+                    f"resolved MCP server {server_id!r} config differs from its semantic spec"
+                )
+
+    @property
+    def mcp_semantics(self) -> dict[str, dict[str, Any]]:
+        """Return deterministic semantic metadata for persistence and diagnostics."""
+
+        return {
+            server_id: self.mcp_server_specs[server_id].semantic_metadata
+            for server_id in sorted(self.mcp_server_specs)
+        }
 
 
 def contained_relpath(raw: str) -> str:
@@ -387,6 +638,8 @@ class FileRecord:
     path: str
     sha256: str
     owner: str
+    provider: str = "claude"
+    component_id: str = ""
 
     def __post_init__(self) -> None:
         """Normalise and containment-check :attr:`path`."""
@@ -403,6 +656,16 @@ class FileRecord:
             raise ValueError(
                 "file record owner must be 'kit', 'overlay', or 'user-editable'"
             )
+        if self.provider not in {"claude", "codex", "shared"}:
+            raise ValueError(
+                "file record provider must be 'claude', 'codex', or 'shared'"
+            )
+        if not self.component_id:
+            self.component_id = f"legacy-file://{self.path}"
+        if not isinstance(self.component_id, str) or "://" not in self.component_id:
+            raise ValueError(
+                "file record component_id must be a symbolic component URI"
+            )
 
     def to_dict(self) -> dict[str, str]:
         """Return a JSON-serialisable mapping of this record."""
@@ -411,7 +674,7 @@ class FileRecord:
 
 @dataclass
 class InitOptions:
-    """The persisted ``.claude/config/init-options.json`` document.
+    """The persisted runtime-neutral ``init-options.json`` document.
 
     Attributes:
         claude_kit_version: Kit version that produced the install.
@@ -423,7 +686,41 @@ class InitOptions:
     claude_kit_version: str
     selection: Selection
     files: list[FileRecord]
+    runtimes: list[str] = field(default_factory=lambda: [Runtime.CLAUDE.value])
+    state_layout: StateLayout = field(default_factory=StateLayout.legacy_claude)
+    rendering_version: int = 1
+    compatibility_catalog_versions: dict[str, int] = field(
+        default_factory=lambda: {Runtime.CLAUDE.value: 1}
+    )
     schema_version: int = INIT_OPTIONS_SCHEMA
+
+    def __post_init__(self) -> None:
+        """Validate runtime/layout metadata before it reaches lifecycle code."""
+        mode = Runtime.from_providers(self.runtimes)
+        self.runtimes = list(mode.providers)
+        if not isinstance(self.state_layout, StateLayout):
+            raise ValueError("state_layout must be a StateLayout")
+        if (
+            not isinstance(self.rendering_version, int)
+            or isinstance(self.rendering_version, bool)
+            or self.rendering_version < 1
+        ):
+            raise ValueError("rendering_version must be a positive integer")
+        expected = set(self.runtimes)
+        if set(self.compatibility_catalog_versions) != expected:
+            raise ValueError(
+                "compatibility catalog versions must match the installed runtimes"
+            )
+        if any(
+            not isinstance(version, int) or isinstance(version, bool) or version < 1
+            for version in self.compatibility_catalog_versions.values()
+        ):
+            raise ValueError("compatibility catalog versions must be positive integers")
+
+    @property
+    def runtime(self) -> Runtime:
+        """Installation mode reconstructed from concrete persisted providers."""
+        return Runtime.from_providers(self.runtimes)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable mapping (checksums excluded from no field)."""
@@ -432,6 +729,10 @@ class InitOptions:
             "claude_kit_version": self.claude_kit_version,
             "selection": self.selection.to_dict(),
             "files": [r.to_dict() for r in self.files],
+            "runtimes": list(self.runtimes),
+            "state_layout": self.state_layout.to_dict(),
+            "rendering_version": self.rendering_version,
+            "compatibility_catalog_versions": dict(self.compatibility_catalog_versions),
         }
 
     @classmethod
@@ -450,11 +751,53 @@ class InitOptions:
             not isinstance(item, dict) for item in files
         ):
             raise ValueError("init-options files must be an array of objects")
+        runtimes: list[str]
+        state_layout: StateLayout
+        rendering_version: int
+        compatibility_versions: dict[str, int]
+        if schema_version == 1:
+            runtimes = [Runtime.CLAUDE.value]
+            state_layout = StateLayout.legacy_claude()
+            rendering_version = 1
+            compatibility_versions = {Runtime.CLAUDE.value: 1}
+        else:
+            raw_runtimes = data.get("runtimes")
+            if not isinstance(raw_runtimes, list) or any(
+                not isinstance(runtime, str) for runtime in raw_runtimes
+            ):
+                raise ValueError("init-options runtimes must be an array of strings")
+            runtimes = raw_runtimes
+            raw_layout = data.get("state_layout")
+            if not isinstance(raw_layout, dict):
+                raise ValueError("init-options state_layout must be an object")
+            state_layout = StateLayout.from_dict(raw_layout)
+            raw_rendering_version = data.get("rendering_version")
+            if not isinstance(raw_rendering_version, int) or isinstance(
+                raw_rendering_version, bool
+            ):
+                raise ValueError("init-options rendering_version must be an integer")
+            rendering_version = raw_rendering_version
+            raw_compatibility_versions = data.get("compatibility_catalog_versions")
+            if not isinstance(raw_compatibility_versions, dict) or any(
+                not isinstance(key, str) or not isinstance(value, int)
+                for key, value in raw_compatibility_versions.items()
+            ):
+                raise ValueError(
+                    "init-options compatibility_catalog_versions must be an object of integers"
+                )
+            compatibility_versions = {
+                str(key): int(value)
+                for key, value in raw_compatibility_versions.items()
+            }
         return cls(
             claude_kit_version=str(data.get("claude_kit_version", "")),
             selection=Selection.from_dict(selection),
             files=[FileRecord(**record) for record in files],
-            schema_version=schema_version,
+            runtimes=runtimes,
+            state_layout=state_layout,
+            rendering_version=rendering_version,
+            compatibility_catalog_versions=compatibility_versions,
+            schema_version=INIT_OPTIONS_SCHEMA,
         )
 
 

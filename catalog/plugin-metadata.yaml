@@ -1,0 +1,73 @@
+schema_version: 1
+
+# Canonical identity shared by provider-specific manifest renderers. The package version is read
+# from pyproject.toml so a release has one version input, not another value to keep in sync here.
+identity:
+  name: claude-kit
+  display_name: Claude Kit SDLC
+  description: Evidence-gated SDLC workflows for Claude Code, with preview plugin support for Codex, delivered from one stack-agnostic payload.
+  author:
+    name: Arjunsingh Yadav
+    url: https://github.com/ajyadav013
+  homepage: https://github.com/ajyadav013/claude-kit
+  repository: https://github.com/ajyadav013/claude-kit
+  license: MIT
+  keywords:
+    - sdlc
+    - agents
+    - orchestration
+    - code-review
+    - testing
+    - quality-gates
+    - workflow
+    - automation
+    - scaffold
+    - cookiecutter
+
+providers:
+  claude:
+    # Preserve the established Claude Code listing copy while generating it from this source.
+    manifest_description: "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker). `claude-kit init` asks ordered questions and installs CLAUDE.md + .claude/ (rules, the profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with an evidence-hashed gate ledger, working memory, and a self-improving learnings loop."
+    marketplace:
+      name: claude-kit
+      description: claude-kit — an autonomous, stack-agnostic SDLC for Claude Code, delivered as a plugin.
+      plugin_description: "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker): install CLAUDE.md + .claude/ (rules, the profile's agents/skills, hooks, artifact templates) + optional .mcp.json, then run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with an evidence-hashed gate ledger, working memory, and a self-improving learnings loop."
+      keywords:
+        - sdlc
+        - agents
+        - orchestration
+        - quality-gates
+        - workflow
+        - scaffold
+        - cookiecutter
+
+  codex:
+    # Codex discovers hooks/hooks.json by convention. Do not add an explicit `hooks` manifest
+    # field: it is not accepted by the current Codex ingestion schema.
+    skills: ./skills/
+    interface:
+      display_name: Claude Kit SDLC
+      short_description: Evidence-gated engineering workflows
+      long_description: Shared SDLC skills and hooks for evidence-gated planning, implementation, review, testing, security, and release work. Codex runtime support remains preview; use the CLI when project-native scaffolding is required.
+      developer_name: Arjunsingh Yadav
+      category: Productivity
+      capabilities:
+        - Interactive
+        - Read
+        - Write
+      website_url: https://github.com/ajyadav013/claude-kit
+      default_prompts:
+        - Run an evidence-gated SDLC workflow for this task.
+        - Review this change against the project's quality gates.
+    marketplace:
+      name: claude-kit
+      display_name: Claude Kit
+      source:
+        source: local
+        path: ./providers/codex/claude-kit
+      policy:
+        installation: AVAILABLE
+        # The plugin itself needs no credentials to install. Any provider/tool authentication is
+        # requested lazily by the host when that component is first used.
+        authentication: ON_USE
+      category: Productivity

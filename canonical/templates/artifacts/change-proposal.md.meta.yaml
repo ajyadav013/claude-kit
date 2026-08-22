@@ -1,0 +1,8 @@
+schema_version: 1
+id: artifact-change-proposal
+description: Change Proposal artifact template
+category: artifact
+format: markdown
+destination: templates/artifacts/change-proposal.md
+provider_placeholders: []
+references: []

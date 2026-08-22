@@ -50,7 +50,7 @@ or it exceeds the active autonomy level (`.claude/rules/autonomy-levels.md`).
 ```
 /feature-from-idea Add team invites to the admin dashboard
 → asks: who can invite? roles? email vs link? seat limits?
-→ acceptance criteria + P0/P1 stories; risk: medium (touches authz → confirm) 
+→ acceptance criteria + P0/P1 stories; risk: medium (touches authz → confirm)
 → routes to spec-doc-writer → frontend + backend lanes
 → STOPS for approval before any code is written
 ```

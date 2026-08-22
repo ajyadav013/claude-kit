@@ -18,8 +18,8 @@ they never show up in a normal `git diff`:
 | Artifact | Location | Tracked? |
 |---|---|---|
 | Feature spec | `docs/specs/<feature>_spec.md` | committed |
-| Run lifecycle and gate state (resolved gate, exact findings, evidence hashes, not-applicable conditions, accepted risks, terminal summary) | `.claude/state/pipeline-snapshot.json` | gitignored runtime state |
-| Verdict log / phase history | `.claude/CONTINUITY.md` | gitignored runtime state |
+| Run lifecycle and gate state (resolved gate, exact findings, evidence hashes, not-applicable conditions, accepted risks, terminal summary) | `.ckit/state/pipeline-snapshot.json` | shared provider-neutral runtime state |
+| Verdict log / phase history | `.ckit/CONTINUITY.md` | shared provider-neutral working state |
 | Install snapshot (profile + resolved gate set) | `.claude/config/stack-catalog.snapshot.yaml` | committed |
 | The code itself + the PR | git history (`diff` vs your base branch) | committed |
 

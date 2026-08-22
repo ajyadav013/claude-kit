@@ -13,7 +13,15 @@
       "description": "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker): install CLAUDE.md + .claude/ (rules, the profile's agents/skills, hooks, artifact templates) + optional .mcp.json, then run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with an evidence-hashed gate ledger, working memory, and a self-improving learnings loop.",
       "version": "0.83.0",
       "license": "MIT",
-      "keywords": ["sdlc", "agents", "orchestration", "quality-gates", "workflow", "scaffold", "cookiecutter"]
+      "keywords": [
+        "sdlc",
+        "agents",
+        "orchestration",
+        "quality-gates",
+        "workflow",
+        "scaffold",
+        "cookiecutter"
+      ]
     }
   ]
 }

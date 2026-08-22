@@ -1,0 +1,8 @@
+schema_version: 1
+id: artifact-release-plan
+description: Release Plan artifact template
+category: artifact
+format: markdown
+destination: templates/artifacts/release-plan.md
+provider_placeholders: []
+references: []

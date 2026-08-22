@@ -1,0 +1,39 @@
+---
+schema_version: 1
+id: archive-sprint
+description: Archive a completed sprint's planning docs and update the backlog status.
+invocation: explicit
+capabilities:
+- filesystem.read
+request_input:
+  mode: optional
+  hint: '[backlog item number]'
+pause_for_human: []
+references:
+- rule://quality-gates
+---
+
+Archive the completed sprint for backlog item #{{request}}.
+
+## Steps
+
+1. **Find the planning folder**: Look in `docs/planning/` for the directory corresponding to backlog item #{{request}}.
+
+2. **Verify completion**: Check that the work is actually done:
+   - Read the sprint plan and verify tasks are complete
+   - Verify the Sprint Report section is filled in (Results, Metrics, What went well/wrong, Learnings, Unresolved). If missing, tell the user to write the post-sprint report first — do not archive without it.
+   - Check if any new learnings should be added to `docs/reference/post-sprint-learnings.md`. If the sprint report has learnings not already captured there, append them.
+   - **Run the project's checks and confirm they actually pass** — the test suite, linter, and build, executed now (not assumed from the report). Do not archive on a red or unrun check; capture the real result. A "green" claim must cite the command + output (`rule://quality-gates` §2.5).
+
+3. **Move to archive**: Use `git mv` to move:
+   - The scope doc → `docs/archive/plans/{slug}-scope.md`
+   - The sprint plan → `docs/archive/sprints/{slug}-sprint.md`
+   - Any other planning docs in the folder → `docs/archive/plans/`
+
+4. **Update backlog**: Find the item in its horizon file (`docs/backlog/now.md`, `next.md`, or `later.md`) and move it to `docs/backlog/completed.md` with `Completed` status and the date. Update the item counts in `docs/backlog/README.md`.
+
+5. **Clean up**: Remove the now-empty planning directory.
+
+6. **Commit**: Stage all moved/modified files and commit with message: `backlog: complete #N — {Title}`
+
+7. **Summarize**: Tell the user what was archived and confirm the backlog was updated.

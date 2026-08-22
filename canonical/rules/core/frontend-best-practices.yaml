@@ -1,0 +1,20 @@
+schema_version: 1
+id: frontend-best-practices
+description: Frontend Best Practices
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.vue'
+- '**/*.svelte'
+- '**/*.css'
+- '**/*.scss'
+- '**/components/**'
+references:
+- rule://code-organization
+- rule://documentation
+- rule://linting-and-formatting
+- rule://responsive-and-accessibility
+- rule://testing

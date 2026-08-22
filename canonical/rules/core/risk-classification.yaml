@@ -1,0 +1,14 @@
+schema_version: 1
+id: risk-classification
+description: Risk Classification
+strength: required
+applicability:
+  source: core
+path_globs: []
+references:
+- rule://agent-guardrails
+- rule://autonomy-levels
+- rule://goal-setting-and-monitoring
+- rule://human-in-the-loop
+- rule://mandatory-workflow
+- rule://quality-gates

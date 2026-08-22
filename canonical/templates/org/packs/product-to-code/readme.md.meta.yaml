@@ -1,0 +1,17 @@
+schema_version: 1
+id: org-pack-product-to-code-readme
+description: product-to-code organization pack readme
+category: org
+format: markdown
+destination: templates/org/packs/product-to-code/README.md
+provider_placeholders:
+- provider.executable.cli
+references:
+- command://feature-from-idea
+- command://idea-refine
+- command://interview-me
+- command://planning-and-task-breakdown
+- command://prd-to-stories
+- command://prompt-to-safe-task
+- command://scope
+- command://spec-driven-development

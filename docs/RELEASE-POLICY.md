@@ -25,23 +25,26 @@ published only for the latest release.
 
 Every release includes:
 
-- A version bump in **all five** of the following files (enforced by CI):
+- A version bump in the three manually maintained version declarations (enforced by CI):
   - `pyproject.toml`
-  - `.claude-plugin/plugin.json`
-  - `.claude-plugin/marketplace.json` (the marketplace entry)
   - `src/claude_kit/__init__.py` (`__version__`)
   - `SECURITY.md` (the "Supported Versions" table)
+- Regenerated Claude Code and Codex plugin manifests from `catalog/plugin-metadata.yaml` via
+  `scripts/gen_provider_manifests.py` (their version comes from `pyproject.toml`; the native Codex
+  marketplace format has no version field)
 - A new section in `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/)
   format, with a dated heading matching the new version
 - A "Not adopted (deliberately)" note in the CHANGELOG entry, documenting what was reviewed but
   intentionally excluded from the kit
 
-A CI check (`scripts/check_docs_consistency.py`) enforces version parity across all five locations
-and verifies that the latest CHANGELOG heading matches the current version.
+CI runs `scripts/gen_provider_manifests.py --check` to reject generated-file drift, while
+`scripts/check_docs_consistency.py` enforces version parity across the manual declarations,
+versioned provider outputs, and latest CHANGELOG heading.
 
 ## Release Process
 
-1. **Bump the version** in all five files listed above.
+1. **Bump the version** in the three manual declarations listed above, then regenerate provider
+   manifests with `python scripts/gen_provider_manifests.py`.
 2. **Update CHANGELOG.md** with a new section for the release, including the date and the
    "Not adopted" note.
 3. **Merge to main.** Once the pull request is merged:

@@ -1,0 +1,183 @@
+# Claude Code host capabilities used by claude-kit's projection contract.
+#
+# `minimum` is the oldest audited host that supports the required Stop-hook context contract.
+# `current_stable` is deliberately pinned; the scheduled drift job requires a reviewed update when
+# npm's moving latest release changes.
+version: 1
+host: claude
+status: stable
+minimum: "2.1.163"
+current_stable: "2.1.239"
+stable_as_of: "2026-08-22"
+
+tested:
+  - version: "2.1.163"
+    role: minimum
+    tested_at: "2026-08-20"
+    ci: true
+  - version: "2.1.178"
+    role: observed
+    tested_at: "2026-08-20"
+    ci: false
+  - version: "2.1.237"
+    role: observed
+    tested_at: "2026-08-20"
+    ci: false
+  - version: "2.1.238"
+    role: observed
+    tested_at: "2026-08-22"
+    ci: false
+  - version: "2.1.239"
+    role: current-stable
+    tested_at: "2026-08-22"
+    ci: true
+
+features:
+  stream_json_input:
+    support: native
+    required: true
+    minimum_version: "2.1.163"
+    documentation: "https://code.claude.com/docs/en/cli-reference"
+  stop_hook_additional_context:
+    support: native
+    required: true
+    minimum_version: "2.1.163"
+    documentation: "https://code.claude.com/docs/en/hooks"
+  dynamic_workflows:
+    support: native
+    required: false
+    minimum_version: "2.1.154"
+    documentation: "https://code.claude.com/docs/en/sub-agents"
+  permission_rule_tool_matching:
+    support: native
+    required: false
+    minimum_version: "2.1.178"
+    documentation: "https://code.claude.com/docs/en/permissions"
+
+events:
+  support: native
+  project_sources:
+    - ".claude/settings.json"
+    - ".claude/settings.local.json"
+  plugin_source: "hooks/hooks.json"
+  handler_types:
+    - command
+    - prompt
+    - agent
+  trust_required: false
+  recognized:
+    - PreToolUse
+    - PostToolUse
+    - PostToolUseFailure
+    - PostToolBatch
+    - Notification
+    - UserPromptSubmit
+    - UserPromptExpansion
+    - SessionStart
+    - SessionEnd
+    - Stop
+    - StopFailure
+    - SubagentStart
+    - SubagentStop
+    - PreCompact
+    - PostCompact
+    - PermissionRequest
+    - PermissionDenied
+    - Setup
+    - TeammateIdle
+    - TaskCreated
+    - TaskCompleted
+    - ConfigChange
+    - WorktreeCreate
+    - WorktreeRemove
+    - CwdChanged
+    - Elicitation
+    - ElicitationResult
+    - FileChanged
+    - InstructionsLoaded
+  required_by_projection:
+    - SessionStart
+    - SessionEnd
+    - PreToolUse
+    - PostToolUse
+    - Stop
+  plugin_environment:
+    - CLAUDE_PLUGIN_ROOT
+    - CLAUDE_PLUGIN_DATA
+  documentation: "https://code.claude.com/docs/en/hooks"
+
+agents:
+  support: native
+  project_directory: ".claude/agents"
+  plugin_directory: "agents"
+  format: markdown
+  model_tier_mapping:
+    fast: haiku
+    balanced: sonnet
+    deep: opus
+  permission_class_mapping:
+    read_only: plan
+    workspace_write: acceptEdits
+    external_effect: acceptEdits
+  required_fields:
+    - name
+    - description
+  supported_fields:
+    - name
+    - description
+    - tools
+    - disallowedTools
+    - model
+    - permissionMode
+    - skills
+    - hooks
+    - mcpServers
+    - maxTurns
+    - background
+    - isolation
+    - memory
+  documentation: "https://code.claude.com/docs/en/sub-agents"
+
+skills:
+  support: native
+  project_directory: ".claude/skills"
+  plugin_directory: "skills"
+  required_file: "SKILL.md"
+  required_frontmatter:
+    - name
+    - description
+  supported_frontmatter:
+    - name
+    - description
+    - argument-hint
+    - disable-model-invocation
+    - user-invocable
+    - allowed-tools
+    - model
+    - context
+    - agent
+    - hooks
+  manual_only_field: "disable-model-invocation"
+  argument_placeholder: "$ARGUMENTS"
+  documentation: "https://code.claude.com/docs/en/skills"
+
+plugins:
+  support: native
+  manifest: ".claude-plugin/plugin.json"
+  repo_marketplace: ".claude-plugin/marketplace.json"
+  default_hooks: "hooks/hooks.json"
+  component_types:
+    - commands
+    - agents
+    - skills
+    - hooks
+    - mcp
+    - lsp
+    - settings
+  documentation: "https://code.claude.com/docs/en/plugins-reference"
+
+mcp:
+  support: native
+  project_config: ".mcp.json"
+  root_key: "mcpServers"
+  documentation: "https://code.claude.com/docs/en/mcp"

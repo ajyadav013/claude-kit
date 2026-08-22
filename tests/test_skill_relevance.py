@@ -7,8 +7,9 @@ competed in the skill picker. These tests pin the replacement contract:
 
 * no profile may reintroduce ``skills: all``;
 * a selection never receives skills for a stack it did not choose;
-* every skill in the payload is still reachable through *some* live selection (nothing was
-  orphaned by enumerating), with planned stacks called out explicitly;
+* every scaffold skill in the payload is still reachable through *some* live selection (nothing
+  was orphaned by enumerating), with planned stacks and plugin-only command adapters called out
+  explicitly;
 * ``lean ⊆ standard ⊆ enterprise`` still holds.
 """
 
@@ -59,6 +60,15 @@ _STACK_SKILLS = {
         "django-react-integration",
     },
     "express": {"node-express-service", "node-objection-knex"},
+}
+
+# Generated compatibility adapters expose the four legacy slash commands through plugin skill
+# discovery. They are plugin entrypoints, not project skills selected by the scaffold catalog.
+_PLUGIN_COMMAND_SKILLS = {
+    "ckit-command-abort",
+    "ckit-command-init",
+    "ckit-command-sdlc",
+    "ckit-command-status",
 }
 
 
@@ -165,10 +175,13 @@ def test_every_skill_is_reachable_by_some_live_selection(payload):
                         reachable |= set(plan.skills)
 
     unreachable = _skills_on_disk(payload) - reachable
-    # Skills gated behind a `status: planned` stack are legitimately unreachable until it ships.
-    planned_only = _STACK_SKILLS["express"]
-    assert unreachable <= planned_only, (
-        f"skills no live selection can install: {sorted(unreachable - planned_only)}"
+    # Planned-stack skills remain dormant until that stack ships. The generated command adapters
+    # are intentionally plugin-only and must not be added to every scaffold just to satisfy this
+    # catalog reachability invariant.
+    intentionally_unselected = _STACK_SKILLS["express"] | _PLUGIN_COMMAND_SKILLS
+    assert unreachable <= intentionally_unselected, (
+        "skills no live selection can install: "
+        f"{sorted(unreachable - intentionally_unselected)}"
     )
 
 

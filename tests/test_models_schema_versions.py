@@ -24,15 +24,17 @@ def _init_options_doc(payload):
 
 def test_init_options_absent_schema_is_explicit_legacy_v1(payload):
     options = InitOptions.from_dict(_init_options_doc(payload))
-    assert options.schema_version == 1
+    assert options.schema_version == 2
+    assert options.runtimes == ["claude"]
+    assert options.state_layout.root == ".claude"
 
 
 def test_init_options_rejects_future_and_malformed_schema(payload):
     document = _init_options_doc(payload)
     with pytest.raises(
-        ValueError, match="unsupported future init-options schema_version 2"
+        ValueError, match="unsupported future init-options schema_version 3"
     ):
-        InitOptions.from_dict({**document, "schema_version": 2})
+        InitOptions.from_dict({**document, "schema_version": 3})
     with pytest.raises(ValueError, match="must be an integer"):
         InitOptions.from_dict({**document, "schema_version": "1"})
 

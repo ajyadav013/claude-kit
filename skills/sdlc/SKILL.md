@@ -65,8 +65,73 @@ enterprise thorough. Conversely, never skip a gate that *is* in the set.
 
 ## 3. Drive the pipeline
 
-Spawn the `orchestrator` agent via the Agent tool with: the task ($ARGUMENTS), the active gate list,
-and the stack selection. Instruct it to:
+### Managed execution path (Preview, Modes A–D)
+
+Classify the request far enough to select Mode A, B, C, or D before creating the run. If the mode is
+ambiguous, stop and ask; do not let a shell command infer it from untrusted prose. Start a fresh
+ledger with `claude-kit pipeline start --task '<reviewed task>' --mode <A|B|C|D>`, or use the
+validated active ledger when resuming.
+
+Before the first managed invocation, commit the selected provider's scaffolded instructions and
+all application inputs. The integration worktree is created from `HEAD`; only mutable `.ckit/`
+state is exempt. If provider configuration or application changes are uncommitted, stop and ask the
+human to commit or stash them rather than launching a worker with incomplete context.
+
+When `CKIT_EXPERIMENTAL=1` is already an explicit operating choice, prefer the managed executor:
+
+```text
+claude-kit pipeline run --provider claude \
+  --condition ui-surface-present=<true|false> \
+  --condition frontend-surface-present=<true|false> \
+  --condition backend-surface-present=<true|false> \
+  --condition api-contract-surface-present=<true|false> \
+  --condition api-surface-present=<true|false> \
+  --condition risk-or-uncertainty-present=<true|false> \
+  --condition multiple-boundaries-present=<true|false> \
+  --condition end-to-end-path-present=<true|false> \
+  --condition application-attack-surface-present=<true|false> \
+  --condition deploy-surface-present=<true|false> \
+  --condition observable-surface-present=<true|false>
+```
+
+Decide every value from the reviewed task and installed stack; never guess an unknown surface. The
+first invocation freezes the applicable decisions, complete workflow digest, mode-specific gates,
+gate owners, and stage history in the single shared ledger. Later invocations may omit the condition
+arguments, including after switching providers.
+
+The managed executor is the sole dispatcher for that invocation — do not also spawn an orchestrator.
+On `waiting-gate`, inspect the run-owned stage artifact, record exact findings, resolve only the named
+gate through the structured lifecycle, and invoke `pipeline run` again. On `human-stop` (exit 3),
+stop for the requested action. Its persistent run-owned worktree is not merged automatically; present
+its path/diff for an explicit human-controlled merge after success.
+
+Managed approval resumption is not implemented: a generic local file plus a claimed identity is not
+a trustworthy stage/attempt/workspace-scoped, one-shot authorization. `approved` resolutions remain
+pending and fail closed. A human may record `rejected` only to trigger re-planning or abort; it never
+authorizes the stopped action. Use the legacy/manual lifecycle only with an explicit acknowledgement
+that its approval record is not a managed-execution capability grant.
+
+The built-in subprocess backend does not attest `process.descendant_containment`: portable process-
+group cleanup cannot contain a deliberately re-sessioned descendant. Every selected semantic shell
+role therefore returns an `unsupported-required-capability` human stop before spawn. A provider
+adapter may waive that requirement only for a passive read-only, nondelegating role on an exact
+compatibility-pinned host after a fail-closed probe disables every command, extension, and
+delegation surface; the coordinator must supply a bounded, filtered projection of tracked text.
+All other roles still require containment. Consult the installed runtime support matrix. Do not
+retry, resolve, or bypass a missing-capability stop; resolving a pause does not grant the technical
+boundary. Use an independently contained backend, or obtain explicit human acknowledgement before
+choosing the manual orchestration path.
+
+Mode E is not managed-executable yet because typed wave completion, restore points, and inventory
+approval are not modeled. It must stop at that boundary and use the manual Mode E contract below only
+with an explicit human acknowledgement of the degraded path. If `pipeline run` is unavailable or
+Preview execution was not opted into, report that fact and obtain the same acknowledgement before
+using manual delegation; never silently downgrade a managed run.
+
+### Manual orchestration path
+
+For acknowledged Mode E/manual fallback, spawn the `orchestrator` agent via the Agent
+tool with the task ($ARGUMENTS), active gate list, and stack selection. Instruct it to:
 
 1. **Classify** the work — bug fix vs. feature; single-stream vs. parallel lanes (backend/frontend);
    fast-track (< 5 files) vs. full pipeline vs. **program-scale** (> ~20 files / multiple subsystems,
@@ -127,14 +192,16 @@ When the story breakdown yields **two or more immediately-startable story groups
 dependency-connected story sets with mutually disjoint file boundaries —
 `.claude/rules/mandatory-workflow.md` §1f) and the run is not program-scale (Mode E), parallelize
 across context windows instead of inside one: spawn **one orchestrator per group**, each in its
-**own git worktree** per `.claude/rules/continuity.md` → Concurrency — each worktree carries its own
-CONTINUITY.md, snapshot, and gate ledger, authoritative for that group's per-story gates. Announce
-the scale first (N orchestrators × model tiers) so the human can veto it. Merge in dependency
-order, one group at a time, with **human approval per mainline merge** (workers propose; humans
-approve), then run the run-level gates — test-coverage across groups, security-clear on the merged
-output — in the primary checkout, recorded in its ledger. A group that fails escalates per the
-normal retry protocol; healthy groups still merge; a failed group's stories return to the backlog —
-never merge a group whose gates didn't pass.
+**run-owned git worktree** per `.claude/rules/continuity.md` → Concurrency. Worktrees contain code and
+stage artifacts only: they never receive an independent continuity file, pipeline snapshot, or
+gate ledger. The primary checkout's single `.claude/state/pipeline-snapshot.json` remains authoritative for
+every group, provider, retry, and merge. Announce the scale first (N orchestrators × model tiers)
+so the human can veto it. Merge in dependency order, one group at a time, with **human approval per
+mainline merge** (workers propose; humans approve), then run the run-level gates — test-coverage
+across groups, security-clear on the merged output — in the primary checkout and record them in
+that same ledger. A group that fails escalates per the normal retry protocol; healthy groups still
+merge; a failed group's stories return to the backlog — never merge a group whose gates didn't
+pass.
 
 ## 4. Stop for the human where required
 

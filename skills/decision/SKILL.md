@@ -1,7 +1,7 @@
 ---
 name: decision
 description: Record an architecture decision as an ADR. Use when making significant technology choices, pattern adoptions, or convention changes.
-argument-hint: [decision title or description]
+argument-hint: '[decision title or description]'
 disable-model-invocation: true
 ---
 

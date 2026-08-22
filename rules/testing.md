@@ -1,20 +1,20 @@
 ---
 paths:
-  - '**/test_*.py'
-  - '**/*_test.py'
-  - '**/*.test.*'
-  - '**/*.spec.*'
-  - '**/tests/**'
-  - '**/__tests__/**'
-  - '**/*.py'
-  - '**/*.ts'
-  - '**/*.tsx'
-  - '**/*.js'
-  - '**/*.jsx'
-  - '**/*.go'
-  - '**/*.rs'
-  - '**/*.java'
-  - '**/*.rb'
+- '**/test_*.py'
+- '**/*_test.py'
+- '**/*.test.*'
+- '**/*.spec.*'
+- '**/tests/**'
+- '**/__tests__/**'
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
 ---
 
 # Testing Standards
@@ -124,7 +124,7 @@ backend/
 describe/group tests by module or feature
   describe/group by function/class/component
     setup/teardown hooks to reset state between tests
-    
+
     test case: valid input produces expected output
     test case: edge case handling
     test case: error handling
@@ -242,7 +242,7 @@ describe('ComponentName', () => {
   it('calls onClick when button is clicked', async () => {
     const handleClick = mockFunction();
     render(<ComponentName onClick={handleClick} />);
-    
+
     await userInteraction.click(screen.getByRole('button'));
     expect(handleClick).toHaveBeenCalledOnce();
   });
@@ -264,16 +264,16 @@ class TestUserService:
     async def test_create_user_with_valid_data(self, db_session):
         payload = {"email": "test@example.com", "password": "secure123"}
         user = await user_service.create_user(db_session, payload)
-        
+
         assert user.id is not None
         assert user.email == "test@example.com"
         # Never leak sensitive fields in responses
         assert not hasattr(user, 'password')
-    
+
     async def test_create_user_duplicate_email_raises_conflict(self, db_session):
         payload = {"email": "test@example.com", "password": "secure123"}
         await user_service.create_user(db_session, payload)
-        
+
         with pytest.raises(ConflictError):
             await user_service.create_user(db_session, payload)
 ```
@@ -486,12 +486,12 @@ unreadable. Assert on the *meaning*, and surface a readable diff:
 ## Fuzzing (and continuous fuzzing in CI)
 
 Example-based and even property-based tests (see the property-based testing section in
-`.claude/skills/test-driven-development`) only exercise inputs you *thought of*. **Fuzzing** generates
+`.claude/skills/test-driven-development/SKILL.md`) only exercise inputs you *thought of*. **Fuzzing** generates
 inputs you didn't — it mutates a seed corpus under **coverage feedback**, steering toward new code
 paths, and flags any input that crashes, hangs, or trips an assertion/sanitizer. It is the highest-value
 technique for code that parses or decodes **untrusted input** (parsers, deserializers, protocol/codec
 handlers, anything taking bytes from the network or a file) and complements the ReDoS / input-validation
-hardening in `.claude/skills/security-and-hardening`.
+hardening in `.claude/skills/security-and-hardening/SKILL.md`.
 
 - **Write a fuzz target:** a single entry point that takes an arbitrary byte string / structured input
   and feeds it through the code under test. Most ecosystems ship a coverage-guided fuzzer — Go
@@ -569,7 +569,7 @@ same seed replays the same execution bit-for-bit.
   clocks — at decision points seeded by the run. Searching the fault space deterministically surfaces, in
   minutes, edge cases that would take months of real-cluster runtime to hit.
 - **Scope it.** DST earns its architectural cost for **stateful concurrent/distributed** components
-  (consensus, replication, schedulers, queues, transaction logic). *Skip (note why in `CONTINUITY.md`)*
+  (consensus, replication, schedulers, queues, transaction logic). *Skip (note why in `.claude/CONTINUITY.md`)*
   for stateless request/response code and pure functions — fuzzing + property-based testing cover those.
 
 It complements, not replaces, the techniques above (fuzzing = untrusted-input crashes; property-based =

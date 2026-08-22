@@ -1,0 +1,23 @@
+schema_version: 1
+id: documentation
+description: Documentation Standards
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+- '**/*.md'
+- '**/docs/**'
+references:
+- artifact://project-instructions
+- rule://quality-gates
+- skill://ticketing-and-traceability
+- state://workflow

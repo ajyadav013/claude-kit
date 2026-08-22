@@ -1,0 +1,11 @@
+schema_version: 1
+id: stack-instructions
+description: Selected-stack instruction fragment
+category: stack
+format: jinja-markdown
+destination: templates/CLAUDE.stack.md.tmpl
+provider_placeholders:
+- provider.executable.cli
+- provider.path.rules
+references:
+- rule://mandatory-workflow

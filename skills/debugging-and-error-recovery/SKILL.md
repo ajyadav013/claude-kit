@@ -171,7 +171,7 @@ Symptom: "The user list shows duplicate entries"
 
 Symptom fix (bad):
   → Deduplicate in the UI component
-  
+
 Root cause fix (good):
   → The data-access layer has a query that produces duplicates
   → Fix the query, add a DISTINCT clause, or fix the data model

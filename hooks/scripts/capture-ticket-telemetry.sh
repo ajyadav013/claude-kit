@@ -16,19 +16,20 @@
 # Conservative + safe by construction:
 #   * Silent no-op without the `claude-kit` CLI (plugin-only installs), without a ticket store, or
 #     outside a project directory. Never fails a turn.
-#   * Throttled: rewrites at most once per CLAUDE_KIT_TELEMETRY_INTERVAL seconds (default 60), so a
+#   * Throttled: rewrites at most once per CKIT_TELEMETRY_INTERVAL seconds (default 60; legacy
+#     CLAUDE_KIT_TELEMETRY_INTERVAL is accepted), so a
 #     burst of short turns doesn't re-scan the transcript set every time.
 #   * Detached background job -- the hook returns immediately and never delays the next prompt.
 #   * Writes only inside the gitignored .claude/state/, so it produces no commit noise.
 #   * Metadata only: token counts, model ids, agent names, timestamps. No message content.
-#   * Opt out with CLAUDE_KIT_NO_TELEMETRY=1.
+#   * Opt out with CKIT_NO_TELEMETRY=1 (legacy CLAUDE_KIT_NO_TELEMETRY is accepted).
 #
 # It also refreshes the HTML board -- but ONLY if that file already exists. Its presence is the
 # opt-in signal: you get it by running `claude-kit tickets --html` once, and from then on the browser's
 # auto-refresh shows live progress. Terminal-only users never pay for a render they don't look at.
 set -u
 
-[ -n "${CLAUDE_KIT_NO_TELEMETRY:-}" ] && exit 0
+[ -n "${CKIT_NO_TELEMETRY:-${CLAUDE_KIT_NO_TELEMETRY:-}}" ] && exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 command -v claude-kit >/dev/null 2>&1 || exit 0
 
@@ -44,7 +45,7 @@ STATE_DIR="$PROJECT_DIR/.claude/state"
 SNAPSHOT="$STATE_DIR/ticket-telemetry.json"
 BOARD="$STATE_DIR/ticket-board.html"
 
-INTERVAL="${CLAUDE_KIT_TELEMETRY_INTERVAL:-60}"
+INTERVAL="${CKIT_TELEMETRY_INTERVAL:-${CLAUDE_KIT_TELEMETRY_INTERVAL:-60}}"
 case "$INTERVAL" in '' | *[!0-9]*) INTERVAL=60 ;; esac
 
 # Throttle: skip when the existing snapshot is younger than the interval. `find -newermt` is not

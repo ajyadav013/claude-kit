@@ -238,7 +238,7 @@ skill before you act.
 **Do not perform a coordinator's role yourself — spawn the coordinator.** When the request is to
 build, change, or ship a feature, spawn `orchestrator` and let it drive; when it is to security-
 review a change, spawn `security-reviewer` and let it dispatch its own sub-scanners. Run
-`/claude-kit:sdlc` when you want the full pipeline. The failure this prevents is not idleness but a
+`/sdlc` when you want the full pipeline. The failure this prevents is not idleness but a
 *convincing imitation*: measured on the same task with the same agents installed, a session asked
 directly spawned `developer` and `sdlc-code-reviewer` in sequence — the right leaf work, in the
 right order — but never spawned `orchestrator`; asked for a security review it dispatched all four

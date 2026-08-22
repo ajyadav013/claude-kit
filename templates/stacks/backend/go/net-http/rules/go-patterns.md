@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.go"
+- '**/*.go'
 ---
 
 # Go backend patterns (net/http)

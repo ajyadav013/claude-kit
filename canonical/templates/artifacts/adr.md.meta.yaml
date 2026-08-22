@@ -1,0 +1,8 @@
+schema_version: 1
+id: artifact-adr
+description: Adr artifact template
+category: artifact
+format: markdown
+destination: templates/artifacts/adr.md
+provider_placeholders: []
+references: []

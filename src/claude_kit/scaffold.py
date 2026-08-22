@@ -18,18 +18,18 @@ import tempfile
 from contextlib import ExitStack
 from copy import deepcopy
 from importlib.resources import as_file, files
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
 
 import yaml
 
 from claude_kit import __version__, detect
 from claude_kit import hooks as hooks_mod
-from claude_kit.models import UPGRADE_JOURNAL, FileRecord, InitOptions, ResolvedPlan
+from claude_kit.mcp import project_resolved_servers as project_mcp_servers
+from claude_kit.models import FileRecord, InitOptions, ResolvedPlan, StateLayout
 from claude_kit.render import _is_ignored as _is_payload_junk
 from claude_kit.render import render_text
 from claude_kit.secure_fs import (
-    JOURNAL_PATH,
     ProjectFS,
     ProjectTransaction,
     UnsafePathError,
@@ -38,19 +38,27 @@ from claude_kit.secure_fs import (
 
 #: Marker in the generic CLAUDE.md whose section is replaced with the stack-specific block.
 _STACK_MARKER = "## Project-specific rules"
+_LEGACY_STATE_LAYOUT = StateLayout.legacy_claude()
+_LEGACY_CONFIG_ROOT = PurePosixPath(_LEGACY_STATE_LAYOUT.manifest).parent.as_posix()
+_LEGACY_MEMORY_PREFIX = _LEGACY_STATE_LAYOUT.memory.rstrip("/") + "/"
+_LEGACY_JOURNAL_IN_ROOT = (
+    PurePosixPath(_LEGACY_STATE_LAYOUT.journal)
+    .relative_to(_LEGACY_STATE_LAYOUT.root)
+    .as_posix()
+)
 
 #: Selective .gitignore entries for a scaffolded project (commit the rest of .claude/).
 GITIGNORE_ENTRIES = (
     ".claude/settings.local.json",
     "CLAUDE.local.md",
-    ".claude/state/",
-    ".claude/tmp/",
+    f"{_LEGACY_STATE_LAYOUT.state}/",
+    f"{_LEGACY_STATE_LAYOUT.temporary}/",
     # upgrade/merge artifacts written by `claude-kit upgrade` — never commit these
     ".claude-kit.bak-*/",
     ".claude.bak-*/",
     ".claude-kit-txn-*/",
     "*.claude-kit",
-    f".claude/config/{UPGRADE_JOURNAL}",
+    _LEGACY_STATE_LAYOUT.journal,
 )
 
 
@@ -584,7 +592,10 @@ def _write_mcp(
             log.append("  • removed orphaned .mcp.lock.json (no MCP servers)")
         return
     mcp_existed = (target / ".mcp.json").is_file()
-    doc = {"mcpServers": plan.mcp_servers}
+    rendered_servers = project_mcp_servers(
+        plan.mcp_servers, plan.mcp_server_specs, "claude"
+    )
+    doc = {"mcpServers": rendered_servers}
     _write_user_text(
         target / ".mcp.json",
         json.dumps(doc, indent=2) + "\n",
@@ -599,7 +610,7 @@ def _write_mcp(
     if force or not mcp_existed:
         fs.write_text(
             ".mcp.lock.json",
-            json.dumps(_mcp_lock(plan.mcp_servers), indent=2) + "\n",
+            json.dumps(_mcp_lock(rendered_servers), indent=2) + "\n",
         )
         log.append("  • .mcp.lock.json (resolved MCP versions)")
 
@@ -678,21 +689,20 @@ def _update_gitignore(target: Path, log: list[str], fs: ProjectFS) -> None:
     log.append(f"  • .gitignore (+{len(missing)} entries)")
 
 
-def _seed_runtime_dirs(dest: Path, log: list[str], fs: ProjectFS) -> None:
+def _seed_runtime_dirs(_dest: Path, log: list[str], fs: ProjectFS) -> None:
     """Create gitignored runtime dirs (state/, tmp/) with a .gitkeep so they exist but stay empty."""
-    for name in ("state", "tmp"):
-        d = dest / name
-        fs.mkdir(fs.relpath(d))
-        fs.write_text(fs.relpath(d / ".gitkeep"), "")
+    for relative in (_LEGACY_STATE_LAYOUT.state, _LEGACY_STATE_LAYOUT.temporary):
+        fs.mkdir(relative)
+        fs.write_text(f"{relative}/.gitkeep", "")
 
 
-def _seed_agent_memory(src: Path, dest: Path, log: list[str], fs: ProjectFS) -> None:
+def _seed_agent_memory(src: Path, _dest: Path, log: list[str], fs: ProjectFS) -> None:
     """Install the agent-memory seed (only if the project doesn't already have one)."""
-    if fs.exists(fs.relpath(dest / "agent-memory")):
+    if fs.exists(_LEGACY_STATE_LAYOUT.memory):
         return
     seed = src / "templates" / "agent-memory"
     if seed.is_dir():
-        _copy_tree(seed, dest / "agent-memory", fs=fs)
+        _copy_tree(seed, fs.path(_LEGACY_STATE_LAYOUT.memory), fs=fs)
         log.append("  • agent-memory/ seed")
 
 
@@ -704,9 +714,9 @@ def _classify_owner(rel: str, plan: ResolvedPlan) -> str:
         "README.claude-sdlc.md",
         ".mcp.json",
         ".claude/settings.json",
-        ".claude/CONTINUITY.md",
+        _LEGACY_STATE_LAYOUT.continuity,
     }
-    if rel in user_editable or rel.startswith(".claude/agent-memory/"):
+    if rel in user_editable or rel.startswith(_LEGACY_MEMORY_PREFIX):
         return "user-editable"
     overlay_paths = {f".claude/rules/{r}" for r in plan.overlay_rules}
     overlay_paths |= {f".claude/agents/{a}.md" for a in plan.overlay_agents}
@@ -729,11 +739,14 @@ def _record_files(target: Path, plan: ResolvedPlan, fs: ProjectFS) -> list[FileR
         p = target / top
         if p.is_file():
             candidates.append(p)
-    dest = target / ".claude"
-    fs.assert_tree_safe(".claude")
-    skip_dirs = {dest / "state", dest / "tmp"}
-    init_options = dest / "config" / "init-options.json"
-    journal = target / JOURNAL_PATH
+    dest = target / _LEGACY_STATE_LAYOUT.root
+    fs.assert_tree_safe(_LEGACY_STATE_LAYOUT.root)
+    skip_dirs = {
+        target / _LEGACY_STATE_LAYOUT.state,
+        target / _LEGACY_STATE_LAYOUT.temporary,
+    }
+    init_options = target / _LEGACY_STATE_LAYOUT.manifest
+    journal = target / _LEGACY_STATE_LAYOUT.journal
     for p in sorted(dest.rglob("*")):
         if not p.is_file() or p in {init_options, journal}:
             continue
@@ -758,7 +771,7 @@ def _write_config(
     fs: ProjectFS,
 ) -> None:
     """Write the resolved catalog snapshot and init-options.json (with file checksums)."""
-    config_dest = target / ".claude" / "config"
+    config_dest = target / _LEGACY_CONFIG_ROOT
     fs.mkdir(fs.relpath(config_dest))
     snapshot = {
         "schema_version": 1,
@@ -775,11 +788,12 @@ def _write_config(
         },
         "gate_definition_digest": plan.gate_definition_digest,
         "mcp": list(plan.mcp_servers),
+        "mcp_semantics": plan.mcp_semantics,
         "org": plan.org.to_dict() if plan.org else None,
         "detected_commands": plan.detected_commands or {},
     }
     fs.write_text(
-        fs.relpath(config_dest / "stack-catalog.snapshot.yaml"),
+        _LEGACY_STATE_LAYOUT.stack_snapshot,
         yaml.safe_dump(snapshot, sort_keys=False),
     )
     options = InitOptions(
@@ -788,7 +802,7 @@ def _write_config(
         files=_record_files(target, plan, fs),
     )
     fs.write_text(
-        fs.relpath(config_dest / "init-options.json"),
+        _LEGACY_STATE_LAYOUT.manifest,
         json.dumps(options.to_dict(), indent=2) + "\n",
     )
     log.append("  • config/ (init-options.json + stack snapshot)")
@@ -905,7 +919,7 @@ def _validate_manifest(root: Path, *, strict: bool) -> None:
     """Verify manifest targets and hashes, then run installed-config validation."""
 
     root_fs = ProjectFS(root)
-    config_rel = ".claude/config/init-options.json"
+    config_rel = _LEGACY_STATE_LAYOUT.manifest
     try:
         document = json.loads(root_fs.read_text(config_rel))
     except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -1009,7 +1023,7 @@ def _copy_staged_subtree(
 def _recorded_live_paths(live_fs: ProjectFS) -> set[str]:
     """Return paths owned by the previous manifest, failing closed on corruption."""
 
-    rel = ".claude/config/init-options.json"
+    rel = _LEGACY_STATE_LAYOUT.manifest
     if not live_fs.is_file(rel):
         return set()
     try:
@@ -1167,7 +1181,7 @@ def _write_final_manifest_from_stage(
 ) -> None:
     """Preserve staged metadata while recording the actual preserved live bytes."""
 
-    document = json.loads(stage_fs.read_text(".claude/config/init-options.json"))
+    document = json.loads(stage_fs.read_text(_LEGACY_STATE_LAYOUT.manifest))
     final_records: dict[str, FileRecord] = {}
     raw_records = document.get("files", [])
     if not isinstance(raw_records, list):
@@ -1187,7 +1201,7 @@ def _write_final_manifest_from_stage(
         if rel == ".mcp.lock.json" and not staged_mcp_active:
             continue
         if not live_fs.is_file(rel):
-            if rel.startswith(".claude/agent-memory/"):
+            if rel.startswith(_LEGACY_MEMORY_PREFIX):
                 continue
             raise RuntimeError(
                 f"staged manifest target disappeared during apply: {rel}"
@@ -1199,10 +1213,10 @@ def _write_final_manifest_from_stage(
         )
 
     preserved_user_paths: list[str] = []
-    if live_fs.is_file(".claude/CONTINUITY.md"):
-        preserved_user_paths.append(".claude/CONTINUITY.md")
-    if live_fs.is_dir(".claude/agent-memory"):
-        memory = live_fs.assert_tree_safe(".claude/agent-memory")
+    if live_fs.is_file(_LEGACY_STATE_LAYOUT.continuity):
+        preserved_user_paths.append(_LEGACY_STATE_LAYOUT.continuity)
+    if live_fs.is_dir(_LEGACY_STATE_LAYOUT.memory):
+        memory = live_fs.assert_tree_safe(_LEGACY_STATE_LAYOUT.memory)
         preserved_user_paths.extend(
             path.relative_to(live_fs.root).as_posix()
             for path in sorted(memory.rglob("*"))
@@ -1216,7 +1230,7 @@ def _write_final_manifest_from_stage(
         )
     document["files"] = [final_records[rel].to_dict() for rel in sorted(final_records)]
     live_fs.write_text(
-        ".claude/config/init-options.json",
+        _LEGACY_STATE_LAYOUT.manifest,
         json.dumps(document, indent=2) + "\n",
     )
     log.append("  • config/ (init-options.json + stack snapshot)")
@@ -1281,7 +1295,7 @@ def _apply_validated_stage(
             rescue_untracked=True,
             log=log,
         )
-    memory_prefix = ".claude/agent-memory"
+    memory_prefix = _LEGACY_STATE_LAYOUT.memory
     memory_files = _files_below(inventory, memory_prefix)
     if memory_files:
         if not live_fs.exists(memory_prefix):
@@ -1290,7 +1304,7 @@ def _apply_validated_stage(
         else:
             applied.update(memory_files)
 
-    for prefix in (".claude/state", ".claude/tmp"):
+    for prefix in (_LEGACY_STATE_LAYOUT.state, _LEGACY_STATE_LAYOUT.temporary):
         applied |= _copy_staged_subtree(stage_fs, inventory, prefix, live_fs)
 
     settings_rel = ".claude/settings.json"
@@ -1309,8 +1323,8 @@ def _apply_validated_stage(
     _copy_staged_file(stage_fs, inventory, continuity, live_fs)
     applied.add(continuity)
 
-    config_prefix = ".claude/config"
-    init_rel = f"{config_prefix}/init-options.json"
+    config_prefix = _LEGACY_CONFIG_ROOT
+    init_rel = _LEGACY_STATE_LAYOUT.manifest
     for rel in _files_below(inventory, config_prefix):
         if rel == init_rel:
             continue
@@ -1396,8 +1410,8 @@ def _install_sdlc_direct(
         log = []
     target = Path(target)
     fs = ProjectFS(target)
-    fs.mkdir(".claude")
-    dest = fs.root / ".claude"
+    fs.mkdir(_LEGACY_STATE_LAYOUT.root)
+    dest = fs.root / _LEGACY_STATE_LAYOUT.root
 
     plan.context.setdefault("project_name", fs.root.name)
     plan.context["agent_count"] = str(len(plan.agents) + len(plan.overlay_agents))
@@ -1520,15 +1534,15 @@ def install_sdlc(
             transaction_stage = fs.path(staged_rel)
             _verify_stage_inventory(transaction_stage, inventory)
             stage_fs = ProjectFS(transaction_stage)
-            if backup_existing and fs.is_dir(".claude"):
+            if backup_existing and fs.is_dir(_LEGACY_STATE_LAYOUT.root):
                 n = 1
-                while fs.exists(f".claude.bak-{n}"):
+                while fs.exists(f"{_LEGACY_STATE_LAYOUT.root}.bak-{n}"):
                     n += 1
-                backup_rel = f".claude.bak-{n}"
-                fs.move(".claude", backup_rel)
+                backup_rel = f"{_LEGACY_STATE_LAYOUT.root}.bak-{n}"
+                fs.move(_LEGACY_STATE_LAYOUT.root, backup_rel)
                 # The transaction journal moved with the old tree; the top-level
                 # recovery marker remains authoritative until commit/rollback.
-                fs.unlink(f"{backup_rel}/config/{UPGRADE_JOURNAL}", missing_ok=True)
+                fs.unlink(f"{backup_rel}/{_LEGACY_JOURNAL_IN_ROOT}", missing_ok=True)
                 log.append(f"  • backed up existing .claude/ -> {backup_rel}")
             _apply_validated_stage(
                 stage_fs,

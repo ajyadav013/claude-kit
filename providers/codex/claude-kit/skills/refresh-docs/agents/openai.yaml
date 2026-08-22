@@ -1,0 +1,6 @@
+interface:
+  display_name: Refresh Docs
+  short_description: Scan for stale reference docs and update them by reading current
+    source code...
+policy:
+  allow_implicit_invocation: false

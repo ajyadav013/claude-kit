@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Stop hook: run the project's type checker, if it has one. Best-effort -- NEVER hard-blocks.
+# Stop hook: run the project's type checker, if it has one. Best-effort; requests at most one
+# continuation when the checker proves an issue.
 # Detection: npm "typecheck" script, then tsconfig.json (tsc), then mypy (Python).
 #
-# Feedback path (Claude Code >= 2.1.163): failures are returned as
-# hookSpecificOutput.additionalContext JSON, which continues the turn as labeled "Stop hook
-# feedback" so Claude reads the errors and fixes them before finishing -- bounded by the
-# platform's 8-consecutive-continuation cap. On older versions the field is simply not read
-# (same as the previous discard-to-debug-log behavior), so there is no downgrade risk.
+# Feedback path: failures return top-level decision/reason JSON, which asks the host to continue
+# the turn so the model reads the errors and fixes them before finishing.
 # Per the hooks reference, stop_hook_active is checked so a stop chain gets ONE nudge --
 # an unfixable failure (missing dep, broken env) cannot ping-pong the session.
 set -u
@@ -38,9 +36,7 @@ if [ "$ec" -ne 0 ] && [ -n "$out" ]; then
 $(echo "$out" | tail -30)"
   if command -v jq >/dev/null 2>&1; then
     # stdout must be ONLY the JSON object for Claude Code to process it.
-    jq -n --arg ctx "$MSG" '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $ctx}}'
-  else
-    echo "$MSG"  # no jq: legacy plain stdout (debug log only)
+    jq -n --arg reason "$MSG" '{decision: "block", reason: $reason}'
   fi
 fi
 

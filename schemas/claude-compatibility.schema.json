@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "claude-compatibility",
+  "title": "claude-kit Claude Code compatibility policy",
+  "type": "object",
+  "required": [
+    "version",
+    "host",
+    "status",
+    "minimum",
+    "current_stable",
+    "stable_as_of",
+    "tested",
+    "features",
+    "events",
+    "agents",
+    "skills",
+    "plugins",
+    "mcp"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "host": {"const": "claude"},
+    "status": {"enum": ["preview", "stable", "deprecated"]},
+    "minimum": {"$ref": "#/$defs/version"},
+    "current_stable": {"$ref": "#/$defs/version"},
+    "stable_as_of": {"type": "string", "format": "date"},
+    "tested": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["version", "role", "tested_at", "ci"],
+        "properties": {
+          "version": {"$ref": "#/$defs/version"},
+          "role": {"enum": ["minimum", "observed", "current-stable"]},
+          "tested_at": {"type": "string", "format": "date"},
+          "ci": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "features": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"$ref": "#/$defs/capability"}
+    },
+    "events": {
+      "type": "object",
+      "required": [
+        "support",
+        "project_sources",
+        "plugin_source",
+        "handler_types",
+        "trust_required",
+        "recognized",
+        "required_by_projection",
+        "plugin_environment",
+        "documentation"
+      ],
+      "properties": {
+        "support": {"$ref": "#/$defs/support"},
+        "project_sources": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "plugin_source": {"const": "hooks/hooks.json"},
+        "handler_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["command", "prompt", "agent"]}
+        },
+        "trust_required": {"type": "boolean"},
+        "recognized": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "required_by_projection": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "plugin_environment": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "documentation": {"$ref": "#/$defs/officialDoc"}
+      },
+      "additionalProperties": false
+    },
+    "agents": {
+      "type": "object",
+      "required": [
+        "support",
+        "project_directory",
+        "plugin_directory",
+        "format",
+        "model_tier_mapping",
+        "permission_class_mapping",
+        "required_fields",
+        "supported_fields",
+        "documentation"
+      ],
+      "properties": {
+        "support": {"$ref": "#/$defs/support"},
+        "project_directory": {"const": ".claude/agents"},
+        "plugin_directory": {"const": "agents"},
+        "format": {"const": "markdown"},
+        "model_tier_mapping": {"$ref": "#/$defs/claudeModelTierMapping"},
+        "permission_class_mapping": {"$ref": "#/$defs/claudePermissionMapping"},
+        "required_fields": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "supported_fields": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "documentation": {"$ref": "#/$defs/officialDoc"}
+      },
+      "additionalProperties": false
+    },
+    "skills": {
+      "type": "object",
+      "required": [
+        "support",
+        "project_directory",
+        "plugin_directory",
+        "required_file",
+        "required_frontmatter",
+        "supported_frontmatter",
+        "manual_only_field",
+        "argument_placeholder",
+        "documentation"
+      ],
+      "properties": {
+        "support": {"$ref": "#/$defs/support"},
+        "project_directory": {"const": ".claude/skills"},
+        "plugin_directory": {"const": "skills"},
+        "required_file": {"const": "SKILL.md"},
+        "required_frontmatter": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "supported_frontmatter": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "manual_only_field": {"const": "disable-model-invocation"},
+        "argument_placeholder": {"const": "$ARGUMENTS"},
+        "documentation": {"$ref": "#/$defs/officialDoc"}
+      },
+      "additionalProperties": false
+    },
+    "plugins": {
+      "type": "object",
+      "required": [
+        "support",
+        "manifest",
+        "repo_marketplace",
+        "default_hooks",
+        "component_types",
+        "documentation"
+      ],
+      "properties": {
+        "support": {"$ref": "#/$defs/support"},
+        "manifest": {"const": ".claude-plugin/plugin.json"},
+        "repo_marketplace": {"const": ".claude-plugin/marketplace.json"},
+        "default_hooks": {"const": "hooks/hooks.json"},
+        "component_types": {"$ref": "#/$defs/nonEmptyUniqueStrings"},
+        "documentation": {"$ref": "#/$defs/officialDoc"}
+      },
+      "additionalProperties": false
+    },
+    "mcp": {
+      "type": "object",
+      "required": ["support", "project_config", "root_key", "documentation"],
+      "properties": {
+        "support": {"$ref": "#/$defs/support"},
+        "project_config": {"const": ".mcp.json"},
+        "root_key": {"const": "mcpServers"},
+        "documentation": {"$ref": "#/$defs/officialDoc"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "support": {"enum": ["native", "adapted", "degraded", "unsupported"]},
+    "officialDoc": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://code\\.claude\\.com/docs/"
+    },
+    "nonEmptyUniqueStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "claudeModelTierMapping": {
+      "type": "object",
+      "required": ["fast", "balanced", "deep"],
+      "properties": {
+        "fast": {"enum": ["haiku", "sonnet", "opus", "inherit"]},
+        "balanced": {"enum": ["haiku", "sonnet", "opus", "inherit"]},
+        "deep": {"enum": ["haiku", "sonnet", "opus", "inherit"]}
+      },
+      "additionalProperties": false
+    },
+    "claudePermissionMapping": {
+      "type": "object",
+      "required": ["read_only", "workspace_write", "external_effect"],
+      "properties": {
+        "read_only": {"enum": ["default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"]},
+        "workspace_write": {"enum": ["default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"]},
+        "external_effect": {"enum": ["default", "acceptEdits", "plan", "dontAsk", "bypassPermissions"]}
+      },
+      "additionalProperties": false
+    },
+    "capability": {
+      "type": "object",
+      "required": ["support", "required", "minimum_version", "documentation"],
+      "properties": {
+        "support": {"$ref": "#/$defs/support"},
+        "required": {"type": "boolean"},
+        "minimum_version": {"$ref": "#/$defs/version"},
+        "documentation": {"$ref": "#/$defs/officialDoc"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

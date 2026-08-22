@@ -1,0 +1,104 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/load-continuity.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/load-learnings.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/load-autonomy.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|exec_command|shell|unified_exec",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v jq >/dev/null 2>&1 || exit 0; CMD=$(jq -r '.tool_input.command' 2>/dev/null || true); if printf '%s' \"$CMD\" | grep -qE '(^|[^[:alnum:]_])rm([[:space:]]|$)' && printf '%s' \"$CMD\" | grep -qE '(^|[[:space:]])-[a-zA-Z]*[rR]|--recursive' && printf '%s' \"$CMD\" | grep -qE '(^|[[:space:]])-[a-zA-Z]*f|--force'; then echo 'BLOCKED: rm -rf (recursive+force, any flag order/spelling) is disabled by ckit. Move to trash or delete specific paths explicitly.' >&2; exit 2; fi"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/guard-push-main.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/guard-destructive-git.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/guard-secrets.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/guard-kubectl-delete.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read|read_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v jq >/dev/null 2>&1 || exit 0; FP=$(jq -r '.tool_input.file_path // empty' 2>/dev/null || true); if echo \"$FP\" | grep -qE '(^|/)\\.env$|\\.pem$|\\.key$|(^|/)id_rsa|(^|/)id_ed25519|(^|/)credentials(\\.json)?$|\\.p12$'; then echo 'BLOCKED: refusing to read a secrets file. Use .env.example or a secret manager.' >&2; exit 2; fi"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|MultiEdit|Write|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/warn-shared-modules.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/warn-llm-io.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/warn-sensitive-files.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Write|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/validate-settings.sh\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/lint-fix.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/type-check.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${PLUGIN_ROOT}/hooks/scripts/verify-continuity-writeback.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

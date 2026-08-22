@@ -1,0 +1,18 @@
+schema_version: 1
+id: human-in-the-loop
+description: Human-in-the-Loop
+strength: required
+applicability:
+  source: core
+path_globs: []
+references:
+- artifact://project-instructions
+- artifact://rules-directory
+- rule://agent-guardrails
+- rule://agent-resilience
+- rule://goal-setting-and-monitoring
+- rule://mandatory-workflow
+- rule://quality-gates
+- rule://reasoning-techniques
+- rule://wave-orchestration
+- state://continuity

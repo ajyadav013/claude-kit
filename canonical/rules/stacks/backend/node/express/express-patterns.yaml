@@ -1,0 +1,18 @@
+schema_version: 1
+id: express-patterns
+description: Express backend patterns
+strength: required
+applicability:
+  source: stack
+  stack_dir: backend/node/express
+path_globs:
+- '**/*.js'
+- '**/*.cjs'
+- '**/*.mjs'
+- '**/*.ts'
+references:
+- artifact://project-instructions
+- artifact://rules-directory
+- rule://code-organization
+- rule://design-patterns
+- rule://testing

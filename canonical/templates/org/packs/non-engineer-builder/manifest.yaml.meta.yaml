@@ -1,0 +1,10 @@
+schema_version: 1
+id: org-pack-non-engineer-builder-manifest
+description: non-engineer-builder organization pack manifest
+category: org
+format: yaml
+destination: templates/org/packs/non-engineer-builder/pack.yaml
+provider_placeholders:
+- provider.executable.cli
+- provider.path.config_root
+references: []

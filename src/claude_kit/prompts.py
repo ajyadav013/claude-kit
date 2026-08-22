@@ -18,7 +18,7 @@ from typing import Any
 import yaml
 
 from claude_kit import catalog
-from claude_kit.models import Selection
+from claude_kit.models import Runtime, Selection
 
 #: Recognised top-level keys in a ``--config`` YAML — the friendly nested form plus the flat
 #: Selection-field form. Anything else is a typo we reject rather than silently ignore.
@@ -40,7 +40,38 @@ _CONFIG_KEYS = {
     "frontend_language",
     "backend_language",
     "backend_framework",
+    "runtime",
 }
+
+
+def _config_mapping(config_path: str | Path) -> dict[str, Any]:
+    """Parse and validate the common top-level config envelope."""
+
+    try:
+        parsed = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"config file is not valid YAML: {' '.join(str(exc).split())}"
+        ) from exc
+    data = {} if parsed is None else parsed
+    if not isinstance(data, dict):
+        raise ValueError("config file did not parse to a mapping")
+    unknown = set(data) - _CONFIG_KEYS
+    if unknown:
+        raise ValueError(
+            f"unknown config key(s): {', '.join(sorted(map(str, unknown)))} "
+            f"(recognised: {', '.join(sorted(_CONFIG_KEYS))})"
+        )
+    if "runtime" in data:
+        Runtime.parse(data["runtime"])
+    return data
+
+
+def runtime_from_config(config_path: str | Path) -> Runtime | None:
+    """Return the installation runtime from config without adding it to Selection."""
+
+    data = _config_mapping(config_path)
+    return Runtime.parse(data["runtime"]) if "runtime" in data else None
 
 
 def _as_str_list(value: Any, field_name: str) -> list[str]:
@@ -241,22 +272,7 @@ def from_config(config_path: str | Path, payload_root: str | Path) -> Selection:
     interactive flow: ``backend: go`` means go's ``net-http``, never the global default's
     ``fastapi``.
     """
-    try:
-        parsed = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        # PyYAML's message spans lines but carries the line/column mark — keep it, one line.
-        raise ValueError(
-            f"config file is not valid YAML: {' '.join(str(exc).split())}"
-        ) from exc
-    data = {} if parsed is None else parsed
-    if not isinstance(data, dict):
-        raise ValueError("config file did not parse to a mapping")
-    unknown = set(data) - _CONFIG_KEYS
-    if unknown:
-        raise ValueError(
-            f"unknown config key(s): {', '.join(sorted(map(str, unknown)))} "
-            f"(recognised: {', '.join(sorted(_CONFIG_KEYS))})"
-        )
+    data = _config_mapping(config_path)
     dflt = catalog.defaults(payload_root)
     org_defaults = catalog.org_options(payload_root)["defaults"]
 

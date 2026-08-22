@@ -1,7 +1,7 @@
 ---
 name: sprint
 description: Turn a scoped backlog item into a sprint plan, broken into parallelisable tasks for agent teams. Use when asked to plan a sprint, break work down into tasks, or work out what can run in parallel.
-argument-hint: [backlog item number]
+argument-hint: '[backlog item number]'
 disable-model-invocation: true
 ---
 

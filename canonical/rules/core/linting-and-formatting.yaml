@@ -1,0 +1,21 @@
+schema_version: 1
+id: linting-and-formatting
+description: Linting and Formatting Rules
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+- '**/pyproject.toml'
+- '**/package.json'
+- '**/.eslintrc*'
+- '**/ruff.toml'
+references: []

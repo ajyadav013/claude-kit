@@ -1,0 +1,15 @@
+schema_version: 1
+id: prototype-boundaries
+description: Prototype Boundaries
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://devops-observability
+- rule://mandatory-workflow
+- rule://non-engineer-safe-coding
+- rule://production-data-policy
+- rule://risk-classification
+- rule://secrets-policy
+- rule://testing

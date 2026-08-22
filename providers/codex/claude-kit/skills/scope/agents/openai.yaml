@@ -1,0 +1,6 @@
+interface:
+  display_name: Scope
+  short_description: Generate a detailed scope document for a backlog item by analyzing
+    the...
+policy:
+  allow_implicit_invocation: false

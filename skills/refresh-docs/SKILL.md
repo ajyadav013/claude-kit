@@ -1,7 +1,7 @@
 ---
 name: refresh-docs
 description: Scan for stale reference docs and update them by reading current source code and data files.
-argument-hint: [--since N | path/to/doc.md]
+argument-hint: '[--since N | path/to/doc.md]'
 disable-model-invocation: true
 ---
 

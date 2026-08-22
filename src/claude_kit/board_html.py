@@ -25,14 +25,31 @@ from __future__ import annotations
 
 from datetime import datetime
 from html import escape
+from pathlib import Path
 from typing import Any, Optional
 
+from .models import StateLayout
+from .state import detect_state_layout
 from .telemetry import human_duration, human_tokens
 from .tickets import GATING_KINDS, RELATION_KINDS, Store, Ticket
 
-#: Where the Stop hook writes the board, relative to the project root. Gitignored via
-#: ``.claude/state/``, so a live-updating board produces no commit noise.
+#: Legacy board location retained as a public compatibility constant.
 BOARD_REL = ".claude/state/ticket-board.html"
+
+
+def board_rel(project_root: str | Path) -> str:
+    """Return the board path in the project's one active mutable-state root.
+
+    A ticket-only directory has no install marker from which to infer a runtime.  Keep the
+    historical ``.claude`` destination for that ambiguous compatibility case; every native install
+    has a neutral manifest, so Codex and dual-runtime projects unambiguously write to ``.ckit``.
+    """
+
+    layout = detect_state_layout(
+        project_root, fresh_default=StateLayout.legacy_claude()
+    )
+    return f"{layout.state}/ticket-board.html"
+
 
 #: Columns, in reading order: what is moving, what is stuck, what could start, what is finished.
 #: ``ACTIONABLE`` is derived (open, unblocked, not already moving) rather than a stored status.

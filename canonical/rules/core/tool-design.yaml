@@ -1,0 +1,20 @@
+schema_version: 1
+id: tool-design
+description: Tool Design (tools & MCP for agents)
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+references:
+- artifact://skills-directory
+- rule://agent-guardrails
+- rule://continuity
+- rule://evals
+- rule://human-in-the-loop
+- rule://mandatory-workflow
+- rule://reasoning-techniques
+- skill://context-engineering

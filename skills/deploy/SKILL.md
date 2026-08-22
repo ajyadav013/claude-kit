@@ -1,7 +1,7 @@
 ---
 name: deploy
 description: Deploy-and-verify loop — commit, trigger the deployment, watch the pipeline, verify the running instances, test, fix, repeat until clean. Interviews you once for your delivery setup. Use when asked to deploy, ship, or run the ship loop.
-argument-hint: '<commit message | "commit-only" | "no-deploy" | "setup" | "loop">'
+argument-hint: <commit message | "commit-only" | "no-deploy" | "setup" | "loop">
 ---
 
 # deploy — commit → deploy → monitor → verify → repeat

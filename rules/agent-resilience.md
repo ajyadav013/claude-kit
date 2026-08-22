@@ -1,9 +1,9 @@
 ---
 paths:
-  - '.claude/agents/**'
-  - '.claude/skills/**'
-  - '**/agents/**'
-  - '**/skills/**'
+- .claude/agents/**
+- .claude/skills/**
+- '**/agents/**'
+- '**/skills/**'
 ---
 
 # Agent Resilience
@@ -82,7 +82,7 @@ pipeline. Different scopes, same principle: no loop is unbounded.
    (`.claude/rules/human-in-the-loop.md`), it does not spin.
 3. **Truthful state after recovery.** If you fell back or degraded, CONTINUITY and your handoff say so
    — never report full success for a partial result.
-4. **Promote recurring failures.** A failure mode worth avoiding next time goes to `agent-memory/` via
+4. **Promote recurring failures.** A failure mode worth avoiding next time goes to `.claude/agent-memory/` via
    `remember`.
 
 **Self-check before retrying or handing off:** does every loop I'm in have a limit, and does my

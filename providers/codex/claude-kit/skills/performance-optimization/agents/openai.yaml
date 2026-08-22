@@ -1,0 +1,6 @@
+interface:
+  display_name: Performance Optimization
+  short_description: Make a slow web frontend faster — web vitals, bundle size, code
+    splitting...
+policy:
+  allow_implicit_invocation: false

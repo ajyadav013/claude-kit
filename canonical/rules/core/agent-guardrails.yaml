@@ -1,0 +1,19 @@
+schema_version: 1
+id: agent-guardrails
+description: Agent Guardrails
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+references:
+- rule://agent-resilience
+- rule://autonomy-levels
+- rule://human-in-the-loop
+- rule://mandatory-workflow
+- rule://quality-gates
+- rule://risk-classification
+- state://agent-memory

@@ -43,7 +43,7 @@ question at a time, rather than firing a wall of questions.
 **Batch the non-blocking asks.** Every category in the stop table is a *blocking* ask — stop now,
 synchronously. A question that does **not** block the current story (a naming preference, a
 nice-to-have clarification, a future-scope choice) is queued instead: record it under **Open
-Questions** in `CONTINUITY.md` and raise the whole queue as **one round at the next gate or join**
+Questions** in `.claude/CONTINUITY.md` and raise the whole queue as **one round at the next gate or join**
 — five answers at a boundary beat five mid-build interruptions. Two carve-outs: intent-extraction
 interviews (1b, `interview-me`) stay one-question-at-a-time by design, and anything in the stop
 table is never queued.

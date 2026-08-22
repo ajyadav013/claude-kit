@@ -4,14 +4,14 @@
   "justifications": [
     {
       "file": "src/claude_kit/upgrader.py",
-      "arc": "405->406",
+      "arc": "552->553",
       "origin_line_text": "if not fs.is_file(rel):",
       "reason": "TOCTOU guard in _backup. Every caller (upgrade, merge_install) re-runs _compare immediately before _apply, and an action is only planned for a file that exists, so the live file is present whenever _backup runs. The guard exists for a file deleted by another process between the two steps, which no in-process test can stage without stubbing the filesystem.",
       "proof": "raw/docker/20260802T051345Z-upgrader-tests — a test that unlinked the file before calling upgrade() passed without reaching the guard, because upgrade() re-compares. It was deleted rather than kept as a vacuous control."
     },
     {
       "file": "src/claude_kit/upgrader.py",
-      "arc": "454->426",
+      "arc": "601->573",
       "origin_line_text": "elif act.kind == \"remove\":",
       "reason": "Fallthrough of the action-kind chain. _diff_actions is the only producer of _Action and emits exactly add | update | keep | remove, so the final elif is never false. Reaching it would require an _Action carrying a kind outside its documented enum.",
       "proof": "src/claude_kit/upgrader.py:_diff_actions — the three append sites cover the four kinds exhaustively."

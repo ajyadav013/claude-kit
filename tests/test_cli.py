@@ -132,6 +132,9 @@ def test_init_config_malformed_yaml_is_friendly(tmp_path):
 
 def test_init_config_read_error_is_friendly_and_leaves_no_target(tmp_path, monkeypatch):
     config = tmp_path / "unreadable.yaml"
+    # Runtime selection is parsed before the full Selection.  Keep that first
+    # read valid, then inject the intended failure at the full-config seam.
+    config.write_text("{}\n", encoding="utf-8")
     target = tmp_path / "project"
 
     def denied(*_args, **_kwargs):
@@ -350,6 +353,8 @@ def test_planned_commands_hidden_from_help_by_default():
     assert "install-org-pack" not in top
     sub = runner.invoke(app, ["research", "--help"]).output
     assert "import-sources" not in sub
+    pipeline_help = runner.invoke(app, ["pipeline", "--help"]).output
+    assert "Execute/resume the frozen workflow" not in pipeline_help
 
 
 def test_planned_commands_visible_and_marked_with_experimental(monkeypatch):
@@ -367,6 +372,8 @@ def test_planned_commands_visible_and_marked_with_experimental(monkeypatch):
         assert "install-org-pack" in top
         sub = r.invoke(cli_mod.app, ["research", "--help"]).output
         assert "import-sources" in sub
+        pipeline_help = r.invoke(cli_mod.app, ["pipeline", "--help"]).output
+        assert "Execute/resume the frozen workflow" in pipeline_help
         # the "[planned]" marker lives in each command's own --help (the main
         # listing truncates the help column, so assert it on the detail screen)
         detail = r.invoke(cli_mod.app, ["package-org-pack", "--help"]).output
@@ -450,6 +457,195 @@ def test_pipeline_close_gate_and_abort_cli(tmp_path, payload):
     assert bad.exit_code == 1
     assert "is not a gate of this profile" in bad.stdout
     assert runner.invoke(app, ["pipeline", "abort", str(tmp_path)]).exit_code == 0
+
+
+def test_pipeline_portable_human_stop_cli_blocks_and_resolves(tmp_path, payload):
+    install(payload, tmp_path)
+    _init_pipeline_git(tmp_path)
+    started = runner.invoke(
+        app, ["pipeline", "start", str(tmp_path), "--task", "Human stop CLI"]
+    )
+    assert started.exit_code == 0, started.stdout
+
+    paused = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "pause",
+            "--reason",
+            "external-side-effect",
+            "--message",
+            "Deployment changes an external system",
+            "--requested-action",
+            "Confirm whether deployment is authorized",
+            str(tmp_path),
+        ],
+    )
+    assert paused.exit_code == 0, paused.stdout
+    snapshot_path = tmp_path / ".claude/state/pipeline-snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    stop_id = snapshot["human_stops"][0]["stop_id"]
+    assert snapshot["human_stops"][0]["status"] == "pending"
+
+    blocked = runner.invoke(app, ["pipeline", "resume", str(tmp_path)])
+    assert blocked.exit_code == 1
+    assert "paused for human input" in blocked.stdout.lower()
+
+    resolved = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "resolve-pause",
+            stop_id,
+            "--decision",
+            "rejected",
+            "--resolved-by",
+            "release-owner",
+            "--note",
+            "Do not deploy in this run",
+            str(tmp_path),
+        ],
+    )
+    assert resolved.exit_code == 0, resolved.stdout
+    assert runner.invoke(app, ["pipeline", "resume", str(tmp_path)]).exit_code == 0
+
+
+def test_pipeline_reconcile_stale_attempt_cli_forwards_operator_evidence(
+    tmp_path, monkeypatch
+):
+    evidence = tmp_path / "operator-recovery.json"
+    evidence.write_text("{}\n", encoding="utf-8")
+    received = {}
+
+    def reconcile(target, **kwargs):
+        received["target"] = target
+        received.update(kwargs)
+        return True, ["OK    stale stage 'classify' was reconciled"]
+
+    monkeypatch.setattr(cli.pipeline, "reconcile_stale_stage_attempt", reconcile)
+    result = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "reconcile-stale-attempt",
+            "classify",
+            "--dispatch-id",
+            "dispatch-123",
+            "--reconciled-by",
+            "release-owner",
+            "--evidence",
+            str(evidence),
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert received == {
+        "target": str(tmp_path),
+        "stage": "classify",
+        "dispatch_id": "dispatch-123",
+        "reconciled_by": "release-owner",
+        "evidence": str(evidence),
+    }
+
+
+def test_pipeline_reconcile_stale_program_attempt_cli_forwards_operator_evidence(
+    tmp_path, monkeypatch
+):
+    evidence = tmp_path / "operator-recovery.json"
+    evidence.write_text("{}\n", encoding="utf-8")
+    received = {}
+
+    def reconcile(target, **kwargs):
+        received["target"] = target
+        received.update(kwargs)
+        return True, ["OK    stale program unit 'audit-api' was reconciled"]
+
+    monkeypatch.setattr(cli.pipeline, "reconcile_stale_program_attempt", reconcile)
+    result = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "reconcile-stale-program-attempt",
+            "audit-api",
+            "--dispatch-id",
+            "program-dispatch-123",
+            "--reconciled-by",
+            "release-owner",
+            "--evidence",
+            str(evidence),
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert received == {
+        "target": str(tmp_path),
+        "unit_id": "audit-api",
+        "dispatch_id": "program-dispatch-123",
+        "reconciled_by": "release-owner",
+        "evidence": str(evidence),
+    }
+
+
+def test_pipeline_run_forwards_explicit_mode_e_program_manifest(
+    tmp_path, payload, monkeypatch
+):
+    from claude_kit import workflow_executor
+    from claude_kit.workflow_executor import (
+        WorkflowExecutionResult,
+        WorkflowExecutionStatus,
+    )
+
+    install(payload, tmp_path)
+    _init_pipeline_git(tmp_path)
+    started = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "start",
+            str(tmp_path),
+            "--task",
+            "Mode E CLI",
+            "--mode",
+            "E",
+        ],
+    )
+    assert started.exit_code == 0, started.stdout
+    manifest = tmp_path / "program.json"
+    manifest.write_text("{}\n", encoding="utf-8")
+    received = {}
+
+    def execute(project_root, **kwargs):
+        received["project_root"] = project_root
+        received.update(kwargs)
+        return WorkflowExecutionResult(
+            WorkflowExecutionStatus.SUCCEEDED,
+            (),
+            (),
+            (),
+        )
+
+    monkeypatch.setattr(workflow_executor, "execute_bound_workflow", execute)
+    monkeypatch.setenv("CKIT_EXPERIMENTAL", "1")
+    result = runner.invoke(
+        app,
+        [
+            "pipeline",
+            "run",
+            "--provider",
+            "claude",
+            "--program-manifest",
+            str(manifest),
+            "--json",
+            str(tmp_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert received["project_root"] == Path(tmp_path)
+    assert received["mode"] == "E"
+    assert received["program_manifest_path"] == manifest
 
 
 def test_init_dry_run_writes_nothing(tmp_path):
@@ -1303,7 +1499,7 @@ def test_bare_invocation_prints_banner_and_help():
     """No subcommand is a help request, not an error."""
     result = runner.invoke(app, [])
     assert result.exit_code == 0, result.output
-    assert "autonomous SDLC config for Claude Code" in result.output  # the banner
+    assert "native SDLC config for Claude Code + Codex" in result.output  # the banner
     assert "Usage:" in result.output and "init" in result.output  # the help body
 
 

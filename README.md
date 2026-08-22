@@ -2,17 +2,18 @@
 
 # claude-kit
 
-### Evidence-gated SDLC for Claude Code
+### Evidence-gated SDLC for Claude Code — with native Codex support in Preview
 
-**Turn Claude Code into a disciplined engineering team: one command — `/sdlc <task>` — runs your
-request through spec → review → code → test → security → PR, with a quality gate between every
-phase.**
+**Turn an agent host into a disciplined engineering team: `/sdlc <task>` in Claude Code and
+`$sdlc <task>` in Codex load the same spec → review → code → test → security → PR contract, with a
+quality gate between every phase. The Python ledger enforces gate order; Codex is Preview, and any
+managed stage whose native safety boundary cannot be proven stops before launch.**
 
 The differentiator is trust: **every gate verdict must cite real command output, and the
 deterministic state layer refuses to close a gate out of order or with unresolved
 Critical/High findings; Medium findings require a separate, structured human risk acceptance.** It
-installs as **configuration, not a runtime** — no application
-code in your repo and no daemon: Claude Code configuration, local hooks, and an optional CLI.
+installs as **configuration, not a runtime** — no application code and no daemon: native host
+configuration, local hooks, and a small lifecycle CLI.
 
 </div>
 
@@ -21,10 +22,9 @@ review PASS triggered the adversarial `devils-advocate` — it caught a Medium b
 missed, and the gate refused to advance until the fix landed. The run is checked in verbatim: state
 file, agent verdicts, diff, asciicast.
 
-```text
-/plugin marketplace add ajyadav013/claude-kit
-/plugin install claude-kit@claude-kit
-/claude-kit:sdlc Add a /health endpoint that returns the build version
+```bash
+pipx install claude-code-kit
+ckit init . --defaults --runtime claude
 ```
 
 <!-- DEMO PLACEHOLDER — a 60–90s terminal capture of a gated `/sdlc` run belongs here once recorded.
@@ -50,77 +50,70 @@ file, agent verdicts, diff, asciicast.
 
 ## What is this?
 
-Claude Code is brilliant at single tasks — but a real change is never just one task. It's a spec, a
-plan, code, review, tests, a security pass, a PR. **claude-kit turns that whole lifecycle into a
-pipeline of focused agents and installs it into Claude Code as configuration.**
+Agentic coding hosts are brilliant at single tasks — but a real change is never just one task. It's
+a spec, a plan, code, review, tests, a security pass, and a PR. **claude-kit turns that lifecycle into
+a pipeline of focused agents and compiles one provider-neutral plan into native host configuration.**
 
 Your request flows through specialists — a spec writer, a developer, independent reviewers, testers,
 security scanners, a PR raiser — coordinated by an **Orchestrator** that runs independent work in
 parallel and **refuses to advance until each phase's quality gate passes**. Choose your stack, rigor,
 and team scope at `init`; everything else adapts.
 
-**Use claude-kit if** you drive real repository changes with Claude Code and want a repeatable
-spec → review → test → security → PR workflow whose quality gates won't advance on an unproven verdict.
+**Use claude-kit if** you drive real repository changes with Claude Code, or are evaluating the
+Codex Preview, and want a repeatable spec → review → test → security → PR workflow whose kit ledger
+will not advance on an unproven verdict.
 
 **Skip it if** you want a small prompt pack, don't want project config written into your repo, or need a
-standalone runtime/daemon. claude-kit is **configuration for Claude Code**, not a separate runtime — and
-its guard hooks are convenience guardrails (they need `jq` + a POSIX shell and no-op without them), **not
-a hardened security boundary**. See [Known limitations](docs/KNOWN_LIMITATIONS.md).
+standalone runtime/daemon. claude-kit is **configuration for the selected host**, not a separate
+runtime. Its guard hooks are convenience guardrails (they need `jq` + a POSIX shell and no-op without
+them), **not a hardened security boundary**. See [Known limitations](docs/KNOWN_LIMITATIONS.md).
 
 ---
 
 ## Quick start
 
-The fastest path to a gated run — **no CLI install, no `init`, no restart:**
-
-```text
-/plugin marketplace add ajyadav013/claude-kit
-/plugin install claude-kit@claude-kit        # qualified name: the claude-kit plugin from the claude-kit marketplace
-/claude-kit:sdlc Add a /health endpoint that returns the build version
-```
-
-That's the whole loop in three lines: the standard pipeline runs immediately — spec → review →
-build → test, gate by gate — with every verdict backed by real output. (The proof run lives in
-[`examples/real-run/`](examples/real-run/) — see the top of this page.)
-
-When you want the pipeline tuned to *your* repo — your stack, commands, rigor profile, and the
-safety hooks — run `init`:
-
-<details open>
-<summary><b>A) As a Claude Code plugin&nbsp; (recommended)</b></summary>
-
-<br>
-
-```text
-/claude-kit:init        # Claude asks you the questions in chat, then runs the CLI non-interactively
-# ↻ restart Claude Code so the project's agents, skills & hooks load
-/sdlc Add a CSV export button to the reports page
-```
-
-> `/claude-kit:init` needs the Python CLI on PATH (`pipx install claude-code-kit`) — it resolves
-> your stack/profile and records checksums for safe `upgrade`. Details: [docs/install.md](docs/install.md).
-
-</details>
-
-<details>
-<summary><b>B) As a pip package&nbsp; (CI, onboarding, non-plugin workflows)</b></summary>
-
-<br>
+Install once; `ckit` is the recommended command (`claude-kit` and `claude-sdlc` remain aliases):
 
 ```bash
-pip install claude-code-kit             # note: the pip name is claude-code-kit, not claude-kit
-
-claude-kit init                 # interactive: prompts for stack, profile, MCP
-claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Postgres + standard
+pipx install claude-code-kit
 ```
 
-</details>
+Choose exactly one native deployment:
 
-> **Prerequisites:** [Claude Code](https://www.claude.com/product/claude-code); Python ≥ 3.9 for the CLI;
-> `jq` for the shell hooks (they no-op without it). **Windows** users: run mutating CLI commands in
-> WSL on a filesystem with POSIX descriptor/lock semantics; native Windows mutation fails closed
-> until a handle-anchored backend is available. Every install question, the `init.yaml` format, what lands on disk, and plugin-update
-> steps: **[docs/install.md](docs/install.md)**.
+```bash
+# Claude Code — stable
+ckit init . --defaults --runtime claude
+ckit validate . --strict
+
+# Codex — Preview, explicit opt-in
+CKIT_EXPERIMENTAL=1 ckit init . --defaults --runtime codex
+ckit validate . --strict
+
+# Both native surfaces, one shared control plane — Preview
+CKIT_EXPERIMENTAL=1 ckit init . --defaults --runtime both
+ckit validate . --strict
+```
+
+Restart Claude Code and invoke `/sdlc <task>`. In a trusted Codex project, invoke `$sdlc <task>`.
+Codex and `both` stay Preview until the protected live-host gates in the
+[runtime support contract](docs/runtime-support.md) pass.
+
+Fresh native installs have these topologies (selected profile/stack/scope changes the contents):
+
+```text
+claude:  CLAUDE.md + .claude/{agents,hooks,rules,scripts,skills,templates} + one .ckit/
+codex:   AGENTS.md + .agents/skills + .codex/{agents,config.toml,hooks.json,hooks} + one .ckit/
+both:    both native surfaces above + exactly one shared .ckit/
+```
+
+`.ckit` owns continuity, the install/checksum manifest, upgrade journal, agent memory, artifacts,
+and the pipeline gate ledger. Do not duplicate it under `.claude` or `.codex`. Exact trees,
+interactive/config examples, plugin installation, trust, and migration:
+**[docs/install.md](docs/install.md)**.
+
+The static plugins are useful but intentionally narrower than the scaffold: they cannot select a
+stack/profile/scope, create `.ckit`, migrate or upgrade a project, or install project instruction and
+custom-agent surfaces. For a project-native installation, use `ckit init`.
 
 ---
 
@@ -128,13 +121,13 @@ claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Post
 
 | Area | What you get |
 |------|--------------|
-| 🔁 **Pipeline & quality gates** | Explicit start/adopt lifecycle and ordered progression: Critical/High always block; Medium requires a distinct, structured accepted-risk record; conditional gates need configured not-applicable evidence; plus a fast-track and `devils-advocate` pass |
+| 🔁 **Pipeline & quality gates** | Explicit start/adopt lifecycle and ordered progression: Critical/High always block; Medium requires a distinct, structured accepted-risk record; conditional gates need configured not-applicable evidence; plus a fast-track and `devils-advocate` pass. Preview `ckit pipeline run --provider …` freezes/resumes Modes A–D; Mode E additionally requires `--program-manifest` and records typed waves, units, evidence, budgets, gates, and checkpoints. Every mode fail-closes before capabilities the selected adapter cannot safely attest |
 | 🤖 **Agent roster** | **29** tiered agents led by an Orchestrator that never writes code, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
-| 📐 **Rules & skills** | **25** stack-agnostic core rules + **122** context-activated skills (59 core + 63 stack-collection), pulled into context on demand |
+| 📐 **Rules & skills** | **25** stack-agnostic core rules + **126** context-activated skills (63 core + 63 stack-collection): 122 user-facing canonical skills plus 4 generated legacy-command adapters; pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **15** overlay rule files (React · FastAPI · Django · Go · Express · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
 | 🛠️ **Hooks & guards** | **20** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
-| 📊 **Traceability & live board** | A git-native ticket per story with a work-log and commit linkage, plus `claude-kit tickets` — a terminal chart and a click-through browser Kanban board (gate strip, per-ticket issue view, agent/model/token/timing figures) that `/sdlc` opens for you when it creates the tickets ([below](#parallel-lanes-and-the-live-ticket-board)) |
-| 📦 **Distribution & lifecycle** | Plugin **and** pip from one source, **24** ready MCP fragments (version-pinned), edit-preserving `upgrade`, and a root `AGENTS.md` at init so non-Claude agents share the same standards |
+| 📊 **Traceability & live board** | A git-native ticket per story with a work-log and commit linkage, plus `ckit tickets` — a terminal chart and a click-through browser Kanban board. Claude transcript metadata can enrich it; automatic Codex host telemetry is currently unsupported ([below](#parallel-lanes-and-the-live-ticket-board)) |
+| 📦 **Distribution & lifecycle** | Provider plugins plus pip from canonical sources, **24** ready MCP fragments (version-pinned), native Claude/Codex projections, one shared `.ckit` control plane, and edit-preserving upgrades |
 
 Profiles (`lean` · `standard` · `enterprise`), team scopes, autonomy levels, and org capability
 packs decide how much of this actually installs — see
@@ -160,18 +153,21 @@ Four ideas do the heavy lifting:
    triggers an adversarial `devils-advocate` pass before the gate may close — an explicit guard
    against agents rubber-stamping each other.
 
-See [`docs/architecture.md`](docs/architecture.md) for the full diagrams, including how one source
-of truth ships as both a plugin and a pip package.
+See [`docs/architecture.md`](docs/architecture.md) for the full diagrams, including how the canonical
+payload compiles into provider-native projections without branching catalog resolution.
 
 ---
 
 ## The pipeline
 
-`/sdlc` reads the profile you chose and runs **only that profile's gates**:
+`/sdlc` in Claude Code, or `$sdlc` in Codex, reads the profile you chose and selects **only that
+profile's gates**. Native delegation and the provider-neutral ledger drive the flow; the managed
+subprocess path remains Preview and fails closed when its adapter cannot attest a required
+capability:
 
 ```mermaid
 flowchart TD
-    REQ(["/sdlc request"]) --> CLS{"Classify"}
+    REQ(["sdlc request"]) --> CLS{"Classify"}
     CLS -->|"feature"| SPEC["Spec & Dev Docs"]
     SPEC --> EM{{"Gate: EM approved"}}
     EM -->|"pass"| STORY["Story breakdown + coverage gate<br/>story-planner"]
@@ -196,7 +192,7 @@ surface, it may be marked `not-applicable` only with the configured condition an
 A **fast-track** mode collapses small changes (< 5 files) to Developer → Code Reviewer → Tester → PR;
 organization scope at `regulated` strictness adds `accessibility-clear` (WCAG-AA on changed UI).
 
-The state layer does not infer that a run has begun. `claude-kit pipeline start` opens a fresh run at
+The state layer does not infer that a run has begun. `ckit pipeline start` opens a fresh run at
 its first active gate; work already in flight must use `pipeline adopt` with a reason and adopting
 identity. Gate results are recorded with `close-gate`, `not-applicable`, or `accept-risk`, then the
 run ends explicitly with `complete` or `abort`. Before any gate transition, `record-findings` binds
@@ -241,23 +237,26 @@ Two things make this observable rather than a black box:
 - **A ticket is opened before any lane starts** and accumulates a work-log entry per meaningful step —
   what changed, why, which files, what was decided (`ticketing-and-traceability`). Commits carry the
   ticket id, so `git log --grep=` walks it in either direction.
-- **Lanes are branches, and telemetry is keyed on the branch.** `claude-kit tickets` reads the Claude
+- **Lanes are branches, and Claude telemetry is keyed on the branch.** `ckit tickets` can read Claude
   Code session transcripts (metadata only — usage counters, model id, agent name, timestamp) and
-  attributes tokens, cache, elapsed time, and the agent that ran to whichever ticket names that branch.
+  attributes tokens, cache, elapsed time, and the agent that ran to whichever ticket names that
+  branch. The shared ticket store and board work in a Codex project, but automatic Codex host
+  telemetry capture is explicitly unsupported today.
 
 ### The board
 
 ```bash
-claude-kit tickets                # board: one row per ticket, in-progress first
-claude-kit tickets --watch 5      # re-render every 5s while a run is in flight
-claude-kit tickets --graph        # dependency DAG — what is blocked by what
-claude-kit tickets --graph-git    # the commit graph with each commit's ticket attached
-claude-kit tickets CKIT-74        # one ticket: full work log + per-lane telemetry
-claude-kit tickets --html         # a Kanban board in your browser
-claude-kit tickets --open         # the same board, opened for you
+ckit tickets                # board: one row per ticket, in-progress first
+ckit tickets --watch 5      # re-render every 5s while a run is in flight
+ckit tickets --graph        # dependency DAG — what is blocked by what
+ckit tickets --graph-git    # the commit graph with each commit's ticket attached
+ckit tickets CKIT-74        # one ticket: full work log + available telemetry
+ckit tickets --html         # a Kanban board in your browser
+ckit tickets --open         # the same board, opened for you
 ```
 
-`--html` writes a self-contained page to `.claude/state/ticket-board.html` and prints a `file://` URL;
+`--html` writes a self-contained page to `.ckit/state/ticket-board.html` on a native install and
+prints a `file://` URL;
 `--open` does that and launches your browser (and quietly falls back to the printed path on a headless
 box). **`/sdlc` runs `--open` for you** the moment it creates the tickets, before any implementation
 agent starts — so you watch the run rather than reading chat for status.
@@ -273,14 +272,14 @@ at all**, so the page makes zero network requests and leaks nothing:
 Token counts are **deduplicated by request id** — streaming rewrites the same usage block many times,
 and a naive sum overstates output by ~3× — and cache reads are counted separately from fresh input
 because they routinely differ by three orders of magnitude. Full reference:
-[`docs/cli.md`](docs/cli.md#the-ticket-chart-claude-kit-tickets).
+[`docs/cli.md`](docs/cli.md#the-ticket-chart-ckit-tickets).
 
 ---
 
 ## Profiles & what lands in your project
 
-The profile you pick decides how much lands in `.claude/`. Measured on a React + FastAPI +
-PostgreSQL project, individual scope:
+The profile you pick decides how much canonical content is projected into the selected native
+surface. Measured on a React + FastAPI + PostgreSQL project, individual scope:
 
 | Profile | Agents | Skills | Rules |
 |---------|-------:|-------:|------:|
@@ -303,36 +302,47 @@ Organization scope adds teams, 5 autonomy levels, review strictness, and capabil
 
 ## How claude-kit compares
 
-The closest alternative is just **using Claude Code's own subagents** — and that's the comparison
-that matters most: **native gives you the agents; claude-kit gives you the governance.**
+The closest alternative is just **using a host's own subagents** — and that's the comparison that
+matters most: **the host gives you agents; claude-kit gives you a repeatable governance layer.**
 
 | Compared to… | What it is | What claude-kit adds |
 |---|---|---|
-| **Native Claude Code subagents / Agent Teams** | Spawn parallel agents on demand; you define workflow and verification yourself each time | A fixed, sequenced pipeline with owned gates, an evidence requirement for every verdict, the `devils-advocate` anti-rubber-stamp pass, and structured resume from the pipeline state file |
+| **Native Claude Code or Codex subagents** | Spawn agents on demand; you define workflow and verification yourself each time | A structured workflow with owned gates, evidence requirements, the `devils-advocate` anti-rubber-stamp pass, and resume from the shared pipeline state file. Codex persona/delegation behavior remains a Preview proof gap |
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar collections | Large libraries of individual subagent prompts you pick from | A smaller, opinionated set wired into a sequenced pipeline — agents are stages that hand off and block on each other, not a menu |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec-driven development as a platform: constitution → spec → tasks → analyze, plus label-driven CI stages | The same coverage-gate idea absorbed into a broader in-session lifecycle — review, security, build, test, release, and observability gates with enforced severity blocking. Complementary: their CI stages, this kit's gate depth ([details](docs/autonomous-operation.md)) |
-| **claude-flow / multi-agent runtimes** | Runtime orchestrators that *execute* swarms of agents | Portable configuration, not a running process — no daemon, no lock-in, no app code |
-| **dotfiles / `CLAUDE.md` starters** | A single rules file or settings snippet | A catalog-driven generator: resolves your stack/profile/scope into the right subset of 25 rules, 29 agents, 122 skills, gates, and hooks — kept upgradeable with your edits preserved |
+| **claude-flow / multi-agent runtimes** | Long-lived runtime orchestrators that execute swarms of agents | Portable configuration plus an optional bounded Preview CLI coordinator for one active workflow — no daemon, no app code, and the native hosts remain the worker runtimes |
+| **dotfiles / instruction-file starters** | A single rules file or settings snippet | A catalog-driven compiler: resolves your stack/profile/scope into the right subset of 25 rules, 29 agents, 126 skills, gates, and hooks — 122 are user-facing capabilities and 4 are generated legacy-command adapters; generated surfaces stay upgradeable while preserving user edits |
 
 **Choose claude-kit when** you want a consistent, gate-enforced autonomous-SDLC setup that's the
-same across every repo and stack, installs in seconds, and ships nothing you have to run. It is
-**not** a runtime or a code library — it's the configuration that makes Claude Code's agents behave
-like a disciplined team.
+same across every repo and stack and installs in seconds. It is **not** an application runtime or a
+daemon — it is a configuration compiler with an optional bounded managed-execution command that
+launches the selected native host and checkpoints in `.ckit`. Claude Code support is stable; Codex
+support and managed execution are Preview, with degraded or unsupported mappings listed rather than
+hidden. The bundled managed subprocess backend runs exact-tool no-shell Claude roles and a narrowly
+bounded class of passive Codex roles. The Codex path is available only for an exact audited CLI pin
+after a local lockdown probe disables command, hook, plugin, MCP, browser, app, and delegation
+surfaces; it receives a bounded, filtered projection of tracked text in a read-only sandbox. Any
+shell, write, delegation, browser, MCP, or external-effect requirement still needs an independently
+contained backend and stops before spawn. Managed human approval is also fail-closed until the
+runtime can bind and consume a stage/action/workspace-scoped authorization; generic local evidence
+is not treated as consent.
 
 ---
 
-## Use beyond Claude Code (export)
+## Native runtimes and generic editor export
 
-`init` already emits a repo-root **`AGENTS.md`** so teammates on Cursor, VS Code, or Copilot get the
-kit's standards from day one. `claude-kit export` projects the full config into their native formats:
+Use `ckit init --runtime codex` for Codex. The older generic `agents` export is a portable
+single-document target, **not** the native Codex projection and not evidence of Codex parity.
+For Cursor, generic AGENTS consumers, and GitHub Copilot, run:
 
 ```bash
-claude-kit export . -t cursor -t agents -t copilot
+ckit export . -t cursor -t agents -t copilot
 ```
 
 **Fidelity is honest:** rules, the project charter, and MCP servers port cleanly; the *enforced*
-gates and reviewer subagents are Claude-Code-only and travel as a single-agent checklist instead —
-every exported document says so. Full fidelity matrix: [`docs/cursor-export.md`](docs/cursor-export.md).
+gates, hooks, agents, and runtime state do not become native integrations through this export; they
+travel as advisory prose where applicable. Full fidelity matrix:
+[`docs/cursor-export.md`](docs/cursor-export.md).
 
 ---
 
@@ -355,11 +365,11 @@ service. Its controls span several trust boundaries; the label matters more than
 | Control | Enforcement type | Trust boundary |
 |---|---|---|
 | Gate order and lifecycle | Mechanically enforced | Python pipeline layer |
-| Test result | Agent-enforced today; mechanical parsing is planned | Agent report and cited artifact |
-| Hook guard | Hook-enforced | Requires the Claude hook runtime, POSIX shell, and `jq` |
+| Test result | Typed and semantically checked for managed A–E; manual file evidence remains Agent-enforced | Root-owned managed record or manually cited artifact |
+| Hook guard | Hook-enforced | Requires a supported host hook adapter, project trust where applicable, POSIX shell, and `jq` |
 | Security scanner result | Externally verified or Agent-enforced, depending on scanner | External tool output or scanner agent |
 | Accepted risk | Human-attested | Structured record bound to gate, commit, evidence, and findings |
-| MCP permissions | Externally verified plus local policy | External server and Claude Code; **not a sandbox** |
+| MCP permissions | Externally verified plus local policy | External server and selected host; **not a sandbox** |
 | Local evidence hash | Mechanically enforced content-integrity check | Detects artifact drift; a writer can change both file and ledger |
 
 Other prose requirements are **Advisory** unless one of those layers enforces them. Three honest
@@ -368,13 +378,14 @@ caveats before you rely on the system:
 - **The guard hooks are convenience, not a hardened boundary.** They raise the cost of a mistake but
   don't sandbox the agent; they need a POSIX shell + `jq` and silently no-op without them. Seatbelts,
   not walls.
-- **Most quality results are agent protocols, not independently parsed test results.** The Python
-  layer mechanically enforces lifecycle, order, allowed transition types, bindings, and evidence
-  hashes; it does not prove that an arbitrary evidence file means the tests passed. A capable model
-  can still be wrong or skip a step — keep a human in the loop for anything that matters. Relatedly:
-  the agents' `permissionMode` confinement
-  (read-only reviewers) binds only in **init-scaffolded** projects — plugin-loaded agents ignore
-  it, so run the pipeline from a scaffolded project when that confinement matters.
+- **Managed evidence is authoritative but not omniscient.** Managed A–D and Mode E require exact
+  structured evidence sets, validate required fields and pass/finding semantics, and bind root-owned
+  content-addressed records to the owning attempt. The manual file-evidence API still cannot prove
+  that an arbitrary file means the tests passed, and even a structurally valid managed report can be
+  factually wrong. Keep a human in the loop for anything that matters. Relatedly:
+  provider permission and sandbox models are not interchangeable. Claude permission classes are
+  projected where supported; Codex Preview preserves the intent in instructions and leaves the
+  runtime's sandbox/approval policy authoritative. Do not claim equivalent per-agent confinement.
 - **MCP servers are third-party code.** Each fragment runs an external package — pinned to an exact
   version, never `@latest` — that claude-kit references but does not vendor or audit. Review a
   server's source and license before enabling it.
@@ -389,11 +400,13 @@ Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md).
 | Doc | What's in it |
 |---|---|
 | [`docs/install.md`](docs/install.md) | Every install detail: prerequisites, Windows, plugin updates, all `init` questions, `init.yaml`, what lands on disk |
+| [`docs/runtime-support.md`](docs/runtime-support.md) | Normative Native / Adapted / Degraded / Unsupported matrix and Codex Preview promotion gates |
+| [`docs/runtime-migration.md`](docs/runtime-migration.md) | Non-destructive `.claude` → `.ckit` migration and every runtime transition |
 | [`docs/cli.md`](docs/cli.md) | Full CLI command reference, safe-upgrade mechanics, troubleshooting |
 | [`docs/agents.md`](docs/agents.md) | How to drive the agents + the full 29-agent roster and per-run cost |
 | [`docs/architecture.md`](docs/architecture.md) | Diagrams: distribution, catalog resolution, the state machine — and how to extend via the catalog |
 | [`docs/influences.md`](docs/influences.md) | The reuse-first adoption history: what we learned, shipped, and deliberately skipped |
-| [`docs/autonomous-operation.md`](docs/autonomous-operation.md) | Unattended runs: permission modes × autonomy levels, headless mode, the bounded loop script, CI-trigger design |
+| [`docs/autonomous-operation.md`](docs/autonomous-operation.md) | Unattended-run boundary: current fail-closed headless interface, permission/sandbox limits, and promotion requirements |
 | [`docs/cursor-export.md`](docs/cursor-export.md) | Export fidelity matrix and `.mdc` mapping |
 | [`docs/org-capabilities.md`](docs/org-capabilities.md) | Organization scope: packs, personas, autonomy, review strictness |
 | [`docs/skill-audit.md`](docs/skill-audit.md) | Per-profile skill footprint and context economics |
@@ -409,7 +422,7 @@ Issues and PRs welcome — see [`CONTRIBUTING.md`](CONTRIBUTING.md). To dogfood 
 
 ```bash
 # As a plugin:  /plugin marketplace add .   then   /plugin install claude-kit@claude-kit
-# As the CLI:   pip install -e '.[dev]'   then   claude-kit init ./ck-demo --defaults   &&   pytest
+# As the CLI:   pip install -e '.[dev]'   then   ckit init ./ck-demo --defaults --runtime claude   &&   pytest
 ```
 
 ## License

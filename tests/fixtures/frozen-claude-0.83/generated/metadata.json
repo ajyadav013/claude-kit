@@ -1,0 +1,80 @@
+{
+  "artifacts": [
+    {
+      "path": "cases/enterprise_organization_django_mongodb.json",
+      "sha256": "3a530819f12c07d931752144104fa5fa420a65abd4835c2a14514c9826760283",
+      "size": 275724
+    },
+    {
+      "path": "cases/lean_individual_go.json",
+      "sha256": "f5ddbe75efe711ab96cbabd57e5511020c1fad37380fe05851625a98a9b4cece",
+      "size": 32461
+    },
+    {
+      "path": "cases/standard_team_react_fastapi.json",
+      "sha256": "827bef881fa145ca579979065d47ad7203aa407ee1d6bb6cd879a0beeab699a1",
+      "size": 133963
+    },
+    {
+      "path": "legacy-0.83/manifest.json",
+      "sha256": "d5cec6260ddc63114bca2c8be4af2aea337054ba36ad6defd41e8cae03779f87",
+      "size": 1008
+    },
+    {
+      "path": "legacy-0.83/project/.claude/config/init-options.json",
+      "sha256": "5032365e35fcb883278ddbc90614c18fb251e8d00d23455f0cbcce48ef18864f",
+      "size": 59729
+    },
+    {
+      "path": "legacy-0.83/project/.claude/config/stack-catalog.snapshot.yaml",
+      "sha256": "d22483ba7b63c06a857b75b3af527bb46200aafd74fce2839dcbb363be5e44a3",
+      "size": 3807
+    },
+    {
+      "path": "legacy-0.83/project/.claude/state/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "path": "legacy-0.83/project/.claude/state/pipeline-snapshot.json",
+      "sha256": "3a6d32fc542b92827339073d935bbe8ca1d9ffe0bc7c27e1893fc6262a2c7d43",
+      "size": 401
+    }
+  ],
+  "cases": [
+    {
+      "agent_count": 5,
+      "id": "lean_individual_go",
+      "installed_file_count": 95,
+      "path": "cases/lean_individual_go.json",
+      "profile": "lean",
+      "scope": "individual",
+      "skill_count": 11
+    },
+    {
+      "agent_count": 27,
+      "id": "standard_team_react_fastapi",
+      "installed_file_count": 316,
+      "path": "cases/standard_team_react_fastapi.json",
+      "profile": "standard",
+      "scope": "team",
+      "skill_count": 65
+    },
+    {
+      "agent_count": 37,
+      "id": "enterprise_organization_django_mongodb",
+      "installed_file_count": 768,
+      "path": "cases/enterprise_organization_django_mongodb.json",
+      "profile": "enterprise",
+      "scope": "organization",
+      "skill_count": 108
+    }
+  ],
+  "fixture_schema_version": 1,
+  "generator": "scripts/regenerate_frozen_claude_fixtures.py",
+  "source": {
+    "claude_kit_version": "0.83.0",
+    "commit": "04161917bd3c1aef270f9979e5abeabe3cd755e6",
+    "tree": "02945cbfdb7306a992d1da5fa83eb0b889e4ff75"
+  }
+}

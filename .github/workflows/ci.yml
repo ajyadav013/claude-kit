@@ -36,6 +36,85 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+  runtime-unit:
+    name: runtime-unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install runtime test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+      - name: Run provider-neutral runtime units
+        run: >-
+          python -m pytest -q
+          tests/test_runtime_models.py
+          tests/test_components.py
+          tests/test_projection.py
+          tests/test_dispatch.py
+          tests/test_process_dispatch.py
+          tests/test_learning_capture.py
+          tests/test_managed_approval.py
+          tests/test_program_runtime.py
+          tests/test_program_execution.py
+          tests/test_workflows.py
+          tests/test_workflow_evidence.py
+          tests/test_workflow_executor.py
+          tests/test_hook_adapter.py
+          tests/test_hook_runtime.py
+          tests/test_runtime_scaffold.py
+          tests/test_runtime_docs.py
+          tests/test_runtime_cli.py
+          tests/test_cross_runtime_pipeline.py
+          tests/test_state_layout.py
+          tests/test_state_consumers.py
+
+  runtime-goldens:
+    name: runtime-goldens
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install golden test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+      - name: Compare frozen Claude and current provider projections
+        run: >-
+          python -m pytest -q
+          tests/test_frozen_claude_baseline.py
+          tests/test_claude_renderer.py
+          tests/test_codex_renderer.py
+
+  runtime-upgrade-matrix:
+    name: runtime-upgrade-matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install upgrade test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+      - name: Run same-runtime and provider-transition matrix
+        run: >-
+          python -m pytest -q
+          tests/test_runtime_upgrader.py
+          tests/test_state_migration.py
+
   lint:
     name: lint (ruff + mypy)
     runs-on: ubuntu-latest
@@ -65,7 +144,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip shellcheck-py
-      - run: shellcheck -S warning hooks/scripts/*.sh scripts/*.sh templates/scripts/*.sh
+      - run: >-
+          shellcheck -S warning hooks/scripts/*.sh
+          providers/codex/claude-kit/hooks/scripts/*.sh
+          scripts/*.sh templates/scripts/*.sh
 
   static:
     name: static (hooks + docs + catalog + manifests)
@@ -82,6 +164,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
       - run: python scripts/gen_hooks.py --check
+      - run: python scripts/gen_provider_manifests.py --check
       - run: python scripts/check_docs_consistency.py
       - run: python scripts/check_skill_descriptions.py --strict
       - run: python scripts/check_mcp_pins.py
@@ -95,8 +178,53 @@ jobs:
       - name: Plugin manifests and hooks are valid JSON
         run: >-
           python -c "import json; [json.load(open(p)) for p in
-          ('hooks/hooks.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json')];
+          ('hooks/hooks.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json',
+          'providers/codex/claude-kit/.codex-plugin/plugin.json',
+          'providers/codex/claude-kit/hooks/hooks.json',
+          '.agents/plugins/marketplace.json')];
           print('manifests OK')"
+
+  provider-payload-drift:
+    name: provider-payload-drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install payload generator dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+      - run: python scripts/gen_hooks.py --check
+      - run: python scripts/gen_provider_manifests.py --check
+      - run: python scripts/gen_provider_payloads.py --check
+      - run: python scripts/gen_rule_payloads.py --check
+      - run: python scripts/gen_canonical_skill_payloads.py --check
+
+  docs-manifest-drift:
+    name: docs-manifest-drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install documentation check dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+      - run: python scripts/gen_contributor_guides.py --check
+      - run: python scripts/check_docs_consistency.py
+      - run: python scripts/check_cross_references.py --strict
+      - name: Check deterministic provider manifest contracts
+        run: >-
+          python -m pytest -q tests/test_provider_manifests.py
+          -k "not wheel_and_sdist"
 
   workflow-security:
     name: workflow security (actionlint + zizmor)
@@ -132,21 +260,22 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install pyyaml==6.0.3
       - id: matrix
-        name: Export CI-enabled versions from claude-code-compatibility.yaml
+        name: Export CI-enabled versions from claude-compatibility.yaml
         run: |
           python - <<'PY'
           import json, os, yaml
-          with open("catalog/claude-code-compatibility.yaml", encoding="utf-8") as handle:
+          with open("catalog/claude-compatibility.yaml", encoding="utf-8") as handle:
               policy = yaml.safe_load(handle)
           versions = [entry["version"] for entry in policy["tested"] if entry["ci"]]
-          if len(versions) < 2 or policy["minimum"] not in versions:
+          required = {policy["minimum"], policy["current_stable"]}
+          if len(versions) < 2 or not required.issubset(versions):
               raise SystemExit("compatibility CI must include the minimum and current stable")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("matrix=" + json.dumps({"version": versions}, separators=(",", ":")) + "\n")
           PY
 
   official-plugin-validation:
-    name: Claude Code ${{ matrix.version }} official validator
+    name: Claude Code ${{ matrix.version }} plugin compatibility detail
     needs: compatibility-matrix
     runs-on: ubuntu-latest
     strategy:
@@ -159,6 +288,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
       - name: Install exact Claude Code version
         env:
           CLAUDE_CODE_VERSION: ${{ matrix.version }}
@@ -166,9 +298,121 @@ jobs:
         # CI matrix of two globally executed CLI releases.
         run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION" # zizmor: ignore[adhoc-packages]
       - run: claude plugin validate . --strict
+      - name: Isolated Claude plugin install/list/remove lifecycle
+        run: |
+          python -m pip install pytest==8.4.2
+          python -m pytest -q tests/test_plugin_host_smoke.py -k "provider_manifests or claude_native"
+
+  claude-plugin-compat:
+    name: claude-plugin-compat
+    needs: official-plugin-validation
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every pinned Claude Code compatibility detail
+        env:
+          MATRIX_RESULT: ${{ needs.official-plugin-validation.result }}
+        run: test "$MATRIX_RESULT" = "success"
+
+  codex-compatibility-matrix:
+    name: Read pinned Codex matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyyaml==6.0.3
+      - id: matrix
+        name: Export CI-enabled versions from codex-compatibility.yaml
+        run: |
+          python - <<'PY'
+          import json, os, yaml
+          with open("catalog/codex-compatibility.yaml", encoding="utf-8") as handle:
+              policy = yaml.safe_load(handle)
+          entries = [
+              {
+                  "version": entry["version"],
+                  **entry["plugin_validator"],
+              }
+              for entry in policy["tested"]
+              if entry["ci"]
+          ]
+          versions = {entry["version"] for entry in entries}
+          required = {policy["minimum"], policy["current_stable"]}
+          if len(versions) < 2 or not required.issubset(versions):
+              raise SystemExit("Codex compatibility CI must include minimum and current stable")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"include": entries}, separators=(",", ":")) + "\n")
+          PY
+
+  official-codex-plugin-conformance:
+    name: Codex ${{ matrix.version }} plugin compatibility detail
+    needs: codex-compatibility-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.codex-compatibility-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install exact Codex version
+        env:
+          CODEX_CLI_VERSION: ${{ matrix.version }}
+        # Exact versions come from the reviewed compatibility policy; a lockfile cannot express a
+        # CI matrix of two globally executed CLI releases.
+        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION" # zizmor: ignore[adhoc-packages]
+      - name: Fetch the matching official plugin-creator validator
+        env:
+          CODEX_CLI_VERSION: ${{ matrix.version }}
+          VALIDATOR_SHA256: ${{ matrix.validate_plugin_sha256 }}
+          IDENTIFIER_VALIDATION_SHA256: ${{ matrix.identifier_validation_sha256 }}
+        run: |
+          validator_root="$RUNNER_TEMP/codex-plugin-validator"
+          validator="$validator_root/validate_plugin.py"
+          mkdir -p "$validator_root"
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/openai/codex/rust-v${CODEX_CLI_VERSION}/codex-rs/skills/src/assets/samples/plugin-creator/scripts/validate_plugin.py" \
+            --output "$validator"
+          printf '%s  %s\n' "$VALIDATOR_SHA256" "$validator" | sha256sum --check --strict
+          if [[ -n "$IDENTIFIER_VALIDATION_SHA256" ]]; then
+            identifier_validator="$validator_root/identifier_validation.py"
+            curl --fail --location --silent --show-error \
+              "https://raw.githubusercontent.com/openai/codex/rust-v${CODEX_CLI_VERSION}/codex-rs/skills/src/assets/samples/plugin-creator/scripts/identifier_validation.py" \
+              --output "$identifier_validator"
+            printf '%s  %s\n' "$IDENTIFIER_VALIDATION_SHA256" "$identifier_validator" \
+              | sha256sum --check --strict
+          fi
+          printf 'CODEX_PLUGIN_VALIDATOR=%s\n' "$validator" >> "$GITHUB_ENV"
+      - name: Isolated Codex marketplace add/list/remove lifecycle
+        run: |
+          python -m pip install pytest==8.4.2 pyyaml==6.0.3
+          python -m pytest -q tests/test_plugin_host_smoke.py -k "provider_manifests or codex_native"
+
+  codex-plugin-compat:
+    name: codex-plugin-compat
+    needs: official-codex-plugin-conformance
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every pinned Codex compatibility detail
+        env:
+          MATRIX_RESULT: ${{ needs.official-codex-plugin-conformance.result }}
+        run: test "$MATRIX_RESULT" = "success"
 
   compatibility-drift:
-    name: Claude Code stable-pin drift
+    name: Host stable-pin drift
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
@@ -182,17 +426,25 @@ jobs:
         with:
           node-version: "22"
       - run: python -m pip install pyyaml==6.0.3
-      - name: Require explicit audit when npm stable moves
+      - name: Require explicit Claude Code audit when npm stable moves
         run: |
           latest="$(npm view @anthropic-ai/claude-code version)"
-          pinned="$(python -c 'import yaml; p=yaml.safe_load(open("catalog/claude-code-compatibility.yaml")); print(next(x["version"] for x in p["tested"] if x["role"] == "current-stable"))')"
+          pinned="$(python -c 'import yaml; p=yaml.safe_load(open("catalog/claude-compatibility.yaml")); print(p["current_stable"])')"
           test "$latest" = "$pinned" || {
             echo "::error::Claude Code latest is $latest; audit and update pinned current-stable $pinned"
             exit 1
           }
+      - name: Require explicit Codex audit when npm stable moves
+        run: |
+          latest="$(npm view @openai/codex version)"
+          pinned="$(python -c 'import yaml; p=yaml.safe_load(open("catalog/codex-compatibility.yaml")); print(p["current_stable"])')"
+          test "$latest" = "$pinned" || {
+            echo "::error::Codex latest is $latest; audit and update pinned current stable $pinned"
+            exit 1
+          }
 
   build:
-    name: build once + verify distributions
+    name: distribution conformance + verified build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -201,9 +453,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
-      - name: Build wheel and sdist once
+      - name: Verify reproducible inventory, then build wheel and sdist once
         run: |
-          python -m pip install --upgrade pip build twine
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+          python -m pytest -q tests/test_distribution_conformance.py -k "not isolated_distribution"
           python -m build
           python -m twine check dist/*
       - id: release
@@ -221,9 +475,31 @@ jobs:
           retention-days: 30
 
   wheel-smoke:
-    name: wheel smoke (verified artifact -> install -> strict validate)
+    name: ${{ matrix.job_name }}
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: wheel
+            runtime: claude
+            job_name: wheel-smoke-claude
+          - artifact: wheel
+            runtime: codex
+            job_name: wheel-smoke-codex
+          - artifact: wheel
+            runtime: both
+            job_name: wheel-smoke-both
+          - artifact: sdist
+            runtime: claude
+            job_name: sdist-smoke-claude
+          - artifact: sdist
+            runtime: codex
+            job_name: sdist-smoke-codex
+          - artifact: sdist
+            runtime: both
+            job_name: sdist-smoke-both
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -235,13 +511,45 @@ jobs:
         with:
           name: verified-dist
           path: verified
-      - name: Verify and smoke the exact wheel
+      - name: Verify and smoke the exact distribution
+        env:
+          ARTIFACT_KIND: ${{ matrix.artifact }}
+          RUNTIME: ${{ matrix.runtime }}
         run: |
           python scripts/release_preflight.py verify --dist-dir verified/dist
-          python -m venv /tmp/ckenv
-          /tmp/ckenv/bin/pip install --upgrade pip
-          /tmp/ckenv/bin/pip install verified/dist/*.whl
-          /tmp/ckenv/bin/claude-kit --version
-          /tmp/ckenv/bin/claude-kit init /tmp/demo --defaults
-          /tmp/ckenv/bin/claude-kit validate --strict /tmp/demo
-          /tmp/ckenv/bin/claude-kit doctor /tmp/demo
+          smoke_env="$RUNNER_TEMP/ckit-$ARTIFACT_KIND-$RUNTIME"
+          demo="$RUNNER_TEMP/demo-$ARTIFACT_KIND-$RUNTIME"
+          python -m venv "$smoke_env"
+          "$smoke_env/bin/pip" install --upgrade pip
+          shopt -s nullglob
+          if [[ "$ARTIFACT_KIND" == "wheel" ]]; then
+            package=(verified/dist/*.whl)
+          else
+            package=(verified/dist/*.tar.gz)
+          fi
+          test "${#package[@]}" -eq 1
+          "$smoke_env/bin/pip" install "${package[0]}"
+          "$smoke_env/bin/claude-kit" --version
+          "$smoke_env/bin/ckit" --version
+          "$smoke_env/bin/claude-sdlc" --version
+          if [[ "$RUNTIME" != "claude" ]]; then
+            export CKIT_EXPERIMENTAL=1
+          fi
+          "$smoke_env/bin/claude-kit" init "$demo" --defaults --runtime "$RUNTIME"
+          "$smoke_env/bin/ckit" validate --strict "$demo"
+          "$smoke_env/bin/claude-sdlc" doctor "$demo"
+          test -f "$demo/.ckit/config/init-options.json"
+          if [[ "$RUNTIME" == "claude" || "$RUNTIME" == "both" ]]; then
+            test -d "$demo/.claude"
+          else
+            test ! -e "$demo/.claude"
+          fi
+          if [[ "$RUNTIME" == "codex" || "$RUNTIME" == "both" ]]; then
+            test -d "$demo/.codex"
+            test -d "$demo/.agents"
+            test -f "$demo/AGENTS.md"
+          else
+            test ! -e "$demo/.codex"
+            test ! -e "$demo/.agents"
+            test ! -e "$demo/AGENTS.md"
+          fi

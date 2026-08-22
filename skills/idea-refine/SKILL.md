@@ -1,6 +1,7 @@
 ---
 name: idea-refine
 description: Refines raw ideas into sharp, actionable concepts via divergent-then-convergent thinking. Use when an idea is vague or to stress-test assumptions. Triggers on ideate, refine this idea, stress-test my plan.
+argument-hint: '[request]'
 ---
 
 # Idea Refine

@@ -1,0 +1,6 @@
+interface:
+  display_name: Triage
+  short_description: Triage unsorted backlog items into the appropriate execution
+    horizon...
+policy:
+  allow_implicit_invocation: false

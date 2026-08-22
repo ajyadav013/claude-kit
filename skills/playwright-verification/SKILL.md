@@ -1,7 +1,7 @@
 ---
 name: playwright-verification
 description: Run E2E tests after deployment to verify page loads, navigation flows, user interactions, and cross-browser compatibility using the project's E2E framework.
-argument-hint: [page route, "smoke", "all", or "cross-browser"]
+argument-hint: '[page route, "smoke", "all", or "cross-browser"]'
 disable-model-invocation: true
 ---
 

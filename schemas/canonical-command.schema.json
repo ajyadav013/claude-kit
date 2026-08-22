@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-kit.dev/schemas/canonical-command.schema.json",
+  "title": "Provider-neutral canonical command frontmatter",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "not": {"pattern": "\\.\\."}
+    },
+    "capability": {
+      "enum": [
+        "filesystem.read",
+        "filesystem.write",
+        "filesystem.search",
+        "shell",
+        "delegation",
+        "delegation.message",
+        "workflow.ledger",
+        "browser",
+        "human.input",
+        "mcp",
+        "external.mutation",
+        "process.descendant_containment"
+      ]
+    },
+    "reference": {
+      "type": "string",
+      "pattern": "^(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)://[a-z0-9][a-z0-9._-]*$"
+    },
+    "request_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["none", "optional", "required"]},
+        "hint": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mode": {"const": "none"}}},
+          "then": {"not": {"required": ["hint"]}},
+          "else": {"required": ["hint"]}
+        }
+      ]
+    },
+    "pause": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "reason"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "reason": {"type": "string", "minLength": 1, "pattern": "\\S"}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "description",
+    "aliases",
+    "invocation",
+    "capabilities",
+    "request_input",
+    "pause_for_human",
+    "references"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"$ref": "#/$defs/id"},
+    "description": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "aliases": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/id"}
+    },
+    "invocation": {"const": "explicit"},
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/capability"}
+    },
+    "request_input": {"$ref": "#/$defs/request_input"},
+    "pause_for_human": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/pause"}
+    },
+    "references": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/reference"}
+    }
+  }
+}

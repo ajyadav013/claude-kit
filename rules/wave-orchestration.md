@@ -1,10 +1,10 @@
 ---
 paths:
-  - '.claude/agents/**'
-  - '.claude/skills/**'
-  - '**/agents/**'
-  - '**/skills/**'
-  - '.claude/**'
+- .claude/agents/**
+- .claude/skills/**
+- '**/agents/**'
+- '**/skills/**'
+- .claude/**
 ---
 
 # Wave Orchestration (Program-Scale Work)
@@ -141,13 +141,13 @@ with the on-exceed action declared up front (stop spawning, checkpoint, escalate
 before launch, and makes "the wave ran hot" a measured fact (estimate vs actual) instead of a
 surprise on the bill.
 
-## Native dynamic workflows as the wave substrate
+## Optional host-native workflows as the wave substrate
 
-Claude Code ≥ 2.1.154 ships a native **dynamic-workflows engine**: Claude writes a JavaScript
-orchestration script and a background runtime executes it — dozens to hundreds of subagents per
-run, intermediate results held in script variables instead of anyone's context, per-agent progress
-and token spend in `/workflows`, and in-session resume (completed agents return cached results).
-That engine and this rule solve different problems, and they compose:
+Some coding hosts provide a native workflow runtime that can fan out many workers, retain
+intermediate results outside the coordinator's context, report per-worker progress and spend, and
+resume completed work within a session. Treat this as an optional execution substrate, never as a
+governance dependency. A host workflow engine and this rule solve different problems, and they
+compose:
 
 - **This rule is the contract; the engine is a substrate.** The manifest, risk-ordered waves,
   gate-runner verdicts, and human approvals are not replaced by the engine — it provides execution
@@ -163,10 +163,10 @@ That engine and this rule solve different problems, and they compose:
   survive exiting the session), so the manifest, wave state, and restore-point tags — not the run —
   remain the source of truth, exactly as this rule already requires.
 
-Availability is not guaranteed: the engine needs a paid plan (opt-in on Pro via `/config`), and
-users or orgs can disable it (`"disableWorkflows"`, `CLAUDE_CODE_DISABLE_WORKFLOWS=1`, managed
-settings). Plan the program under this rule first; pick the substrate per wave — ordinary parallel
-subagents or a workflow run — based on what the session actually has.
+Availability and control syntax vary by provider, plan, and organization policy. Plan the program
+under this rule first; pick the substrate per wave — ordinary parallel workers or a host workflow
+run — based on capabilities the current session actually exposes. If no native workflow engine is
+available, the same manifest, wave ordering, retry budget, and gates still apply.
 
 ## Relationship to other rules
 
@@ -177,5 +177,5 @@ subagents or a workflow run — based on what the session actually has.
 - **`.claude/rules/human-in-the-loop.md`** — the stop points; §5 here is its inventory sharpening.
 - **`.claude/rules/agent-resilience.md`** — worker crash/retry handling.
 - **`.claude/rules/model-tiers.md`** — per-worker model selection.
-- **`.claude/rules/continuity.md`** — the manifest complements, never replaces, CONTINUITY.md and
+- **`.claude/rules/continuity.md`** — the manifest complements, never replaces, .claude/CONTINUITY.md and
   the pipeline snapshot; wave state lives in both.

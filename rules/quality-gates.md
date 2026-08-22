@@ -50,7 +50,7 @@ findings. `failed` and `aborted` do not advance the run.
 Phase completes -> Gate
   PASS  -> advance to next phase
   FAIL  -> fix highest-severity findings first
-        -> the miss is logged to CONTINUITY.md (and agent-memory if durable)
+        -> the miss is logged to .claude/CONTINUITY.md (and agent-memory if durable)
         -> retry the gate
   retries exhausted -> escalate to human with unresolved findings
 ```
@@ -59,7 +59,7 @@ Phase completes -> Gate
 - Design review: 3 · Senior dev: 3 · Tech architect: 3 · EM: 3
 - Code review: 5 · Merge reviewer: 2 · Defect loop: 2 cycles
 
-When a gate FAILs, the miss is recorded in `CONTINUITY.md` under **Mistakes & Learnings** so the
+When a gate FAILs, the miss is recorded in `.claude/CONTINUITY.md` under **Mistakes & Learnings** so the
 same defect is not reintroduced on retry. Read-only gate agents don't write it themselves: they
 **return the miss in their handoff** and the Orchestrator records it (the scribe pattern — the
 same handoff that carries the evidence, §2.5).
@@ -91,7 +91,7 @@ A gate result is a claim about reality, so it must be grounded in reality. A PAS
 
 - **No invented or assumed results.** Never report a check as green without running it; never guess a scanner's output; never mark a gate PASS because it "should" pass. If you did not run it, you do not have a verdict — you have a TODO.
 - **No premature verdicts from partial work.** Reading a still-running lane's in-progress output (or a single tester's report) and declaring the *gate* done is forbidden. A gate verdict requires every input it depends on to have actually completed and reported.
-- **The proof travels with the handoff.** When an agent hands a verdict to the Orchestrator — or the Orchestrator records one in `CONTINUITY.md` — the command + output (or the finding list) goes with it. An uncited verdict is treated as unproven and the gate stays closed.
+- **The proof travels with the handoff.** When an agent hands a verdict to the Orchestrator — or the Orchestrator records one in `.claude/CONTINUITY.md` — the command + output (or the finding list) goes with it. An uncited verdict is treated as unproven and the gate stays closed.
 
 A fabricated, assumed, or partial-output-based verdict is an **auto-Critical** finding (§1): it defeats every downstream gate that trusts it. This is the gate-level form of the RARV rule "Verify means run it, not imagine it" (`.claude/rules/rarv-cycle.md`).
 
@@ -165,7 +165,7 @@ Where the agent is installed, a gate reached by unanimous PASS is not PASS until
 
 Every verdict also carries a **premortem** (assume it shipped and failed — the likeliest cause and the earliest signal) and a **balance sheet** (what the approach gets right, and what it costs). A critique that only lists defects cannot be weighed against doing nothing, and leaves no record of *why* an accepted downside was accepted.
 
-**CONFIRMED-WITH-COSTS is not a soft UPHELD.** It never carries a Critical/High/Medium — anything blocking is UPHELD. Each recorded cost names an accepting role and a concrete revisit trigger, and the Orchestrator writes it to `CONTINUITY.md` so it survives the gate that accepted it. A cost with no owner or no trigger is a hedge, not a cost: it is dropped and the verdict is plain CONFIRMED. Where the project keeps ADRs, a cost that shapes the architecture belongs in one (see `.claude/rules/documentation.md`).
+**CONFIRMED-WITH-COSTS is not a soft UPHELD.** It never carries a Critical/High/Medium — anything blocking is UPHELD. Each recorded cost names an accepting role and a concrete revisit trigger, and the Orchestrator writes it to `.claude/CONTINUITY.md` so it survives the gate that accepted it. A cost with no owner or no trigger is a hedge, not a cost: it is dropped and the verdict is plain CONFIRMED. Where the project keeps ADRs, a cost that shapes the architecture belongs in one (see `.claude/rules/documentation.md`).
 
 ### Devil's Advocate on the plan (standard+)
 
@@ -192,7 +192,7 @@ The same adversarial pass also runs **once on the plan** — the spec + develope
 
 ## 5. Process Signals (optional, lightweight)
 
-Track these in `CONTINUITY.md` when running a full pipeline; they reveal a degrading process early:
+Track these in `.claude/CONTINUITY.md` when running a full pipeline; they reveal a degrading process early:
 
 | Signal | Healthy | Investigate |
 |--------|---------|-------------|

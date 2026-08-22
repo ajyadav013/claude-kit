@@ -1,0 +1,13 @@
+schema_version: 1
+id: compliance-policy
+description: Compliance Policy
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://branch-and-pr-policy
+- rule://pii-policy
+- rule://quality-gates
+- rule://risk-classification
+- rule://secrets-policy

@@ -164,7 +164,9 @@ def test_init_options_round_trips_and_records_files(tmp_path, payload):
         )
     )
     options = InitOptions.from_dict(data)
-    assert options.schema_version == 1
+    assert options.schema_version == 2
+    assert options.runtimes == ["claude"]
+    assert options.state_layout.root == ".claude"
     assert options.selection.database == "postgres"
     assert options.files, "no files recorded"
     owners = {r.owner for r in options.files}
@@ -323,17 +325,13 @@ def test_new_core_skills_gated_by_profile(tmp_path, payload):
     assert new_skills <= skills(standard), "new core skills must ship in standard"
 
 
-def test_risk_classifier_is_enterprise_only(tmp_path, payload):
-    """The risk-classifier agent is gated to the enterprise profile (team scope)."""
-    for profile, present in (
-        ("lean", False),
-        ("standard", False),
-        ("enterprise", True),
-    ):
+def test_risk_classifier_ships_in_every_profile(tmp_path, payload):
+    """Every managed workflow can classify risk before selecting its route and gates."""
+    for profile in ("lean", "standard", "enterprise"):
         target = tmp_path / profile
         install(payload, target, profile=profile)
         exists = (target / ".claude" / "agents" / "risk-classifier.md").is_file()
-        assert exists is present, f"{profile}: risk-classifier present={exists}"
+        assert exists, f"{profile}: risk-classifier is missing"
 
 
 def test_team_scope_installs_no_org_overlay(tmp_path, payload):
@@ -1103,13 +1101,19 @@ def test_reinstall_over_unedited_tree_writes_no_sidecars(tmp_path, payload):
 
 
 def test_loop_script_installed_executable_and_kit_owned(tmp_path, payload):
-    """The bounded headless runner lands in .claude/scripts/, executable, tracked as kit-owned."""
+    """The fail-closed loop interface is executable, kit-owned, and cannot launch a host."""
     install(payload, tmp_path)
     script = tmp_path / ".claude" / "scripts" / "sdlc-loop.sh"
     assert script.is_file(), "sdlc-loop.sh not installed"
     assert os.access(script, os.X_OK), "sdlc-loop.sh not executable"
     body = script.read_text(encoding="utf-8")
-    assert "SDLC_FINAL_GATE" in body and "SDLC_MAX_ITER" in body
+    assert (
+        "automated host execution requires portable descendant-process containment"
+        in body
+    )
+    assert "CKIT_PIPELINE_TRANSITION_TOKEN" not in body
+    assert "codex exec" not in body
+    assert "claude -p" not in body
     opts = InitOptions.from_dict(
         json.loads(
             (tmp_path / ".claude" / "config" / "init-options.json").read_text(

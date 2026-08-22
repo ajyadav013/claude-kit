@@ -1,0 +1,12 @@
+schema_version: 1
+id: mongodb-patterns
+description: MongoDB patterns
+strength: required
+applicability:
+  source: stack
+  stack_dir: db/mongodb
+path_globs: []
+references:
+- artifact://rules-directory
+- rule://design-patterns
+- rule://quality-gates

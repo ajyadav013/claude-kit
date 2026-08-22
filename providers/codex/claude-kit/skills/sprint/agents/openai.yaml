@@ -1,0 +1,5 @@
+interface:
+  display_name: Sprint
+  short_description: Turn a scoped backlog item into a sprint plan, broken into parallelisable...
+policy:
+  allow_implicit_invocation: false

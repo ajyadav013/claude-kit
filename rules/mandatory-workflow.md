@@ -21,10 +21,10 @@ fork/join logic applies to any set of independent work streams.
 
 If unclear whether a task is a bug fix or feature, ask the user.
 
-> **Naming note:** Claude Code's native *dynamic workflows* (≥ 2.1.154) are not a fourth row in
-> this table — they are an execution substrate a wave's fan-out may run on. The routing above
-> still decides the contract; see `.claude/rules/wave-orchestration.md` → "Native dynamic
-> workflows as the wave substrate".
+> **Naming note:** an optional host-native workflow engine is not a fourth row in this table — it
+> is one execution substrate a wave's fan-out may run on. The routing above still decides the
+> contract; see `.claude/rules/wave-orchestration.md` → "Optional host-native workflows as the wave
+> substrate".
 
 ## Specialist routing (both workflows)
 
@@ -39,7 +39,7 @@ security pass a feature would get; routing it to the Bug Fix Workflow does not e
 
 **A bracketed role label in this file — `[Developer]`, `[Orchestrator]`, `[Code Reviewer]` — names
 an agent in `.claude/agents/`, not a hat the main session puts on.** Running the pipeline means
-spawning them with the Agent tool.
+spawning them with the Agent capability.
 
 **The main session stays the coordinator.** It gathers context, runs commands, and hands a
 specialist exactly the scope it needs — that division is the point, not a workaround. What it must
@@ -58,10 +58,10 @@ Spawning a coordinator for a single-file edit is waste, and waste is a defect to
 **Self-check before every handoff:** which stage am I at, which gate is next, and can I show the
 captured evidence that the current one passed? If you can't, you are not done.
 
-- **CONTINUITY.md** — read `.claude/CONTINUITY.md` at the start of every turn and write it
+- **.claude/CONTINUITY.md** — read `.claude/CONTINUITY.md` at the start of every turn and write it
   back at the end and at each stage transition. It carries phase, active work, decisions,
   mistakes, and next steps across context compaction and new sessions. Durable learnings go
-  to `.claude/agent-memory/` via the `remember` skill. See `.claude/rules/continuity.md`.
+  to `.claude/agent-memory` via the `remember` skill. See `.claude/rules/continuity.md`.
 - **RARV** — every step runs Reason → Act → Reflect → Verify; never hand off before Verify is
   green. See `.claude/rules/rarv-cycle.md`.
 - **Severity** — classify findings Critical/High/Medium/Low/Cosmetic; a gate passes only with
@@ -364,7 +364,7 @@ PASS/FAIL with severity-classified findings. Any Critical/High/Medium → gate F
 **Anti-sycophancy:** a **unanimous PASS** triggers the `devils-advocate` agent, which assumes
 the work is guilty. The gate is not PASS until it returns **CONFIRMED** or **CONFIRMED-WITH-COSTS**;
 an **UPHELD** verdict re-opens the defect loop. Its verdict carries a premortem and a
-merits-and-costs balance sheet; any accepted cost is recorded in `CONTINUITY.md` with an owner and
+merits-and-costs balance sheet; any accepted cost is recorded in `.claude/CONTINUITY.md` with an owner and
 a revisit trigger. See `.claude/rules/quality-gates.md`.
 
 ## 3b.6 — Security (gate: Security Clear)

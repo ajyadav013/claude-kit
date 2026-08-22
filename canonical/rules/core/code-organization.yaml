@@ -1,0 +1,17 @@
+schema_version: 1
+id: code-organization
+description: Code Structure & Conventions
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+references: []

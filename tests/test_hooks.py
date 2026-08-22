@@ -22,6 +22,16 @@ def test_plugin_entry_appends_an_argument_and_a_timeout():
     assert entry["timeout"] == 30
 
 
+def test_codex_plugin_entry_uses_only_the_native_plugin_root():
+    entry = hooks._codex_plugin_entry("load-continuity.sh", arg="x", timeout=5)
+    assert entry == {
+        "type": "command",
+        "command": 'bash "${PLUGIN_ROOT}/hooks/scripts/load-continuity.sh" x',
+        "timeout": 5,
+    }
+    assert "CLAUDE_PLUGIN_ROOT" not in entry["command"]
+
+
 def test_project_entry_uses_the_project_dir_placeholder():
     entry = hooks._script_entry("load-continuity.sh", arg="x", timeout=5)
     assert entry["command"].endswith('/.claude/hooks/load-continuity.sh" x')

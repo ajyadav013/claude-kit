@@ -1,204 +1,187 @@
 # Autonomous operation — running the kit unattended, safely
 
-How to run a claude-kit project headlessly (`claude -p`), loop it with brakes, and map the kit's
-autonomy levels onto Claude Code's real permission modes — grounded in what actually exists.
+claude-kit installs one versioned provider-selectable loop interface at
+`.ckit/scripts/sdlc-loop.sh`. New unattended iterations currently fail closed before either Claude
+Code or Codex starts, because the portable runtime cannot prove descendant-process containment.
+This document records that boundary and the controls required for a future promotion.
 
-> **Grounding.** Every flag and mode below was verified against Claude Code **2.1.178**
-> (`claude --help`) and the official permissions documentation in July 2026. CLI behavior drifts
-> between releases — re-check `claude --help` before building automation on a flag.
+Run `ckit doctor` before automating a host. The compatibility catalogs pin the minimum and currently
+tested host versions; CLI flags can drift between host releases.
 
-The kit's autonomy posture is set by `.claude/rules/autonomy-levels.md`: the level is a **ceiling
-chosen at install time**, `assisted` is the default, and the deterministic part is enforced by hooks
-and `settings.permissions` — not by prompt text. This doc is about honoring that ceiling when no
-human is watching.
+## 1. Native host boundaries
 
-## 1. Headless runs: `claude -p`
+The experimental managed executor adapts these native commands; the fail-closed compatibility loop
+does not invoke either one:
 
-`claude -p "<prompt>"` prints the response and exits — the substrate for CI jobs, cron tasks, and
-loops. Three properties change versus an interactive session, and all three matter for safety:
-
-- **Nobody can answer a permission prompt.** Anything not pre-authorized (via
-  `settings.permissions`, `--allowedTools`/`--disallowedTools`, or the permission mode) is denied
-  rather than asked about. Headless autonomy is therefore *exactly* what you pre-authorize — no
-  more, and silently no less.
-- **The workspace trust dialog is skipped** (per the flag's own help text) — run `-p` only in
-  directories you trust.
-- **Settings files that fail validation are silently ignored** in print mode — a malformed
-  `settings.json` means your permission rules and hooks *silently don't load*. Run
-  `claude-kit validate` (or at minimum a JSON parse) in CI **before** the headless run, not after.
-
-Flags worth knowing for unattended runs (all verified present): `--output-format json|stream-json`
-and `--json-schema` for machine-readable results, `--max-budget-usd` as a hard per-run spend
-ceiling, `--fallback-model` for overload resilience, `--session-id`/`--resume`/`--continue`/
-`--fork-session` for session control, and `--settings`/`--setting-sources` to pin configuration.
-
-> **No `--max-turns`.** The CLI (2.1.178) has no turn-cap flag — that's an Agent SDK feature. In
-> shell automation, bound *iterations* yourself (§3) and bound *spend* with `--max-budget-usd`.
-
-## 2. The `--bare` caveat: it strips the kit
-
-`--bare` is real and useful — but its documented behavior is: *skip hooks, LSP, plugin sync,
-attribution, auto-memory, background prefetches, keychain reads, and CLAUDE.md auto-discovery*.
-For a claude-kit project that removes both delivery mechanisms at once:
-
-- **No SessionStart context** — `load-continuity.sh` (working memory), `load-learnings.sh`
-  (agent-memory), and `load-autonomy.sh` never fire, so the run *doesn't even know its autonomy
-  level*.
-- **No guard hooks** — `guard-push-main`, `guard-destructive-git`, `guard-secrets`,
-  `warn-sensitive-files`, `warn-large-edits`, `warn-missing-tests`, `audit-log` (the very hooks the
-  autonomous levels add to make autonomy safer) don't run.
-- **No CLAUDE.md contract** — the project charter and its `.claude/rules/` pointers are not
-  auto-discovered, so the engineering rules never enter context.
-
-**Do not combine `--bare` with autonomous kit runs.** If you need bare's minimalism (cold-start
-speed, no keychain access), the flag documents its own escape hatches — `--add-dir` re-includes
-CLAUDE.md directories, `--append-system-prompt-file` re-injects a contract, `--settings` re-supplies
-permissions — but you are then maintaining the guardrail set by hand, and the hooks stay off.
-(`--safe-mode` is similar but broader — it disables all customizations for *troubleshooting a broken
-config*; it is not an operating mode.)
-
-## 3. A bounded loop: the "keep going" pattern, with brakes
-
-The naive autonomous loop — `while :; do claude -p "keep going"; done` — fails two ways: no memory
-between iterations, and no exit condition. The kit already ships both halves:
-
-- **Memory:** `.claude/CONTINUITY.md` + the structured snapshot
-  `.claude/state/pipeline-snapshot.json` (explicit run identity/status, lanes, next action, gate
-  definition digest, and the evidence-hashed `gate_history`). Start a new run with `pipeline start`;
-  work already in flight requires `pipeline adopt`. The resume contract is *reload, don't re-run*
-  (`.claude/rules/continuity.md`): call `pipeline resume`/`validate`, then re-enter at the first
-  unresolved gate and never re-apply committed work. Before a transition, `record-findings` binds all
-  five exact severity counts to a current report/commit. Validation detects out-of-order state and
-  evidence drift; the adjacent local hashes are not authenticated against a writer who can edit both.
-- **Exit condition:** `claude-kit pipeline complete` succeeds and a subsequent `pipeline validate`
-  confirms the terminal snapshot. The installed profile's final gate is necessary but raw JSON or a
-  final-gate token alone is not sufficient.
-
-What the loop script must add is **brakes** — a hard iteration cap, a per-iteration spend cap, and
-stall detection. The kit **installs this pattern as a runnable file**:
-`.claude/scripts/sdlc-loop.sh` (that file is the source of truth for the exact logic; it is
-shellcheck-gated in CI and behavior-tested). Each iteration runs `claude -p` under the one-gate
-contract above; the exit condition — the profile's *final* gate token — is auto-detected from the
-execution-ordered `gates:` list in `.claude/config/stack-catalog.snapshot.yaml`, and every knob is
-an environment variable:
-
-| Knob | Default | Meaning |
-|---|---|---|
-| `SDLC_FINAL_GATE` | last entry of the snapshot's `gates:` list | exit condition; **required** if the snapshot is absent (the script refuses to guess a finish line) |
-| `SDLC_MAX_ITER` | `8` | hard iteration cap |
-| `SDLC_BUDGET_USD` | `5` | per-iteration `--max-budget-usd` |
-| `SDLC_PERMISSION_MODE` | `acceptEdits` | `--permission-mode` for each run |
-| `SDLC_PROMPT` | the one-gate contract prompt | full override (advanced — keep the one-gate contract) |
-
-Why each brake exists:
-
-- **One gate per iteration** keeps each headless run small, cheap, and reviewable — and makes the
-  snapshot token an honest progress meter.
-- **The stall check** turns "quietly burning budget while rewriting state files" into a nonzero
-  exit. A stall is the system asking for a human (`.claude/rules/agent-resilience.md`), not a
-  reason to restart the loop with a bigger cap.
-- **Nonzero exits are for humans.** The correct response to a stalled or capped loop is reading the
-  transcript and the snapshot — never re-running with the brakes loosened.
-
-> **Built-in alternative for "keep going until X":** Claude Code's `/goal` command is a native,
-> session-scoped prompt-based Stop gate — it re-evaluates at every stop and keeps Claude working
-> until the stated condition holds (the runtime caps consecutive stop-blocks at 8). For a single
-> interactive session it replaces the loop above with zero configuration. The shell loop remains
-> the right tool for headless runs, multi-session pipelines, and anywhere the brakes must live
-> *outside* the model.
-
-## 4. Mapping the kit's autonomy levels onto real permission modes
-
-Verified `--permission-mode` choices (2.1.178): `acceptEdits` · `auto` · `bypassPermissions` ·
-`manual` · `dontAsk` · `plan`. (`manual` is the CLI's name for the documented `default` mode —
-prompt on first use of each tool. `auto` is a research preview that auto-approves with background
-safety checks.)
-
-| Kit level (`autonomy-levels.md`) | Permission mode | Notes |
-|---|---|---|
-| **advisory** | `plan` | Read-only exploration; matches "inspect, explain, plan, review". |
-| **assisted** (default) | `manual` (`default`) | Prompt-per-action *is* the assisted posture. Not meaningful under `-p` — prompts can't be answered; stay interactive or pre-authorize narrowly. |
-| **autonomous-local** | `acceptEdits` | Auto-accepts edits + common filesystem commands in the working dir. Keep push/PR denied in `settings.permissions`; `guard-push-main` independently blocks main/master pushes. `dontAsk` is the stricter alternative: deny-by-default with an explicit `permissions.allow` list. |
-| **autonomous-pr** | `acceptEdits` + allow rules for branch/commit/push/PR-create | Merge stays denied — that's the level's definition, and it survives headless because denial is the default for anything un-allowed. |
-| **enterprise-controlled** | managed (policy) settings + `audit-log` hook | Set `permissions.disableBypassPermissionsMode` (and `disableAutoMode`) in managed settings so nobody — including the agent's own session — can escalate past policy. |
-
-**`bypassPermissions` maps to no kit level.** Its own documentation restricts it to isolated
-environments (containers/VMs where Claude Code can't cause damage) — treat it as a sandbox tool,
-not an autonomy setting. Even `autonomous-pr` doesn't need it: the level grants *specific* allow
-rules, which is the opposite of skipping the permission system. `--allow-dangerously-skip-permissions`
-only makes bypass *available*; it doesn't change this judgment.
-
-### Cost enforcement for unattended runs (≥ 2.1.178)
-
-The kit's cost discipline (`model-tiers.md`, announce-fan-out-before-spawning) is advisory; an
-unattended run deserves a hard bound on top. Since 2.1.178, deny/ask permission rules match tool
-input parameters — and because `-p` turns prompts into denials, **`deny` is the operative form
-headless**:
-
-```json
-{ "permissions": { "deny": ["Agent(model:opus)", "Agent(model:*opus*)"] } }
+```text
+Claude Code:  claude -p --permission-mode <mode> --max-budget-usd <amount> <prompt>
+Codex:        codex exec --ephemeral --sandbox <sandbox> --cd <project> -
 ```
 
-Two verified caveats before trusting this as the bound (details + the interactive `ask` variant in
-`.claude/rules/model-tiers.md` → "Enforcing the tier policy"): a call that *omits* `model` never
-matches — the kit's Critical-tier agents carry `opus` in frontmatter, so gate those by **name**
-(`Agent(devils-advocate)`) or by editing the frontmatter tier; and values compare literally, so the
-wildcard form is what catches full model IDs. `--max-budget-usd` (§3) remains the spend backstop
-either way — the permission rule shapes *which* spend, the budget bounds *how much*.
+Their controls are deliberately not normalized into a fictional common permission model:
 
-## 5. Anti-gaming: what to watch in unattended logs
+- Claude Code supports native permission modes and a per-run USD ceiling, but the compatibility loop
+  does not expose or apply them.
+- Codex Preview uses its native sandbox selection. It does **not** receive a fabricated USD ceiling;
+  managed execution relies on the provider sandbox and its own ledger boundaries.
+- Headless permission prompts cannot be answered. Pre-authorize only the operations the run needs,
+  and treat every issue, PR, and prompt body as untrusted input.
+- Review and trust the project before relying on Codex project hooks. A headless command is not a
+  substitute for that trust decision.
+- Validate before the run. Missing or malformed host settings can remove controls you expected to
+  be present.
 
-An unattended agent optimizing for "gates passed" can fake the meter instead of moving the work.
-The kit's rules already define the defenses — these are the signs they exist to catch:
+Claude's `--bare` strips project instruction discovery and hooks, so do not combine it with a kit
+run. The analogous general rule for either host is: do not select a mode that disables the native
+instructions, skills, or hooks on which your operating contract depends.
 
-| Sign in the logs | What it means | The shipped defense |
+## 2. The shared resume contract
+
+Fresh native installs keep the long-running control plane under `.ckit`:
+
+```text
+.ckit/CONTINUITY.md
+.ckit/config/stack-catalog.snapshot.yaml
+.ckit/state/pipeline-snapshot.json
+.ckit/agent-memory/
+.ckit/artifacts/
+```
+
+Start a new run with `ckit pipeline start`; use `pipeline adopt` for work already in flight. Resume
+means reload and continue at the first unresolved gate, never replay committed work. Before a gate
+transition, a manual run's `record-findings` binds all five exact severity counts to the current
+commit and a project-contained evidence report. A managed run instead derives the canonical finding
+index from its validated owner-stage records and rejects caller counts that differ.
+
+Completion is also explicit. The loop accepts success only when the snapshot says `completed` and
+`ckit pipeline validate . --strict` succeeds. A final-gate token or prose claim alone is not enough.
+The adjacent evidence hashes detect drift, but they are integrity checks rather than signatures: a
+writer that can alter both an artifact and its ledger entry remains inside the trust boundary.
+
+Legacy `.claude` state is read only as a compatibility fallback. Migrate it to `.ckit` before a
+native runtime transition; see [runtime migration](runtime-migration.md).
+
+### Managed stage execution (Preview)
+
+`CKIT_EXPERIMENTAL=1 ckit pipeline run --provider claude|codex` is the bounded executable path for
+Modes A–D. It launches native workers through argv arrays with prompt input on stdin, persists stage
+claims/results and bounded output artifacts under `.ckit`, and resumes the same frozen workflow after
+a provider switch. Task-dependent stage conditions must be supplied as repeatable
+`--condition NAME=true|false` values on the first invocation; they are then immutable in the shared
+ledger.
+
+The command stops at an unresolved gate instead of resolving it by model prose. A successful managed
+owner must return the exact frozen typed evidence envelope. The coordinator checks required fields,
+pass predicates, and normalized findings; writes root-owned content-addressed records; and derives
+the gate bundle from that exact attempt. The controlling session inspects those records, records the
+matching finding set, performs the appropriate gate transition, and invokes `pipeline run` again.
+Managed PASS/accepted-risk is rejected unless the frozen gate-owning stage and its semantic evidence
+both succeed. A human stop exits 3 and must remain a stop. Generic local approval evidence is not
+a stage/attempt/workspace-scoped, one-shot authorization, so managed `approved` resolution is
+unsupported and leaves the stop pending. A recorded rejection is only a replan/abort signal.
+
+The closeout graph does not mix those boundaries: a normal `pull-request-prepare` worker performs
+the local checks and writes the commit-bound plan, then the typed `pull-request` leaf stops before
+the external API call. A native-role fallback cannot satisfy that leaf.
+
+Portable process-group cleanup cannot contain a deliberately re-sessioned (`setsid`) descendant.
+Consequently the managed contract adds `process.descendant_containment` to every selected shell-
+capable Claude role. The bundled Codex adapter has a narrow passive exception: exact pinned hosts
+may run a read-only, nondelegating role only after a fail-closed probe disables every command,
+extension, and delegation surface and the coordinator supplies a bounded tracked-text projection.
+All other Codex roles require descendant containment. The built-in subprocess backend does not
+attest it; those invocations stop before process creation. This is an explicit Preview limitation,
+not a retryable or resolvable worker failure: use an independently contained backend or obtain a human
+acknowledgement before choosing the manual orchestration path.
+
+The runner uses one persistent run-owned integration worktree created from `HEAD`. The selected
+provider's scaffolded files and all application inputs must therefore be committed first; only
+mutable `.ckit/` state is exempt. The runner refuses missing or dirty provider/application context
+and preserves the worktree for inspection. It does not merge to the main checkout automatically.
+Mode E requires `pipeline run --program-manifest <project-contained-file>` and uses a separate
+typed program ledger for waves, units, budgets, evidence, checkpoints, and no-replay. The bundled
+adapters can execute pure read/search audits only. Gate, shell, write, and closeout units require an
+independently contained dispatcher, while every irreversible unit stops at the absent consume-once
+approval broker. Mode E therefore remains Degraded Preview, not general autonomous execution.
+
+## 3. Use the fail-closed loop interface
+
+From the project root, the versioned interface strictly validates an already-completed run. Any
+active, waiting, or aborted run exits 3 without launching Claude or Codex:
+
+```bash
+.ckit/scripts/sdlc-loop.sh
+```
+
+Automated headless iterations are currently unsupported and fail closed before either a host process
+or transition token is created. A portable process group cannot prove that a hostile host left no
+detached descendants, so it cannot safely enforce the former “one transition per invocation” claim.
+The script is retained as the versioned interface and can still validate an already-completed run,
+but it does not launch new unattended work. Use the interactive lifecycle. Do not bypass this stop
+with a prompt convention or environment token; promotion requires a true descendant-containment
+primitive and a crash-recoverable coordinator identity.
+
+The script reads `status` and `last_gate_resolved` from the shared snapshot:
+
+- a missing or malformed snapshot exits nonzero;
+- every non-completed status is unsupported and exits 3;
+- a completed but invalid snapshot is refused; and
+- only a strictly validated completed snapshot exits zero.
+
+A nonzero exit is a request for human inspection. Read `.ckit/CONTINUITY.md`, the snapshot, and the
+current diff. Do not bypass the containment stop with environment variables or prompt conventions.
+
+## 4. Autonomy and permissions
+
+The installed `autonomy-levels` rule defines five semantic ceilings. Provider controls implement
+only the parts their host supports.
+
+| Kit level | Claude Code guidance | Codex Preview guidance |
 |---|---|---|
-| Gate token advanced but the gate's artifact (spec, review report, test output) is missing | The verdict may be asserted, not earned | `continuity.md` resume rule: a "passed" gate whose artifact is gone is **not passed** — verify before trust |
-| "Tests pass" with no captured runner output | Fabricated/assumed verdict | `quality-gates.md` §2.5: a verdict must be backed by real, captured output; a fabricated one is an **auto-Critical** |
-| Iterations that only rewrite `CONTINUITY.md`/state files, no code or test diffs | Progress theater | The §3 stall brake catches the unchanged token; also diff the repo between iterations (`git diff --stat`) |
-| Review/security gates passing implausibly fast at high autonomy | Rubber-stamping | Blind review + Devil's Advocate protocol (`quality-gates.md`); sample-audit transcripts; `audit-log` (org autonomous levels) records an independent trail |
-| Budget consumed while top-level `status` + `last_gate_resolved` stay unchanged | Runaway or thrash | `--max-budget-usd` bounds the damage; the loop exits nonzero; a human reads the transcript before any restart |
+| `advisory` | `plan` | read-only sandbox/approval posture; verify host policy |
+| `assisted` (default) | interactive/manual approval | interactive approval; do not treat unattended denial as consent |
+| `autonomous-local` | `acceptEdits` with push/PR denied | bounded `workspace-write` sandbox with external effects denied |
+| `autonomous-pr` | narrowly allow branch/commit/push/draft-PR; merge denied | explicitly configure only equivalent external effects; merge remains human |
+| `enterprise-controlled` | managed policy plus audit hook | organization-managed Codex policy plus reviewed trusted hooks |
 
-The general rule behind all five: **"Verify means run it, not imagine it"**
-(`.claude/rules/rarv-cycle.md`), applied by someone the agent can't overrule — a hook, a loop
-script, or you.
+`bypassPermissions` maps to no kit autonomy level. A provider's most permissive mode is not a
+portable autonomy setting. The generated Codex agents keep semantic permission and write-scope
+instructions, but native sandbox and approval policy remain authoritative; equivalent per-agent
+enforcement is not yet proven.
 
-## 6. CI- and issue-triggered runs: the design contract
+## 5. Anti-gaming checks
 
-The kit ships **no CI workflow template** — a GitHub-/GitLab-specific YAML would be its first
-CI-vendor artifact, and the boilerplate is the cheap part. What is durable is the security posture.
-When you wire `/sdlc` (headless `-p`, or the §3 loop runner) to CI, hold these six lines. The
-pattern is proven in the wild — GitHub spec-kit's label-driven `bug-assess` → `bug-fix` →
-`bug-test` stages (0.12.4, built on GitHub Agentic Workflows) embody the same contract:
+| Sign | Meaning | Response |
+|---|---|---|
+| A gate advanced without its artifact | verdict may be asserted rather than earned | rerun strict validation and inspect the exact evidence binding |
+| “Tests pass” without captured runner output | fabricated or assumed verdict | treat it as an auto-Critical finding under the quality-gate policy |
+| An iteration changes only continuity/state | progress theater or a genuine stall | stop; inspect the diff and host transcript |
+| Review/security gates pass implausibly fast | rubber-stamping | sample the independent reports and require the Devil's Advocate protocol |
+| Budget/iterations move while status and gate do not | runaway or thrash | let the loop stop; do not auto-restart |
 
-1. **A human-applied label is the authorization — never the content.** Trigger on the *label
-   event* (a maintainer adding `bug-fix`), not on issue creation or body text. Applying the label
-   *is* the human-in-the-loop approval that `autonomy-levels.md` requires before an unattended
-   run; anyone who can't apply labels can't start runs.
-2. **Issue/PR text is untrusted input.** It reaches the model as *data* — pass it via `env:`,
-   never interpolate it into `run:` — and the run's permissions assume it is adversarial: a
-   prompt injection cannot push, merge, or exfiltrate anything the token can't reach anyway.
-3. **Stage the pipeline; each stage consumes the previous stage's artifact.** Assess before fix,
-   fix before test. A stage that can't find its predecessor's artifact **stops and asks**
-   (comment + label, e.g. `needs-assessment`) — it never guesses. Same rule as the wave
-   manifest's `UNKNOWN`.
-4. **Deliver as a draft PR.** The ceiling is `autonomous-pr`: branch + commits + a *draft* pull
-   request; merge stays human. Reference the issue (`Refs #N`), don't auto-close it (`Closes`) —
-   closure follows human review, not agent assertion.
-5. **Bound it like §3.** `--max-budget-usd` per run; a minimal token (contents + pull-requests
-   write on a branch, nothing else); branch protection on the mainline so even a compromised run
-   can't land unreviewed; the loop brakes if the stage iterates.
-6. **Verify gate state mechanically between stages.** Run `claude-kit pipeline validate --strict`
-   before a stage consumes its predecessor's snapshot: it re-hashes every `gate_history` entry and
-   fails on out-of-order, drifted, or missing evidence, and `--strict` turns a missing install
-   snapshot from WARN into FAIL — the right posture in CI, where an absent config means a broken
-   checkout, not a minimal install. A stage that trusts an unvalidated snapshot inherits whatever
-   the previous run (or an injected commit) wrote into it.
+The governing principle is “Verify means run it, not imagine it.” The Python lifecycle enforces
+order, allowed transitions, findings/evidence bindings, and hashes. Managed A–D and Mode E also
+validate their frozen structured evidence profiles, but the manual file-evidence API does not
+semantically prove that an arbitrary file means the tests passed.
+
+## 6. CI and issue-triggered runs
+
+The kit deliberately ships no provider-specific CI workflow template. If you wire either headless
+host into CI, preserve these constraints:
+
+1. A maintainer action, such as applying a restricted label, is authorization. Issue content is not.
+2. Pass issue/PR text as data, never interpolate it into shell source.
+3. Give the job a minimal token and host sandbox. Branch protection remains the final boundary.
+4. Stage work through artifacts; a missing predecessor artifact stops rather than being guessed.
+5. Deliver at most a draft PR. Merge stays human.
+6. Bound every run. Claude gets iteration + USD + permission brakes; Codex gets iteration + sandbox
+   + stall brakes unless your surrounding CI supplies an independent budget control.
+7. Run `ckit pipeline validate . --strict` between stages.
 
 ## Related
 
-- `.claude/rules/autonomy-levels.md` — the ceiling and its five levels
-- `.claude/rules/human-in-the-loop.md` · `.claude/rules/risk-classification.md` — when risk lowers the ceiling
-- `.claude/rules/continuity.md` — the resume seam this doc's loop is built on
-- `.claude/rules/agent-resilience.md` — crash/retry/stall handling inside a run
-- [`docs/org-capabilities.md`](org-capabilities.md) — the org layer that selects autonomy levels at init
+- [Runtime support contract](runtime-support.md)
+- [Runtime migration guide](runtime-migration.md)
+- [Organization capabilities](org-capabilities.md)
+- Installed rules: `autonomy-levels`, `human-in-the-loop`, `risk-classification`, `continuity`, and
+  `agent-resilience`

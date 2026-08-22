@@ -223,6 +223,7 @@ def test_check_catalog_clean_on_bundled_payload(payload):
     ok, messages = validator.check_catalog(payload)
     assert ok, "\n".join(messages)
     assert any("profiles reference only existing" in m for m in messages)
+    assert any("workflows/sdlc.yaml matches its JSON Schema" in m for m in messages)
 
 
 def _minimal_payload(root, *, profile_agents, overlay_rules=(), profile_skills=()):
@@ -836,6 +837,28 @@ def test_check_catalog_can_require_schema_support(tmp_path, monkeypatch):
         m.startswith("FAIL") and "strict validation cannot continue" in m
         for m in messages
     )
+
+
+def test_check_catalog_semantically_validates_every_mcp_record(payload, monkeypatch):
+    from claude_kit.components import MCPServerSpec
+
+    original = MCPServerSpec.from_catalog
+    observed: set[str] = set()
+
+    def recording_loader(_cls, server_id, record):
+        observed.add(server_id)
+        return original(server_id, record)
+
+    monkeypatch.setattr(MCPServerSpec, "from_catalog", classmethod(recording_loader))
+
+    ok, messages = validator.check_catalog(payload, require_schema=True)
+
+    assert ok, "\n".join(messages)
+    mcp_document = yaml.safe_load(
+        (payload / "catalog/mcp.yaml").read_text(encoding="utf-8")
+    )
+    assert observed == set(mcp_document["servers"])
+    assert any("MCP definitions pass semantic validation" in m for m in messages)
 
 
 # --- doctor: environment reporting ----------------------------------------------------------

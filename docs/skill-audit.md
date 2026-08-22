@@ -167,18 +167,16 @@ Potential approaches — all MUST stay `catalog/*.yaml` / config changes with NO
 
 ### Measured: the stack→skill mapping (2026-07) — and why `stack-relevant` is deferred
 
-The mapping step above was carried out when the collection held 48 skills (the two
-system-design skills added at 0.67.0 are likewise lane-orthogonal and would not change the
-decision below). Classifying all 48 collection skills against the lanes a
-user can actually select today (frontend `react|none` · backend `python/fastapi | go/net-http |
-none` · database `postgres | mongodb | none`; Node/Express, Django, Vue, Svelte are `status:
-planned`):
+The mapping step above was carried out when the collection held 48 skills and Node/Express and
+Django were still planned. The table below preserves that historical measurement. Both backends
+are now selectable; their skills are stack-coupled, which does not change the conclusion that the
+infrastructure-orthogonal group cannot be inferred from stack selection alone.
 
 | Category | Count | Skills |
 |---|---|---|
 | Python/FastAPI backend | 10 | backend-repo-architecture · fastapi-service-patterns · python-dao-and-database · pydantic-schema-patterns · async-python-patterns · configargparse-yaml-env-layering · testing-conventions · file-export-and-reporting · dockerfile-backend · auth-and-rbac |
 | React frontend | 8 | frontend-repo-architecture · zustand-state-patterns · tanstack-react-query-patterns · react-hook-form-zod-patterns · radix-tailwind-component-patterns · design-system-ops · vitest-rtl-msw-patterns · dockerfile-frontend |
-| Node backend (**planned** — not selectable) | 2 | node-express-service · node-objection-knex |
+| Node backend (planned at measurement time; now selectable) | 2 | node-express-service · node-objection-knex |
 | Database-coupled | 2 | alembic-migrations (Python+Postgres) · multi-tenancy-patterns (Postgres RLS) |
 | Backend-generic / cross-lane / stack-generic | 4 | api-pagination-filtering-sorting · graphql-patterns · design-patterns-and-conventions · modernization-and-migration |
 | **Infra/platform-orthogonal** — not derivable from any lane selection | **22** | kafka-config-driven · temporal-config-driven · temporal-developer · redis-caching-patterns · gcs-file-storage-patterns · data-engineering-bigquery-gcs · grafana-dashboards-and-alerts · otel-tracing · observability-and-logging · containerization-and-deployment · docker-compose · docker-shared · gcp-cloud-run-github-actions · notifications-and-messaging · anthropic-vertex-integration · langfuse-llm-tracing · zap-vapt-scanning · shannon-ai-pentest · edge-to-service-trust-boundary · kubernetes-workload-hardening · cron-and-scheduled-jobs · kubectl-operations |

@@ -1,0 +1,42 @@
+{
+  "name": "claude-kit",
+  "version": "0.83.0",
+  "description": "Evidence-gated SDLC workflows for Claude Code, with preview plugin support for Codex, delivered from one stack-agnostic payload.",
+  "author": {
+    "name": "Arjunsingh Yadav",
+    "url": "https://github.com/ajyadav013"
+  },
+  "homepage": "https://github.com/ajyadav013/claude-kit",
+  "repository": "https://github.com/ajyadav013/claude-kit",
+  "license": "MIT",
+  "keywords": [
+    "sdlc",
+    "agents",
+    "orchestration",
+    "code-review",
+    "testing",
+    "quality-gates",
+    "workflow",
+    "automation",
+    "scaffold",
+    "cookiecutter"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Claude Kit SDLC",
+    "shortDescription": "Evidence-gated engineering workflows",
+    "longDescription": "Shared SDLC skills and hooks for evidence-gated planning, implementation, review, testing, security, and release work. Codex runtime support remains preview; use the CLI when project-native scaffolding is required.",
+    "developerName": "Arjunsingh Yadav",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/ajyadav013/claude-kit",
+    "defaultPrompt": [
+      "Run an evidence-gated SDLC workflow for this task.",
+      "Review this change against the project's quality gates."
+    ]
+  }
+}

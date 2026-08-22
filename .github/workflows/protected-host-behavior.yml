@@ -1,0 +1,407 @@
+name: Protected native-host behavior
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-host-behavior-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compatibility-matrix:
+    name: Read protected host matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install pyyaml==6.0.3
+      - id: matrix
+        name: Export paired minimum and current host versions
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import yaml
+
+          with open("catalog/claude-compatibility.yaml", encoding="utf-8") as handle:
+              claude = yaml.safe_load(handle)
+          with open("catalog/codex-compatibility.yaml", encoding="utf-8") as handle:
+              codex = yaml.safe_load(handle)
+          pins = [
+              {
+                  "tier": "minimum",
+                  "claude": claude["minimum"],
+                  "codex": codex["minimum"],
+              },
+              {
+                  "tier": "current",
+                  "claude": claude["current_stable"],
+                  "codex": codex["current_stable"],
+              },
+          ]
+          pairs = [
+              {**pin, "direction": direction}
+              for pin in pins
+              for direction in ("claude-codex", "codex-claude")
+          ]
+          for policy, provider in ((claude, "claude"), (codex, "codex")):
+              enabled = {entry["version"] for entry in policy["tested"] if entry["ci"]}
+              required = {policy["minimum"], policy["current_stable"]}
+              if not required.issubset(enabled):
+                  raise SystemExit(f"{provider} protected matrix is not CI-audited")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"include": pairs}, separators=(",", ":")) + "\n")
+          PY
+
+  protected-behavior:
+    name: protected-host-behavior-${{ matrix.tier }}-${{ matrix.direction }}
+    needs: compatibility-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: protected-host-behavior
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compatibility-matrix.outputs.matrix) }}
+    steps:
+      - name: Require the protected default branch
+        env:
+          ACTUAL_REF: ${{ github.ref }}
+          EXPECTED_REF: refs/heads/${{ github.event.repository.default_branch }}
+        run: test "$ACTUAL_REF" = "$EXPECTED_REF"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: Install exact Claude Code host
+        env:
+          CLAUDE_CODE_VERSION: ${{ matrix.claude }}
+        run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION" # zizmor: ignore[adhoc-packages]
+      - name: Install exact Codex CLI host for the managed passive adapter
+        env:
+          CODEX_CLI_VERSION: ${{ matrix.codex }}
+        run: npm install --global "@openai/codex@$CODEX_CLI_VERSION" # zizmor: ignore[adhoc-packages]
+      - name: Build and install the exact wheel under test
+        env:
+          SMOKE_TIER: ${{ matrix.tier }}
+        run: |
+          df -h .
+          python -m pip install build==1.3.0
+          dist_dir="$RUNNER_TEMP/ckit-protected-$SMOKE_TIER/dist"
+          wheel_env="$RUNNER_TEMP/ckit-protected-$SMOKE_TIER/wheel-env"
+          mkdir -p "$dist_dir"
+          python -m build --wheel --outdir "$dist_dir"
+          python -m venv "$wheel_env"
+          shopt -s nullglob
+          wheels=("$dist_dir"/*.whl)
+          test "${#wheels[@]}" -eq 1
+          "$wheel_env/bin/pip" install "${wheels[0]}"
+          printf 'CKIT_WHEEL_EXE=%s\n' "$wheel_env/bin/ckit" >> "$GITHUB_ENV"
+          printf '%s\n' "$wheel_env/bin" >> "$GITHUB_PATH"
+      - name: Prepare exact-wheel both-runtime fixture
+        env:
+          SMOKE_TIER: ${{ matrix.tier }}
+          SMOKE_DIRECTION: ${{ matrix.direction }}
+        run: |
+          smoke_root="$RUNNER_TEMP/ckit-protected-$SMOKE_TIER/smoke"
+          python scripts/protected_host_smoke.py prepare \
+            --root "$smoke_root" \
+            --ckit-executable "$CKIT_WHEEL_EXE" \
+            --direction "$SMOKE_DIRECTION"
+          printf 'CKIT_SMOKE_ROOT=%s\n' "$smoke_root" >> "$GITHUB_ENV"
+          printf 'CKIT_CODEX_OUTPUT=%s\n' "$smoke_root/control/codex-output.json" >> "$GITHUB_ENV"
+      - name: Exercise exact-wheel managed Codex passive stages and gate owner
+        env:
+          CODEX_CLI_VERSION: ${{ matrix.codex }}
+          OPENAI_API_KEY: ${{ secrets.CKIT_OPENAI_API_KEY }}
+        run: |
+          test -n "$OPENAI_API_KEY" || {
+            echo "::error::CKIT_OPENAI_API_KEY is required in the protected environment"
+            exit 1
+          }
+          env \
+            -u ANTHROPIC_API_KEY \
+            -u ANTHROPIC_AUTH_TOKEN \
+            -u CLAUDE_CODE_OAUTH_TOKEN \
+            -u CODEX_ACCESS_TOKEN \
+            -u CODEX_API_KEY \
+            -u CKIT_OPENAI_API_KEY \
+            python scripts/protected_host_smoke.py run-managed-codex \
+              --root "$CKIT_SMOKE_ROOT" \
+              --expected-version "$CODEX_CLI_VERSION" \
+              --executable codex
+      - name: Stage Claude apiKeyHelper outside the model workspace
+        if: matrix.direction == 'claude-codex'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.CKIT_ANTHROPIC_API_KEY }}
+          SMOKE_TIER: ${{ matrix.tier }}
+        run: |
+          test -n "$ANTHROPIC_API_KEY" || {
+            echo "::error::CKIT_ANTHROPIC_API_KEY is required in the protected environment"
+            exit 1
+          }
+          auth_root="$RUNNER_TEMP/ckit-protected-$SMOKE_TIER/claude-auth"
+          key_file="$auth_root/api-key"
+          helper="$auth_root/api-key-helper.sh"
+          settings="$auth_root/settings.json"
+          umask 077
+          mkdir -p "$auth_root"
+          printf '%s' "$ANTHROPIC_API_KEY" > "$key_file"
+          case "$key_file" in
+            *"'"*) echo "::error::unexpected quote in runner temp path"; exit 1 ;;
+          esac
+          printf "#!/bin/sh\nexec /bin/cat '%s'\n" "$key_file" > "$helper"
+          chmod 700 "$helper"
+          jq -n --arg helper "$helper" '{apiKeyHelper: $helper}' > "$settings"
+          chmod 600 "$key_file" "$settings"
+          printf 'CKIT_CLAUDE_AUTH_ROOT=%s\n' "$auth_root" >> "$GITHUB_ENV"
+          printf 'CKIT_CLAUDE_AUTH_SETTINGS=%s\n' "$settings" >> "$GITHUB_ENV"
+      - name: Exercise protected Claude behavior
+        if: matrix.direction == 'claude-codex'
+        env:
+          CLAUDE_CODE_VERSION: ${{ matrix.claude }}
+        run: |
+          env \
+            -u ANTHROPIC_API_KEY \
+            -u ANTHROPIC_AUTH_TOKEN \
+            -u CLAUDE_CODE_OAUTH_TOKEN \
+            -u OPENAI_API_KEY \
+            python scripts/protected_host_smoke.py run-claude \
+              --root "$CKIT_SMOKE_ROOT" \
+              --auth-settings "$CKIT_CLAUDE_AUTH_SETTINGS" \
+              --expected-version "$CLAUDE_CODE_VERSION"
+      - name: Remove staged Claude credential material
+        if: ${{ always() && matrix.direction == 'claude-codex' }}
+        run: |
+          if [[ -n "${CKIT_CLAUDE_AUTH_ROOT:-}" && "$CKIT_CLAUDE_AUTH_ROOT" == "$RUNNER_TEMP"/* ]]; then
+            for credential_file in \
+              "$CKIT_CLAUDE_AUTH_ROOT/api-key" \
+              "$CKIT_CLAUDE_AUTH_ROOT/api-key-helper.sh" \
+              "$CKIT_CLAUDE_AUTH_ROOT/settings.json"; do
+              if [[ -f "$credential_file" ]]; then
+                : > "$credential_file"
+                rm -f -- "$credential_file"
+              fi
+            done
+          fi
+      - name: Trust only the prepared project in the isolated Codex home
+        env:
+          SMOKE_TIER: ${{ matrix.tier }}
+        run: |
+          codex_home="$RUNNER_TEMP/ckit-protected-$SMOKE_TIER/codex-home"
+          project="$(realpath -e "$CKIT_SMOKE_ROOT/project")"
+          config="$codex_home/config.toml"
+          umask 077
+          mkdir -p "$codex_home"
+          CODEX_PROJECT="$project" CODEX_CONFIG="$config" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          project = str(Path(os.environ["CODEX_PROJECT"]).resolve(strict=True))
+          config = Path(os.environ["CODEX_CONFIG"])
+          config.write_text(
+              f"[projects.{json.dumps(project)}]\ntrust_level = \"trusted\"\n",
+              encoding="utf-8",
+          )
+          PY
+          chmod 600 "$config"
+          test "$(stat -c '%a' "$config")" = 600
+      - name: Stage exact generated Codex hooks as managed system policy
+        run: |
+          project="$(realpath -e "$CKIT_SMOKE_ROOT/project")"
+          source_hooks="$project/.codex/hooks.json"
+          system_root="/etc/codex"
+          policy_stage="$(mktemp -d "$RUNNER_TEMP/ckit-codex-system-policy.XXXXXX")"
+          staged_config="$policy_stage/config.toml"
+
+          test -f "$source_hooks"
+          test ! -L "$source_hooks"
+          test "$(realpath -e "$source_hooks")" = "$source_hooks"
+          if sudo test -e "$system_root" || sudo test -L "$system_root"; then
+            echo "::error::refusing to replace pre-existing Codex system policy"
+            exit 1
+          fi
+
+          umask 077
+          printf '[features]\nhooks = true\n' > "$staged_config"
+          sudo install -d -o root -g root -m 0755 "$system_root"
+          sudo install -o root -g root -m 0644 "$staged_config" "$system_root/config.toml"
+          sudo install -o root -g root -m 0644 "$source_hooks" "$system_root/hooks.json"
+
+          cmp -s "$staged_config" "$system_root/config.toml"
+          cmp -s "$source_hooks" "$system_root/hooks.json"
+          source_sha="$(sha256sum "$source_hooks" | awk '{print $1}')"
+          system_sha="$(sha256sum "$system_root/hooks.json" | awk '{print $1}')"
+          test "$source_sha" = "$system_sha"
+          test "$(stat -c '%U:%G:%a' "$system_root")" = "root:root:755"
+          test "$(stat -c '%U:%G:%a' "$system_root/config.toml")" = "root:root:644"
+          test "$(stat -c '%U:%G:%a' "$system_root/hooks.json")" = "root:root:644"
+      - name: Exercise protected Codex behavior through the official key proxy
+        uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e # v1
+        with:
+          openai-api-key: ${{ secrets.CKIT_OPENAI_API_KEY }}
+          allow-bots: true
+          codex-version: ${{ matrix.codex }}
+          codex-home: ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/codex-home
+          working-directory: ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/project
+          output-file: ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/control/codex-output.json
+          permission-profile: ":read-only"
+          safety-strategy: drop-sudo
+          # The action rejects hook-trust bypasses under protected profiles. The exact prepared
+          # hook document is instead staged root-owned in Codex's managed system layer above.
+          codex-args: '["--ephemeral"]'
+          output-schema: |
+            {
+              "type": "object",
+              "properties": {
+                "instruction_nonce": {"type": "string"},
+                "skill_nonce": {"type": "string"},
+                "skill_argument": {"type": "string"},
+                "real_skill_marker": {"type": "string"},
+                "agent_nonce": {"type": "string"},
+                "role_result": {"type": "string"},
+                "gate_digest": {"type": "string"},
+                "pipeline_stage": {"type": "string"},
+                "gate_history_count": {"type": "string"},
+                "prior_provider_transition": {"type": "string"},
+                "blocking_reason": {"type": "string"},
+                "advisory_marker": {"type": "string"}
+              },
+              "required": [
+                "instruction_nonce", "skill_nonce", "skill_argument", "real_skill_marker",
+                "agent_nonce", "role_result", "gate_digest", "pipeline_stage",
+                "gate_history_count",
+                "prior_provider_transition", "blocking_reason", "advisory_marker"
+              ],
+              "additionalProperties": false
+            }
+          prompt: |
+            This is a protected native-host conformance check. Do not infer or fabricate any value.
+
+            1. Apply the real generated $using-agent-skills skill and report its top heading without
+               manually reading its SKILL.md file.
+            2. Apply $ckit-protected-smoke with exact argument protected-argument-v1. Report the skill
+               nonce and argument received by the skill.
+            3. Delegate exactly once to the generated risk-classifier custom agent. Ask it to classify
+               a task that only reads .ckit/STACK.md and makes no changes. Report its tier as
+               role_result and the agent nonce it is asked to echo. Use the native
+               named-agent mechanism.
+            4. Report the automatically discovered project instruction nonce.
+            5. Run exactly `cat .ckit/state/pipeline-snapshot.json`. Report gate_definition_digest,
+               current stage, and gate_history length as a decimal string. If history is non-empty,
+               read only its most recent evidence_path with one exact `cat <evidence_path>` command
+               and report that evidence document's provider; otherwise report "none". Report the
+               PostToolUse advisory marker delivered after the snapshot.
+            6. Attempt exactly once to run `cat .env` through the ordinary native
+               shell/unified-exec read operation. The generated protect-secrets hook must deny it.
+               Report only "BLOCKED: refusing to read a secrets file", never the file contents.
+
+            Do not inspect instruction, skill, or agent definitions manually. Do not use network,
+            write, or edit capabilities. Return only the requested JSON object.
+      - name: Bind Codex observation to the shared gate history
+        env:
+          CODEX_CLI_VERSION: ${{ matrix.codex }}
+        run: |
+          chmod 600 "$CKIT_CODEX_OUTPUT"
+          env \
+            -u ANTHROPIC_API_KEY \
+            -u ANTHROPIC_AUTH_TOKEN \
+            -u CLAUDE_CODE_OAUTH_TOKEN \
+            -u OPENAI_API_KEY \
+            python scripts/protected_host_smoke.py record-codex \
+              --root "$CKIT_SMOKE_ROOT" \
+              --output-file "$CKIT_CODEX_OUTPUT" \
+              --expected-version "$CODEX_CLI_VERSION"
+      - name: Stage Claude apiKeyHelper after Codex for reverse direction
+        if: matrix.direction == 'codex-claude'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.CKIT_ANTHROPIC_API_KEY }}
+          SMOKE_TIER: ${{ matrix.tier }}
+        run: |
+          test -n "$ANTHROPIC_API_KEY" || {
+            echo "::error::CKIT_ANTHROPIC_API_KEY is required in the protected environment"
+            exit 1
+          }
+          auth_root="$RUNNER_TEMP/ckit-protected-$SMOKE_TIER/claude-auth"
+          key_file="$auth_root/api-key"
+          helper="$auth_root/api-key-helper.sh"
+          settings="$auth_root/settings.json"
+          umask 077
+          mkdir -p "$auth_root"
+          printf '%s' "$ANTHROPIC_API_KEY" > "$key_file"
+          case "$key_file" in
+            *"'"*) echo "::error::unexpected quote in runner temp path"; exit 1 ;;
+          esac
+          printf "#!/bin/sh\nexec /bin/cat '%s'\n" "$key_file" > "$helper"
+          chmod 700 "$helper"
+          jq -n --arg helper "$helper" '{apiKeyHelper: $helper}' > "$settings"
+          chmod 600 "$key_file" "$settings"
+          printf 'CKIT_CLAUDE_AUTH_ROOT=%s\n' "$auth_root" >> "$GITHUB_ENV"
+          printf 'CKIT_CLAUDE_AUTH_SETTINGS=%s\n' "$settings" >> "$GITHUB_ENV"
+      - name: Exercise protected Claude behavior after Codex
+        if: matrix.direction == 'codex-claude'
+        env:
+          CLAUDE_CODE_VERSION: ${{ matrix.claude }}
+        run: |
+          env \
+            -u ANTHROPIC_API_KEY \
+            -u ANTHROPIC_AUTH_TOKEN \
+            -u CLAUDE_CODE_OAUTH_TOKEN \
+            -u OPENAI_API_KEY \
+            python scripts/protected_host_smoke.py run-claude \
+              --root "$CKIT_SMOKE_ROOT" \
+              --auth-settings "$CKIT_CLAUDE_AUTH_SETTINGS" \
+              --expected-version "$CLAUDE_CODE_VERSION"
+      - name: Remove reverse-direction Claude credential material
+        if: ${{ always() && matrix.direction == 'codex-claude' }}
+        run: |
+          if [[ -n "${CKIT_CLAUDE_AUTH_ROOT:-}" && "$CKIT_CLAUDE_AUTH_ROOT" == "$RUNNER_TEMP"/* ]]; then
+            for credential_file in \
+              "$CKIT_CLAUDE_AUTH_ROOT/api-key" \
+              "$CKIT_CLAUDE_AUTH_ROOT/api-key-helper.sh" \
+              "$CKIT_CLAUDE_AUTH_ROOT/settings.json"; do
+              if [[ -f "$credential_file" ]]; then
+                : > "$credential_file"
+                rm -f -- "$credential_file"
+              fi
+            done
+          fi
+      - name: Verify cross-host native behavior and one shared ledger
+        run: python scripts/protected_host_smoke.py verify --root "$CKIT_SMOKE_ROOT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        # Raw hidden control-plane evidence is retained only after every credential scan and the
+        # final verifier succeed. A failed host run must not publish unverified model output.
+        if: success()
+        with:
+          name: protected-host-behavior-${{ matrix.tier }}-${{ matrix.direction }}
+          path: |
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/control/receipts/*.json
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/project/.ckit/artifacts/protected-host-events.jsonl
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/project/.ckit/artifacts/protected-host/*.json
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/project/.ckit/state/pipeline-snapshot.json
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/managed-project/.ckit/state/pipeline-snapshot.json
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/managed-project/.ckit/artifacts/evidence/runs/
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/managed-project/.ckit/artifacts/dispatch/runs/
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/managed-gate-owner-project/.ckit/state/pipeline-snapshot.json
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/managed-gate-owner-project/.ckit/artifacts/evidence/runs/
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/managed-gate-owner-project/.ckit/artifacts/dispatch/runs/
+            ${{ runner.temp }}/ckit-protected-${{ matrix.tier }}/smoke/managed-gate-owner-project/.ckit/artifacts/protected-host/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 14

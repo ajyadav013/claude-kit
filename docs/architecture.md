@@ -1,53 +1,65 @@
 # claude-kit Architecture
 
-claude-kit packages a complete, **stack-agnostic** software-delivery lifecycle as Claude Code
+claude-kit packages a complete, **stack-agnostic** software-delivery lifecycle as agent-host
 **configuration** — agents, skills, rules, hooks — plus the working-memory and learning systems that
 make a long-running agent reliable. It installs configuration only (no application code, no Docker),
-is driven by a data **catalog**, and ships through **two channels from one source of truth**.
+is driven by a data **catalog**, and ships as a pip package plus generated plugin metadata for Claude
+Code and Codex from one source of truth. Codex runtime support is currently preview; see
+[`runtime-support.md`](runtime-support.md) for the normative capability matrix.
 
 ---
 
-## 1. Distribution: one source of truth, two install channels
+## 1. Canonical source, generated compatibility payload, and native projections
 
 ```mermaid
 flowchart LR
-    subgraph SRC["claude-kit repo — single source of truth"]
-        direction TB
-        A["agents/ (28)"]
-        S["skills/"]
-        C["commands/"]
-        H["hooks/"]
-        R["rules/ (25)"]
-        T["templates/ (+ stacks/ & org/ overlays)"]
-        K["catalog/ (stacks · profiles · mcp · org)"]
+    subgraph SRC["Provider-neutral sources"]
+        CAN["canonical/<br/>agents · skills · commands · rules · templates"]
+        WF["catalog/workflows/"]
+        CAT["catalog/<br/>stacks · profiles · MCP · org"]
+        HOOK["semantic hook registry"]
     end
 
-    SRC -->|"hatchling force-include<br/>(bundled into the wheel)"| PKG["PyPI: claude-code-kit<br/>CLI: claude-kit / ckit / claude-sdlc"]
-    SRC -->|"auto-discovered at repo root"| MKT["GitHub marketplace<br/>.claude-plugin/marketplace.json"]
+    CAN --> GEN["deterministic payload generators"]
+    WF --> GEN
+    HOOK --> GEN
+    GEN --> CLAUDEROOT["generated Claude-compatible root payload<br/>agents · skills · commands · rules · templates"]
+    GEN --> MANIFESTS["generated Claude/Codex plugin manifests"]
 
-    PKG -->|"pip install claude-code-kit<br/>claude-kit init"| PROJ
-    MKT -->|"/plugin marketplace add ajyadav013/claude-kit<br/>/plugin install claude-kit@claude-kit"| CC["Claude Code session<br/>(agents · skills · commands · hooks live)"]
-    CC -->|"/claude-kit:init"| PROJ["Your project:<br/>CLAUDE.md + .claude/{rules,agents,skills,hooks,templates,config}"]
+    CAT --> RESOLVE["catalog.resolve(Selection)<br/>branch-free"]
+    RESOLVE --> PLAN["ResolvedPlan"]
+    PLAN --> COMPILER["ProjectionCompiler<br/>+ InstallRequest(runtime)"]
+    CAN --> COMPILER
+    WF --> COMPILER
+    HOOK --> COMPILER
+    COMPILER --> CLAUDE["Claude projection<br/>CLAUDE.md + .claude/*"]
+    COMPILER --> CODEX["Codex projection<br/>AGENTS.md + .agents/* + .codex/*"]
+    COMPILER --> SHARED["one .ckit control plane"]
 
-    PROJ --> RUN(["/sdlc — autonomous SDLC active"])
-    CC --> RUN
+    CLAUDEROOT --> WHEEL["PyPI: claude-code-kit<br/>CLI: ckit + legacy aliases"]
+    MANIFESTS --> PLUGINS["provider-native plugin discovery"]
+    CAN --> WHEEL
+    CAT --> WHEEL
 ```
 
-**Why two channels converge on `init`:** a Claude Code plugin cannot auto-inject a `CLAUDE.md` or a
-`rules/` directory into your project — those only take effect as real files in the repo. So both the
-pip CLI (`claude-kit init`) and the plugin command (`/claude-kit:init`) do the same job: resolve the
-catalog and write the config into `.claude/`. The plugin command prefers the pip CLI when it's on
-PATH (full resolver) and fails with an installation instruction when it is absent; the former shell
-copy fallback cannot meet the same untrusted-filesystem guarantees and no longer writes project
-files. The plugin still makes agents, skills, commands, and hooks available globally without any
-files in your repo.
+Host-rendered files are generated outputs, not additional sources of truth. Canonical definitions
+contain semantic capabilities, model tiers, permission classes, write scopes, and symbolic
+references without provider model/tool/path names. Renderers map only the semantics their host can
+represent; unsupported behavior is reported as degraded or unsupported.
+
+The pip scaffolder is the first-class deployment path. A static plugin can expose only the component
+types its host discovers. It cannot resolve a project stack/profile/scope, compile project
+instructions and custom agents, create or migrate `.ckit`, or perform ownership-aware upgrades.
+The Claude `/claude-kit:init` wrapper delegates to the installed Python CLI; it does not reimplement
+the installer in shell.
 
 ---
 
 ## 2. Catalog-driven resolution (init)
 
-`init` never branches on a specific stack. It collects a `Selection` (interactive prompts,
-`--defaults`, or `--config`), and `catalog.resolve()` turns it into a concrete `ResolvedPlan`:
+`init` never branches on a specific stack or provider. It collects a `Selection` (interactive
+prompts, `--defaults`, or `--config`), and `catalog.resolve()` turns it into one concrete
+`ResolvedPlan`. Runtime is deployment metadata carried separately by `InstallRequest`:
 
 ```mermaid
 flowchart TB
@@ -61,10 +73,11 @@ flowchart TB
     SEL --> RESOLVE["catalog.resolve()"]
     CAT --> RESOLVE
     RESOLVE --> PLAN["ResolvedPlan<br/>agents · skills · hooks · ordered gates<br/>gate definitions + digest<br/>overlay_rules · overlay_agents · mcp_servers · context<br/>· org (OrgPlan, only when scope == organization)"]
-    PLAN --> INSTALL["scaffold.install_sdlc()"]
-    INSTALL --> OUT["CLAUDE.md (stack block filled) + .claude/<br/>rules (core + overlays) · agents (profile subset + DB overlays)<br/>skills (profile subset incl. sdlc/) · hooks · templates · config"]
-    INSTALL -.->|"only if mcp selected"| MCPJSON[".mcp.json"]
-    INSTALL -.->|"only if scope == organization"| ORGOUT[".claude/org-packs/ + org skills/agents/rules"]
+    PLAN --> REQUEST["InstallRequest(plan.selection, runtime)"]
+    REQUEST --> COMP["ProjectionCompiler"]
+    COMP --> CP["ClaudeRenderer<br/>CLAUDE.md · .claude/* · optional .mcp.json"]
+    COMP --> XP["CodexRenderer<br/>AGENTS.md · .agents/skills · .codex/*"]
+    COMP --> STATE["StateLayout.neutral()<br/>.ckit/*"]
 ```
 
 - **Profiles** (`lean ⊊ standard ⊊ enterprise`) select *which* agents/skills/hooks/gates are
@@ -73,34 +86,69 @@ flowchart TB
   canonical SHA-256 digest is persisted with the ordered list.
 - **Overlays** (rules + DB agents) are copied only for the selected stacks from
   `templates/stacks/<dir>/`.
-- **`init-options.json`** records every installed file's checksum + `owner` (kit / overlay /
-  user-editable), which powers `validate`, `diff`, and a safe `upgrade`.
+- **`.ckit/config/init-options.json`** records selected runtimes, neutral state layout, renderer and
+  compatibility versions, plus every installed file's checksum, provider, component ID, and owner.
+  It powers `validate`, `diff`, safe upgrades, and explicit runtime transitions.
 
 Adding a framework/database/profile/MCP server is a **catalog edit + a `templates/stacks/` folder** —
 never a change to `resolve()`.
 
-### Same plan, second target: `export` (for non-Claude-Code editors)
+### Same plan, generic editor export
 
-The `ResolvedPlan` is the reuse seam. `claude-kit export` (`src/claude_kit/export.py`) takes the **same**
-plan and, instead of `scaffold.install_sdlc()` writing `.claude/`, projects it into the formats a
+The `ResolvedPlan` is also the reuse seam for `ckit export` (`src/claude_kit/export.py`), which takes
+the **same** plan and projects it into formats a
 single-agent editor reads natively — `.cursor/rules/*.mdc` + `.cursor/mcp.json` (Cursor), a root
 `AGENTS.md`, or `.github/copilot-instructions.md` (Copilot). It is a pure projection: it adds no stack
-knowledge, and `catalog.resolve()` gains no branches (golden rules #1 and #6). Fidelity is asymmetric
-and stated in every exported file — rules, the charter, and MCP port cleanly, while the *enforced*
-gates and reviewer subagents become single-agent guidance. See
+knowledge, and `catalog.resolve()` gains no branches. It is **not** the native Codex renderer;
+fidelity is asymmetric and stated in every exported file. Gates, hooks, agents, and state become
+single-agent guidance or are omitted. See
 [cursor-export.md](cursor-export.md) for the full mapping.
 
 ---
 
 ## 3. The SDLC pipeline (run)
 
-`/sdlc` reads the installed profile's gate set and hands off to the **Orchestrator**, which never
-writes code — it decomposes the request, spawns the right agents, runs them in parallel where
-independent, and enforces a quality gate between phases. **Only the active profile's gates run.**
+`/sdlc` in Claude Code, or `$sdlc` in Codex, reads the installed profile's gate set and hands off to
+the **Orchestrator**, which never writes code. The structured workflow defines role routing,
+dependencies, parallel lanes, gate order/conditions, retry budgets, and evidence requirements once;
+the provider adapter supplies spawn, queued-message, wait, collect, retry, and cancel mechanics.
+Claude's bundled adapter uses the host's stream-JSON input and forwards bounded active corrections.
+Codex defaults to the isolated one-shot `exec` path, which accepts queued messages before start.
+An explicitly injected passive-only app-server backend adds bounded steer/interrupt over an
+ephemeral read-only thread and fresh isolated home. Its protocol and credential-free wire behavior
+are tested on the pinned hosts, but credentialed inference is not; it is neither the default nor a
+parity claim.
+**Only the active profile's gates run.**
+
+The user-reachable managed path is the Preview command
+`CKIT_EXPERIMENTAL=1 ckit pipeline run --provider claude|codex`. For Modes A–D it binds the
+canonical workflow ID/version/digest, mode-projected gate set, gate owners, stable conditions,
+capability attestations, and stage attempts to the active `.ckit` run before launching a native
+worker. It checkpoints at unresolved gates and can resume through the other installed provider
+without creating a second ledger. Every shell-capable Claude route additionally requires
+`process.descendant_containment`. Codex may omit that requirement only for a passive read-only,
+nondelegating role on an exact compatibility-pinned CLI after a fail-closed probe disables command,
+hook, plugin, MCP, browser, app, and delegation surfaces. The coordinator supplies that role a
+bounded, sensitive-path-filtered projection of tracked text. All other Codex roles require
+descendant containment. The built-in subprocess backend does not attest it because a child can
+create a new process session
+outside the owned process group. Those invocations human-stop before spawn instead of making a
+false containment claim. Closeout is deliberately two-part: `pull-request-prepare` performs local
+checks and produces a commit-bound action plan in the managed worktree, while the final
+`pull-request` leaf is a typed coordinator action requiring exactly `external.mutation`. It is never
+dispatched to `pr-raiser` or a fallback worker; without an externally trusted signer and credential
+broker it remains a blocking external-side-effect stop. Mode E enters a distinct authoritative
+program executor only with an explicit frozen manifest. It binds the manifest, waves, units,
+budgets, typed evidence, program gates, attempts, and workspace checkpoints to the shared run and
+supports cross-provider no-replay. The bundled adapters can run only pure read/search audit units;
+shell/write units require independently attested physical no-follow boundary containment, and
+irreversible units stop before claim because approval consumption is not integrated. Managed
+approval resolution is likewise unsupported: a rejection can trigger re-planning or abort, but a
+local approval record cannot grant the stopped capability.
 
 ```mermaid
 flowchart TD
-    REQ(["/sdlc request"]) --> CLS{"Classify:<br/>bug · feature · fast-track"}
+    REQ["sdlc request"] --> CLS{"Classify:<br/>bug · feature · fast-track"}
 
     CLS -->|"feature"| SPEC["1. Spec & Dev Docs<br/>spec-doc-writer (+ ui-designer if UI)"]
     SPEC --> EM{{"Gate: EM approved<br/>em-reviewer"}}
@@ -134,18 +182,24 @@ flowchart TD
     SEC -->|"fail"| LANES
 ```
 
-**Every run has an explicit lifecycle.** `start` creates schema v2 at the first active gate; `adopt`
+**Every run has an explicit lifecycle under `.ckit/state`.** `start` creates schema v2 at the first
+active gate; `adopt`
 records which earlier gates are historical, why, and who accepts that boundary. `close-gate` and
 `not-applicable` fail before either operation. `complete` and `abort` are terminal. The run binds its
 repository identity, branch, start/current commit, profile/scope, gate order, and gate-definition
-digest; legacy schema-v1 state is readable and migrates only through explicit adoption.
+digest; a managed run additionally freezes the full executable workflow and gate-owner mapping.
+Legacy schema-v1 state is readable and migrates only through explicit adoption.
 
 **Every gate uses the same rules:** Critical and High always block; Medium can proceed only as a
 distinct structured `accepted-risk` record, never PASS. Low/Cosmetic remain non-blocking. Required
 gates cannot be skipped; conditional `not-applicable` records carry a configured condition and
 evidence. The RARV self-check (Reason → Act → Reflect → Verify) and blind review remain
 Agent-enforced protocols; Python mechanically enforces lifecycle, ordering, transition kinds,
-bindings, and evidence hashes, but does not yet parse arbitrary test results.
+bindings, and evidence hashes. Managed Modes A–D additionally freeze exact stage/gate evidence
+contracts, validate required fields and kind-specific pass/finding semantics, persist root-owned
+content-addressed records, and derive each gate bundle from its successful owner attempt. Mode E
+applies its own frozen program-evidence profiles. Manual runs still bind arbitrary project files by
+hash and do not gain those semantic guarantees.
 In standard+, the Devil's Advocate also critiques the **plan** before approval is final, so a flawed
 spec is caught on paper rather than after implementation.
 
@@ -155,7 +209,7 @@ spec is caught on paper rather than after implementation.
 
 ```mermaid
 flowchart TB
-    subgraph AGENTS["agents/ — 28 roles (tier-tagged)"]
+    subgraph AGENTS["canonical/agents — 29 core roles + selected overlays"]
         direction TB
         ORC["orchestrator (controller)"]
         PLAN["spec-doc-writer · story-planner · ui-designer"]
@@ -173,7 +227,7 @@ flowchart TB
     end
 
     subgraph ORG["templates/org/ — installed only when scope == organization"]
-        OPACKS["7 capability packs<br/>(pack.yaml + README → .claude/org-packs/)"]
+        OPACKS["7 capability packs<br/>(pack.yaml + README → provider projection)"]
         OPERS["persona agents<br/>pm-copilot · founder-prototype-agent · support-ticket-engineer<br/>data-workflow-agent · internal-tools-builder"]
         OSKILLS["org skills<br/>feature-from-idea · prototype-to-production · customer-issue-to-fix<br/>prompt-to-safe-task · repo-onboarding"]
         OPOL["org policy/vibe rules<br/>secrets · pii · production-data · branch-and-pr · compliance · …"]
@@ -206,15 +260,16 @@ flowchart TB
 
 ### The two memory systems (don't conflate them)
 
-| | `.claude/CONTINUITY.md` | `.claude/agent-memory/` |
+| | `.ckit/CONTINUITY.md` | `.ckit/agent-memory/` |
 |---|---|---|
 | Holds | Current task state — phase, active work, next steps | Durable learnings — rules, gotchas, patterns |
 | Lifespan | Ephemeral — overwritten as work progresses | Permanent — accumulates across all work |
 | Scope | This pipeline run | The whole project, forever |
 | Loaded by | `load-continuity.sh` (SessionStart) | `load-learnings.sh` (SessionStart) |
 
-Together they let the pipeline **survive context compaction and new sessions**: the next turn reads
-CONTINUITY and resumes from "Next Steps," and applies accumulated learnings before acting.
+Together they let either selected host **survive context compaction and new sessions**: the next turn
+reads continuity and resumes from "Next Steps," then applies accumulated learnings before acting.
+A `both` install shares these exact paths; it never creates one memory system per host.
 
 ---
 
@@ -223,35 +278,51 @@ CONTINUITY and resumes from "Next Steps," and applies accumulated learnings befo
 ```
 claude-kit/
 ├── .claude-plugin/
-│   ├── plugin.json            # plugin manifest (hooks → ./hooks/hooks.json)
-│   └── marketplace.json       # marketplace entry (source ".")
-├── agents/                    # 28 SDLC agents, tier-tagged (plugin auto-discovers)
-├── skills/                    # on-demand skills incl. sdlc/ (the /sdlc entrypoint)
-├── commands/                  # /claude-kit:init · :sdlc · :status · :abort
+│   ├── plugin.json            # generated Claude Code plugin manifest
+│   └── marketplace.json       # generated Claude Code marketplace entry
+├── .agents/plugins/
+│   └── marketplace.json       # Codex marketplace; source is providers/codex/claude-kit
+├── providers/codex/claude-kit/     # generated, first-class Codex plugin package root
+│   ├── .codex-plugin/plugin.json
+│   ├── skills/                # 126 Codex-valid skills + manual-only policy sidecars
+│   └── hooks/                 # native hook JSON + adapted self-contained scripts
+├── canonical/                 # provider-neutral agents · skills · commands · rules · templates
+├── agents/                    # generated Claude-compatible 29-agent surface
+├── skills/                    # generated compatibility skills incl. sdlc
+├── commands/                  # generated Claude /claude-kit:* wrappers
 ├── hooks/
 │   ├── hooks.json             # plugin hooks via ${CLAUDE_PLUGIN_ROOT}
 │   └── scripts/               # load-continuity, load-learnings, lint-fix, type-check, warn-* / validate-* / audit-log
-├── rules/                     # 25 stack-agnostic engineering rules (incl. agent-operation + org-core rules)
-├── catalog/                   # stacks · profiles/gates · MCP · org · Claude compatibility
+├── rules/ (25)                # generated Claude-compatible core engineering rules
+├── catalog/                   # stacks · profiles/gates · workflows · MCP · org · compatibility · plugin metadata
 ├── templates/
 │   ├── CLAUDE.md · CLAUDE.stack.md.tmpl · README.claude-sdlc.md.tmpl
 │   ├── CONTINUITY.template.md · settings.json · artifacts/ · agent-memory/
 │   ├── stacks/<kind>/<id>/    # per-stack overlay rules (+ agents/ for databases)
 │   └── org/                   # org overlay: skills · agents (personas) · rules · packs/ (scope-gated)
+├── scripts/gen_provider_payloads.py   # canonical → compatibility payload drift gate
+├── scripts/gen_provider_manifests.py  # canonical plugin identity → provider manifests
 ├── scripts/init.sh            # compatibility launcher; project writes require the Python CLI
-├── src/claude_kit/            # CLI + resolver + secure_fs + scaffold/upgrade/validation/pipeline
-├── tests/                     # pytest suite (catalog · render · scaffold · validator · upgrader · cli)
+├── src/claude_kit/            # resolver + typed IR/projection + renderers + secure lifecycle/state
+├── tests/                     # unit, drift, native artifact, runtime-transition, archive, host smokes
 ├── docs/architecture.md       # this file
 ├── docs/agentic-patterns.md   # how the kit maps onto the 21 agentic design patterns
 ├── docs/org-capabilities.md   # the org vibe-coding layer + reuse-not-duplicate coverage map
 └── pyproject.toml             # force-include bundles the payload into the wheel
 ```
 
+The repository root is the Claude Code plugin root. Codex deliberately installs the nested
+`providers/codex/claude-kit` package selected by `.agents/plugins/marketplace.json`; its manifest is
+therefore `providers/codex/claude-kit/.codex-plugin/plugin.json`, not an unused root manifest. The
+nested files are deterministic projections from canonical skills, hook registry/scripts, and plugin
+metadata, so this provider boundary does not introduce a second source of truth.
+
 ---
 
 ## 6. Lifecycle: transactional init / validate / diff / upgrade
 
-Because every install records per-file checksums + ownership in `.claude/config/init-options.json`,
+Because every native install records per-file checksums, provider/component identity, and ownership
+in `.ckit/config/init-options.json`,
 the kit can safely evolve a project in place:
 
 - **`init` / merge / force** — resolve and preflight every selected component before a live write,
@@ -264,22 +335,32 @@ the kit can safely evolve a project in place:
 - **`validate` / `doctor`** — structural and JSON Schema checks (tracked files present, valid JSON,
   frontmatter complete, supported schema versions) plus environment checks. Strict mode fails when
   any declared schema layer is unavailable; `jsonschema` is a normal runtime dependency. Doctor also
-  classifies the installed Claude Code version against `catalog/claude-code-compatibility.yaml`.
-- **`diff` / `upgrade`** — `upgrade` re-renders a pristine reference of the recorded selection into a
-  temp dir and compares it to the live tree. Kit/overlay files are refreshed; **user-editable files
+  classifies installed host CLIs against the Claude and Codex compatibility catalogs, reports the
+  shared state root, Codex trust requirements, and detectable local plugin/scaffold duplication.
+- **`diff` / `upgrade` / runtime transition** — `upgrade` recompiles the recorded selection and
+  compares it to the live tree. Kit/overlay files are refreshed; **user-editable files
   are never clobbered** (a modified one is kept, the new version dropped beside it as a `.claude-kit`
   sidecar); changed/removed files are backed up; deleted files are restored; orphans are pruned. The
   post-upgrade baseline is the kit's canonical checksums, so user edits stay protected across repeated
   upgrades. Every live mutation uses the same `ProjectFS` and rollback transaction as init. `diff`
-  previews all of this and writes nothing.
+  previews all of this and writes nothing. An explicit runtime transition reuses that same selection;
+  removal of a native surface requires confirmation, makes a recoverable backup, and leaves `.ckit`
+  plus the remaining provider intact.
 
 ## 7. Verified-artifact release flow
 
 The CI workflow builds wheel and sdist once, checks them, creates `SHA256SUMS`, and installs the exact
-wheel into a clean smoke environment. Only after all test, lint, schema, official Claude validator,
-and workflow-security jobs succeed is that artifact uploaded as `verified-dist`. The publication
+wheel into clean smoke environments. Source, wheel, and sdist inventories must match; isolated
+smokes install and strictly validate `claude`, `codex`, and `both`, while provider-native plugin
+lifecycle tests stay within the non-credentialed trust boundary. Only after all test, lint, schema,
+host-compatibility, archive-conformance, and workflow-security jobs succeed is that artifact uploaded
+as `verified-dist`. The publication
 workflow authenticates the originating repository/main/SHA/run, downloads that artifact, attests it,
 and sends the same files to PyPI via Trusted Publishing without rebuilding or `skip-existing`.
 Post-publish verification downloads PyPI files and compares their digests; the GitHub Release points
 at the verified commit and receives those same assets. A workflow dispatch against the original CI
 run is the recovery mechanism for partial publication.
+
+These deterministic smokes prove packaging and projection integrity. They do not erase the live-host
+behavior gaps that keep Codex and `both` in Preview; those are listed in
+[runtime-support.md](runtime-support.md#promotion-gates).

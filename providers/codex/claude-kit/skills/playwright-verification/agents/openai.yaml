@@ -1,0 +1,6 @@
+interface:
+  display_name: Playwright Verification
+  short_description: Run E2E tests after deployment to verify page loads, navigation
+    flows, user...
+policy:
+  allow_implicit_invocation: false

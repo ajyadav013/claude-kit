@@ -1,0 +1,5 @@
+interface:
+  display_name: SDLC
+  short_description: Run the full evidence-gated SDLC pipeline on a task
+policy:
+  allow_implicit_invocation: false

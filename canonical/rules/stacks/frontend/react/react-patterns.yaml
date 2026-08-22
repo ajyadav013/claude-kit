@@ -1,0 +1,19 @@
+schema_version: 1
+id: react-patterns
+description: React frontend patterns
+strength: required
+applicability:
+  source: stack
+  stack_dir: frontend/react
+path_globs:
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+references:
+- artifact://project-instructions
+- artifact://rules-directory
+- rule://code-organization
+- rule://documentation
+- rule://frontend-best-practices
+- rule://responsive-and-accessibility

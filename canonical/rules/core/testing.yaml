@@ -1,0 +1,31 @@
+schema_version: 1
+id: testing
+description: Testing Standards
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/test_*.py'
+- '**/*_test.py'
+- '**/*.test.*'
+- '**/*.spec.*'
+- '**/tests/**'
+- '**/__tests__/**'
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+references:
+- rule://devops-observability
+- rule://mandatory-workflow
+- rule://resilience-engineering
+- rule://responsive-and-accessibility
+- skill://ci-cd-and-automation
+- skill://security-and-hardening
+- skill://test-driven-development
+- state://continuity

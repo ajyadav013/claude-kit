@@ -1,0 +1,6 @@
+interface:
+  display_name: Abort
+  short_description: Abort the in-progress SDLC run, terminate its authoritative snapshot,
+    and...
+policy:
+  allow_implicit_invocation: false

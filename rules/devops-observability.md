@@ -1,21 +1,21 @@
 ---
 paths:
-  - '.github/**'
-  - '**/Dockerfile*'
-  - '**/docker-compose*'
-  - '**/*.tf'
-  - '**/k8s/**'
-  - '**/deploy/**'
-  - '**/Makefile'
-  - '**/*.py'
-  - '**/*.ts'
-  - '**/*.tsx'
-  - '**/*.js'
-  - '**/*.jsx'
-  - '**/*.go'
-  - '**/*.rs'
-  - '**/*.java'
-  - '**/*.rb'
+- .github/**
+- '**/Dockerfile*'
+- '**/docker-compose*'
+- '**/*.tf'
+- '**/k8s/**'
+- '**/deploy/**'
+- '**/Makefile'
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
 ---
 
 # DevOps & Observability Phases
@@ -35,7 +35,7 @@ Run them when the change touches a **deployable or observable surface**:
 - a new/changed endpoint, service, container, dependency, env var, port, or migration;
 - anything that adds a user-facing critical path worth an SLO or an alert.
 
-**Skip (note in CONTINUITY.md why)** for pure-internal changes with no deployment or observability surface — a refactor behind an unchanged interface, a copy tweak, a test-only change. Fast-track (Mode D) skips both unless infra/observability is the actual subject of the fix.
+**Skip (note in .claude/CONTINUITY.md why)** for pure-internal changes with no deployment or observability surface — a refactor behind an unchanged interface, a copy tweak, a test-only change. Fast-track (Mode D) skips both unless infra/observability is the actual subject of the fix.
 
 ---
 
@@ -61,7 +61,7 @@ Ensures the feature is **operable in production**: you can tell when it breaks a
 
 **Observability Ready passes when:**
 - [ ] **SLOs/SLIs** defined for each critical user journey the feature adds (e.g., "p95 endpoint latency < 200ms", "login success rate ≥ 99.5%").
-- [ ] **Load verified against the SLO** — for a change to a hot / SLO-bearing backend path, an empirical load run (drive `.claude/skills/load-testing`) was executed against the defined SLO and **met** its p95/p99 latency + error-rate + throughput budgets; record it under `docs/performance/` and link it from the feature SLO doc. *Skip (note why in `CONTINUITY.md`) for changes with no concurrency-sensitive surface.* A budget breach is **High** (`.claude/rules/quality-gates.md`).
+- [ ] **Load verified against the SLO** — for a change to a hot / SLO-bearing backend path, an empirical load run (drive `.claude/skills/load-testing/SKILL.md`) was executed against the defined SLO and **met** its p95/p99 latency + error-rate + throughput budgets; record it under `docs/performance/` and link it from the feature SLO doc. *Skip (note why in `.claude/CONTINUITY.md`) for changes with no concurrency-sensitive surface.* A budget breach is **High** (`.claude/rules/quality-gates.md`).
 - [ ] **Health/readiness** — any new external dependency (database, cache, third-party service) is reflected in the readiness check; liveness stays dependency-free.
 - [ ] **Structured logging** — new state changes log via the project's structured logger as JSON key-values, semantic event names, **no secrets/PII**; error paths log at `error`/`exception` level.
 - [ ] **Alerts** — alert rules defined for the feature's failure modes (error-rate spike, latency breach, dependency down) with a severity and an owner.
@@ -145,9 +145,9 @@ on every change:
   isn't flaky. A breach is **High** (`.claude/rules/quality-gates.md`) — same severity as a Load-vs-SLO
   breach — and routes the fix back to the dev lane.
 - **Scope it.** Run it for changes to a concurrency-sensitive or SLO-bearing path; *skip (note why in
-  `CONTINUITY.md`)* for changes with no performance surface. It complements, not replaces, the one-shot
+  `.claude/CONTINUITY.md`)* for changes with no performance surface. It complements, not replaces, the one-shot
   Load-vs-SLO gate (absolute budget at launch) and frontend statistical benchmarking
-  (`.claude/skills/performance-optimization`).
+  (`.claude/skills/performance-optimization/SKILL.md`).
 
 > Stack-agnostic adaptation of A/B continuous performance-regression detection (concurrent
 > control/treatment runs to isolate code from environment; gate on the relative delta) from the
@@ -175,7 +175,7 @@ revision can only ever take down one of them:
   canary error-rate/latency breach) so a regression **halts progression** without a human in the loop;
   a breach is **High** (`.claude/rules/quality-gates.md`) and routes the fix back to the dev lane.
 - **Scope it.** Worth the machinery for a multi-domain / SLO-bearing service; *skip (note why in
-  `CONTINUITY.md`)* for a single-instance or non-critical surface.
+  `.claude/CONTINUITY.md`)* for a single-instance or non-critical surface.
 
 > Stack-agnostic adaptation of zone-aware progressive rollout (one failure domain at a time, exponential
 > batches with readiness gates, reverse-order rollback, pause-on-alarm) from the Apache-2.0
@@ -187,6 +187,6 @@ revision can only ever take down one of them:
 
 ## Notes
 
-- Both agents follow the **RARV cycle** (`.claude/rules/rarv-cycle.md`) and update `CONTINUITY.md` at handoff.
+- Both agents follow the **RARV cycle** (`.claude/rules/rarv-cycle.md`) and update `.claude/CONTINUITY.md` at handoff.
 - Neither agent writes application business logic — they own infra and operability only. Logic gaps go back to the relevant dev lane.
 - Editing CI pipeline config, package manifests, or other project-wide files still requires explicit user approval (CLAUDE.md §"Files that require user approval").
