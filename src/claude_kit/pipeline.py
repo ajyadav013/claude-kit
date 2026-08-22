@@ -48,7 +48,7 @@ from contextlib import ExitStack, contextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Sequence, cast
+from typing import Any, Optional, Sequence, cast
 
 import yaml
 
@@ -6403,7 +6403,7 @@ def _managed_owner_evidence(
         stage=str(owner.get("stage")),
         dispatch_id=str(owner.get("dispatch_id")),
         dispatch_attempt=cast(int, owner.get("dispatch_attempt")),
-        output_sha256=cast(str | None, owner.get("output_sha256")),
+        output_sha256=cast(Optional[str], owner.get("output_sha256")),
         records=owner.get("evidence_records"),
     )
     return owner, findings, counts, evidence_problem
@@ -6484,7 +6484,7 @@ def _managed_gate_finding_projection(
                     stage=stage,
                     dispatch_id=str(record.get("dispatch_id")),
                     dispatch_attempt=cast(int, record.get("dispatch_attempt")),
-                    output_sha256=cast(str | None, record.get("output_sha256")),
+                    output_sha256=cast(Optional[str], record.get("output_sha256")),
                     records=record.get("evidence_records"),
                     require_pass=record.get("status") == "succeeded",
                 )
@@ -9504,7 +9504,7 @@ def _managed_archived_artifacts_problem(
                 stage=stage,
                 dispatch_id=dispatch_id,
                 dispatch_attempt=dispatch_attempt,
-                output_sha256=cast(str | None, raw_record.get("output_sha256")),
+                output_sha256=cast(Optional[str], raw_record.get("output_sha256")),
                 records=raw_record.get("evidence_records"),
                 require_pass=status == "succeeded",
             )
@@ -10439,7 +10439,7 @@ def validate(
                                     int, record.get("dispatch_attempt")
                                 ),
                                 output_sha256=cast(
-                                    str | None, record.get("output_sha256")
+                                    Optional[str], record.get("output_sha256")
                                 ),
                                 records=record.get("evidence_records"),
                                 require_pass=status == "succeeded",
