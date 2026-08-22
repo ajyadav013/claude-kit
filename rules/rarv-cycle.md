@@ -8,10 +8,10 @@ RARV is lightweight by design — it is a habit, not a phase. For trivial work i
 
 | Step | Question | Concrete action |
 |------|----------|-----------------|
-| **Reason** | What exactly am I doing and what does done look like? | Read `CONTINUITY.md` + the relevant `{feature-name}_spec.md` section + the rule files for your stack. Restate the goal and the acceptance criteria you own. Check `agent-memory/` for prior learnings that apply. |
+| **Reason** | What exactly am I doing and what does done look like? | Read `.claude/CONTINUITY.md` + the relevant `{feature-name}_spec.md` section + the rule files for your stack. Restate the goal and the acceptance criteria you own. Check `.claude/agent-memory/` for prior learnings that apply. |
 | **Act** | Do the work. | Implement / review / test the narrowest thing that satisfies the goal. No speculative scope. |
 | **Reflect** | Did I actually meet the goal, or just produce output? | Re-read your own diff/report against the spec and the rule files. Hunt your own happy-path bias: empty, null, zero, max, boundary conditions, authorization scoping (for multi-tenant/role-based systems), concurrency, accessibility. |
-| **Verify** | Prove it mechanically. | Run the real checks for your stack (below). Green is required, not assumed. Update `CONTINUITY.md` with what passed. |
+| **Verify** | Prove it mechanically. | Run the real checks for your stack (below). Green is required, not assumed. Update `.claude/CONTINUITY.md` with what passed. |
 
 ## Verify — the mechanical proof per role
 
@@ -24,8 +24,8 @@ RARV is lightweight by design — it is a habit, not a phase. For trivial work i
 
 ## Rules
 
-1. **No handoff before Verify is green.** If you cannot prove it, you are not done — say so in `CONTINUITY.md` and keep the task `in_progress`.
+1. **No handoff before Verify is green.** If you cannot prove it, you are not done — say so in `.claude/CONTINUITY.md` and keep the task `in_progress`.
 2. **Reflect on your own work adversarially.** The cheapest defect to fix is the one you catch in Reflect, before the gate.
-3. **A failed Verify is a learning.** Log the miss to `CONTINUITY.md`; promote durable ones to `agent-memory/`.
+3. **A failed Verify is a learning.** Log the miss to `.claude/CONTINUITY.md`; promote durable ones to `.claude/agent-memory/`.
 4. **Scale the rigor to the task.** Fast-track (Mode D) still does RARV — just lighter. Never skip Verify.
 5. **Verify means run it, not imagine it.** Never report a check as passing without executing it. A verdict you hand off must cite the command and its real output; an uncited PASS/FAIL is treated as fabricated (`.claude/rules/quality-gates.md` §2.5).

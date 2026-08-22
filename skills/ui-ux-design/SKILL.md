@@ -1,7 +1,7 @@
 ---
 name: ui-ux-design
 description: Verify and enforce UI/UX design system compliance before and during implementation. Ensures every component follows the project's visual language.
-argument-hint: [component or page name]
+argument-hint: '[component or page name]'
 disable-model-invocation: true
 ---
 

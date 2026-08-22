@@ -1,0 +1,6 @@
+interface:
+  display_name: Status
+  short_description: Show ckit working memory, runtime selection, and installed config
+    status
+policy:
+  allow_implicit_invocation: false

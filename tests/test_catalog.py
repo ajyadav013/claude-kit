@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from dataclasses import replace
+
 import pytest
 
 from claude_kit import catalog
+from claude_kit.components import MCPAuthenticationMode
 from tests._helpers import make_selection
 
 
@@ -50,6 +54,42 @@ def test_resolve_worked_example(payload):
     assert set(plan.mcp_servers) == {"github"}
     # CLAUDE.md context carries the backend commands.
     assert plan.context["backend_test_cmd"] == "pytest"
+
+
+def test_resolve_preserves_full_selected_mcp_semantics(payload, monkeypatch):
+    original_load = catalog._load
+
+    def provider_limited(root, name):
+        document = deepcopy(original_load(root, name))
+        if name == "mcp.yaml":
+            document["servers"]["github"]["runtime_support"] = ["claude"]
+            document["servers"]["github"]["authentication"] = {"mode": "oauth"}
+        return document
+
+    monkeypatch.setattr(catalog, "_load", provider_limited)
+    selection = make_selection(payload, mcp=["github"])
+    plan = catalog.resolve(payload, selection)
+    spec = plan.mcp_server_specs["github"]
+
+    assert spec.runtime_support == {"claude"}
+    assert spec.authentication is MCPAuthenticationMode.OAUTH
+    assert spec.health_check == "mcp-initialize"
+    assert plan.mcp_servers["github"] == spec.provider_config
+    assert not hasattr(selection, "runtime")
+
+
+def test_resolved_plan_rejects_mcp_config_and_semantic_drift(payload):
+    plan = catalog.resolve(payload, make_selection(payload, mcp=["github"]))
+    changed = deepcopy(plan.mcp_servers)
+    changed["github"]["command"] = "different"
+
+    with pytest.raises(ValueError, match="config differs from its semantic spec"):
+        replace(plan, mcp_servers=changed)
+
+    # Compatibility for callers that constructed config-only plans before the
+    # semantic IR: absence of specs keeps the established universal projection.
+    legacy = replace(plan, mcp_server_specs={})
+    assert legacy.mcp_servers == plan.mcp_servers
 
 
 def test_contract_clear_gate_in_standard_and_enterprise_not_lean(payload):
@@ -599,17 +639,11 @@ def test_resolve_rejects_every_planned_backend_entry(payload):
 
 
 def test_a_planned_framework_under_a_planned_language_still_rejects_by_name(payload):
-    """The masked rejection branch: `express` sits under `node`, and both are planned.
+    """Exercise a nested planned-framework rejection whenever the catalog contains one.
 
-    Every other planned entry is rejected by name, so a user learns which specific choice is
-    unavailable. `express` cannot be reached that way -- the only selection that gets to it sets
-    `backend_language="node"`, and the language check rejects first with "backend language 'node'
-    is planned". Its own branch has therefore never executed (F-033/F-039), which means nothing
-    has ever tested the message a user will see the day `node` goes live.
-
-    Lifting the upstream mask in an in-memory copy exercises it now. The deliberate choice here is
-    to test the branch rather than delete the forward-looking catalog data: removing correct data
-    to make a reachability metric go green would be repairing the measurement, not the code.
+    A planned language normally masks the framework-specific error. Lifting only that upstream
+    mask in an in-memory copy keeps the branch covered without requiring a permanent planned
+    fixture after Node/Express became live.
     """
     stacks = catalog._load(payload, "stacks.yaml")
     langs = stacks["backend"]["languages"]

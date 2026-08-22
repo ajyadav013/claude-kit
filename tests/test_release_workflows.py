@@ -9,10 +9,37 @@ ROOT = Path(__file__).parents[1]
 WORKFLOWS = list((ROOT / ".github" / "workflows").glob("*.yml"))
 CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 PUBLISH = (ROOT / ".github" / "workflows" / "publish.yml").read_text(encoding="utf-8")
+PIN_LEDGER = (ROOT / "docs" / "operations" / "github-repository-settings.md").read_text(
+    encoding="utf-8"
+)
 
 
 def _action_refs(text: str) -> list[str]:
     return re.findall(r"^\s*-?\s*uses:\s*([^\s#]+)", text, re.MULTILINE)
+
+
+def _advertised_action_pins(text: str) -> list[tuple[str, str, str]]:
+    return [
+        (match.group("component"), match.group("ref"), match.group("sha"))
+        for match in re.finditer(
+            r"^\s*-?\s*uses:\s*(?P<component>[^@\s#]+)@"
+            r"(?P<sha>[0-9a-f]{40})\s+#\s+(?P<ref>\S+)\s*$",
+            text,
+            re.MULTILINE,
+        )
+    ]
+
+
+def _ledger_pins(text: str) -> set[tuple[str, str, str]]:
+    return {
+        (match.group("component"), match.group("ref"), match.group("sha"))
+        for match in re.finditer(
+            r"^\| `(?P<component>[^`]+)` \| `(?P<ref>[^`]+)` \| "
+            r"`(?P<sha>[0-9a-f]{40})` \|$",
+            text,
+            re.MULTILINE,
+        )
+    }
 
 
 def test_all_third_party_actions_are_pinned_to_full_commit_shas():
@@ -25,6 +52,29 @@ def test_all_third_party_actions_are_pinned_to_full_commit_shas():
     assert all(re.fullmatch(r"[^@]+@[0-9a-f]{40}", ref) for ref in refs), refs
 
 
+def test_supply_chain_ledger_matches_every_tracked_workflow_action_pin():
+    refs = [
+        ref
+        for workflow in WORKFLOWS
+        for ref in _action_refs(workflow.read_text(encoding="utf-8"))
+    ]
+    advertised = [
+        pin
+        for workflow in WORKFLOWS
+        for pin in _advertised_action_pins(workflow.read_text(encoding="utf-8"))
+    ]
+    assert len(advertised) == len(refs), (
+        "every workflow action pin needs an audited ref comment"
+    )
+
+    workflow_pins = set(advertised)
+    workflow_components = {component for component, _ref, _sha in workflow_pins}
+    documented = {
+        pin for pin in _ledger_pins(PIN_LEDGER) if pin[0] in workflow_components
+    }
+    assert documented == workflow_pins
+
+
 def test_ci_builds_once_and_wheel_smoke_downloads_that_artifact():
     assert CI.count("python -m build") == 1
     assert "name: verified-dist" in CI
@@ -35,11 +85,46 @@ def test_ci_builds_once_and_wheel_smoke_downloads_that_artifact():
     assert "release_preflight.py verify" in wheel_smoke
 
 
+def test_ci_splits_only_the_expensive_live_matrix_for_bounded_parallelism():
+    test_job = CI.split("  test:\n", 1)[1].split("\n  runtime-unit:", 1)[0]
+    matrix_node = (
+        "tests/test_scaffold.py::test_self_test_matrix_resolves_installs_and_validates"
+    )
+
+    assert '-k "not test_self_test_matrix_resolves_installs_and_validates"' in test_job
+    assert matrix_node in test_job
+    assert "-n 4" in test_job
+    assert "--dist=worksteal" in test_job
+    assert "timeout-minutes: 180" in test_job
+
+
 def test_ci_runs_official_claude_validator_at_pinned_minimum_and_current():
-    assert "claude-code-compatibility.yaml" in CI
+    assert "claude-compatibility.yaml" in CI
     assert "@anthropic-ai/claude-code@" in CI
     assert "claude plugin validate . --strict" in CI
     assert "actionlint" in CI and "zizmor" in CI
+
+
+def test_ci_fetches_each_codex_validator_bundle_from_catalog_hashes():
+    assert '**entry["plugin_validator"]' in CI
+    assert "matrix.validate_plugin_sha256" in CI
+    assert "matrix.identifier_validation_sha256" in CI
+    assert "identifier_validation.py" in CI
+    assert "CODEX_PLUGIN_VALIDATOR" in CI
+    assert "VALIDATOR_SHA256: ebda00" not in CI
+
+
+def test_native_plugin_compatibility_jobs_install_the_checkout_before_pytest():
+    claude_job = CI.split("  official-plugin-validation:", 1)[1].split(
+        "  claude-plugin-compat:", 1
+    )[0]
+    codex_job = CI.split("  official-codex-plugin-conformance:", 1)[1].split(
+        "  codex-plugin-compat:", 1
+    )[0]
+    assert "python -m pip install -e . pytest==8.4.2" in claude_job
+    assert "python -m pip install -e . pytest==8.4.2 pyyaml==6.0.3" in codex_job
+    assert "tests/test_plugin_host_smoke.py" in claude_job
+    assert "tests/test_plugin_host_smoke.py" in codex_job
 
 
 def test_ci_exposes_the_pinned_actionlint_binary_to_later_steps():

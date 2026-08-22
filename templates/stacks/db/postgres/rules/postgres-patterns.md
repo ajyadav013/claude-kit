@@ -1,9 +1,9 @@
 ---
 paths:
-  - "**/*.sql"
-  - "**/migrations/**/*"
-  - "**/alembic/**/*"
-  - "**/models/**/*"
+- '**/*.sql'
+- '**/migrations/**/*'
+- '**/alembic/**/*'
+- '**/models/**/*'
 ---
 
 # PostgreSQL patterns

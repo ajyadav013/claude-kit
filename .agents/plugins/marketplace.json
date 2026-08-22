@@ -1,0 +1,20 @@
+{
+  "name": "claude-kit",
+  "interface": {
+    "displayName": "Claude Kit"
+  },
+  "plugins": [
+    {
+      "name": "claude-kit",
+      "source": {
+        "source": "local",
+        "path": "./providers/codex/claude-kit"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

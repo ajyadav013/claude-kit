@@ -1,0 +1,6 @@
+interface:
+  display_name: UI UX Design
+  short_description: Verify and enforce UI/UX design system compliance before and
+    during...
+policy:
+  allow_implicit_invocation: false

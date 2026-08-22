@@ -134,36 +134,39 @@ Medium. Requires understanding Django conventions (MTV architecture, ORM, class-
 
 ---
 
-## Issue 4: Add Express Stack Overlay (Backend, Node.js)
+## Issue 4: Add Express Stack Overlay (Backend, Node.js) — shipped
 
 **Labels:** `good first issue`, `stack`, `help wanted`
 
 ### Context
 
-Express is a planned backend framework for Node.js (marked `status: planned` in `catalog/stacks.yaml`, line 79). The parent `node:` language entry is also marked `status: planned` (line 74). The catalog entry exists with `stack_dir: backend/node/express`, but there is no overlay content yet, so it cannot be selected during `claude-kit init`.
+Express is now a live backend framework for Node.js. The catalog entry selects the canonical
+Express skill and overlay rule, and supplies the project's install, dev, test, lint, typecheck, and
+build commands. This issue is retained as the historical acceptance record for that addition.
 
-To make Express selectable, we need:
+The shipped implementation includes:
 
-1. A completed catalog entry in `catalog/stacks.yaml` (remove `status: planned` from both the `node:` language and the `express:` framework, add `overlay_rules`, `skills`, and `commands`).
-2. At least one overlay rule file under `templates/stacks/backend/node/express/rules/` that documents Express-specific patterns (router/middleware architecture, error handling, TypeScript setup, testing with Jest or Vitest, async/await patterns).
+1. A completed live entry in `catalog/stacks.yaml` with `overlay_rules`, `skills`, and commands.
+2. A provider-neutral canonical skill and rule projected into each supported native runtime.
 
 ### Acceptance Criteria
 
-- [ ] `catalog/stacks.yaml` entries for `node` and `express` have `status: planned` removed, and `express` includes `overlay_rules`, `skills`, and `commands` (install, dev, test, lint, typecheck, build).
-- [ ] `templates/stacks/backend/node/express/rules/express-patterns.md` exists and documents the Express stack conventions (follow the structure in `templates/stacks/backend/python/fastapi/rules/fastapi-patterns.md` or `templates/stacks/backend/go/net-http/rules/go-patterns.md` as templates).
-- [ ] Scaffolding with the Express stack selected (interactively, or via a `--config` YAML containing `backend: { language: node, framework: express }`) completes without error.
-- [ ] `claude-kit validate` passes on the scaffolded project.
+- [x] `catalog/stacks.yaml` exposes live Node/Express selection with all required commands.
+- [x] The Express rule documents routing, middleware, error handling, TypeScript, and testing.
+- [x] Interactive and config-driven Express scaffolding complete successfully.
+- [x] Strict validation passes on the scaffolded project.
 
 ### Pointers
 
-- **Existing overlay to copy from:** `templates/stacks/backend/go/net-http/` or `templates/stacks/backend/python/fastapi/` (for the rule structure and layered-architecture sections).
-- **Files to modify:**
-  - `catalog/stacks.yaml` (the `node:` language entry begins at line 72; the `express:` framework entry begins at line 77 — both need `status: planned` removed)
-  - Create `templates/stacks/backend/node/express/rules/express-patterns.md`
+- **Canonical sources:** `canonical/skills/core/express.md` and
+  `canonical/rules/stacks/backend/node/express/express-patterns.{md,yaml}`.
+- **Generated compatibility surface:**
+  `templates/stacks/backend/node/express/rules/express-patterns.md`.
 
 ### Estimated Difficulty
 
-Medium. Requires understanding the Express/Node.js ecosystem (TypeScript, middleware composition, async error handling, Jest or Vitest for testing) and adapting the FastAPI or Go patterns file. The catalog schema is straightforward; the rule-writing is the heavier lift.
+Completed. The catalog, canonical sources, generated provider payloads, and matrix tests now move
+together under generator drift checks.
 
 ---
 

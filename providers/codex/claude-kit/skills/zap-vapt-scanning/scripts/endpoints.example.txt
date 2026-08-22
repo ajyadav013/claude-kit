@@ -1,0 +1,28 @@
+# ZAP VAPT — endpoints input file
+#
+# Two formats are accepted (you can mix them). Lines starting with # are ignored.
+#
+# 1) curl commands (paste straight from browser DevTools "Copy as cURL").
+#    Multi-line curls with trailing "\" are supported. Headers/cookies/body are
+#    extracted and replayed through ZAP exactly as written.
+#
+# 2) Simple lines:  METHOD  URL  — description
+#    The description (after — or " - ") shows up in the report's "in scope" table.
+#
+# Use ":param" or "{param}" for path variables (e.g. /role/:roleId) so same-shape
+# URLs collapse to one row and alerts map to the most specific endpoint.
+#
+# ---------------------------------------------------------------------------
+# Simple-line examples (replace api.example.com + paths with YOUR real endpoints):
+
+GET  https://api.example.com/service/platform/organization/v1.0/org — Get all organization details
+GET  https://api.example.com/service/admin/organization/v1.0/role/:roleId/permission — Get all permissions for a role
+POST https://api.example.com/service/admin/organization/v1.0/role — Create a new role
+
+# ---------------------------------------------------------------------------
+# curl example (authenticated GET) — note the line continuations:
+#
+# curl 'https://api.example.com/service/panel/users/v1.0/session' \
+#   -H 'Host: api.example.com' \
+#   -H 'Cookie: session=REPLACE_WITH_YOUR_SESSION' \
+#   --compressed

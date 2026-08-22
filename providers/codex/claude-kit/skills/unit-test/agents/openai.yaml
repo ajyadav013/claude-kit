@@ -1,0 +1,6 @@
+interface:
+  display_name: Unit Test
+  short_description: Write unit tests for frontend components and hooks. Follows testing
+    best...
+policy:
+  allow_implicit_invocation: false

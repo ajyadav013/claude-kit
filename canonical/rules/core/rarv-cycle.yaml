@@ -1,0 +1,11 @@
+schema_version: 1
+id: rarv-cycle
+description: RARV Cycle — Reason, Act, Reflect, Verify
+strength: required
+applicability:
+  source: core
+path_globs: []
+references:
+- rule://quality-gates
+- state://agent-memory
+- state://continuity

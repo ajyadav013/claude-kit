@@ -1,7 +1,7 @@
 ---
 name: backlog
 description: Add a new feature idea to the product backlog. Use when the user wants to log a new idea, feature request, or improvement.
-argument-hint: [idea description]
+argument-hint: '[idea description]'
 disable-model-invocation: true
 ---
 

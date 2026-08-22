@@ -16,7 +16,18 @@ from __future__ import annotations
 import json
 import shlex
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+from claude_kit.components import (
+    HookEffect,
+    HookEvent,
+    HookSeverity,
+    HookSpec,
+    SymbolicRef,
+)
+from claude_kit.models import InitOptions, StateLayout
+from claude_kit.secure_fs import ProjectFS
+from claude_kit.state import detect_state_layout
 
 # --- inline guard commands (no script file needed) -------------------------------------------------
 
@@ -80,6 +91,24 @@ def _plugin_entry(
     rather than in a scaffolded project's ``.claude/hooks/``.
     """
     command = f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/scripts/{name}"'
+    if arg:
+        command += f" {arg}"
+    entry: dict[str, Any] = {"type": "command", "command": command}
+    if timeout is not None:
+        entry["timeout"] = timeout
+    return entry
+
+
+def _codex_plugin_entry(
+    name: str, arg: str = "", timeout: int | None = None
+) -> dict[str, Any]:
+    """Build a command entry for a script in a native Codex plugin archive.
+
+    Codex exposes the installed plugin directory through ``${PLUGIN_ROOT}``. Keep this separate
+    from :func:`_plugin_entry`: the established Claude plugin document must retain its
+    ``${CLAUDE_PLUGIN_ROOT}`` commands byte-for-byte.
+    """
+    command = f'bash "${{PLUGIN_ROOT}}/hooks/scripts/{name}"'
     if arg:
         command += f" {arg}"
     entry: dict[str, Any] = {"type": "command", "command": command}
@@ -159,7 +188,8 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "matcher": "Read",
         "entry": {"type": "command", "command": _SECRETS_GUARD},
         "script": None,
-        "data_access": "inspects the Read file *path* to block secrets files (.env, keys, "
+        "data_access": "inspects native Read paths and, through the scaffolded Codex adapter, "
+        "explicit local file operands in shell commands to block secrets files (.env, keys, "
         "credentials); never reads file contents",
     },
     "guard-commit-secrets": {
@@ -240,14 +270,15 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("lint-fix.sh"),
         "script": "lint-fix.sh",
         "data_access": "runs the project's own linter/formatter on the working tree; best-effort, "
-        "never blocks",
+        "may request one guarded Stop continuation when issues remain",
     },
     "type-check": {
         "event": "Stop",
         "matcher": "",
         "entry": _script_entry("type-check.sh"),
         "script": "type-check.sh",
-        "data_access": "runs the project's own type checker; best-effort, never blocks",
+        "data_access": "runs the project's own type checker; best-effort, may request one guarded "
+        "Stop continuation when issues remain",
     },
     # The write half of the continuity pair. load-continuity reads working memory at SessionStart;
     # until this hook there was no mechanism behind rarv-cycle.md's "update CONTINUITY.md with what
@@ -258,7 +289,8 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("verify-continuity-writeback.sh"),
         "script": "verify-continuity-writeback.sh",
         "data_access": "reads `git status` and file mtimes to tell whether CONTINUITY.md was "
-        "written after the session's changes; never blocks, writes nothing",
+        "written after the session's changes; may request one guarded Stop continuation, writes "
+        "nothing",
     },
     # --- learning capture: one script, three triggers, chosen by capture_mode (catalog/capture.yaml).
     # Never put these in a profile's hooks: list or rely on the `all` token — catalog._apply_capture_mode
@@ -273,10 +305,11 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "script": "capture-learnings.sh",
         "arg": "end",
         "timeout": 30,
-        "data_access": "SPAWNS A DETACHED BACKGROUND `claude` JOB on clean session exit that "
-        "reads the session transcript and changed files to distill learnings into "
-        ".claude/agent-memory/ — session content reaches your model provider; opt-in at init "
-        "(capture_mode), off unless you chose it",
+        "data_access": "SPAWNS A DETACHED PROVIDER-SELECTED BACKGROUND JOB on clean session exit; "
+        "Claude mode reads the session transcript and changed files, while the Codex coordinator "
+        "sends only bounded sensitive-path-filtered/redacted changed-file diff context to a "
+        "read-only classifier; durable output goes to the shared agent-memory store and reaches "
+        "the selected model provider; opt-in at init (capture_mode)",
     },
     "capture-learnings-catchup": {
         "event": "SessionStart",
@@ -284,8 +317,9 @@ HOOK_REGISTRY: dict[str, dict[str, Any]] = {
         "entry": _script_entry("capture-learnings.sh", "catchup"),
         "script": "capture-learnings.sh",
         "arg": "catchup",
-        "data_access": "same background capture job as capture-learnings, fired on next launch "
-        "for sessions that ended abruptly; opt-in at init (capture_mode)",
+        "data_access": "Claude uses the same background capture job on next launch for sessions "
+        "that ended abruptly; Codex has no stable historical transcript contract and safely "
+        "no-ops; opt-in at init (capture_mode)",
     },
     "capture-learnings-stop": {
         "event": "Stop",
@@ -329,6 +363,153 @@ PLUGIN_ONLY_HOOKS: dict[str, dict[str, Any]] = {
     },
 }
 
+
+# Provider-neutral hook contract ---------------------------------------------------------------
+#
+# ``HOOK_REGISTRY`` remains the compatibility adapter consumed by the historical Claude renderer
+# and by profile resolution.  Every entry is enriched below with the semantic fields used by the
+# projection compiler.  ``HOOK_SPECS`` is the typed, provider-neutral view; renderers must use it
+# for event/effect/matcher decisions and use the legacy ``entry`` only when producing Claude's
+# backwards-compatible command document.
+_SEMANTIC_EVENTS: dict[str, HookEvent] = {
+    "SessionStart": HookEvent.SESSION_START,
+    "UserPromptSubmit": HookEvent.USER_PROMPT,
+    "PreToolUse": HookEvent.PRE_TOOL,
+    "PostToolUse": HookEvent.POST_TOOL,
+    "PostToolUseFailure": HookEvent.TOOL_FAILURE,
+    "Stop": HookEvent.STOP,
+    "SubagentStart": HookEvent.SUBAGENT_START,
+    "SubagentStop": HookEvent.SUBAGENT_STOP,
+    "PreCompact": HookEvent.PRE_COMPACT,
+    "SessionEnd": HookEvent.SESSION_END,
+    "Notification": HookEvent.NOTIFICATION,
+}
+
+_SEMANTIC_MATCHERS: dict[str, str | None] = {
+    "": None,
+    "Bash": "shell",
+    "Read": "file-read",
+    "Write": "file-write|apply-patch",
+    "Edit|Write": "file-edit|file-write|apply-patch",
+}
+
+_CODEX_PLUGIN_EVENTS: dict[HookEvent, str] = {
+    HookEvent.SESSION_START: "SessionStart",
+    HookEvent.USER_PROMPT: "UserPromptSubmit",
+    HookEvent.PRE_TOOL: "PreToolUse",
+    HookEvent.POST_TOOL: "PostToolUse",
+    HookEvent.TOOL_FAILURE: "PostToolUseFailure",
+    HookEvent.STOP: "Stop",
+    HookEvent.SUBAGENT_START: "SubagentStart",
+    HookEvent.SUBAGENT_STOP: "SubagentStop",
+    HookEvent.PRE_COMPACT: "PreCompact",
+    HookEvent.SESSION_END: "SessionEnd",
+}
+
+_CODEX_PLUGIN_MATCHERS: dict[str | None, str] = {
+    None: "",
+    "shell": "Bash|exec_command|shell|unified_exec",
+    "file-read": "Read|read_file",
+    "file-read|shell": "Read|read_file|Bash|exec_command|shell|unified_exec",
+    "file-write|apply-patch": "Write|apply_patch",
+    "file-edit|file-write|apply-patch": "Edit|MultiEdit|Write|apply_patch",
+}
+
+_BLOCKING_HOOK_IDS = frozenset(
+    {
+        "guard-rm-rf",
+        "guard-push-main",
+        "guard-destructive-git",
+        "protect-secrets",
+        "guard-commit-secrets",
+        "validate-settings",
+        "guard-kubectl-delete",
+        "lint-fix",
+        "type-check",
+        "verify-continuity-writeback",
+    }
+)
+
+_INFO_HOOK_IDS = frozenset(
+    {
+        "load-continuity",
+        "load-learnings",
+        "load-autonomy",
+        "audit-log",
+        "capture-learnings",
+        "capture-learnings-catchup",
+        "capture-learnings-stop",
+        "capture-ticket-telemetry",
+    }
+)
+
+
+def _semantic_action(hook_id: str, record: dict[str, Any]) -> SymbolicRef:
+    """Return a stable handler reference, independent of script names and provider paths."""
+
+    # Several capture triggers deliberately share one implementation.  The logical hook id remains
+    # part of the action so provider adapters can retain its mode without leaking a shell argument
+    # into the canonical HookSpec.
+    return SymbolicRef.parse(f"handler://{hook_id}")
+
+
+def _build_hook_specs() -> dict[str, HookSpec]:
+    """Build and validate the typed semantic registry, including plugin-only hooks."""
+
+    specs: dict[str, HookSpec] = {}
+    for hook_id, record in {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}.items():
+        wire_event = str(record.get("event", ""))
+        matcher = str(record.get("matcher", ""))
+        if wire_event not in _SEMANTIC_EVENTS:
+            raise ValueError(f"hook {hook_id!r} has unsupported event {wire_event!r}")
+        if matcher not in _SEMANTIC_MATCHERS:
+            raise ValueError(f"hook {hook_id!r} has unsupported matcher {matcher!r}")
+
+        effect = (
+            HookEffect.BLOCKING
+            if hook_id in _BLOCKING_HOOK_IDS
+            else HookEffect.ADVISORY
+        )
+        severity = (
+            HookSeverity.ERROR
+            if effect is HookEffect.BLOCKING
+            else HookSeverity.INFO
+            if hook_id in _INFO_HOOK_IDS
+            else HookSeverity.WARNING
+        )
+        data_access = str(record.get("data_access", "")).strip()
+        operation_matcher = _SEMANTIC_MATCHERS[matcher]
+        if hook_id == "protect-secrets":
+            # Codex exposes ordinary local reads through unified shell execution rather than a
+            # dedicated Read tool. Claude keeps its native Read matcher; provider renderers map
+            # this semantic union onto the complete Codex tool-name set.
+            operation_matcher = "file-read|shell"
+        spec = HookSpec(
+            id=hook_id,
+            description=hook_id.replace("-", " "),
+            event=_SEMANTIC_EVENTS[wire_event],
+            operation_matcher=operation_matcher,
+            effect=effect,
+            severity=severity,
+            action=_semantic_action(hook_id, record),
+            data_access=(data_access,) if data_access else (),
+            timeout_seconds=int(record.get("timeout", 10)),
+        )
+        specs[hook_id] = spec
+
+        # Keep old consumers working while making the semantic contract directly inspectable on
+        # HOOK_REGISTRY.  Provider renderers must not infer semantics from Claude wire strings.
+        record["semantic_event"] = spec.event
+        record["operation_matcher"] = spec.operation_matcher
+        record["effect"] = spec.effect
+        record["severity"] = spec.severity
+        record["action"] = spec.action.uri
+
+    return specs
+
+
+HOOK_SPECS: dict[str, HookSpec] = _build_hook_specs()
+
 #: Which registry hooks each *static* generated file ships (the dynamic per-profile installed
 #: settings.json comes from the profile's hook list instead). Declaring channel membership as data —
 #: rather than hand-editing two JSON files — is what keeps the plugin file and the legacy static
@@ -355,9 +536,9 @@ PLUGIN_HOOK_IDS: frozenset[str] = frozenset(
         "type-check",
         "verify-continuity-writeback",
         # The capture-learnings hooks are DELIBERATELY absent (0.76.0): they spawn a background
-        # `claude` job that reads session transcript content, and the plugin channel has no init
+        # provider job that reads working context, and the plugin channel has no init
         # question — background capture is consent-gated, so only an explicit `capture_mode`
-        # choice at `claude-kit init` (or a hand-edit of settings.json) enables it. Recall
+        # choice at `ckit init` (or a hand-edit of settings.json) enables it. Recall
         # (load-learnings) stays on: reading your own learnings file needs no consent.
     }
 )
@@ -494,31 +675,88 @@ def generate_starter_settings() -> dict[str, Any]:
     return build_settings(sorted(STARTER_HOOK_IDS), comment=_STARTER_COMMENT)
 
 
+def _generate_plugin_hooks_json(
+    entry_builder: Callable[[str, str, int | None], dict[str, Any]],
+    *,
+    codex_native: bool = False,
+) -> dict[str, Any]:
+    """Build one provider plugin hook document with provider-specific script entries."""
+    specs: list[tuple[str, str, dict[str, Any]]] = []
+    for hid in HOOK_REGISTRY:
+        if hid not in PLUGIN_HOOK_IDS:
+            continue
+        spec = HOOK_REGISTRY[hid]
+        event = spec["event"]
+        matcher = spec["matcher"]
+        if codex_native:
+            semantic = HOOK_SPECS[hid]
+            event = _CODEX_PLUGIN_EVENTS[semantic.event]
+            matcher = _CODEX_PLUGIN_MATCHERS[semantic.operation_matcher]
+            if hid == "protect-secrets":
+                # The static plugin is intentionally self-contained and its compatibility inline
+                # guard understands native Read envelopes only. Project scaffolds use the exact
+                # installed ``ckit hook-run`` adapter and therefore receive the full shell union.
+                matcher = _CODEX_PLUGIN_MATCHERS["file-read"]
+        if spec["script"]:
+            entry = entry_builder(
+                spec["script"], spec.get("arg", ""), spec.get("timeout")
+            )
+        else:
+            entry = dict(spec["entry"])
+            if codex_native:
+                entry["command"] = str(entry["command"]).replace("claude-kit", "ckit")
+        specs.append((event, matcher, entry))
+    for hook_id, po in PLUGIN_ONLY_HOOKS.items():
+        event = po["event"]
+        matcher = po["matcher"]
+        if codex_native:
+            semantic = HOOK_SPECS[hook_id]
+            event = _CODEX_PLUGIN_EVENTS[semantic.event]
+            matcher = _CODEX_PLUGIN_MATCHERS[semantic.operation_matcher]
+        specs.append(
+            (
+                event,
+                matcher,
+                entry_builder(po["script"], po.get("arg", ""), po.get("timeout")),
+            )
+        )
+    return {"hooks": _hooks_block(specs)}
+
+
 def generate_plugin_hooks_json() -> dict[str, Any]:
-    """Generate the auto-discovered plugin ``hooks/hooks.json`` from the registry.
+    """Generate the auto-discovered Claude plugin ``hooks/hooks.json``.
 
     Ships :data:`PLUGIN_HOOK_IDS` (rebuilt with ``${CLAUDE_PLUGIN_ROOT}`` script paths; inline guard
     commands are path-independent and reused verbatim) plus :data:`PLUGIN_ONLY_HOOKS`, which are
     appended after the registry hooks within their event/matcher group. No ``$comment`` (the plugin
     loader reads this as a hooks fragment).
     """
-    specs: list[tuple[str, str, dict[str, Any]]] = []
-    for hid in HOOK_REGISTRY:
-        if hid not in PLUGIN_HOOK_IDS:
-            continue
-        spec = HOOK_REGISTRY[hid]
-        if spec["script"]:
-            entry = _plugin_entry(
-                spec["script"], spec.get("arg", ""), spec.get("timeout")
-            )
-        else:
-            entry = spec["entry"]  # inline command — no path to rewrite
-        specs.append((spec["event"], spec["matcher"], entry))
-    for po in PLUGIN_ONLY_HOOKS.values():
-        specs.append(
-            (po["event"], po["matcher"], _plugin_entry(po["script"], po.get("arg", "")))
+    return _generate_plugin_hooks_json(_plugin_entry)
+
+
+def generate_codex_plugin_hooks_json() -> dict[str, Any]:
+    """Generate the auto-discovered native Codex plugin ``hooks/hooks.json``.
+
+    The semantic roster and ordering are identical to the Claude plugin channel. Only script-root
+    expansion differs: Codex resolves scripts through ``${PLUGIN_ROOT}``.
+    """
+    return _generate_plugin_hooks_json(_codex_plugin_entry, codex_native=True)
+
+
+def plugin_script_names() -> tuple[str, ...]:
+    """Return the exact script inventory required by either static plugin hook document."""
+    records = {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}
+    hook_ids = [hid for hid in HOOK_REGISTRY if hid in PLUGIN_HOOK_IDS]
+    hook_ids.extend(PLUGIN_ONLY_HOOKS)
+    return tuple(
+        sorted(
+            {
+                str(records[hid]["script"])
+                for hid in hook_ids
+                if records[hid].get("script")
+            }
         )
-    return {"hooks": _hooks_block(specs)}
+    )
 
 
 def _hook_id_for_command(command: str) -> str | None:
@@ -537,6 +775,15 @@ def _hook_id_for_command(command: str) -> str | None:
         tokens = shlex.split(command)
     except ValueError:
         tokens = command.split()
+    if tokens and Path(tokens[0]).name in {"ckit", "claude-kit", "claude-sdlc"}:
+        try:
+            hook_run = tokens.index("hook-run")
+            hook_id = tokens[tokens.index("--hook-id", hook_run + 1) + 1]
+        except (ValueError, IndexError):
+            pass
+        else:
+            if hook_id in {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}:
+                return hook_id
     basenames = {Path(tok).name for tok in tokens}
     for hid, spec in {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}.items():
         script = spec.get("script")
@@ -550,28 +797,76 @@ def _hook_id_for_command(command: str) -> str | None:
 def privacy_report(target: str | Path = ".") -> tuple[bool, list[str]]:
     """Report every installed hook's data access — the informed-consent view of a config.
 
-    Reads the target's ``.claude/settings.json`` (the scaffolded channel) and prints, per hook:
-    its registry id, event, and the ``data_access`` note from :data:`HOOK_REGISTRY` — what it
-    reads, what it writes, and whether it spawns a background job or sends session content to the
-    model provider. Hook commands the registry doesn't recognise are listed for the user's own
-    review, never explained away. Without a settings.json it describes the static plugin roster
-    (:data:`PLUGIN_HOOK_IDS` + :data:`PLUGIN_ONLY_HOOKS`) instead — the set any project using the
-    plugin channel gets.
+    Reads each configured runtime's hook document and prints, per hook, its registry id, event, and
+    the ``data_access`` note from :data:`HOOK_REGISTRY` — what it reads, what it writes, and whether
+    it spawns a background job or sends session content to the model provider. State references in
+    those notes are projected through the active :class:`StateLayout`, so a Codex or dual install
+    discloses its shared ``.ckit`` memory and state rather than a nonexistent provider-local copy.
+    Hook commands the registry doesn't recognise are listed for the user's own review, never
+    explained away. Without an installed hook document it describes the static Claude plugin roster
+    (:data:`PLUGIN_HOOK_IDS` + :data:`PLUGIN_ONLY_HOOKS`) instead.
     """
     combined = {**HOOK_REGISTRY, **PLUGIN_ONLY_HOOKS}
+    fs = ProjectFS(Path(target).expanduser())
+    layout = detect_state_layout(fs.root, fresh_default=StateLayout.legacy_claude())
+
+    def state_access(access: str) -> str:
+        """Render legacy registry notes against the discovered shared-state layout."""
+
+        replacements = (
+            (".claude/CONTINUITY.md", layout.continuity),
+            (".claude/agent-memory/", f"{layout.memory}/"),
+            (".claude/artifacts/", f"{layout.artifacts}/"),
+            (".claude/state/", f"{layout.state}/"),
+        )
+        for legacy, active in replacements:
+            access = access.replace(legacy, active)
+        return access
 
     def line(hid: str, event: str) -> str:
         access = (
             combined.get(hid, {}).get("data_access") or "(no data-access note recorded)"
         )
-        return f"{hid:<26} {event:<12} {access}"
+        return f"{hid:<26} {event:<12} {state_access(str(access))}"
 
     msgs: list[str] = []
-    settings = Path(target).expanduser().resolve() / ".claude" / "settings.json"
-    if not settings.is_file():
+    runtimes: list[str] | None = None
+    manifest_present = fs.is_file(layout.manifest)
+    if manifest_present:
+        try:
+            manifest = json.loads(fs.read_text(layout.manifest))
+            runtimes = InitOptions.from_dict(manifest).runtimes
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            return False, [
+                f"FAIL  {layout.manifest} is not valid init-options JSON: {exc}"
+            ]
+
+    if runtimes is not None:
+        candidates = []
+        if "claude" in runtimes:
+            candidates.append(".claude/settings.json")
+        if "codex" in runtimes:
+            candidates.append(".codex/hooks.json")
+    else:
+        # Compatibility for hand-installed/pre-manifest configs. Once a manifest exists, runtime
+        # comes only from that metadata and never from provider-directory presence.
+        candidates = [
+            rel
+            for rel in (".claude/settings.json", ".codex/hooks.json")
+            if fs.is_file(rel)
+        ]
+
+    settings_rels = [rel for rel in candidates if fs.is_file(rel)]
+    missing_settings = [rel for rel in candidates if rel not in settings_rels]
+    if not settings_rels:
+        if manifest_present:
+            expected = ", ".join(candidates) or "a runtime hook document"
+            return False, [
+                f"FAIL  installed runtime hook document is missing (expected {expected})"
+            ]
         msgs.append(
-            "no .claude/settings.json here — showing the plugin channel's static hook set "
-            "(hooks/hooks.json)"
+            "no installed runtime hook document here — showing the Claude plugin channel's "
+            "static hook set (hooks/hooks.json)"
         )
         msgs.append("")
         for hid in HOOK_REGISTRY:
@@ -587,35 +882,48 @@ def privacy_report(target: str | Path = ".") -> tuple[bool, list[str]]:
         )
         return True, msgs
 
-    try:
-        data = json.loads(settings.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        return False, [f"FAIL  {settings} is not valid JSON: {exc}"]
-
     installed: list[tuple[str, str]] = []
-    unknown: list[tuple[str, str]] = []
-    hooks_block = data.get("hooks") if isinstance(data, dict) else None
-    for event, blocks in (hooks_block or {}).items():
-        if not isinstance(blocks, list):
-            continue
-        for block in blocks:
-            entries = block.get("hooks", []) if isinstance(block, dict) else []
-            for entry in entries:
-                cmd = entry.get("command", "") if isinstance(entry, dict) else ""
-                matched = _hook_id_for_command(cmd)
-                if matched:
-                    installed.append((event, matched))
-                else:
-                    unknown.append((event, cmd))
+    unknown: list[tuple[str, str, str]] = []
+    for settings_rel in settings_rels:
+        try:
+            data = json.loads(fs.read_text(settings_rel))
+        except json.JSONDecodeError as exc:
+            return False, [f"FAIL  {fs.path(settings_rel)} is not valid JSON: {exc}"]
+        hooks_block = data.get("hooks") if isinstance(data, dict) else None
+        for event, blocks in (hooks_block or {}).items():
+            if not isinstance(blocks, list):
+                continue
+            for block in blocks:
+                entries = block.get("hooks", []) if isinstance(block, dict) else []
+                for entry in entries:
+                    cmd = entry.get("command", "") if isinstance(entry, dict) else ""
+                    matched = _hook_id_for_command(cmd)
+                    if matched:
+                        pair = (event, matched)
+                        if pair not in installed:
+                            installed.append(pair)
+                    else:
+                        unknown.append((settings_rel, event, cmd))
 
-    msgs.append(f"privacy report — {settings}")
+    rendered_settings = ", ".join(str(fs.path(rel)) for rel in settings_rels)
+    msgs.append(f"privacy report — {rendered_settings}")
+    if manifest_present:
+        msgs.append(
+            f"INFO  shared control plane: memory={layout.memory}/; state={layout.state}/; "
+            f"continuity={layout.continuity}"
+        )
+    for missing in missing_settings:
+        msgs.append(
+            f"WARN  installed runtime hook document is missing: {missing}; "
+            "privacy coverage is incomplete"
+        )
     msgs.append("")
     for event, hid in installed:
         msgs.append(line(hid, event))
-    for event, cmd in unknown:
+    for settings_rel, event, cmd in unknown:
         msgs.append(
-            f"{'(not a claude-kit hook)':<26} {event:<12} {cmd[:90]} — not from this kit; "
-            "review it yourself"
+            f"{'(not a claude-kit hook)':<26} {event:<12} {cmd[:90]} — not from this kit "
+            f"({settings_rel}); review it yourself"
         )
 
     capture_on = sorted(
@@ -625,11 +933,31 @@ def privacy_report(target: str | Path = ".") -> tuple[bool, list[str]]:
     # OK/WARN prefixes make the ON/OFF state machine-readable via `--json` (Report levels),
     # not just a substring in prose.
     if capture_on:
+        active_runtimes = set(runtimes or [])
+        if not active_runtimes:
+            active_runtimes = {
+                "codex" if rel.startswith(".codex/") else "claude"
+                for rel in settings_rels
+            }
+        if active_runtimes == {"codex"}:
+            access = (
+                "a sandboxed Codex background task reads the repository changed-path set; "
+                "historical transcript catch-up is not assumed"
+            )
+        elif active_runtimes == {"claude"}:
+            access = (
+                "a detached Claude background task reads bounded session transcript content "
+                "and changed files"
+            )
+        else:
+            access = (
+                "a provider-selected background task reads bounded Claude transcript content "
+                "or the Codex repository changed-path set, depending on the active host"
+            )
         msgs.append(
-            f"WARN  background learning capture: ON ({', '.join(capture_on)}) — a detached "
-            "`claude` job reads session transcript content and changed files; disable by "
-            "removing those entries from .claude/settings.json, or re-run `claude-kit init` "
-            "and choose 'Off'"
+            f"WARN  background learning capture: ON ({', '.join(capture_on)}) — {access}; "
+            f"disable by removing those entries from {', '.join(settings_rels)}, or re-run "
+            "`ckit init` and choose 'Off'"
         )
     else:
         msgs.append(

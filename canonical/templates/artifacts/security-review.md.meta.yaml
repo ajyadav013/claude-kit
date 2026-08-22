@@ -1,0 +1,9 @@
+schema_version: 1
+id: artifact-security-review
+description: Security Review artifact template
+category: artifact
+format: markdown
+destination: templates/artifacts/security-review.md
+provider_placeholders: []
+references:
+- rule://quality-gates

@@ -4,10 +4,36 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import ExitStack
 
-from claude_kit import validator
+import pytest
+
+from claude_kit import scaffold, validator
 from claude_kit.models import InitOptions
 from tests._helpers import install, live_matrix
+
+
+def _self_test_matrix_id(overrides: dict[str, str]) -> str:
+    """Return a stable, readable pytest id for one installable catalog combination."""
+    return (
+        f"frontend={overrides['frontend_language']}:{overrides['frontend_framework']}-"
+        f"backend={overrides['backend_language']}:{overrides['backend_framework']}-"
+        f"db={overrides['database']}-profile={overrides['profile']}-scope={overrides['scope']}"
+    )
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Expand the live install matrix into independently schedulable pytest nodes."""
+    if "self_test_matrix_overrides" not in metafunc.fixturenames:
+        return
+
+    with ExitStack() as stack:
+        combinations = live_matrix(scaffold.payload_dir(stack))
+    metafunc.parametrize(
+        "self_test_matrix_overrides",
+        combinations,
+        ids=_self_test_matrix_id,
+    )
 
 
 def test_install_writes_the_full_tree(tmp_path, payload):
@@ -132,28 +158,35 @@ def test_no_docker_anywhere(tmp_path, payload):
     assert offenders == [], f"unexpected Docker files: {offenders}"
 
 
-def test_self_test_matrix_resolves_installs_and_validates(tmp_path, payload):
+def test_self_test_matrix_covers_minimum_live_surface(payload):
+    """Guard against accidentally dropping a live catalog dimension from the sweep."""
+    combinations = live_matrix(payload)
+    assert len(combinations) >= 24, (
+        f"matrix too small ({len(combinations)}) — a live stack may be missing"
+    )
+
+
+def test_self_test_matrix_resolves_installs_and_validates(
+    tmp_path,
+    payload,
+    self_test_matrix_overrides,
+):
     """Brief #2 P2-5: sweep EVERY live frontend × backend × database × profile × scope. Each combo
     must resolve, install, validate green, carry gates, and stay Docker-free — the matrix where
     silent breakage hides. New live stacks (e.g. the Go backend) auto-join via catalog.list_options."""
-    combos = live_matrix(payload)
-    # 1 frontend × 2 live backends (fastapi, go) × 2 dbs × 3 profiles × 2 scopes = 24.
-    assert len(combos) >= 24, (
-        f"matrix too small ({len(combos)}) — a live stack may be missing"
-    )
-    for i, overrides in enumerate(combos):
-        target = tmp_path / f"combo{i}"
-        plan = install(payload, target, **overrides)
-        ok, messages = validator.validate(target)
-        assert ok, f"validate failed for {overrides}:\n" + "\n".join(messages)
-        assert plan.gates, f"no gates resolved for {overrides}"
-        offenders = [
-            p.name
-            for p in (target / ".claude").rglob("*")
-            if p.is_file()
-            and (p.name == "Dockerfile" or p.name.startswith("docker-compose"))
-        ]
-        assert offenders == [], f"Docker artifact for {overrides}: {offenders}"
+    overrides = self_test_matrix_overrides
+    target = tmp_path / "combo"
+    plan = install(payload, target, **overrides)
+    ok, messages = validator.validate(target)
+    assert ok, f"validate failed for {overrides}:\n" + "\n".join(messages)
+    assert plan.gates, f"no gates resolved for {overrides}"
+    offenders = [
+        p.name
+        for p in (target / ".claude").rglob("*")
+        if p.is_file()
+        and (p.name == "Dockerfile" or p.name.startswith("docker-compose"))
+    ]
+    assert offenders == [], f"Docker artifact for {overrides}: {offenders}"
 
 
 def test_init_options_round_trips_and_records_files(tmp_path, payload):
@@ -164,7 +197,9 @@ def test_init_options_round_trips_and_records_files(tmp_path, payload):
         )
     )
     options = InitOptions.from_dict(data)
-    assert options.schema_version == 1
+    assert options.schema_version == 2
+    assert options.runtimes == ["claude"]
+    assert options.state_layout.root == ".claude"
     assert options.selection.database == "postgres"
     assert options.files, "no files recorded"
     owners = {r.owner for r in options.files}
@@ -323,17 +358,13 @@ def test_new_core_skills_gated_by_profile(tmp_path, payload):
     assert new_skills <= skills(standard), "new core skills must ship in standard"
 
 
-def test_risk_classifier_is_enterprise_only(tmp_path, payload):
-    """The risk-classifier agent is gated to the enterprise profile (team scope)."""
-    for profile, present in (
-        ("lean", False),
-        ("standard", False),
-        ("enterprise", True),
-    ):
+def test_risk_classifier_ships_in_every_profile(tmp_path, payload):
+    """Every managed workflow can classify risk before selecting its route and gates."""
+    for profile in ("lean", "standard", "enterprise"):
         target = tmp_path / profile
         install(payload, target, profile=profile)
         exists = (target / ".claude" / "agents" / "risk-classifier.md").is_file()
-        assert exists is present, f"{profile}: risk-classifier present={exists}"
+        assert exists, f"{profile}: risk-classifier is missing"
 
 
 def test_team_scope_installs_no_org_overlay(tmp_path, payload):
@@ -1103,13 +1134,19 @@ def test_reinstall_over_unedited_tree_writes_no_sidecars(tmp_path, payload):
 
 
 def test_loop_script_installed_executable_and_kit_owned(tmp_path, payload):
-    """The bounded headless runner lands in .claude/scripts/, executable, tracked as kit-owned."""
+    """The fail-closed loop interface is executable, kit-owned, and cannot launch a host."""
     install(payload, tmp_path)
     script = tmp_path / ".claude" / "scripts" / "sdlc-loop.sh"
     assert script.is_file(), "sdlc-loop.sh not installed"
     assert os.access(script, os.X_OK), "sdlc-loop.sh not executable"
     body = script.read_text(encoding="utf-8")
-    assert "SDLC_FINAL_GATE" in body and "SDLC_MAX_ITER" in body
+    assert (
+        "automated host execution requires portable descendant-process containment"
+        in body
+    )
+    assert "CKIT_PIPELINE_TRANSITION_TOKEN" not in body
+    assert "codex exec" not in body
+    assert "claude -p" not in body
     opts = InitOptions.from_dict(
         json.loads(
             (tmp_path / ".claude" / "config" / "init-options.json").read_text(

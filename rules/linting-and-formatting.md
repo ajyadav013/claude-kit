@@ -1,18 +1,18 @@
 ---
 paths:
-  - '**/*.py'
-  - '**/*.ts'
-  - '**/*.tsx'
-  - '**/*.js'
-  - '**/*.jsx'
-  - '**/*.go'
-  - '**/*.rs'
-  - '**/*.java'
-  - '**/*.rb'
-  - '**/pyproject.toml'
-  - '**/package.json'
-  - '**/.eslintrc*'
-  - '**/ruff.toml'
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+- '**/pyproject.toml'
+- '**/package.json'
+- '**/.eslintrc*'
+- '**/ruff.toml'
 ---
 
 # Linting and Formatting Rules

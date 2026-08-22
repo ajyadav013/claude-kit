@@ -1,7 +1,7 @@
 ---
 name: smoke-test
 description: Quick health check that every service is up and the basic user flow works. Use when asked to smoke-test, check the app is running, or verify nothing is obviously broken — before starting development or after a deploy.
-argument-hint: 'backend-only | frontend-only (optional)'
+argument-hint: backend-only | frontend-only (optional)
 disable-model-invocation: true
 ---
 

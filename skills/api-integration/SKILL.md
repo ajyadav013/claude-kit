@@ -1,7 +1,7 @@
 ---
 name: api-integration
 description: Wire the app to a backend API — data fetching, caching, error handling, loading states. Use when connecting to an endpoint, adding a fetch layer, or fixing API error and loading behaviour. React-query detail lives in tanstack-react-query-patterns.
-argument-hint: [API endpoint or feature name]
+argument-hint: '[API endpoint or feature name]'
 disable-model-invocation: true
 ---
 
@@ -265,15 +265,15 @@ async def update_item(db: AsyncSession, id: str, update: ItemUpdate) -> Item:
     item = await repo.get_by_id(db, id)
     if not item:
         raise HTTPException(status_code=404)
-    
+
     # Apply changes
     for field, value in update.model_dump(exclude_unset=True).items():
         setattr(item, field, value)
-    
+
     # Flush to get updated state, but don't commit yet
     await db.flush()
     await db.refresh(item)
-    
+
     # Return optimistically (commit happens at end of request)
     return item
 ```

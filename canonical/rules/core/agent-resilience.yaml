@@ -1,0 +1,21 @@
+schema_version: 1
+id: agent-resilience
+description: Agent Resilience
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+references:
+- rule://agent-guardrails
+- rule://continuity
+- rule://human-in-the-loop
+- rule://model-tiers
+- rule://quality-gates
+- rule://resilience-engineering
+- skill://debugging-and-error-recovery
+- state://agent-memory
+- state://continuity

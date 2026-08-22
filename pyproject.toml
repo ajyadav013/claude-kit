@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "claude-code-kit"
 version = "0.83.0"
-description = "Evidence-gated SDLC for Claude Code, installed as configuration (no app code, no Docker). Asks ordered questions and installs CLAUDE.md + .claude/ (rules, the chosen profile's agents/skills, hooks, artifact templates) + optional .mcp.json; run /sdlc to drive spec → review → build → test → security → ship through profile-aware quality gates with an evidence-hashed gate ledger, working memory, and a self-improving learnings loop."
+description = "Evidence-gated, stack-agnostic SDLC configuration for Claude Code (stable) and Codex (Preview), with native ckit init --runtime claude|codex|both projections and one shared gate ledger."
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"
@@ -14,6 +14,8 @@ authors = [{ name = "Arjunsingh Yadav" }]
 keywords = [
   "claude",
   "claude-code",
+  "codex",
+  "openai-codex",
   "sdlc",
   "agents",
   "agentic",
@@ -50,7 +52,9 @@ schema = [
 ]
 dev = [
   "pytest>=8.0",
+  "pytest-xdist>=3.6,<4",
   "build>=1.2",
+  "hatchling>=1.25",
   "twine>=5.0",
   "ruff>=0.6",
   "mypy>=1.10",
@@ -99,16 +103,21 @@ ignore_missing_imports = true
 packages = ["src/claude_kit"]
 
 # Bundle the kit payload (read by the pip CLI via importlib.resources) into the wheel.
-# The same directories are read directly by Claude Code when installed as a plugin.
+# The same directories are read directly by Claude Code and Codex when installed as a plugin.
 [tool.hatch.build.targets.wheel.force-include]
 "agents" = "claude_kit/_payload/agents"
 "skills" = "claude_kit/_payload/skills"
 "rules" = "claude_kit/_payload/rules"
 "hooks" = "claude_kit/_payload/hooks"
 "commands" = "claude_kit/_payload/commands"
+"canonical" = "claude_kit/_payload/canonical"
 "templates" = "claude_kit/_payload/templates"
 "catalog" = "claude_kit/_payload/catalog"
 "schemas" = "claude_kit/_payload/schemas"
+".claude-plugin" = "claude_kit/_payload/.claude-plugin"
+"providers" = "claude_kit/_payload/providers"
+".agents/plugins/marketplace.json" = "claude_kit/_payload/.agents/plugins/marketplace.json"
+"AGENTS.md" = "claude_kit/_payload/AGENTS.md"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -118,12 +127,16 @@ include = [
   "/rules",
   "/hooks",
   "/commands",
+  "/canonical",
   "/templates",
   "/catalog",
   "/schemas",
   "/scripts",
   "/docs",
   "/.claude-plugin",
+  "/providers",
+  "/.agents/plugins/marketplace.json",
+  "/AGENTS.md",
   "/README.md",
   "/CHANGELOG.md",
   "/CONTRIBUTING.md",

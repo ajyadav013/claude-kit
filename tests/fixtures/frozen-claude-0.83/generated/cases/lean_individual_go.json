@@ -1,0 +1,891 @@
+{
+  "agent_frontmatter": [
+    {
+      "body_sha256": "b31a744156ad62f7951cb0e906aa7fb87ec3cd2e7c91772bbabfcd70d134c68e",
+      "frontmatter_sha256": "2632b2010fc2daf195d193e640938c4b0b809785eda7bd8e76aef13bfdeb71fc",
+      "metadata": {
+        "color": "blue",
+        "description": "Writes production code from approved specs. Works in an isolated git worktree and responds to code review feedback. Handles backend, frontend, or full-stack implementation depending on the project.",
+        "model": "opus",
+        "name": "developer",
+        "permissionMode": "acceptEdits",
+        "tier": "stage-lead",
+        "tools": "Read, Write, Edit, Bash, Glob, Grep"
+      },
+      "path": ".claude/agents/developer.md"
+    },
+    {
+      "body_sha256": "89e8c93546971ec14dead5a13c2760c1388a31a971a2bfb55a31c893528cb773",
+      "frontmatter_sha256": "800ee68c3c8a49f327b4ba37a31c3739fa85c82b1373fdc7d878c4f81d49ace5",
+      "metadata": {
+        "color": "indigo",
+        "description": "SDLC Pipeline Controller. Never writes code \u2014 only delegates, coordinates, and gates agent progression. Supports parallel execution lanes for independent work streams.",
+        "model": "opus",
+        "name": "orchestrator",
+        "tier": "orchestrator",
+        "tools": "Agent, Read, Write, Edit, Glob, Grep, Bash, TaskCreate, TaskGet, TaskList, TaskUpdate, SendMessage"
+      },
+      "path": ".claude/agents/orchestrator.md"
+    },
+    {
+      "body_sha256": "ef8616bc2acf431a20d89684ac9242f1df51674a125120335b224322f98d99b0",
+      "frontmatter_sha256": "a516e1f6463d1a81d2e598bb6d01ea094d592b4f5f982eff33d6e09a9b237648",
+      "metadata": {
+        "color": "purple",
+        "description": "Final pipeline agent that runs lint, build, and tests, then creates a structured pull request with proper commit formatting.",
+        "model": "sonnet",
+        "name": "pr-raiser",
+        "permissionMode": "acceptEdits",
+        "tier": "stage-lead",
+        "tools": "Read, Edit, Bash, Glob, Grep"
+      },
+      "path": ".claude/agents/pr-raiser.md"
+    },
+    {
+      "body_sha256": "37e430f1d0e45ac55015372ac69851f73a6cb66e2a5b6d33de96c8a58835854c",
+      "frontmatter_sha256": "a88616a564ba196314541760bba54710e753769b1ad00fd08b8edc2c348af451",
+      "metadata": {
+        "color": "red",
+        "description": "Reviews code changes for bugs, security, performance, and spec compliance. Gates the pipeline \u2014 testing cannot start without reviewer approval.",
+        "model": "sonnet",
+        "name": "sdlc-code-reviewer",
+        "permissionMode": "plan",
+        "tier": "review",
+        "tools": "Read, Glob, Grep, Bash, SendMessage"
+      },
+      "path": ".claude/agents/sdlc-code-reviewer.md"
+    },
+    {
+      "body_sha256": "dbe72bd12040d4d0a0421f69ef501046913cd4c08a03bf2f4bcc359b39c94f33",
+      "frontmatter_sha256": "14880b69d3924c135628242ffb605d635b2aaf7fbb07d151adbdfd80000f7ebe",
+      "metadata": {
+        "color": "lime",
+        "description": "Validates backend APIs together with the frontend. Verifies API correctness, request/response behavior, UI rendering against spec, integration, error states, and edge cases. Can be spawned in parallel with a testing lane focus.",
+        "model": "sonnet",
+        "name": "tester",
+        "permissionMode": "acceptEdits",
+        "tier": "specialist",
+        "tools": "Read, Write, Edit, Bash, Glob, Grep"
+      },
+      "path": ".claude/agents/tester.md"
+    }
+  ],
+  "fixture_schema_version": 1,
+  "gate_policy": {
+    "definition_digest": "f34b946d6fa3a6af95ed8d1354af85fda833b3d4106a9fc99d460f68877c0277",
+    "definitions": [
+      {
+        "gate": "code-review",
+        "requirement": "required",
+        "skip_conditions": [],
+        "skippable": false
+      },
+      {
+        "gate": "build-green",
+        "requirement": "required",
+        "skip_conditions": [],
+        "skippable": false
+      }
+    ],
+    "ordered_gates": [
+      "code-review",
+      "build-green"
+    ]
+  },
+  "hook_settings": {
+    "$comment": "Claude Code settings installed by claude-kit. Hooks wire the SDLC working-memory, learnings, guardrails, and quality checks to scripts in .claude/hooks/. Personal overrides belong in .claude/settings.local.json (gitignored).",
+    "autoCompactEnabled": true,
+    "env": {
+      "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
+    },
+    "hooks": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/load-continuity.sh\"",
+              "type": "command"
+            }
+          ],
+          "matcher": ""
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/lint-fix.sh\"",
+              "type": "command"
+            },
+            {
+              "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/verify-continuity-writeback.sh\"",
+              "type": "command"
+            }
+          ],
+          "matcher": ""
+        }
+      ]
+    },
+    "maxSkillDescriptionChars": 1100
+  },
+  "init_options": {
+    "claude_kit_version": "0.83.0",
+    "installed_but_unrecorded": [
+      ".claude/config/init-options.json",
+      ".claude/state/.gitkeep",
+      ".claude/tmp/.gitkeep",
+      ".gitignore"
+    ],
+    "owner_counts": {
+      "kit": 79,
+      "overlay": 1,
+      "user-editable": 11
+    },
+    "record_count": 91,
+    "record_digest": "03693f37c2795b187d7ce119ba4cd11e2d3ea3413506296e16837bea9dd1eb80",
+    "schema_version": 1,
+    "selection": {
+      "autonomy": "assisted",
+      "backend_framework": "net-http",
+      "backend_language": "go",
+      "capture_mode": "off",
+      "database": "none",
+      "detect_commands": false,
+      "frontend_framework": "none",
+      "frontend_language": "typescript",
+      "mcp": [],
+      "org_packs": false,
+      "profile": "lean",
+      "review_strictness": "standard",
+      "scope": "individual",
+      "teams": []
+    }
+  },
+  "installed_files": [
+    {
+      "mode": "0644",
+      "path": ".claude/CONTINUITY.template.md",
+      "sha256": "2d362417c366a5f9ab24745a3c4157ce565ba78b99855b91a9c22a629f2d5b6d",
+      "size": 1240
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agent-memory/MEMORY.md",
+      "sha256": "5debfaf127ac0fe8639012f0fe5730a2bab469eb34abbe2654603e6cdf38ded2",
+      "size": 1131
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agent-memory/api/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agent-memory/architecture/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agent-memory/debugging/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agent-memory/gotchas/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agent-memory/patterns/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agent-memory/performance/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agents/developer.md",
+      "sha256": "81a1635dff498187f5f6879917a899990c4b93bb36a88226e0c49ef2de444f33",
+      "size": 10376
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agents/orchestrator.md",
+      "sha256": "466d95bbb6cc33e5272eb5c7bec8b3c11a78103975381e19b24e24201a2fe393",
+      "size": 57926
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agents/pr-raiser.md",
+      "sha256": "c2cf1ae2157672996142e6139840f2cba78eb675cb3bbac6263b5a050b4b9af9",
+      "size": 5699
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agents/sdlc-code-reviewer.md",
+      "sha256": "1441e890018faa0a625c084b1f52ba5d3bc460834a120bf19068a74a4b315573",
+      "size": 10428
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/agents/tester.md",
+      "sha256": "ed5bb02927fc34a9c779016e406e8eee6fe89e16508a199204ed052937c39925",
+      "size": 7813
+    },
+    {
+      "mode": "0666",
+      "path": ".claude/config/init-options.json",
+      "sha256": "9c2520e3d814ef09ab28b03f8a74da5e13fcc8b40e540ba6119b9dbbe4e906e0",
+      "size": 16913
+    },
+    {
+      "mode": "0666",
+      "path": ".claude/config/stack-catalog.snapshot.yaml",
+      "sha256": "7177859eea244d98ed38d41205604f0b564fcba4036934c2a61dec87e100525d",
+      "size": 1145
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/lint-fix.sh",
+      "sha256": "4f98aa8d7afc914006f17c2d8cade4a990af5520ec32504911b45f19fbb6cee7",
+      "size": 4035
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/load-continuity.sh",
+      "sha256": "9279c1de41b01a3e2e9713f421d7a4bd3df5ef25e99939f82d6fe32769e3b686",
+      "size": 3443
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/hooks/verify-continuity-writeback.sh",
+      "sha256": "45fd04eff213936c937ef4f2b551006deb0992b9e261811569cb76b3b2297908",
+      "size": 4235
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/agent-guardrails.md",
+      "sha256": "efa8615ad7663ac4aa6bd875bc615a25f5d258a109ab926424778cc45650422c",
+      "size": 23009
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/agent-memory.md",
+      "sha256": "ddb821f6411081fe3328726492405514874001a7b44716c551fecd6d71b0a9ee",
+      "size": 7645
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/agent-resilience.md",
+      "sha256": "8ba1a87e49c228cac124967e1660e85a73ea94f30d9bf7c84949e962ee568659",
+      "size": 6335
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/autonomy-levels.md",
+      "sha256": "8a86123f12f96f56a3f669723429b11a6872e4e70f2de828da0fb4e428d2af4d",
+      "size": 2899
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/code-organization.md",
+      "sha256": "be814299c2b75d63a15220257d0113edb2a93edb59fa4760d372e072c748d757",
+      "size": 11182
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/continuity.md",
+      "sha256": "5e1a1149f308e742921d0ef1cb7d20dbc1b9a8f6e4d5937b43b67cf0d46b3f99",
+      "size": 16576
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/design-patterns.md",
+      "sha256": "b98d17a03d78ec5823b9caaa9d5d7205ed03ddefad4437a5708339edb9546d4e",
+      "size": 14007
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/devops-observability.md",
+      "sha256": "47c352509fb159331f06914c9ae4f826564c22e49bf5508edcfe7d1a8d0358dc",
+      "size": 12744
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/documentation.md",
+      "sha256": "f22a0962eed9201499d4da4a0781bc3162b0a722c2d81ef7e902b15a556401ad",
+      "size": 11762
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/evals.md",
+      "sha256": "b637f9e7d1a0b09a460c27e43448a3715966c39eaeaaa8523b49903c4ec720ca",
+      "size": 12888
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/frontend-best-practices.md",
+      "sha256": "9e36d66bbba2786cdcedd725fb96ffa1a8881dc8d30e2f388c2e7316cce39d65",
+      "size": 7827
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/go-patterns.md",
+      "sha256": "6ecdf1f90f3ba0d16eb422f2ecf0b74f32ba6dca0e2675d94a90044b40aba2f8",
+      "size": 4719
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/goal-setting-and-monitoring.md",
+      "sha256": "b89bc0e83975c5e874cfbc4786a1b8855d276e3e3c0c80287abbef9cbf31fd37",
+      "size": 9563
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/human-in-the-loop.md",
+      "sha256": "200cbc540c255c964352591641afcd04779e0f8f167f617ac3b3df0219c3a832",
+      "size": 12322
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/linting-and-formatting.md",
+      "sha256": "608f1b4cfbd84744bb39b4ce1a2752c54bb0d641a08b532066f78fdc04b32741",
+      "size": 15314
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/mandatory-workflow.md",
+      "sha256": "dfe59fa7b555da41c1884effa8c0f7d9f3ad9bb2f028a9c250fc77750dd37a43",
+      "size": 28281
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/model-tiers.md",
+      "sha256": "bb2451deea4bbe1bc7ec7667163a0f6d36a67850619783191bdb2cd87886f507",
+      "size": 9099
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/quality-gates.md",
+      "sha256": "8e8017c82239a5671b069a11b5de9f87f4a6b9eddeda5a12beddc8c11a9ae8cc",
+      "size": 16571
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/rarv-cycle.md",
+      "sha256": "8dd5451ca2f8549d16962cca56299bf1d6ed2ad0e886b4db976736734059bc3c",
+      "size": 2996
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/reasoning-techniques.md",
+      "sha256": "705c2f5d374ff1ed77010cb696e35da8ee078e6e6e70254a4cbba36c336e6255",
+      "size": 9324
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/resilience-engineering.md",
+      "sha256": "5513c0ddb2d29cd6dc79415ce1dbd29a3cd6185d1cceb98d9a18a1110ca092d6",
+      "size": 13845
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/responsive-and-accessibility.md",
+      "sha256": "1fc0f954a008e6d3e7edcf20e496d1901577d740cb5eaa4a722769f4cd2f1dc2",
+      "size": 12558
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/risk-classification.md",
+      "sha256": "10daa6099ec6a23f056b509eeb03f7fd3a96e1b401e761d97978cb8eddae4b5f",
+      "size": 3390
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/testing.md",
+      "sha256": "f3b22b56b5b55951b38f769b0129207e43a07a85869a44ae132b2ee77a5a2741",
+      "size": 24441
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/tool-design.md",
+      "sha256": "056192df1b81abd6071123308c0fcb2bb228d0c0eb178a16801c376bc6bfbeab",
+      "size": 17330
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/rules/wave-orchestration.md",
+      "sha256": "de7a878d8dde623e9e9edb08e7d68a917dda657c0069605522a88825794c3d04",
+      "size": 10971
+    },
+    {
+      "mode": "0755",
+      "path": ".claude/scripts/sdlc-loop.sh",
+      "sha256": "5c146a4834fbc981f12e6c5e1902746e456ba5d8bd6e0ef5cbb393415be32a2a",
+      "size": 4894
+    },
+    {
+      "mode": "0666",
+      "path": ".claude/settings.json",
+      "sha256": "b59cf28f1e4a75ced9bfe5c9239c729c5ae6912b80e42010bbb34c5794db5b1a",
+      "size": 1014
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/_references/accessibility-checklist.md",
+      "sha256": "61c759d94d52296231f5f310b92b401f56c44e4430dc3cc95ebac5d7b1d5ffac",
+      "size": 5206
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/_references/orchestration-patterns.md",
+      "sha256": "d9f5b3a6bee70a4720e2957dc595bccb86e38e61eda2efb942fcb920803761b4",
+      "size": 20842
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/_references/performance-checklist.md",
+      "sha256": "50f314e27a37a964226fb45bfa38c009691162aa57fa9b13672ee66b93dc684e",
+      "size": 9218
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/_references/security-checklist.md",
+      "sha256": "7c0d936bc038670a375963b5b83f1bbfd3358073351f3e37153be728819ca08d",
+      "size": 4585
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/_references/testing-patterns.md",
+      "sha256": "2502c02eee60a9e97f4256b318cdf2f1e22b045b78c6d9713fcb926b9dfc025e",
+      "size": 6980
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/api-and-interface-design/SKILL.md",
+      "sha256": "a1c55156d485d981afd19e7a0f3dc9e5eac9764c85550f82b2b22de9b6ec67ca",
+      "size": 16899
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/api-and-interface-design/references/asdr-014-http-https.md",
+      "sha256": "eaf784e6798dfaa77fa6424fa4939d61eac8490c6411c7e60ec1de114d651fe1",
+      "size": 5679
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/api-and-interface-design/references/asdr-018-apis.md",
+      "sha256": "47d38ec70e6fb606aa2239b766f9407cdacd03d7a9328b71d0e236f977889994",
+      "size": 5228
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/api-and-interface-design/references/asdr-023-idempotency.md",
+      "sha256": "c42ec739a2c074dffa0697bc319b804283640a450993c132b22bb8192ce31577",
+      "size": 5506
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/api-and-interface-design/references/asdr-129-stripe-s-payments-apis-the-first-10-years.md",
+      "sha256": "cf1fd009d5f0bb94c0fb84ec00716f096c2fc01c4703186814945c954dc8d9fe",
+      "size": 5942
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/api-and-interface-design/references/htn-http-routing.md",
+      "sha256": "04d9de69e89f2501a30b5a4a016a8a0e2bc0d64a96e2c8d190b78b843916c13a",
+      "size": 11268
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/api-and-interface-design/references/htn-rest-api-design.md",
+      "sha256": "6323c3267739b24a4ec4d6d5b927fd3e95d6454c2e63a482329f54cf5a4aefd5",
+      "size": 9481
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/backend-repo-architecture/README.md",
+      "sha256": "1f47e820577cadd148cfd1f2f7d453505aa2fc3f9a52f2413ec3bbe617bdeba0",
+      "size": 2416
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/backend-repo-architecture/SKILL.md",
+      "sha256": "79b2d306a2e5170ffb67bbfd09ca9f2bcbbca47840e6dde7e09079cd7b124bb5",
+      "size": 14062
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/backend-repo-architecture/references/deployment-patterns.md",
+      "sha256": "76f3c8dde4c1bab316c1d67665f14ab39dfec8269a23d9324e72f6a068599b9e",
+      "size": 10033
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/backend-repo-architecture/references/entrypoint-and-config.md",
+      "sha256": "60a59969617bcf0ad4a3c9b88659c511ac5d0c1b64a8c7b5bee3f5550cfd30d2",
+      "size": 10393
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/backend-repo-architecture/references/repo-evidence.md",
+      "sha256": "4f2e5bf385abe18042c025d1e5705ceb3013d271056b0fd22730e821d533906e",
+      "size": 7165
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/backend-repo-architecture/references/structure-patterns.md",
+      "sha256": "cdd7d58ae5e28474415847b4b963898ec7ebc4e049f024d08b15edae54698ebc",
+      "size": 13582
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/backend-repo-architecture/references/troubleshooting.md",
+      "sha256": "349547b640fa01f35ed2bda84b669e3ee6914b7217031d6ad891eae307900021",
+      "size": 13159
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/code-review-and-quality/SKILL.md",
+      "sha256": "e0527ee0a7066bc2e5ee01ff445eeffcdea9b52b7277055abe4002bfc5690949",
+      "size": 22443
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/debugging-and-error-recovery/SKILL.md",
+      "sha256": "6b81147e9517ab895e94c97a39abff8cd7bb4017b70b555da3e86890f70129a9",
+      "size": 13125
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/debugging-and-error-recovery/references/aie-034-reflect-intervention-supported-error-attribution-for-silen.md",
+      "sha256": "07361f17a6011ff2f89f6fdd8c56db361ded6f5ec305afb9d71ce12c77d3dca9",
+      "size": 6976
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/debugging-and-error-recovery/references/alld-047-thread-lifecycle-and-states.md",
+      "sha256": "9d25cf9317e88e9f249a0dae7ff71f1564815881e46e69d321f1c94ec3ac9503",
+      "size": 4841
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/debugging-and-error-recovery/references/asdr-010-osi-model.md",
+      "sha256": "db5ce6fd1e9bbfdd59812fb62f0458387ff3a9ecd6c204bd6b0544e63d832d2a",
+      "size": 4950
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/dockerfile-backend/README.md",
+      "sha256": "736fbe418a50846df6909b52387e75635cd66ef45893495c8277977a3c720e29",
+      "size": 2477
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/dockerfile-backend/SKILL.md",
+      "sha256": "258bb30f00dd8e47bf614a5d4291a35df4cec8a3682ac916ae0cc4926be57c66",
+      "size": 12902
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/dockerfile-backend/references/backend-dockerfile-anatomy.md",
+      "sha256": "5dc38e00c240cab7f67b5076019e51d8777c996d40fff60b174e7587a3705658",
+      "size": 14479
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/dockerfile-backend/references/repo-evidence.md",
+      "sha256": "b368fb62a97c0a88f1203d834083847b839ef65287edf0aee2e6dbee5502ff68",
+      "size": 11268
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/dockerfile-backend/references/system-deps-and-caching.md",
+      "sha256": "b81849c8ed547e1ee0b8e03f91f51085535f01c31880ba7d323eabbfdbcb87ef",
+      "size": 11768
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/execute/SKILL.md",
+      "sha256": "185187ff6f9ce03d711d5e62efd1288d685934ddc6541023f5f5b0b1189f897a",
+      "size": 1384
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/git-workflow-and-versioning/SKILL.md",
+      "sha256": "ce59dfb1b8dcbeff18ca75fd8c2672e979b7ca28c8388e621919d5e63cdd1631",
+      "size": 11359
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/incremental-implementation/SKILL.md",
+      "sha256": "9ac14f0ac9e3ab0f46a10c7a1c9d3e3a68f002077a4aee012b472236ad2a2a80",
+      "size": 9047
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/sdlc/SKILL.md",
+      "sha256": "5305d6418857bfcac1e97b216dca5ba505114efd977a2535f4f0f4d6adab1a74",
+      "size": 10468
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/test-driven-development/SKILL.md",
+      "sha256": "6bc1102ec01d44eea3e066e27d5fb25e19b59203f4e9498eeac6936054b0f0f7",
+      "size": 16839
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/skills/using-agent-skills/SKILL.md",
+      "sha256": "0dd87fa37a4ff53b34a8f6d6694c52ca19e4d7eaed9c3d34df93c84595498f82",
+      "size": 9477
+    },
+    {
+      "mode": "0666",
+      "path": ".claude/state/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/adr.md",
+      "sha256": "be284c0ec68dde8ce60667095099f01e5872b36aab338db8e3dee82968360c70",
+      "size": 510
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/api-change-report.md",
+      "sha256": "feed6112cf2a00ba8009455bf37c0e44bad6222cbe047ef05213f5979e4ae0ff",
+      "size": 1653
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/change-proposal.md",
+      "sha256": "7d4947db862c33595361c8cb09addc9b955e432eb4febd62bd48b48204fa78d9",
+      "size": 2005
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/feature-spec.md",
+      "sha256": "07b8874a0724b1540604d857577351dc4e680c1c93389557298b67018a2afb79",
+      "size": 1846
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/release-plan.md",
+      "sha256": "f1bf9a1a7b79790a1f96fb3969a22a54ee567163d69171cb27939fdd3ea6120c",
+      "size": 661
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/runbook.md",
+      "sha256": "dfe878a9a0beb65c542cc22e306178a81cddec14ef985c34336ff2fea9f8fbd1",
+      "size": 581
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/security-review.md",
+      "sha256": "ae5798c4fac0b4a97eb4182a13e0e348efec4cd58b577f30bcc0e71aca39e60a",
+      "size": 908
+    },
+    {
+      "mode": "0644",
+      "path": ".claude/templates/test-plan.md",
+      "sha256": "ec2c24a714c1624489e6d555fc26ab286bf15b05c404dc52ecd8099a9dfce322",
+      "size": 621
+    },
+    {
+      "mode": "0666",
+      "path": ".claude/tmp/.gitkeep",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "0666",
+      "path": ".gitignore",
+      "sha256": "9d3a265a0ff174613fea7c342f5bcc0fa35b2d8a4b405e3f211be848f8899614",
+      "size": 217
+    },
+    {
+      "mode": "0666",
+      "path": "AGENTS.md",
+      "sha256": "3fb881a6847a5e28fe3793fcdd331798473259b8454b1df8c86082576b7a8eaa",
+      "size": 9433
+    },
+    {
+      "mode": "0666",
+      "path": "CLAUDE.md",
+      "sha256": "e32239f10d36ff3db9e75a0021969283eaa5fa1a95b18a4e4d0fa1e7776fcdae",
+      "size": 16432
+    },
+    {
+      "mode": "0666",
+      "path": "README.claude-sdlc.md",
+      "sha256": "6321f401c74c4a18743a7cc4506c9fe88e47c424334d9cc13450574380cb1402",
+      "size": 14269
+    }
+  ],
+  "resolved_plan": {
+    "agents": [
+      "orchestrator",
+      "developer",
+      "sdlc-code-reviewer",
+      "tester",
+      "pr-raiser"
+    ],
+    "hooks": [
+      "load-continuity",
+      "verify-continuity-writeback",
+      "lint-fix"
+    ],
+    "overlay_agents": [],
+    "overlay_rules": [
+      "go-patterns.md"
+    ],
+    "skills": [
+      "sdlc",
+      "execute",
+      "incremental-implementation",
+      "test-driven-development",
+      "debugging-and-error-recovery",
+      "git-workflow-and-versioning",
+      "code-review-and-quality",
+      "using-agent-skills",
+      "api-and-interface-design",
+      "backend-repo-architecture",
+      "dockerfile-backend"
+    ]
+  },
+  "selection": {
+    "autonomy": "assisted",
+    "backend_framework": "net-http",
+    "backend_language": "go",
+    "capture_mode": "off",
+    "database": "none",
+    "detect_commands": false,
+    "frontend_framework": "none",
+    "frontend_language": "typescript",
+    "mcp": [],
+    "org_packs": false,
+    "profile": "lean",
+    "review_strictness": "standard",
+    "scope": "individual",
+    "teams": []
+  },
+  "skill_metadata": [
+    {
+      "body_sha256": "c5464ef46f6d89c45a8414facb11f9d9100012fbf90099c4d64c75deeff0e1a2",
+      "frontmatter_sha256": "796b120f16dbcde44255826130c82f8a1c7b2ad13022259bcbe4874a1fb54a85",
+      "metadata": {
+        "description": "Stable API and interface design patterns. Use when designing REST/GraphQL endpoints, module boundaries, type contracts between modules or frontend/backend, or changing public interfaces.",
+        "name": "api-and-interface-design"
+      },
+      "path": ".claude/skills/api-and-interface-design/SKILL.md"
+    },
+    {
+      "body_sha256": "5d68b67ab629e358a06593d1e1dd48bba35bbe8ffe9f12a5d283dd256bacb756",
+      "frontmatter_sha256": "a62d343d74ffd3d799017fe1d6d997dd5c02fbd757100bb48da231f4484351d2",
+      "metadata": {
+        "description": "Canonical backend repository structure for Python/FastAPI \u2014 multi-mode entrypoint, app factory, ConnectionManager, BaseDao, flat vs versioned layout. Use when scaffolding or reorganizing a FastAPI service.",
+        "name": "backend-repo-architecture"
+      },
+      "path": ".claude/skills/backend-repo-architecture/SKILL.md"
+    },
+    {
+      "body_sha256": "68e4b5dbaf8c04c4f2cccaeb2ee13ce1453f25325314d79f42e706448d734647",
+      "frontmatter_sha256": "af4ea53b7e48d2b532f6ea4895a4bd7758c5442d23ca470920e72d61a5e782a8",
+      "metadata": {
+        "description": "Multi-axis code review (correctness, security, performance, design) before merging any change. Use to assess quality; not to refactor (use code-simplification) or hunt complexity only (use over-engineering-review).",
+        "name": "code-review-and-quality"
+      },
+      "path": ".claude/skills/code-review-and-quality/SKILL.md"
+    },
+    {
+      "body_sha256": "32590f278f3977cd529406d15e8d1308e84bc0b5bb19ab29228bb872a6c08b26",
+      "frontmatter_sha256": "47f03a98d53591406f3d7c9f95bbb173103a79c97c573134392dcd24b6a95269",
+      "metadata": {
+        "description": "Guides systematic root-cause debugging. Use when tests fail, builds break, behavior doesn't match expectations, or you encounter any unexpected error. Use when you need a systematic approach to finding and fixing the root cause rather than guessing.",
+        "name": "debugging-and-error-recovery"
+      },
+      "path": ".claude/skills/debugging-and-error-recovery/SKILL.md"
+    },
+    {
+      "body_sha256": "3520fffb94c0b08ca5cd99ec6be71b063e115480c1b793950059c17ff82e7a9e",
+      "frontmatter_sha256": "265576f4e47cfb3c3b2c4edb27fa2ab15c3944e8399d9ae1b964cd7d0de59d97",
+      "metadata": {
+        "description": "Multi-stage Dockerfiles for Python/FastAPI backends \u2014 builder vs runtime, slim vs alpine, system deps, layer caching, non-root users. Use when containerizing or optimizing Python backend images.",
+        "name": "dockerfile-backend"
+      },
+      "path": ".claude/skills/dockerfile-backend/SKILL.md"
+    },
+    {
+      "body_sha256": "a39606ddf1340eedab05f1526a99160841ecea450c913b464cb6af26f922a120",
+      "frontmatter_sha256": "a990a729afb347381d08e7a6e25acdc7eefd387d9819b8acc69bb955b7a87508",
+      "metadata": {
+        "argument-hint": "<your raw requirement text>",
+        "description": "Takes raw text/requirement, optimizes it into a precise prompt, then executes it immediately. Use when you have a rough idea and want Claude to refine and act on it in one step.",
+        "name": "execute"
+      },
+      "path": ".claude/skills/execute/SKILL.md"
+    },
+    {
+      "body_sha256": "3d07a2c2131fd691e6cf4e3efb339c80badc817894afd3e0c241cbbf0bba57e1",
+      "frontmatter_sha256": "4b592810283e5f78e1f803de1de0119818d414e65bc3e170ba9b107a63a41dff",
+      "metadata": {
+        "description": "Structures git workflow practices for any codebase. Use when making any code change. Use when committing, branching, resolving conflicts, or when you need to organize work across multiple parallel streams.",
+        "name": "git-workflow-and-versioning"
+      },
+      "path": ".claude/skills/git-workflow-and-versioning/SKILL.md"
+    },
+    {
+      "body_sha256": "592b356cf3628b41dcc74ec5b89acff1fbe9cfbea0c6f309c7743a8710c1984b",
+      "frontmatter_sha256": "a71ce1ad6f2eac94cd14edb3dcf6e26f50b858a24b7035138be9f22623974d44",
+      "metadata": {
+        "description": "Delivers changes incrementally. Use when implementing any feature or change that touches more than one file. Use when you're about to write a large amount of code at once, or when a task feels too big to land in one step.",
+        "name": "incremental-implementation"
+      },
+      "path": ".claude/skills/incremental-implementation/SKILL.md"
+    },
+    {
+      "body_sha256": "fe26a048506b2ed89023ad6acbb34aba02ac9b7a4c0662801bfdce28420a187a",
+      "frontmatter_sha256": "2a92a67c9de59bf174a73f24b731014d1564d79d5e61e1b46c5f3ee4f5c364ff",
+      "metadata": {
+        "argument-hint": "<feature or task description>",
+        "description": "Run the autonomous SDLC pipeline on a task \u2014 the single entrypoint driving spec \u2192 review \u2192 build \u2192 test \u2192 security \u2192 delivery through the profile's quality gates. Use to run the SDLC or ship a feature.",
+        "name": "sdlc"
+      },
+      "path": ".claude/skills/sdlc/SKILL.md"
+    },
+    {
+      "body_sha256": "8239b018be1793f53780f90a21333585c476ee2a252dae1b557465268cefa010",
+      "frontmatter_sha256": "f59a5bf349a4df31e03a1b8cabd317c4340ba877fe45cd7219bd4f1c827bc641",
+      "metadata": {
+        "description": "Drives development with tests \u2014 red-green-refactor, Prove-It Pattern for bugs, test pyramid, property-based testing. Do NOT use when no spec exists yet (use spec-driven-development first).",
+        "name": "test-driven-development"
+      },
+      "path": ".claude/skills/test-driven-development/SKILL.md"
+    },
+    {
+      "body_sha256": "d26477e38f5e623795aa7242df0f5a73d37a526fc0e2952b8fa5c2430c3bcf49",
+      "frontmatter_sha256": "22b8198aa66dd5686ca1dfd139564f9dfc06a89eb1c55b7ab29c798604e698b0",
+      "metadata": {
+        "description": "Discovers and invokes agent skills. Use when starting a session or when you need to discover which skill applies to the current task. This is the meta-skill that governs how all other skills are discovered and invoked.",
+        "name": "using-agent-skills"
+      },
+      "path": ".claude/skills/using-agent-skills/SKILL.md"
+    }
+  ],
+  "source": {
+    "claude_kit_version": "0.83.0",
+    "commit": "04161917bd3c1aef270f9979e5abeabe3cd755e6",
+    "tree": "02945cbfdb7306a992d1da5fa83eb0b889e4ff75"
+  }
+}

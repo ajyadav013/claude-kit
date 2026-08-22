@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-kit.dev/schemas/canonical-template.schema.json",
+  "title": "Provider-neutral canonical text template metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "description",
+    "category",
+    "format",
+    "destination",
+    "provider_placeholders",
+    "references"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "not": {"pattern": "\\.\\."}
+    },
+    "description": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "category": {
+      "enum": ["project", "stack", "continuity", "memory", "artifact", "readme", "org"]
+    },
+    "format": {"enum": ["markdown", "jinja-markdown", "yaml"]},
+    "destination": {
+      "type": "string",
+      "pattern": "^templates/",
+      "not": {"anyOf": [{"pattern": "^/"}, {"pattern": "(^|/)\\.\\.(/|$)"}]}
+    },
+    "provider_placeholders": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^provider\\.(path|executable|model|tool|name|environment)\\.[a-z0-9_.-]+$"
+      }
+    },
+    "references": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)://[a-z0-9][a-z0-9._-]*$"
+      }
+    }
+  }
+}

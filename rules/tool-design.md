@@ -1,9 +1,9 @@
 ---
 paths:
-  - '.claude/agents/**'
-  - '.claude/skills/**'
-  - '**/agents/**'
-  - '**/skills/**'
+- .claude/agents/**
+- .claude/skills/**
+- '**/agents/**'
+- '**/skills/**'
 ---
 
 # Tool Design (tools & MCP for agents)
@@ -15,7 +15,7 @@ high-leverage as a well-written prompt — and a badly-designed one quietly burn
 derails the agent.
 
 > Source: Mario Zechner, "What if you don't need MCP at all?"; Anthropic Engineering, "Building a C
-> compiler with a team of parallel Claudes"; "The Anatomy of an Agent Harness." Paraphrased for this kit.
+> compiler with a team of parallel coding agents"; "The Anatomy of an Agent Harness." Paraphrased for this kit.
 
 ## 1. Prefer small composable tools over heavyweight always-loaded servers
 
@@ -39,7 +39,7 @@ habit: list what's enabled, disable what this run won't use, re-enable on demand
 
 Don't dump every capability up front. Expose a **name + one-line description**; load full usage only
 when the tool is actually used (the model behind `.claude/skills/`). This keeps the attention budget on
-the task — see `.claude/skills/context-engineering`.
+the task — see `.claude/skills/context-engineering/SKILL.md`.
 
 ## 3. Name and scope for the model
 
@@ -63,7 +63,7 @@ the task — see `.claude/skills/context-engineering`.
 - **Make every compression reversible.** When a tool truncates, samples, or dedups, it must write the
   full original to a file and leave an inline marker carrying the dropped-item **count** and the
   **retrieval path** — never silently drop items. A compression the agent can't undo is a deletion.
-  (The consumer-side twin of this rule lives in `.claude/skills/context-engineering`.)
+  (The consumer-side twin of this rule lives in `.claude/skills/context-engineering/SKILL.md`.)
 
 > Source-side compaction (compact flags, dedup-with-count, one-line success acks) adapted from the
 > Apache-2.0 [`rtk-ai/rtk`](https://github.com/rtk-ai/rtk); the reversible-marker discipline from the
@@ -90,7 +90,7 @@ finite resources — parallel dispatch, sourcing calls, and its own response len
 spend each only where it returns value.
 
 > Resource-proportionality heuristics adapted (stack-agnostic) from the MIT-licensed
-> [`athola/claude-night-market`](https://github.com/athola/claude-night-market) `conserve` skills
+> a public agent-harness reference implementation `conserve` skills
 > (`agent-expenditure`, `smart-sourcing`, `response-compression`; © 2025 athola). Not vendored.
 
 - **More agents is not more throughput (Brooks's law for agents).** Coordination overhead grows with

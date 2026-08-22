@@ -1,0 +1,17 @@
+schema_version: 1
+id: org-pack-onboarding-and-docs-readme
+description: onboarding-and-docs organization pack readme
+category: org
+format: markdown
+destination: templates/org/packs/onboarding-and-docs/README.md
+provider_placeholders:
+- provider.executable.cli
+references:
+- command://context-engineering
+- command://documentation-and-adrs
+- command://refresh-docs
+- command://repo-onboarding
+- command://source-driven-development
+- command://using-agent-skills
+- skill://refresh-docs
+- skill://repo-onboarding

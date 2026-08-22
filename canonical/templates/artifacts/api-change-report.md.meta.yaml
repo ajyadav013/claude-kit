@@ -1,0 +1,10 @@
+schema_version: 1
+id: artifact-api-change-report
+description: Api Change Report artifact template
+category: artifact
+format: markdown
+destination: templates/artifacts/api-change-report.md
+provider_placeholders: []
+references:
+- rule://quality-gates
+- skill://deprecation-and-migration

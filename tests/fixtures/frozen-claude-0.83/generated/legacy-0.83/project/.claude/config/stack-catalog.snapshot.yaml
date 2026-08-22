@@ -1,0 +1,184 @@
+schema_version: 1
+selection:
+  frontend_framework: react
+  frontend_language: typescript
+  backend_language: python
+  backend_framework: fastapi
+  database: postgres
+  profile: standard
+  capture_mode: session-end-catchup
+  mcp:
+  - docs
+  scope: team
+  teams: []
+  autonomy: assisted
+  review_strictness: standard
+  org_packs: false
+  detect_commands: false
+agents:
+- orchestrator
+- developer
+- sdlc-code-reviewer
+- tester
+- pr-raiser
+- spec-doc-writer
+- story-planner
+- ui-designer
+- technical-architect
+- em-reviewer
+- senior-backend-dev
+- senior-frontend-dev
+- merge-reviewer
+- unit-tester
+- e2e-tester
+- senior-tester
+- devils-advocate
+- acceptance-reviewer
+- security-reviewer
+- secret-scanner
+- dependency-scanner
+- owasp-reviewer
+- policy-validator
+- pentest-scanner
+skills:
+- sdlc
+- execute
+- incremental-implementation
+- test-driven-development
+- debugging-and-error-recovery
+- git-workflow-and-versioning
+- code-review-and-quality
+- using-agent-skills
+- spec-driven-development
+- planning-and-task-breakdown
+- interview-me
+- idea-refine
+- scope
+- api-and-interface-design
+- security-and-hardening
+- security-verification
+- documentation-and-adrs
+- decision
+- remember
+- context-engineering
+- source-driven-development
+- doubt-driven-development
+- code-simplification
+- refresh-docs
+- smoke-test
+- browser-testing-with-devtools
+- performance-optimization
+- load-testing
+- incident-postmortem
+- deploy
+- threat-model
+- strix-ai-pentest
+- shannon-ai-pentest
+- pentesterflow-pentest
+- zap-vapt-scanning
+- accessibility-review
+- over-engineering-review
+- simplification-debt
+- task-tracker-sync
+- ticketing-and-traceability
+- bug-hunt
+- test-plan-review
+- frontend-ui-engineering
+- component-design
+- ui-ux-design
+- unit-test
+- api-integration
+- manual-test
+- frontend-repo-architecture
+- design-system-ops
+- radix-tailwind-component-patterns
+- react-hook-form-zod-patterns
+- tanstack-react-query-patterns
+- vitest-rtl-msw-patterns
+- zustand-state-patterns
+- dockerfile-frontend
+- backend-repo-architecture
+- fastapi-service-patterns
+- pydantic-schema-patterns
+- python-dao-and-database
+- alembic-migrations
+- async-python-patterns
+- configargparse-yaml-env-layering
+- testing-conventions
+- dockerfile-backend
+overlay_rules:
+- react-patterns.md
+- design-system-compliance.md
+- ui-design-system.md
+- ui-components.md
+- ui-layout-and-motion.md
+- ux-patterns.md
+- ux-dashboard-patterns.md
+- mobile-design-guidelines.md
+- fastapi-patterns.md
+- postgres-patterns.md
+- database-performance.md
+overlay_agents:
+- postgres-specialist
+- migration-specialist
+- db-performance-reviewer
+hooks:
+- load-continuity
+- verify-continuity-writeback
+- lint-fix
+- load-learnings
+- load-autonomy
+- guard-rm-rf
+- guard-push-main
+- guard-destructive-git
+- protect-secrets
+- guard-commit-secrets
+- warn-shared-modules
+- warn-llm-io
+- type-check
+- capture-ticket-telemetry
+- capture-learnings
+- capture-learnings-catchup
+gates:
+- spec-complete
+- em-approved
+- code-review
+- build-green
+- contract-clear
+- test-coverage
+- security-clear
+gate_definitions:
+  spec-complete:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  em-approved:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  code-review:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  build-green:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  contract-clear:
+    requirement: conditional
+    skippable: true
+    skip_conditions:
+    - no-api-contract-surface
+  test-coverage:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+  security-clear:
+    requirement: required
+    skippable: false
+    skip_conditions: []
+gate_definition_digest: bc30f4c5b309f2d980ef281988b3ce302e57f4ebc14a4c185f656c042064acc6
+mcp:
+- docs
+org: null
+detected_commands: {}

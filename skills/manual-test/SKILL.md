@@ -1,7 +1,7 @@
 ---
 name: manual-test
 description: Click through a feature in a real browser and verify it behaves — navigate, interact, observe. Use when asked to manually test, QA, or try out a feature as a user would, rather than writing an automated test.
-argument-hint: [page route or feature name, e.g. "/analytics", "dashboard filters", "exception card"]
+argument-hint: '[page route or feature name, e.g. "/analytics", "dashboard filters", "exception card"]'
 disable-model-invocation: true
 ---
 

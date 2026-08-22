@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-kit.dev/schemas/canonical-agent.schema.json",
+  "title": "Provider-neutral canonical agent frontmatter",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "not": {"pattern": "\\.\\."}
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "description",
+    "model_tier",
+    "permission",
+    "capabilities",
+    "write_scope",
+    "isolation",
+    "nested_delegation",
+    "required_skills",
+    "references",
+    "workflow_tier"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"$ref": "#/$defs/id"},
+    "description": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "model_tier": {"enum": ["fast", "balanced", "deep"]},
+    "permission": {"enum": ["read_only", "workspace_write", "external_effect"]},
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "filesystem.read",
+          "filesystem.write",
+          "filesystem.search",
+          "shell",
+          "delegation",
+          "delegation.message",
+          "workflow.ledger",
+          "browser",
+          "human.input",
+          "mcp",
+          "external.mutation",
+          "process.descendant_containment"
+        ]
+      }
+    },
+    "write_scope": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "not": {"anyOf": [{"pattern": "^[/\\\\]"}, {"pattern": "(^|/)\\.\\.(/|$)"}]}
+      }
+    },
+    "isolation": {"enum": ["none", "preferred", "required", "native"]},
+    "nested_delegation": {"enum": ["forbidden", "allowed", "required"]},
+    "required_skills": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^skill://[a-z0-9][a-z0-9._-]*$"}
+    },
+    "references": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)://[a-z0-9][a-z0-9._-]*$"
+      }
+    },
+    "workflow_tier": {"enum": ["orchestrator", "stage-lead", "review", "specialist"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"permission": {"const": "read_only"}}},
+      "then": {
+        "properties": {
+          "write_scope": {"maxItems": 0},
+          "capabilities": {
+            "not": {
+              "contains": {"enum": ["filesystem.write", "external.mutation"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "nested_delegation": {"enum": ["allowed", "required"]}
+        }
+      },
+      "then": {
+        "properties": {
+          "capabilities": {"contains": {"const": "delegation"}}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "capabilities": {"contains": {"const": "external.mutation"}}
+        }
+      },
+      "then": {"properties": {"permission": {"const": "external_effect"}}}
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+schema_version: 1
+id: continuity
+description: Working Memory — state://continuity
+strength: required
+applicability:
+  source: core
+path_globs: []
+references:
+- rule://agent-memory
+- skill://sdlc
+- state://agent-memory
+- state://continuity
+- state://pipeline-snapshot
+- state://workflow

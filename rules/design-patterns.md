@@ -1,14 +1,14 @@
 ---
 paths:
-  - '**/*.py'
-  - '**/*.ts'
-  - '**/*.tsx'
-  - '**/*.js'
-  - '**/*.jsx'
-  - '**/*.go'
-  - '**/*.rs'
-  - '**/*.java'
-  - '**/*.rb'
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
 ---
 
 # Design Patterns
@@ -117,7 +117,7 @@ async function createUser(
     passwordHash: hashPassword(payload.password),
     organizationId: actor.organizationId,
   });
-  
+
   return user;
 }
 ```

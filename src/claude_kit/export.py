@@ -29,6 +29,7 @@ from typing import Any
 import yaml
 
 from claude_kit import scaffold
+from claude_kit.mcp import project_servers as project_mcp_servers
 from claude_kit.models import ResolvedPlan
 from claude_kit.render import render_text
 from claude_kit.secure_fs import ProjectFS
@@ -306,7 +307,7 @@ def _to_cursor_mcp(mcp_servers: dict[str, dict[str, Any]]) -> dict[str, Any]:
     verbatim.
     """
     out: dict[str, dict[str, Any]] = {}
-    for sid, cfg in mcp_servers.items():
+    for sid, cfg in project_mcp_servers(mcp_servers, "cursor").items():
         projected = {k: v for k, v in cfg.items() if k != "type"}
         out[sid] = projected
     return {"mcpServers": out}

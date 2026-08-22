@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-kit.dev/schemas/canonical-rule.schema.json",
+  "title": "Provider-neutral canonical rule metadata",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "not": {"pattern": "\\.\\."}
+    },
+    "reference": {
+      "type": "string",
+      "pattern": "^(agent|skill|rule|command|hook|workflow|stage|handler|gate|state|artifact)://[a-z0-9][a-z0-9._-]*$"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "description",
+    "strength",
+    "applicability",
+    "path_globs",
+    "references"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"$ref": "#/$defs/id"},
+    "description": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "strength": {"enum": ["advisory", "required"]},
+    "applicability": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {"source": {"const": "core"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": {"source": {"const": "org"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "stack_dir"],
+          "properties": {
+            "source": {"const": "stack"},
+            "stack_dir": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9._/-]*$",
+              "not": {"anyOf": [{"pattern": "^/"}, {"pattern": "(^|/)\\.\\.(/|$)"}]}
+            }
+          }
+        }
+      ]
+    },
+    "path_globs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "not": {"anyOf": [{"pattern": "^[/\\\\]"}, {"pattern": "(^|/)\\.\\.(/|$)"}]}
+      }
+    },
+    "references": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/reference"}
+    }
+  }
+}

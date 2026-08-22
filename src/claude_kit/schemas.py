@@ -28,7 +28,12 @@ SCHEMAS = {
     "mcp-lock": "mcp-lock.schema.json",
     "pipeline-snapshot": "pipeline-snapshot.schema.json",
     "stack-catalog-snapshot": "stack-catalog-snapshot.schema.json",
-    "claude-code-compatibility": "claude-code-compatibility.schema.json",
+    "claude-compatibility": "claude-compatibility.schema.json",
+    "codex-compatibility": "codex-compatibility.schema.json",
+    "plugin-metadata": "plugin-metadata.schema.json",
+    "workflow": "workflow.schema.json",
+    "program-manifest": "program-manifest.schema.json",
+    "managed-approval": "managed-approval.schema.json",
 }
 
 

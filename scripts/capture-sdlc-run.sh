@@ -3,10 +3,11 @@
 # capture-sdlc-run.sh — bundle ONE completed `/sdlc` run into a publishable, redaction-scrubbed folder.
 #
 # A real `/sdlc` run leaves its evidence scattered across the project: the spec lands in
-# `docs/specs/`, the gate state in gitignored `.claude/state/`, the verdict log in gitignored
-# `.claude/CONTINUITY.md`, and the code in git itself. This script gathers those into one folder,
-# runs a generic secret scan, and prints a manual-redaction checklist — so you can turn a run into
-# a worked example without hand-collecting files.
+# `docs/specs/`, mutable state lives in `.ckit/` for every fresh runtime-aware install (or the
+# legacy `.claude/` control plane for an unmigrated Claude install), and the code lives in git.
+# This script gathers those into one folder, runs a generic secret scan, and prints a
+# manual-redaction checklist — so you can turn a run into a worked example without
+# hand-collecting files.
 #
 # It is READ-ONLY against your project: it copies files out, never edits or deletes anything in place.
 #
@@ -68,9 +69,74 @@ printf '==> writing bundle to:       %s\n\n' "$OUT"
 
 missing=0
 
+# Select exactly one authoritative control plane. Fresh runtime-aware installs use `.ckit` for
+# Claude, Codex, and both; legacy `.claude` state remains readable only when no neutral marker
+# exists. Do not fall back file-by-file: that would manufacture one bundle from two independent
+# histories. The marker set deliberately mirrors claude_kit.state.detect_state_layout().
+# Reject symlinks at every path component and non-regular marker leaves before using `-f`: these
+# files may be copied into a publishable bundle, so following a control-plane link is unsafe even
+# when its target happens to remain inside the project.
+validate_control_path() {
+  local relative="$1"
+  local cursor="$PROJECT"
+  local component
+  local index
+  local last_index
+  local components=()
+
+  IFS='/' read -r -a components <<< "$relative"
+  last_index=$((${#components[@]} - 1))
+  for index in "${!components[@]}"; do
+    component="${components[$index]}"
+    [ -n "$component" ] || continue
+    cursor="$cursor/$component"
+    [ ! -L "$cursor" ] || die "refusing symlink in control-plane path: $relative"
+    if [ -e "$cursor" ]; then
+      if [ "$index" -lt "$last_index" ]; then
+        [ -d "$cursor" ] || die "refusing non-directory control-plane path component: $relative"
+      else
+        [ -f "$cursor" ] || die "refusing non-regular control-plane file: $relative"
+      fi
+    fi
+  done
+}
+
+has_state_marker() {
+  local candidate="$1"
+  local marker
+  local found=1
+
+  for marker in \
+    "config/init-options.json" \
+    "config/stack-catalog.snapshot.yaml" \
+    "state/pipeline-snapshot.json" \
+    "CONTINUITY.md"
+  do
+    validate_control_path "$candidate/$marker"
+    if [ -f "$PROJECT/$candidate/$marker" ]; then
+      found=0
+    fi
+  done
+  return "$found"
+}
+
+if has_state_marker ".ckit"; then
+  STATE_ROOT=".ckit"
+  STATE_LAYOUT="neutral"
+elif has_state_marker ".claude"; then
+  STATE_ROOT=".claude"
+  STATE_LAYOUT="legacy Claude"
+else
+  # Match the runtime library's fresh default. All copy operations below will report missing files;
+  # choosing a deterministic root here must not make an uninstalled project look installed.
+  STATE_ROOT=".ckit"
+  STATE_LAYOUT="neutral (no authoritative marker found)"
+fi
+
 # copy_one SRC DEST_SUBPATH LABEL — copy a single file if it exists, else note it.
 copy_one() {
   src="$PROJECT/$1"; dest="$OUT/$2"; label="$3"
+  validate_control_path "$1"
   if [ -f "$src" ]; then
     mkdir -p "$(dirname "$dest")"
     cp "$src" "$dest"
@@ -83,9 +149,10 @@ copy_one() {
 
 # --- 1. The artifacts a run produces -----------------------------------------------------------
 printf 'Collecting run artifacts:\n'
-copy_one ".claude/state/pipeline-snapshot.json"        "state/pipeline-snapshot.json"        "pipeline snapshot (gate state, findings, evidence)"
-copy_one ".claude/config/stack-catalog.snapshot.yaml"  "state/stack-catalog.snapshot.yaml"   "install snapshot (profile + resolved gate set)"
-copy_one ".claude/CONTINUITY.md"                       "continuity.md"                       "working memory / verdict log"
+printf '  [info] %s control plane at %s/\n' "$STATE_LAYOUT" "$STATE_ROOT"
+copy_one "$STATE_ROOT/state/pipeline-snapshot.json"        "state/pipeline-snapshot.json"        "pipeline snapshot (gate state, findings, evidence)"
+copy_one "$STATE_ROOT/config/stack-catalog.snapshot.yaml"  "state/stack-catalog.snapshot.yaml"   "install snapshot (profile + resolved gate set)"
+copy_one "$STATE_ROOT/CONTINUITY.md"                       "continuity.md"                       "working memory / verdict log"
 
 # Specs (docs/specs/*_spec.md) and filled artifacts may be many — copy whatever is present.
 if [ -d "$PROJECT/docs/specs" ]; then

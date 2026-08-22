@@ -20,7 +20,7 @@ by the org layer. It does not introduce competing agents.
 | Get interviewed to surface requirements | `/interview-me` (see `ambiguity-resolution.md`) |
 | Turn an idea into a feature brief | `/feature-from-idea` → `pm-copilot` → `spec-doc-writer` |
 | Write a spec from a PRD | `/spec-driven-development` → `spec-doc-writer` |
-| Split a PRD into user stories | `/spec-driven-development` + `story-planner` (the `/prd-to-stories` flow) |
+| Split a PRD into user stories | `/spec-driven-development` + `story-planner` (using `.claude/skills/planning-and-task-breakdown/SKILL.md`) |
 | Break stories into tasks | `/planning-and-task-breakdown` → `story-planner` |
 | Bound what's in / out of scope | `/scope` |
 | Sketch UI behavior for a story | `ui-designer` (design spec only) |
@@ -37,9 +37,9 @@ by the org layer. It does not introduce competing agents.
 
 ## Examples
 ```
-/feature-from-idea "Let users export their report as a shareable link"   # → spec + stories + tasks
-/prd-to-stories Onboarding checklist PRD   # → spec-driven-development + story-planner (stories + acceptance criteria)
-/prompt-to-safe-task "tidy up the settings copy"   # → scoped, approval-gated task
+Use `/feature-from-idea` to turn a shareable-report-link idea into a spec, stories, and tasks.
+Use `/planning-and-task-breakdown` to split the onboarding-checklist PRD into stories and acceptance criteria.
+Use `/prompt-to-safe-task` to turn a settings-copy request into a scoped, approval-gated task.
 ```
 
 ## Autonomy & risk

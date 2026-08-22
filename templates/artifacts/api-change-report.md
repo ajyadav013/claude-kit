@@ -19,7 +19,7 @@
 | <type narrowed / new required field / status code changed / renamed> | … | Critical/High/Medium/Low | yes/no | <link or N/A> |
 
 ## Removed / deprecated
-- <removed or renamed endpoint/field> — deprecation + removal plan: <link to `.claude/skills/deprecation-and-migration` output>
+- <removed or renamed endpoint/field> — deprecation + removal plan: <link to `.claude/skills/deprecation-and-migration/SKILL.md` output>
 
 ## Backward-compatibility verdict
 - Breaking deltas: <count> · each carries an approved migration note + version bump: <yes/no>

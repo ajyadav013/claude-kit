@@ -1,9 +1,9 @@
 ---
 paths:
-  - "**/*.tsx"
-  - "**/*.jsx"
-  - "**/*.css"
-  - "**/*.scss"
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.css'
+- '**/*.scss'
 ---
 
 # Design-system compliance (React + Tailwind + Radix)

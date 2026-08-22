@@ -1,15 +1,15 @@
 ---
 paths:
-  - '.claude/agents/**'
-  - '.claude/skills/**'
-  - '**/agents/**'
-  - '**/skills/**'
-  - '**/test_*.py'
-  - '**/*_test.py'
-  - '**/*.test.*'
-  - '**/*.spec.*'
-  - '**/tests/**'
-  - '**/__tests__/**'
+- .claude/agents/**
+- .claude/skills/**
+- '**/agents/**'
+- '**/skills/**'
+- '**/test_*.py'
+- '**/*_test.py'
+- '**/*.test.*'
+- '**/*.spec.*'
+- '**/tests/**'
+- '**/__tests__/**'
 ---
 
 # Evals (Evaluation-Driven Development)

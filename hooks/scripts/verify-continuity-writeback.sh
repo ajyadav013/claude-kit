@@ -17,8 +17,10 @@
 # judgement, and this kit's own rules forbid treating one as a deterministic oracle. The hook
 # checks the one thing that is mechanically decidable -- that a write-back happened after the work.
 #
-# Never blocks. Every unknown degrades to silence: no git, no jq, no working tree, unreadable
-# mtimes. A hook that guesses would produce exactly the false accusation it exists to prevent.
+# On a proven violation this asks the host to continue once so the model can write back continuity.
+# Every unknown degrades to silence: no git, no jq, no working tree, unreadable mtimes. A hook that
+# guesses would produce exactly the false accusation it exists to prevent. ``stop_hook_active``
+# below is the host-provided loop guard that prevents a second continuation request.
 set -u
 if [ -t 0 ]; then INPUT=""; else INPUT="$(cat 2>/dev/null || true)"; fi
 ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -46,7 +48,7 @@ mtime() {
 
 # Changed files the session is answerable for. Kit runtime state is excluded: CONTINUITY.md itself
 # lives under .claude/, and counting it as "work" would make the hook trigger on its own output.
-CHANGED="$(git status --porcelain 2>/dev/null | awk '{print $NF}' | grep -vE '^\.claude/' || true)"
+CHANGED="$(git status --porcelain 2>/dev/null | awk '{print $NF}' | grep -vE '^(\.claude|\.ckit)/' || true)"
 [ -n "$CHANGED" ] || exit 0
 
 COUNT="$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')"
@@ -81,9 +83,7 @@ $(printf '%s\n' "$CHANGED" | head -20)"
 
 if command -v jq >/dev/null 2>&1; then
   # stdout must be ONLY the JSON object for Claude Code to process it.
-  jq -n --arg ctx "$MSG" '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $ctx}}'
-else
-  echo "$MSG"
+  jq -n --arg reason "$MSG" '{decision: "block", reason: $reason}'
 fi
 
 exit 0

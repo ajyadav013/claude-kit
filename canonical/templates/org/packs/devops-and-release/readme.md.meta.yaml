@@ -1,0 +1,20 @@
+schema_version: 1
+id: org-pack-devops-and-release-readme
+description: devops-and-release organization pack readme
+category: org
+format: markdown
+destination: templates/org/packs/devops-and-release/README.md
+provider_placeholders:
+- provider.executable.cli
+references:
+- command://ci-cd-and-automation
+- command://deprecation-and-migration
+- command://incident-postmortem
+- command://load-testing
+- command://shipping-and-launch
+- rule://autonomy-levels
+- rule://branch-and-pr-policy
+- rule://devops-observability
+- rule://risk-classification
+- skill://incident-postmortem
+- skill://shipping-and-launch

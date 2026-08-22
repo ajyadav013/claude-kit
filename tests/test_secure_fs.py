@@ -339,6 +339,261 @@ def test_project_transaction_rolls_back_files_and_directories(tmp_path):
     assert not list(project.glob(".claude-kit-txn-*"))
 
 
+def test_project_transaction_rolls_back_multi_root_projection_surface(tmp_path):
+    project = tmp_path / "project"
+    originals = {
+        ".ckit/config/state.json": "neutral state\n",
+        ".claude/rules/original.md": "claude\n",
+        ".codex/config.toml": "codex\n",
+        ".agents/skills/reviewer/SKILL.md": "agents\n",
+        ".claude-plugin/plugin.json": "{}\n",
+        ".codex-plugin/plugin.json": "{}\n",
+        "CLAUDE.md": "claude root\n",
+        "AGENTS.md": "agents root\n",
+        "AGENTS.md.codex-kit": "agents sidecar\n",
+        ".mcp.json": "{}\n",
+        ".gitignore": "original ignore\n",
+        ".codex.bak-1/config.toml": "old codex\n",
+        ".codex-plugin.bak-1/plugin.json": "old plugin\n",
+    }
+    for rel, content in originals.items():
+        path = project / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    protected_paths = (
+        ".ckit",
+        ".claude",
+        ".codex",
+        ".agents",
+        ".claude-plugin",
+        ".codex-plugin",
+        "CLAUDE.md",
+        "AGENTS.md",
+        "AGENTS.md.codex-kit",
+        ".mcp.json",
+        ".gitignore",
+        ".codex.bak-1",
+        ".codex-plugin.bak-1",
+    )
+    journal_path = ".ckit/config/upgrade-in-progress.json"
+    fs = ProjectFS(project)
+
+    with pytest.raises(RuntimeError, match="injected"):
+        with ProjectTransaction(
+            fs,
+            operation="install",
+            protected_paths=protected_paths,
+            journal_path=journal_path,
+        ):
+            document = json.loads(fs.read_text(journal_path))
+            assert list(document["protected"]) == list(protected_paths)
+            assert document["journal_path"] == journal_path
+            for rel in originals:
+                fs.write_text(rel, f"changed {rel}\n")
+            fs.write_text(".codex/agents/new.toml", "new\n")
+            fs.write_text(".agents/skills/new/SKILL.md", "new\n")
+            raise RuntimeError("injected failure")
+
+    for rel, content in originals.items():
+        assert (project / rel).read_text(encoding="utf-8") == content
+    assert not (project / ".codex/agents/new.toml").exists()
+    assert not (project / ".agents/skills/new/SKILL.md").exists()
+    assert not (project / journal_path).exists()
+    assert not list(project.glob(".claude-kit-txn-*"))
+
+
+class _SimulatedProjectionProcessDeath(BaseException):
+    pass
+
+
+def test_codex_only_transaction_recovers_without_a_claude_directory(tmp_path):
+    project = tmp_path / "project"
+    codex_config = project / ".codex" / "config.toml"
+    codex_config.parent.mkdir(parents=True)
+    codex_config.write_text("original codex\n", encoding="utf-8")
+    agents_doc = project / "AGENTS.md"
+    agents_doc.write_text("original agents\n", encoding="utf-8")
+    fs = ProjectFS(project)
+    journal_path = ".codex/config/upgrade-in-progress.json"
+
+    with pytest.raises(_SimulatedProjectionProcessDeath):
+        with ProjectTransaction(
+            fs,
+            operation="install",
+            protected_paths=(".codex", "AGENTS.md"),
+            journal_path=journal_path,
+        ):
+            fs.write_text(".codex/config.toml", "partial codex\n")
+            fs.write_text(".codex/agents/new.toml", "partial agent\n")
+            fs.write_text("AGENTS.md", "partial agents\n")
+            raise _SimulatedProjectionProcessDeath()
+
+    assert not (project / ".claude").exists()
+    assert (project / journal_path).is_file()
+    assert list(project.glob(".claude-kit-txn-*"))
+
+    assert recover_interrupted_transaction(ProjectFS(project))
+    assert codex_config.read_text(encoding="utf-8") == "original codex\n"
+    assert agents_doc.read_text(encoding="utf-8") == "original agents\n"
+    assert not (project / ".codex/agents/new.toml").exists()
+    assert not (project / journal_path).exists()
+    assert not (project / ".claude").exists()
+    assert not list(project.glob(".claude-kit-txn-*"))
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "../outside",
+        "/absolute",
+        "secrets.txt",
+        ".claude/../outside",
+        ".codex.bak-not-a-number",
+        "AGENTS.md.unowned",
+    ],
+)
+def test_transaction_rejects_unowned_dynamic_protected_paths(tmp_path, hostile):
+    project = tmp_path / "project"
+    fs = ProjectFS(project)
+
+    with pytest.raises(UnsafePathError):
+        ProjectTransaction(
+            fs,
+            operation="install",
+            protected_paths=(".ckit", hostile),
+            journal_path=".ckit/config/upgrade-in-progress.json",
+        )
+
+    assert not project.exists()
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "../upgrade-in-progress.json",
+        ".ckit/other.json",
+        ".agents/config/upgrade-in-progress.json",
+        ".codex/config/upgrade-in-progress.json",
+    ],
+)
+def test_transaction_rejects_unowned_or_unprotected_journal_paths(tmp_path, hostile):
+    project = tmp_path / "project"
+    fs = ProjectFS(project)
+
+    with pytest.raises(UnsafePathError):
+        ProjectTransaction(
+            fs,
+            operation="install",
+            protected_paths=(".ckit",),
+            journal_path=hostile,
+        )
+
+    assert not project.exists()
+
+
+def test_transaction_refuses_a_symlinked_dynamic_provider_root(tmp_path):
+    project = tmp_path / "project"
+    outside = tmp_path / "outside"
+    project.mkdir()
+    outside.mkdir()
+    (project / ".codex").symlink_to(outside, target_is_directory=True)
+    fs = ProjectFS(project)
+
+    with pytest.raises(UnsafePathError, match="symlink|reparse|junction"):
+        ProjectTransaction(
+            fs,
+            operation="install",
+            protected_paths=(".codex",),
+            journal_path=".codex/config/upgrade-in-progress.json",
+        ).begin()
+
+    assert not list(outside.iterdir())
+    assert not list(project.glob(".claude-kit-txn-*"))
+
+
+@pytest.mark.parametrize("tamper", ["protected", "journal_path"])
+def test_recovery_rejects_malicious_persisted_dynamic_paths_before_rollback(
+    tmp_path, tamper
+):
+    project = tmp_path / "project"
+    original = project / ".ckit" / "state.json"
+    original.parent.mkdir(parents=True)
+    original.write_text("original\n", encoding="utf-8")
+    fs = ProjectFS(project)
+    transaction = ProjectTransaction(
+        fs,
+        operation="install",
+        protected_paths=(".ckit",),
+        journal_path=".ckit/config/upgrade-in-progress.json",
+    )
+
+    with pytest.raises(_SimulatedProjectionProcessDeath):
+        with transaction:
+            fs.write_text(".ckit/state.json", "valuable partial state\n")
+            raise _SimulatedProjectionProcessDeath()
+
+    marker = project / transaction.transaction_rel / "transaction.json"
+    document = json.loads(marker.read_text(encoding="utf-8"))
+    if tamper == "protected":
+        document["protected"] = {"../outside": "directory"}
+    else:
+        document["journal_path"] = "../upgrade-in-progress.json"
+    marker.write_text(json.dumps(document) + "\n", encoding="utf-8")
+
+    with pytest.raises(UnsafePathError):
+        recover_interrupted_transaction(ProjectFS(project))
+    assert original.read_text(encoding="utf-8") == "valuable partial state\n"
+
+
+def test_schema_two_document_without_dynamic_fields_uses_legacy_defaults(tmp_path):
+    project = tmp_path / "project"
+    original = project / ".claude" / "rules" / "original.md"
+    original.parent.mkdir(parents=True)
+    original.write_text("original\n", encoding="utf-8")
+    fs = ProjectFS(project)
+    transaction = ProjectTransaction(fs, operation="install")
+
+    with pytest.raises(_SimulatedProjectionProcessDeath):
+        with transaction:
+            fs.write_text(".claude/rules/original.md", "partial\n")
+            raise _SimulatedProjectionProcessDeath()
+
+    journal = project / ".claude/config/upgrade-in-progress.json"
+    marker = project / transaction.transaction_rel / "transaction.json"
+    expected_paths = [
+        ".claude",
+        "CLAUDE.md",
+        "CLAUDE.md.claude-kit",
+        "AGENTS.md",
+        "AGENTS.md.claude-kit",
+        "README.claude-sdlc.md",
+        "README.claude-sdlc.md.claude-kit",
+        ".mcp.json",
+        ".mcp.json.claude-kit",
+        ".mcp.lock.json",
+        ".gitignore",
+    ]
+    journal_document = json.loads(journal.read_text(encoding="utf-8"))
+    marker_document = json.loads(marker.read_text(encoding="utf-8"))
+    assert list(journal_document["protected"]) == expected_paths
+    assert journal_document["journal_path"] == (
+        ".claude/config/upgrade-in-progress.json"
+    )
+    journal_document.pop("journal_path")
+    marker_document.pop("journal_path")
+    journal.write_text(json.dumps(journal_document) + "\n", encoding="utf-8")
+    marker.write_text(json.dumps(marker_document) + "\n", encoding="utf-8")
+
+    assert recover_interrupted_transaction(ProjectFS(project))
+    assert original.read_text(encoding="utf-8") == "original\n"
+    assert not (project / ".ckit").exists()
+    assert not (project / ".codex").exists()
+    assert not (project / ".agents").exists()
+    assert not journal.exists()
+    assert not list(project.glob(".claude-kit-txn-*"))
+
+
 def test_project_transaction_exclusive_lease_refuses_a_second_begin(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

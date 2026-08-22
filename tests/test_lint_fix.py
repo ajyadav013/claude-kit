@@ -1,8 +1,9 @@
 """Stop-hook lint-fix scoping (P0-3).
 
 `lint-fix.sh` must not reformat files the user never touched. By default it formats only files changed
-in the repo (git-scoped); `CLAUDE_KIT_AUTOFIX=1` restores whole-repo formatting. These tests build a
-throwaway git repo with one committed-but-unrelated file and one changed file and assert the scoping.
+in the repo (git-scoped); neutral `CKIT_AUTOFIX=1` restores whole-repo formatting and the legacy
+alias remains readable. These tests build a throwaway git repo with one committed-but-unrelated file
+and one changed file and assert the scoping.
 """
 
 from __future__ import annotations
@@ -38,10 +39,10 @@ def _make_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _run_hook(repo: Path, autofix: bool = False) -> None:
+def _run_hook(repo: Path, autofix_env: str | None = None) -> None:
     env = {"PATH": os.environ["PATH"], "CLAUDE_PROJECT_DIR": str(repo)}
-    if autofix:
-        env["CLAUDE_KIT_AUTOFIX"] = "1"
+    if autofix_env:
+        env[autofix_env] = "1"
     subprocess.run(
         ["bash", str(SCRIPT)],
         cwd=str(repo),
@@ -67,14 +68,15 @@ def test_scoped_run_leaves_unchanged_files_alone(tmp_path):
     assert (repo / "untouched.py").read_text(encoding="utf-8") == _BAD
 
 
-def test_autofix_formats_the_whole_repo(tmp_path):
+@pytest.mark.parametrize("autofix_env", ["CKIT_AUTOFIX", "CLAUDE_KIT_AUTOFIX"])
+def test_autofix_formats_the_whole_repo(tmp_path, autofix_env):
     repo = _make_repo(tmp_path)
     (repo / "untouched.py").write_text(_BAD, encoding="utf-8")
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "init")
     (repo / "changed.py").write_text(_BAD, encoding="utf-8")
 
-    _run_hook(repo, autofix=True)
+    _run_hook(repo, autofix_env)
 
     assert (repo / "changed.py").read_text(encoding="utf-8") == _GOOD
     assert (repo / "untouched.py").read_text(encoding="utf-8") == _GOOD

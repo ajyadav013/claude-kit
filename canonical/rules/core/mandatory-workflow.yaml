@@ -1,0 +1,35 @@
+schema_version: 1
+id: mandatory-workflow
+description: Mandatory Workflow
+strength: required
+applicability:
+  source: core
+path_globs: []
+references:
+- agent://merge-reviewer
+- artifact://agents-directory
+- artifact://project-instructions
+- artifact://rules-directory
+- rule://agent-guardrails
+- rule://agent-resilience
+- rule://continuity
+- rule://devops-observability
+- rule://goal-setting-and-monitoring
+- rule://human-in-the-loop
+- rule://linting-and-formatting
+- rule://quality-gates
+- rule://rarv-cycle
+- rule://reasoning-techniques
+- rule://responsive-and-accessibility
+- rule://risk-classification
+- rule://testing
+- rule://wave-orchestration
+- skill://documentation-and-adrs
+- skill://git-workflow-and-versioning
+- skill://sdlc
+- skill://simplification-debt
+- skill://task-tracker-sync
+- skill://ticketing-and-traceability
+- state://agent-memory
+- state://continuity
+- state://workflow

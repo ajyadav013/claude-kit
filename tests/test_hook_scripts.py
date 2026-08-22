@@ -457,7 +457,7 @@ def test_lint_fix_scoped_formats_only_changed_files(tmp_path: Path) -> None:
     assert (repo / "untouched.py").read_text() == ugly  # committed file untouched
 
 
-# --- Stop hooks: additionalContext feedback (Claude Code >= 2.1.163) --------------------------
+# --- Stop hooks: one-shot native continuation feedback ----------------------------------------
 #
 # The checker/linter is faked with an `npm` shim on PATH so the tests are hermetic: no real
 # toolchain is needed and the failure output is deterministic.
@@ -474,9 +474,7 @@ def _npm_shim(tmp_path: Path, stdout: str, exit_code: int) -> str:
 
 
 @_NEED_JQ
-def test_type_check_failure_emits_stop_feedback_json(tmp_path: Path) -> None:
-    """A failing type check returns hookSpecificOutput.additionalContext (not bare stdout,
-    which Claude Code writes to the debug log only)."""
+def test_type_check_failure_requests_stop_continuation(tmp_path: Path) -> None:
     import os
 
     proj = tmp_path / "proj"
@@ -491,11 +489,11 @@ def test_type_check_failure_emits_stop_feedback_json(tmp_path: Path) -> None:
         project_dir=proj,
         extra_env={"PATH": f"{shim}:{os.environ['PATH']}"},
     )
-    assert proc.returncode == 0  # feedback, never a hard block
+    assert proc.returncode == 0
     obj = json.loads(proc.stdout)  # stdout is ONLY the JSON object
-    assert obj["hookSpecificOutput"]["hookEventName"] == "Stop"
-    ctx = obj["hookSpecificOutput"]["additionalContext"]
-    assert "error TS2304" in ctx and "fix before finishing" in ctx
+    assert obj["decision"] == "block"
+    assert "error TS2304" in obj["reason"]
+    assert "fix before finishing" in obj["reason"]
 
 
 @_NEED_JQ
@@ -535,7 +533,7 @@ def test_type_check_skips_silently_without_local_tsc(tmp_path: Path) -> None:
 
 
 @_NEED_JQ
-def test_lint_fix_failure_emits_stop_feedback_json(tmp_path: Path) -> None:
+def test_lint_fix_failure_requests_stop_continuation(tmp_path: Path) -> None:
     import os
 
     proj = tmp_path / "proj"  # not a git repo -> whole-repo (unscoped) mode
@@ -554,8 +552,8 @@ def test_lint_fix_failure_emits_stop_feedback_json(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0
     obj = json.loads(proc.stdout)
-    assert obj["hookSpecificOutput"]["hookEventName"] == "Stop"
-    assert "never used" in obj["hookSpecificOutput"]["additionalContext"]
+    assert obj["decision"] == "block"
+    assert "never used" in obj["reason"]
 
     # One nudge per stop chain here too.
     quiet = _run(
@@ -649,7 +647,10 @@ def test_capture_ticket_telemetry_writes_only_gitignored_state(tmp_path: Path) -
 
 
 @_NEED_JQ
-def test_capture_ticket_telemetry_opt_out(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "opt_out_env", ["CKIT_NO_TELEMETRY", "CLAUDE_KIT_NO_TELEMETRY"]
+)
+def test_capture_ticket_telemetry_opt_out(tmp_path: Path, opt_out_env: str) -> None:
     _ticket_store(tmp_path)
     bindir = _fake_claude_kit(tmp_path, 'echo "{}"')
     proc = _run(
@@ -657,7 +658,7 @@ def test_capture_ticket_telemetry_opt_out(tmp_path: Path) -> None:
         payload={"cwd": str(tmp_path)},
         extra_env={
             "PATH": f"{bindir}:{os.environ['PATH']}",
-            "CLAUDE_KIT_NO_TELEMETRY": "1",
+            opt_out_env: "1",
         },
     )
     assert proc.returncode == 0
@@ -687,17 +688,36 @@ def test_capture_ticket_telemetry_throttles_repeat_runs(tmp_path: Path) -> None:
         "second run within the interval is throttled"
     )
 
-    # Interval 0 disables the throttle.
+    # Neutral interval 0 disables the throttle; the legacy alias is covered separately below.
     _run(
         "capture-ticket-telemetry.sh",
         payload={"cwd": str(tmp_path)},
-        extra_env=dict(env, CLAUDE_KIT_TELEMETRY_INTERVAL="0"),
+        extra_env=dict(env, CKIT_TELEMETRY_INTERVAL="0"),
     )
     for _ in range(50):
         if counter.read_text().count("x") == 2:
             break
         time.sleep(0.1)
     assert counter.read_text().count("x") == 2
+
+
+@_NEED_JQ
+def test_capture_ticket_telemetry_legacy_interval_alias(tmp_path: Path) -> None:
+    _ticket_store(tmp_path)
+    counter = tmp_path / "legacy-runs.txt"
+    bindir = _fake_claude_kit(tmp_path, f'echo x >> "{counter}"\necho "{{}}"')
+    env = {
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "CLAUDE_KIT_TELEMETRY_INTERVAL": "0",
+    }
+
+    _run("capture-ticket-telemetry.sh", payload={"cwd": str(tmp_path)}, extra_env=env)
+
+    for _ in range(50):
+        if counter.is_file():
+            break
+        time.sleep(0.1)
+    assert counter.read_text().count("x") == 1
 
 
 @_NEED_JQ
@@ -847,9 +867,10 @@ def test_writeback_hook_fires_when_work_outran_continuity(tmp_path: Path) -> Non
 
     proc = _run("verify-continuity-writeback.sh", payload={}, project_dir=repo)
     assert proc.returncode == 0, proc.stderr
-    ctx = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
-    assert "RARV step 4" in ctx
-    assert "src.py" in ctx
+    output = json.loads(proc.stdout)
+    assert output["decision"] == "block"
+    assert "RARV step 4" in output["reason"]
+    assert "src.py" in output["reason"]
 
 
 @_NEED_GIT

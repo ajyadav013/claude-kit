@@ -8,14 +8,19 @@ import os
 import subprocess
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from itertools import product
 from pathlib import Path
 
 import pytest
 import yaml
 
-from claude_kit import pipeline
+from claude_kit import catalog, pipeline, schemas
+from claude_kit.models import InstallRequest, Runtime
+from claude_kit.runtime_scaffold import install_runtime
+from claude_kit.secure_fs import ProjectFS
+from claude_kit.state import detect_state_layout
+from claude_kit.worktrees import WorktreeManager
 from tests._helpers import install
 
 
@@ -34,7 +39,9 @@ def _init_git_repo(target: Path) -> str:
     )
     marker = target / ".pipeline-audit-root"
     marker.write_text("root\n", encoding="utf-8")
-    subprocess.run(["git", "add", marker.name], cwd=target, check=True)
+    # Managed worktrees are created from HEAD and must contain the complete immutable
+    # provider projection. Mutable pipeline state is written only after this fixture commit.
+    subprocess.run(["git", "add", "-A"], cwd=target, check=True)
     subprocess.run(
         ["git", "commit", "-m", "test root"],
         cwd=target,
@@ -72,20 +79,544 @@ def _record_findings(target: Path, **overrides) -> Path:
     return evidence
 
 
-def _start_v2(payload: Path, target: Path, *, record_clean: bool = True, **overrides):
+def _start_v2(
+    payload: Path,
+    target: Path,
+    *,
+    record_clean: bool = True,
+    mode: str = "B",
+    **overrides,
+):
     _install_with_gate_metadata(payload, target, **overrides)
     commit = _init_git_repo(target)
-    ok, msgs = pipeline.start(target, task="test run", mode="B")
+    ok, msgs = pipeline.start(target, task="test run", mode=mode)
     assert ok, "\n".join(msgs)
     if record_clean:
         _record_findings(target)
     return commit
 
 
+def _managed_workspace(target: Path) -> tuple[dict[str, str], WorktreeManager]:
+    snapshot, error = pipeline.snapshot_document(target)
+    assert error is None and snapshot is not None
+    manager = WorktreeManager(target)
+    record = manager.create(str(snapshot["run_id"]), "managed-workflow")
+    return (
+        {
+            "worker_id": record.worker_id,
+            "target_path": record.target_path,
+            "base_commit": record.base_commit,
+        },
+        manager,
+    )
+
+
+def _bind_managed_run(target: Path, *, mode: str = "B") -> tuple[dict, WorktreeManager]:
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(target)
+    gates = tuple(snapshot["ordered_gates"])
+    _stages, _dependencies, _requirements, _routes, owners = (
+        pipeline._managed_active_graph(target, mode, gates)
+    )
+    workspace, manager = _managed_workspace(target)
+    managed, error = pipeline.bind_managed_execution(
+        target,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode=mode,
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=owners,
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    return managed, manager
+
+
+def _managed_evidence_document(evidence_id: str, *, mode: str = "B") -> dict:
+    documents = {
+        "scope-record": {
+            "mode": mode,
+            "surfaces": ["repository"],
+            "constraints": [],
+            "risks": [],
+        },
+        "specification": {
+            "outcome": "Requested behavior is implemented.",
+            "acceptance-criteria": ["The requested behavior is verified."],
+            "non-goals": [],
+            "risks": [],
+        },
+        "architecture-plan": {
+            "boundaries": ["project workspace"],
+            "dependencies": [],
+            "interfaces": [],
+            "verification": ["focused tests"],
+        },
+        "review-verdict": {
+            "status": "PASS",
+            "reviewer": "test-reviewer",
+            "findings": [],
+            "evidence": ["tests/test_pipeline.py"],
+        },
+        "command-evidence": {
+            "command": "pytest -q",
+            "exit-status": 0,
+            "output": "passed",
+        },
+        "test-report": {
+            "scope": ["focused tests"],
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "residual-risk": [],
+        },
+        "security-report": {
+            "scanners": ["test-scanner"],
+            "findings": [],
+            "dispositions": [],
+            "residual-risk": [],
+        },
+        "delivery-report": {
+            "checks": ["pipeline"],
+            "rollback": {"strategy": "revert"},
+            "residual-risk": [],
+        },
+        "human-approval": {
+            "approver": "test-owner",
+            "scope": "test action",
+            "decision": "approved",
+            "timestamp": "2026-01-01T00:00:00Z",
+        },
+        "frozen-manifest": {
+            "lanes": ["lane"],
+            "boundaries": ["workspace"],
+            "waves": ["wave"],
+            "owners": ["owner"],
+            "gates": ["gate"],
+            "digest": "a" * 64,
+        },
+        "restore-point": {
+            "scope": "workspace",
+            "reference": "commit:abc",
+            "verification": "verified",
+        },
+        "closeout-record": {
+            "outcome": "completed",
+            "gates": [
+                {
+                    "id": "gate",
+                    "status": "passed",
+                    "evidence": ["tests/test_pipeline.py"],
+                }
+            ],
+            "accepted-risks": [],
+            "learnings": [],
+        },
+    }
+    return documents.get(evidence_id, {"path": f"artifacts/{evidence_id}.json"})
+
+
+def _managed_stage_result(
+    target: Path,
+    snapshot: dict,
+    *,
+    stage: str,
+    dispatch_id: str,
+    attempt: int,
+    evidence_documents: dict[str, dict] | None = None,
+    require_pass: bool = True,
+) -> tuple[str, tuple[str, ...], tuple[dict, ...]]:
+    managed = snapshot["managed_execution"]
+    evidence_ids = tuple(managed["active_stage_evidence"][stage])
+    output = json.dumps(
+        {
+            "evidence": {
+                evidence_id: (
+                    evidence_documents[evidence_id]
+                    if evidence_documents is not None
+                    and evidence_id in evidence_documents
+                    else _managed_evidence_document(
+                        evidence_id, mode=str(managed["mode"])
+                    )
+                )
+                for evidence_id in evidence_ids
+            }
+        },
+        sort_keys=True,
+    )
+    records, error = pipeline.materialize_managed_stage_evidence(
+        target,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        dispatch_attempt=attempt,
+        output=output,
+        require_pass=require_pass,
+    )
+    assert error is None and records is not None
+    references = tuple(f"artifact://{evidence_id}" for evidence_id in evidence_ids)
+    return output, references, records
+
+
+def _write_managed_terminal_artifact(
+    target: Path,
+    snapshot: dict,
+    *,
+    stage: str,
+    dispatch_id: str,
+    dispatch_attempt: int,
+    status: str,
+    output: str | None,
+    error: str | None,
+    evidence: tuple[str, ...],
+    evidence_records: tuple[dict, ...],
+    workspace_checkpoint: dict,
+) -> tuple[str, str]:
+    current, current_error = pipeline.snapshot_document(target)
+    assert current_error is None and current is not None
+    record = next(
+        item
+        for item in current["stage_history"]
+        if item["stage"] == stage
+        and item["dispatch_id"] == dispatch_id
+        and item["dispatch_attempt"] == dispatch_attempt
+        and item["status"] == "running"
+    )
+    document = {
+        "schema_version": 1,
+        "run_id": snapshot["run_id"],
+        "stage": stage,
+        "ledger_attempt": record["attempt"],
+        "provider": record["provider"],
+        "route": record["role"],
+        "dispatch_id": dispatch_id,
+        "dispatch_attempt": dispatch_attempt,
+        "status": status,
+        "output": output,
+        "error": error,
+        "evidence": list(evidence),
+        "evidence_records": list(evidence_records),
+        "workspace_checkpoint": workspace_checkpoint,
+    }
+    template = pipeline._managed_dispatch_artifact_relative(
+        str(snapshot["run_id"]),
+        stage,
+        int(record["attempt"]),
+        "{sha256}",
+        layout=detect_state_layout(target),
+    )
+    return pipeline._write_private_content_addressed_json(
+        ProjectFS(target), template, document
+    )
+
+
+def _finish_managed_stage(
+    target: Path,
+    manager: WorktreeManager,
+    *,
+    stage: str,
+    provider: str = "claude",
+    evidence_documents: dict[str, dict] | None = None,
+) -> None:
+    snapshot = _read_snap(target)
+    managed = snapshot["managed_execution"]
+    completed = {
+        record["stage"]
+        for record in snapshot.get("stage_history", [])
+        if record.get("status") == "succeeded"
+    }
+    skipped = {record["stage"] for record in snapshot.get("skipped_stage_history", [])}
+    active = set(managed["active_stages"])
+    for dependency in managed["active_stage_dependencies"][stage]:
+        if dependency in active and dependency not in completed | skipped:
+            _finish_managed_stage(target, manager, stage=dependency, provider=provider)
+    snapshot = _read_snap(target)
+    dispatch_id = f"{provider}-{stage}"
+    managed = snapshot["managed_execution"]
+    role = managed["active_stage_routes"][stage]["role"]
+    capabilities = tuple(managed["active_stage_requirements"][stage])
+    claimed, messages = pipeline.claim_stage(
+        target,
+        stage=stage,
+        role=role,
+        provider=provider,
+        dispatch_id=dispatch_id,
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert claimed, "\n".join(messages)
+    output, references, evidence_records = _managed_stage_result(
+        target,
+        snapshot,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        attempt=1,
+        evidence_documents=evidence_documents,
+    )
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+    relative, artifact_sha = _write_managed_terminal_artifact(
+        target,
+        snapshot,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        dispatch_attempt=1,
+        status="succeeded",
+        output=output,
+        error=None,
+        evidence=references,
+        evidence_records=evidence_records,
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    finished, messages = pipeline.finish_stage(
+        target,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        attempt=1,
+        status="succeeded",
+        output_sha256=hashlib.sha256(output.encode()).hexdigest(),
+        output_path=relative,
+        output_artifact_sha256=artifact_sha,
+        workspace_checkpoint=checkpoint.to_dict(),
+        evidence=references,
+        evidence_records=evidence_records,
+    )
+    assert finished, "\n".join(messages)
+
+
 def _findings(**overrides):
     findings = {"critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0}
     findings.update(overrides)
     return findings
+
+
+def test_portable_human_stop_blocks_resume_and_gate_mutations_until_approved(
+    payload: Path, tmp_path: Path
+) -> None:
+    _start_v2(payload, tmp_path)
+    ok, messages = pipeline.pause_for_human(
+        tmp_path,
+        reason="external-side-effect",
+        message="Publishing would affect an external registry.",
+        requested_action="Approve or reject publishing this exact artifact.",
+    )
+    assert ok, "\n".join(messages)
+    snapshot, error = pipeline.snapshot_document(tmp_path)
+    assert error is None and snapshot is not None
+    stop = snapshot["human_stops"][0]
+    assert stop["status"] == "pending"
+
+    assert not pipeline.resume(tmp_path)[0]
+    assert "paused for human input" in pipeline.resume(tmp_path)[1][0]
+    blocked, blocked_messages = pipeline.record_findings(
+        tmp_path,
+        evidence=tmp_path / "findings-report.json",
+        **_findings(),
+    )
+    assert not blocked
+    assert "resolve the pause" in blocked_messages[0]
+    first_gate = snapshot["ordered_gates"][0]
+    gate_evidence = tmp_path / "gate.md"
+    gate_evidence.write_text("not yet approved\n", encoding="utf-8")
+    assert not pipeline.close_gate(tmp_path, first_gate, gate_evidence)[0]
+
+    approval = tmp_path / "human-approval.json"
+    approval.write_text(
+        json.dumps({"approver": "owner", "decision": "approved"}),
+        encoding="utf-8",
+    )
+    resolved, resolved_messages = pipeline.resolve_human_stop(
+        tmp_path,
+        stop["stop_id"],
+        decision="approved",
+        resolved_by="project-owner",
+        note="Approved only for the recorded artifact and destination.",
+        evidence=approval,
+    )
+    assert resolved, "\n".join(resolved_messages)
+    assert pipeline.resume(tmp_path)[0]
+    valid, messages = pipeline.validate(tmp_path, strict=True)
+    assert valid, "\n".join(messages)
+
+    updated, error = pipeline.snapshot_document(tmp_path)
+    assert error is None and updated is not None
+    record = updated["human_stops"][0]
+    assert record["status"] == "approved"
+    assert record["evidence_path"] == approval.name
+    assert (
+        record["evidence_sha256"] == hashlib.sha256(approval.read_bytes()).hexdigest()
+    )
+
+
+def test_managed_human_stop_cannot_be_self_approved_without_one_shot_scope(
+    payload: Path, tmp_path: Path
+) -> None:
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, _manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    _record_findings(tmp_path)
+    paused, messages = pipeline.pause_for_human(
+        tmp_path,
+        reason="external-side-effect",
+        message="The selected native role cannot safely publish this artifact.",
+        requested_action="Approve publishing the exact staged artifact.",
+    )
+    assert paused, "\n".join(messages)
+    current, error = pipeline.snapshot_document(tmp_path)
+    assert error is None and current is not None
+    stop_id = current["human_stops"][0]["stop_id"]
+    asserted_approval = tmp_path / "self-asserted-managed-approval.json"
+    asserted_approval.write_text(
+        json.dumps(
+            {
+                "resolver": "same-host-agent",
+                "claim": "project-local evidence should be enough",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    approved, messages = pipeline.resolve_human_stop(
+        tmp_path,
+        stop_id,
+        decision="approved",
+        resolved_by="same-host-agent",
+        note="Approve and continue.",
+        evidence=asserted_approval,
+    )
+    assert not approved
+    # A same-account HMAC file or a caller-selected terminal stage is not an authorization:
+    # a future implementation needs an external/asymmetric verifier plus an origin-bound,
+    # one-shot handoff that only the exact retry can consume.
+    rendered = "\n".join(messages)
+    assert "one exact originating stage" in rendered
+    assert "outside the managed worker trust boundary" in rendered
+    unchanged, error = pipeline.snapshot_document(tmp_path)
+    assert error is None and unchanged is not None
+    assert unchanged["human_stops"][0]["status"] == "pending"
+
+    rejected, messages = pipeline.resolve_human_stop(
+        tmp_path,
+        stop_id,
+        decision="rejected",
+        resolved_by="project-owner",
+        note="Do not publish; return to a non-mutating plan.",
+        evidence=asserted_approval,
+    )
+    assert rejected, "\n".join(messages)
+    final, error = pipeline.snapshot_document(tmp_path)
+    assert error is None and final is not None
+    assert final["human_stops"][0]["status"] == "rejected"
+    assert "re-plan" in final["next"]
+    valid, messages = pipeline.validate(tmp_path, strict=True)
+    assert valid, "\n".join(messages)
+
+
+@pytest.mark.parametrize("reason", sorted(pipeline.HUMAN_STOP_REASONS))
+def test_every_required_human_stop_reason_is_persistable(
+    payload: Path, tmp_path: Path, reason: str
+) -> None:
+    _start_v2(payload, tmp_path, record_clean=False)
+    assert pipeline.pause_for_human(
+        tmp_path,
+        reason=reason,
+        message=f"stop for {reason}",
+        requested_action="provide a bounded decision",
+    )[0]
+    snapshot, error = pipeline.snapshot_document(tmp_path)
+    assert error is None and snapshot is not None
+    assert snapshot["human_stops"][0]["reason"] == reason
+    assert pipeline.abort(tmp_path)[0], "abort must remain available while paused"
+
+
+def test_human_stop_reject_and_evidence_tamper_are_auditable(
+    payload: Path, tmp_path: Path
+) -> None:
+    _start_v2(payload, tmp_path, record_clean=False)
+    assert pipeline.pause_for_human(
+        tmp_path,
+        reason="scope-expansion",
+        message="The requested change exceeds approved scope.",
+        requested_action="Approve expansion or require re-planning.",
+    )[0]
+    snapshot, _ = pipeline.snapshot_document(tmp_path)
+    assert snapshot is not None
+    stop_id = snapshot["human_stops"][0]["stop_id"]
+    assert pipeline.resolve_human_stop(
+        tmp_path,
+        stop_id,
+        decision="rejected",
+        resolved_by="owner",
+        note="Keep the original boundary.",
+    )[0]
+    resumed, messages = pipeline.resume(tmp_path)
+    assert resumed, "\n".join(messages)
+    updated, _ = pipeline.snapshot_document(tmp_path)
+    assert updated is not None
+    assert "re-plan after rejected" in updated["next"]
+
+    assert pipeline.pause_for_human(
+        tmp_path,
+        reason="irreversible-operation",
+        message="A destructive migration is proposed.",
+        requested_action="Approve only after recovery evidence is verified.",
+    )[0]
+    pending, _ = pipeline.snapshot_document(tmp_path)
+    assert pending is not None
+    approval = tmp_path / "restore-point.txt"
+    approval.write_text("verified restore point\n", encoding="utf-8")
+    assert pipeline.resolve_human_stop(
+        tmp_path,
+        pending["human_stops"][-1]["stop_id"],
+        decision="approved",
+        resolved_by="owner",
+        note="Recovery reference verified.",
+        evidence=approval,
+    )[0]
+    approval.write_text("tampered\n", encoding="utf-8")
+    ok, validation = pipeline.validate(tmp_path, strict=True)
+    assert not ok
+    assert any("human-stop evidence hash mismatch" in line for line in validation)
+
+
+def test_pipeline_resume_and_abort_share_run_owned_worktree_lifecycle(
+    payload: Path, tmp_path: Path
+) -> None:
+    from claude_kit.worktrees import WorktreeManager, WorktreeStatus
+
+    _start_v2(payload, tmp_path, record_clean=False)
+    snapshot, error = pipeline.snapshot_document(tmp_path)
+    assert error is None and snapshot is not None
+    run_id = snapshot["run_id"]
+    manager = WorktreeManager(tmp_path)
+    record = manager.create(run_id, "implementation")
+
+    resumed, messages = pipeline.resume(tmp_path)
+    assert resumed, "\n".join(messages)
+    assert any("verified 1 run-owned worktree" in line for line in messages)
+
+    aborted, messages = pipeline.abort(tmp_path)
+    assert aborted, "\n".join(messages)
+    assert any("preserved 1 run-owned worktree" in line for line in messages)
+    preserved = manager.records(run_id)[0]
+    assert preserved.status is WorktreeStatus.ABORTED
+    assert (tmp_path / record.target_path).resolve().is_dir()
+    manager.cleanup(run_id, "implementation")
 
 
 def _write_snapshot(target, **fields):
@@ -1531,7 +2062,1920 @@ def test_start_creates_complete_v2_identity_at_first_gate(tmp_path, payload):
     assert snap["stage"] == "spec-complete"
     assert snap["ordered_gates"][0] == "spec-complete"
     assert len(snap["gate_definition_digest"]) == 64
+    assert len(snap["selection_digest"]) == 64
+    assert snap["selection_digest"] == pipeline.installed_selection_digest(tmp_path)
     assert snap["findings_evidence"]["counts"] == _findings()
+    assert snap["stage_history"] == []
+
+
+def test_fast_track_start_freezes_only_its_ordered_gate_subset(tmp_path, payload):
+    plan = _install_with_gate_metadata(payload, tmp_path, profile="standard")
+    _init_git_repo(tmp_path)
+
+    ok, messages = pipeline.start(tmp_path, task="fast change", mode="D")
+
+    assert ok, "\n".join(messages)
+    snapshot = _read_snap(tmp_path)
+    assert snapshot["ordered_gates"] == ["code-review", "build-green"]
+    assert snapshot["ordered_gates"] != plan.gates
+    assert snapshot["gate_definition_digest"] == (
+        pipeline.installed_gate_definition_digest_for_mode(tmp_path, "D")
+    )
+    valid, messages = pipeline.validate(tmp_path, strict=True)
+    assert valid, "\n".join(messages)
+
+
+def test_stage_ledger_claims_before_execution_and_never_reruns_completed_stage(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+
+    unsupported, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="implementation",
+        role="developer",
+        provider="codex",
+        dispatch_id="dispatch-unsupported",
+        attempt=1,
+        required_capabilities=("filesystem.write",),
+        attested_capabilities=("filesystem.read",),
+    )
+    assert not unsupported
+    assert "unsupported required capabilities" in messages[0]
+    assert _read_snap(tmp_path)["stage_history"] == []
+
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="implementation",
+        role="developer",
+        provider="claude",
+        dispatch_id="dispatch-1",
+        attempt=1,
+        required_capabilities=("filesystem.read", "filesystem.write"),
+        attested_capabilities=("filesystem.read", "filesystem.write", "shell"),
+    )
+    assert claimed, "\n".join(messages)
+    duplicate, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="implementation",
+        role="developer",
+        provider="codex",
+        dispatch_id="dispatch-2",
+        attempt=1,
+        required_capabilities=("filesystem.read",),
+        attested_capabilities=("filesystem.read",),
+    )
+    assert not duplicate and "running attempt" in messages[0]
+
+    finished, messages = pipeline.finish_stage(
+        tmp_path,
+        stage="implementation",
+        dispatch_id="dispatch-1",
+        attempt=1,
+        status="succeeded",
+        output_sha256="a" * 64,
+        evidence=("artifact://implementation-report",),
+    )
+    assert finished, "\n".join(messages)
+    completed, error = pipeline.completed_stage_ids(tmp_path)
+    assert error is None and completed == {"implementation"}
+
+    rerun, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="implementation",
+        role="developer",
+        provider="codex",
+        dispatch_id="dispatch-3",
+        attempt=1,
+        required_capabilities=("filesystem.read",),
+        attested_capabilities=("filesystem.read",),
+    )
+    assert not rerun and "cannot run twice" in messages[0]
+    ok, messages = pipeline.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)
+
+
+def test_existing_schema_v2_snapshot_without_stage_history_defaults_safely(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+    path = tmp_path / ".claude/state/pipeline-snapshot.json"
+    snapshot = _read_snap(tmp_path)
+    snapshot.pop("stage_history")
+    path.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
+    ok, messages = pipeline.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)
+    completed, error = pipeline.completed_stage_ids(tmp_path)
+    assert error is None and completed == set()
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="review",
+        role="reviewer",
+        provider="codex",
+        dispatch_id="dispatch-new",
+        attempt=1,
+        required_capabilities=("filesystem.read",),
+        attested_capabilities=("filesystem.read",),
+    )
+    assert claimed, "\n".join(messages)
+    assert len(_read_snap(tmp_path)["stage_history"]) == 1
+
+
+def test_workflow_condition_decisions_freeze_before_cross_host_resume(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+
+    frozen, error = pipeline.bind_workflow_condition_decisions(
+        tmp_path,
+        {"frontend-surface-present": False, "backend-surface-present": True},
+    )
+    assert error is None
+    assert frozen == {
+        "backend-surface-present": True,
+        "frontend-surface-present": False,
+    }
+    resumed, error = pipeline.workflow_condition_decisions(tmp_path)
+    assert error is None and resumed == frozen
+    before = _read_snap(tmp_path)
+
+    rejected, error = pipeline.bind_workflow_condition_decisions(
+        tmp_path,
+        {"frontend-surface-present": True, "backend-surface-present": True},
+    )
+    assert rejected is None
+    assert error is not None and "differ" in error
+    assert _read_snap(tmp_path) == before
+    ok, messages = pipeline.validate(tmp_path, strict=True)
+    assert ok, "\n".join(messages)
+
+
+def test_managed_gate_requires_successful_named_owner_stage(tmp_path, payload):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    owners = {gate: workflow.gates[gate].stage for gate in gates}
+    workspace, manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=owners,
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    evidence = tmp_path / "managed-gate.txt"
+    evidence.write_text("named owner verified\n", encoding="utf-8")
+
+    closed, messages = pipeline.close_gate(tmp_path, gates[0], evidence)
+    assert not closed and "owner stage" in messages[0]
+
+    _finish_managed_stage(tmp_path, manager, stage=owners[gates[0]], provider="claude")
+    mismatch = tmp_path / "mismatched-findings.json"
+    mismatch.write_text('{"medium": 1}\n', encoding="utf-8")
+    recorded, mismatch_messages = pipeline.record_findings(
+        tmp_path,
+        critical=0,
+        high=0,
+        medium=1,
+        low=0,
+        cosmetic=0,
+        evidence=mismatch,
+    )
+    assert not recorded
+    assert "differ from canonical owner-stage evidence" in "\n".join(mismatch_messages)
+    _record_findings(tmp_path)
+    closed, messages = pipeline.close_gate(tmp_path, gates[0], evidence)
+    assert closed, "\n".join(messages)
+    entry = _read_snap(tmp_path)["gate_history"][0]
+    bundle = tmp_path / entry["evidence_path"]
+    assert bundle != evidence
+    assert bundle.stat().st_mode & 0o777 == 0o600
+    assert json.loads(bundle.read_text(encoding="utf-8"))["kind"] == (
+        "managed-workflow-gate-evidence"
+    )
+    evidence.write_text("mutable caller input changed\n", encoding="utf-8")
+    assert pipeline.validate(tmp_path, strict=True)[0]
+    bundle.write_text("{}\n", encoding="utf-8")
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert not valid
+    assert "bundle" in "\n".join(validation_messages)
+
+
+def test_schema_requires_typed_evidence_authority_on_active_managed_run(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path, record_clean=False)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, _manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    active = _read_snap(tmp_path)
+    with ExitStack() as stack:
+        assert schemas.validate_doc(active, "pipeline-snapshot", stack) == []
+        for field in (
+            "evidence_contract_version",
+            "active_stage_evidence",
+            "gate_evidence",
+            "evidence_requirements",
+            "findings_policy",
+        ):
+            malformed = json.loads(json.dumps(active))
+            malformed["managed_execution"].pop(field)
+            errors = schemas.validate_doc(malformed, "pipeline-snapshot", stack)
+            assert errors, field
+        missing_binding = json.loads(json.dumps(active))
+        missing_binding.pop("execution_binding")
+        assert schemas.validate_doc(missing_binding, "pipeline-snapshot", stack)
+        missing_contract = json.loads(json.dumps(active))
+        missing_contract.pop("managed_execution")
+        assert schemas.validate_doc(missing_contract, "pipeline-snapshot", stack)
+
+    snapshot_path = tmp_path / ".claude/state/pipeline-snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(missing_contract, indent=2) + "\n", encoding="utf-8"
+    )
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert not valid
+    assert "without its execution contract" in "\n".join(validation_messages)
+    first_stage = managed["active_stages"][0]
+    route = managed["active_stage_routes"][first_stage]
+    capabilities = tuple(managed["active_stage_requirements"][first_stage])
+    claimed, claim_messages = pipeline.claim_stage(
+        tmp_path,
+        stage=first_stage,
+        role=route["role"],
+        provider="claude",
+        dispatch_id="downgraded-untyped-claim",
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert not claimed
+    assert "without its execution contract" in "\n".join(claim_messages)
+
+
+def test_managed_bind_rechecks_workspace_and_controls_under_the_write_lock(
+    tmp_path, payload, monkeypatch
+):
+    _start_v2(payload, tmp_path, record_clean=False)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, _manager = _managed_workspace(tmp_path)
+    workspace_root = (tmp_path / workspace["target_path"]).resolve(strict=True)
+    control = workspace_root / "CLAUDE.md"
+    original = control.read_text(encoding="utf-8")
+    real_lock = pipeline._pipeline_write_lock
+    mutated = False
+
+    @contextmanager
+    def mutating_lock(fs, path, *, msgs=None):
+        nonlocal mutated
+        if not mutated:
+            control.write_text(
+                original + "\nmutated before authoritative lock\n", encoding="utf-8"
+            )
+            mutated = True
+        with real_lock(fs, path, msgs=msgs):
+            yield
+
+    monkeypatch.setattr(pipeline, "_pipeline_write_lock", mutating_lock)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+
+    assert mutated
+    assert managed is None
+    assert error is not None and "changed during" in error
+    assert _read_snap(tmp_path).get("managed_execution") is None
+
+
+def test_managed_bind_rechecks_source_head_under_the_write_lock(
+    tmp_path, payload, monkeypatch
+):
+    _start_v2(payload, tmp_path, record_clean=False)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, _manager = _managed_workspace(tmp_path)
+    real_lock = pipeline._pipeline_write_lock
+    advanced = False
+
+    @contextmanager
+    def advancing_lock(fs, path, *, msgs=None):
+        nonlocal advanced
+        if not advanced:
+            marker = tmp_path / "source-advanced-before-bind.txt"
+            marker.write_text("new source commit\n", encoding="utf-8")
+            subprocess.run(["git", "add", marker.name], cwd=tmp_path, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "advance source during bind"],
+                cwd=tmp_path,
+                check=True,
+                capture_output=True,
+            )
+            advanced = True
+        with real_lock(fs, path, msgs=msgs):
+            yield
+
+    monkeypatch.setattr(pipeline, "_pipeline_write_lock", advancing_lock)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+
+    assert advanced
+    assert managed is None
+    assert error is not None and "source checkout HEAD changed during" in error
+    assert _read_snap(tmp_path).get("managed_execution") is None
+
+
+def test_managed_gate_findings_cover_exact_transitive_dependency_observations(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path, record_clean=False)
+    _managed, manager = _bind_managed_run(tmp_path)
+    snapshot = _read_snap(tmp_path)
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+
+    medium_report = _managed_evidence_document("security-report")
+    medium_report["findings"] = [
+        {
+            "id": "MED-SCAN-1",
+            "severity": "medium",
+            "disposition": "open",
+            "evidence": ["tests/test_pipeline.py"],
+        }
+    ]
+    medium_report["dispositions"] = [
+        {
+            "finding-id": "MED-SCAN-1",
+            "disposition": "open",
+            "evidence": ["tests/test_pipeline.py"],
+        }
+    ]
+
+    def observation(
+        stage: str,
+        *,
+        document: dict[str, dict] | None = None,
+        artifact_sha: str,
+        status: str = "succeeded",
+    ) -> dict:
+        dispatch_id = f"claude-{stage}"
+        output, _references, records = _managed_stage_result(
+            tmp_path,
+            snapshot,
+            stage=stage,
+            dispatch_id=dispatch_id,
+            attempt=1,
+            evidence_documents=document,
+            require_pass=status == "succeeded",
+        )
+        return {
+            "stage": stage,
+            "role": "test-role",
+            "provider": "claude",
+            "dispatch_id": dispatch_id,
+            "dispatch_attempt": 1,
+            "attempt": 1,
+            "status": status,
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "finished_at": "2026-01-01T00:00:01+00:00",
+            "output_sha256": hashlib.sha256(output.encode()).hexdigest(),
+            "output_artifact_sha256": artifact_sha,
+            "workspace_checkpoint": checkpoint.to_dict(),
+            "evidence_records": list(records),
+        }
+
+    synthetic = json.loads(json.dumps(snapshot))
+    synthetic["stage_history"] = [
+        observation(
+            "secret-scan",
+            document={"security-report": medium_report},
+            artifact_sha="a" * 64,
+        ),
+        observation(
+            "dependency-scan",
+            document={"security-report": medium_report},
+            artifact_sha="b" * 64,
+        ),
+        observation("security-aggregate", artifact_sha="c" * 64),
+        {
+            "stage": "pull-request-prepare",
+            "status": "succeeded",
+            "evidence_records": [{"outside-closure": True}],
+        },
+    ]
+    owner, findings, counts, contributors, projection_digest = (
+        pipeline._managed_gate_finding_projection(
+            ProjectFS(tmp_path), synthetic, "security-clear"
+        )
+    )
+
+    assert owner is not None and owner["stage"] == "security-aggregate"
+    assert counts == _findings(medium=1)
+    assert [item["finding_id"] for item in findings] == ["MED-SCAN-1"]
+    assert {item["stage"] for item in contributors} == {
+        "secret-scan",
+        "dependency-scan",
+        "security-aggregate",
+    }
+    assert isinstance(projection_digest, str) and len(projection_digest) == 64
+    findings_bundle, findings_error = pipeline._managed_findings_bundle(
+        ProjectFS(tmp_path), synthetic, gate="security-clear", persist=False
+    )
+    gate_bundle, gate_error = pipeline._managed_gate_bundle(
+        ProjectFS(tmp_path), synthetic, gate="security-clear", persist=False
+    )
+    assert findings_error is None and findings_bundle is not None
+    assert gate_error is None and gate_bundle is not None
+    assert findings_bundle["document"]["evidence_set_digest"] == projection_digest
+    assert gate_bundle["document"]["finding_evidence_set_digest"] == projection_digest
+
+    failed_report = json.loads(json.dumps(medium_report))
+    failed_report["findings"][0].update(
+        {"id": "CRIT-FAILED-SCAN", "severity": "critical"}
+    )
+    failed_report["dispositions"][0]["finding-id"] = "CRIT-FAILED-SCAN"
+    failed_projection = json.loads(json.dumps(synthetic))
+    failed_projection["stage_history"] = [
+        record
+        for record in failed_projection["stage_history"]
+        if record["stage"] != "dependency-scan"
+    ]
+    failed_projection["stage_history"].append(
+        observation(
+            "dependency-scan",
+            document={"security-report": failed_report},
+            artifact_sha="f" * 64,
+            status="failed",
+        )
+    )
+    _owner, failed_findings, failed_counts, failed_contributors, failed_digest = (
+        pipeline._managed_gate_finding_projection(
+            ProjectFS(tmp_path), failed_projection, "security-clear"
+        )
+    )
+    assert isinstance(failed_digest, str) and len(failed_digest) == 64
+    assert failed_counts == _findings(critical=1, medium=1)
+    assert {item["finding_id"] for item in failed_findings} == {
+        "CRIT-FAILED-SCAN",
+        "MED-SCAN-1",
+    }
+    assert any(
+        item["stage"] == "dependency-scan" and item["status"] == "failed"
+        for item in failed_contributors
+    )
+
+    conflicting_report = json.loads(json.dumps(medium_report))
+    conflicting_report["findings"][0]["evidence"] = ["different-evidence.txt"]
+    conflicting_report["dispositions"][0]["evidence"] = ["different-evidence.txt"]
+    synthetic["stage_history"].append(
+        observation(
+            "policy-review",
+            document={"security-report": conflicting_report},
+            artifact_sha="d" * 64,
+        )
+    )
+    conflict_owner, _conflict_findings, _counts, _contributors, conflict = (
+        pipeline._managed_gate_finding_projection(
+            ProjectFS(tmp_path), synthetic, "security-clear"
+        )
+    )
+    assert conflict_owner is None
+    assert conflict is not None and "conflicting evidence identities" in conflict
+
+
+def test_managed_closeout_requires_the_exact_gate_and_risk_ledgers(tmp_path, payload):
+    _start_v2(payload, tmp_path, record_clean=False, mode="D")
+    _managed, manager = _bind_managed_run(tmp_path, mode="D")
+    gate_evidence = tmp_path / "managed-closeout-gate.txt"
+    gate_evidence.write_text("owner evidence verified\n", encoding="utf-8")
+
+    _finish_managed_stage(tmp_path, manager, stage="fast-review")
+    _record_findings(tmp_path)
+    closed, messages = pipeline.close_gate(
+        tmp_path, "code-review", gate_evidence, strict=True
+    )
+    assert closed, "\n".join(messages)
+    _finish_managed_stage(tmp_path, manager, stage="fast-verify")
+    _record_findings(tmp_path)
+    closed, messages = pipeline.close_gate(
+        tmp_path, "build-green", gate_evidence, strict=True
+    )
+    assert closed, "\n".join(messages)
+
+    snapshot = _read_snap(tmp_path)
+    gates, risks, problem = pipeline._managed_closeout_projection(
+        ProjectFS(tmp_path), snapshot
+    )
+    assert problem is None and gates is not None and risks == []
+    exact = {
+        "outcome": "prepared",
+        "gates": gates,
+        "accepted-risks": risks,
+        "learnings": [],
+    }
+
+    def materialize(document: dict, attempt: int):
+        return pipeline.materialize_managed_stage_evidence(
+            tmp_path,
+            stage="fast-pull-request-prepare",
+            dispatch_id="claude-closeout",
+            dispatch_attempt=attempt,
+            output=json.dumps(
+                {"evidence": {"closeout-record": document}}, sort_keys=True
+            ),
+        )
+
+    records, error = materialize(exact, 1)
+    assert error is None and records is not None
+
+    extra_resolution = json.loads(json.dumps(snapshot))
+    extra_resolution["gate_history"].append(
+        {
+            "gate": "invented-gate",
+            "status": "passed",
+            "evidence_path": "made-up",
+            "evidence_sha256": "c" * 64,
+        }
+    )
+    _gates, _risks, projection_error = pipeline._managed_closeout_projection(
+        ProjectFS(tmp_path), extra_resolution
+    )
+    assert projection_error is not None and "exact ordered gate set" in projection_error
+
+    forged_bundle = json.loads(json.dumps(snapshot))
+    forged_bundle["gate_history"][0]["evidence_path"] = "../../forged.json"
+    forged_bundle["gate_history"][0]["evidence_sha256"] = "d" * 64
+    _gates, _risks, projection_error = pipeline._managed_closeout_projection(
+        ProjectFS(tmp_path), forged_bundle
+    )
+    assert (
+        projection_error is not None
+        and "exact owner evidence bundle" in projection_error
+    )
+
+    wrong_status_key = json.loads(json.dumps(snapshot))
+    first_resolution = wrong_status_key["gate_history"][0]
+    first_resolution["condition_evidence_path"] = first_resolution.pop("evidence_path")
+    first_resolution["condition_evidence_sha256"] = first_resolution.pop(
+        "evidence_sha256"
+    )
+    _gates, _risks, projection_error = pipeline._managed_closeout_projection(
+        ProjectFS(tmp_path), wrong_status_key
+    )
+    assert (
+        projection_error is not None and "not-applicable evidence" in projection_error
+    )
+
+    invented = json.loads(json.dumps(exact))
+    invented["gates"][0]["id"] = "invented-gate"
+    missing = json.loads(json.dumps(exact))
+    missing["gates"].pop()
+    extra = json.loads(json.dumps(exact))
+    extra["gates"].append(
+        {
+            "id": "invented-gate",
+            "status": "passed",
+            "evidence": [{"path": "made-up", "sha256": "a" * 64}],
+        }
+    )
+    invented_risk = json.loads(json.dumps(exact))
+    invented_risk["accepted-risks"] = [
+        {
+            "risk-id": "invented-risk",
+            "affected-gate": "build-green",
+            "finding-id": "MED-INVENTED",
+            "reason": "invented",
+            "accepter": "test-owner",
+            "owner": "test-owner",
+            "ticket": "TEST-1",
+            "revisit-trigger": "before release",
+            "evidence": [{"path": "made-up", "sha256": "b" * 64}],
+        }
+    ]
+    for attempt, malformed in enumerate(
+        (invented, missing, extra, invented_risk), start=2
+    ):
+        malformed_records, malformed_error = materialize(malformed, attempt)
+        assert malformed_records is None
+        assert malformed_error is not None
+        assert "differs" in malformed_error
+
+
+def test_managed_terminal_artifacts_are_immutable_and_namespaced_per_run(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path, record_clean=False)
+    _managed, first_manager = _bind_managed_run(tmp_path)
+    _finish_managed_stage(tmp_path, first_manager, stage="classify")
+    first_snapshot = _read_snap(tmp_path)
+    first_record = next(
+        item
+        for item in first_snapshot["stage_history"]
+        if item["stage"] == "classify" and item["status"] == "succeeded"
+    )
+    first_path = str(first_record["output_path"])
+    first_bytes = (tmp_path / first_path).read_bytes()
+    assert (
+        f"/dispatch/runs/{first_snapshot['run_id']}/classify/1/terminal-" in first_path
+    )
+
+    aborted, messages = pipeline.abort(tmp_path)
+    assert aborted, "\n".join(messages)
+    aborted_snapshot = _read_snap(tmp_path)
+    typed_evidence_path = first_record["evidence_records"][0]["artifact_path"]
+    typed_evidence = tmp_path / typed_evidence_path
+    typed_evidence_bytes = typed_evidence.read_bytes()
+    downgraded_terminal = json.loads(json.dumps(aborted_snapshot))
+    downgraded_terminal["managed_execution"].pop("evidence_contract_version")
+    typed_evidence.write_bytes(b"{}")
+    snapshot_path = tmp_path / ".claude/state/pipeline-snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(downgraded_terminal, indent=2) + "\n", encoding="utf-8"
+    )
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert not valid
+    assert "typed managed evidence contract version" in "\n".join(validation_messages)
+    with ExitStack() as stack:
+        assert schemas.validate_doc(downgraded_terminal, "pipeline-snapshot", stack)
+    typed_evidence.write_bytes(typed_evidence_bytes)
+    typed_evidence.chmod(0o600)
+    snapshot_path.write_text(
+        json.dumps(aborted_snapshot, indent=2) + "\n", encoding="utf-8"
+    )
+    started, messages = pipeline.start(tmp_path, task="second managed run", mode="B")
+    assert started, "\n".join(messages)
+    _managed, second_manager = _bind_managed_run(tmp_path)
+    _finish_managed_stage(tmp_path, second_manager, stage="classify")
+    second_snapshot = _read_snap(tmp_path)
+    second_record = next(
+        item
+        for item in second_snapshot["stage_history"]
+        if item["stage"] == "classify" and item["status"] == "succeeded"
+    )
+    second_path = str(second_record["output_path"])
+
+    assert first_snapshot["run_id"] != second_snapshot["run_id"]
+    assert first_path != second_path
+    assert (tmp_path / first_path).read_bytes() == first_bytes
+    assert (tmp_path / second_path).is_file()
+    assert (
+        f"/dispatch/runs/{second_snapshot['run_id']}/classify/1/terminal-"
+        in second_path
+    )
+    cross_run_record = dict(second_record)
+    cross_run_record["output_path"] = first_path
+    cross_run_record["output_artifact_sha256"] = first_record["output_artifact_sha256"]
+    problem = pipeline._managed_terminal_artifact_problem(
+        tmp_path, second_snapshot, cross_run_record
+    )
+    assert problem is not None and "another run" in problem
+    assert pipeline.validate(tmp_path, strict=True)[0]
+
+    first_artifact = tmp_path / first_path
+    for mutation in ("tampered", "missing", "wrong-mode"):
+        if mutation == "tampered":
+            first_artifact.write_bytes(b"{}")
+        elif mutation == "missing":
+            first_artifact.unlink()
+        else:
+            first_artifact.chmod(0o644)
+        valid, messages = pipeline.validate(tmp_path, strict=True)
+        assert not valid
+        assert any(
+            "run_archives[0]" in message and "terminal artifact" in message
+            for message in messages
+        )
+        first_artifact.write_bytes(first_bytes)
+        first_artifact.chmod(0o600)
+        assert pipeline.validate(tmp_path, strict=True)[0]
+
+
+def test_archived_typed_managed_artifacts_remain_live_verified(tmp_path, payload):
+    _start_v2(payload, tmp_path, record_clean=False)
+    managed, manager = _bind_managed_run(tmp_path)
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    definitions = pipeline.installed_gate_definitions(tmp_path)
+    conditional_gate = next(
+        gate for gate in gates if definitions[gate].requirement == "conditional"
+    )
+    preceding = gates[: gates.index(conditional_gate)]
+    owners = managed["gate_owner_stages"]
+    frozen, freeze_error = pipeline.bind_workflow_condition_decisions(
+        tmp_path, {"api-contract-surface-present": False}
+    )
+    assert freeze_error is None and frozen is not None
+    _record_findings(tmp_path)
+    evidence = tmp_path / "archive-gate-evidence.txt"
+    evidence.write_text("verified\n", encoding="utf-8")
+
+    completed_owners: set[str] = set()
+    for gate in preceding:
+        owner = owners[gate]
+        if owner not in completed_owners:
+            _finish_managed_stage(tmp_path, manager, stage=owner)
+            completed_owners.add(owner)
+        closed, messages = pipeline.close_gate(tmp_path, gate, evidence)
+        assert closed, "\n".join(messages)
+
+    current = _read_snap(tmp_path)
+    conditional_owner = owners[conditional_gate]
+    dependencies = tuple(
+        current["managed_execution"]["active_stage_dependencies"][conditional_owner]
+    )
+    checkpoint = manager.checkpoint(str(current["run_id"]), "managed-workflow")
+    attested, messages = pipeline.attest_skipped_stage(
+        tmp_path,
+        stage=conditional_owner,
+        condition="api-contract-surface-present",
+        dependencies=dependencies,
+        dependency_states={dependency: "succeeded" for dependency in dependencies},
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    assert attested, "\n".join(messages)
+    skipped, messages = pipeline.not_applicable(
+        tmp_path,
+        conditional_gate,
+        condition="no-api-contract-surface",
+        reason="the frozen API surface decision is false",
+        evidence=evidence,
+    )
+    assert skipped, "\n".join(messages)
+
+    first_run = _read_snap(tmp_path)
+    successful_record = next(
+        record
+        for record in first_run["stage_history"]
+        if record.get("status") == "succeeded"
+    )
+    ordinary_gate = next(
+        entry for entry in first_run["gate_history"] if entry["status"] == "passed"
+    )
+    not_applicable_gate = next(
+        entry
+        for entry in first_run["gate_history"]
+        if entry["status"] == "not-applicable"
+    )
+    artifact_paths = {
+        "terminal": successful_record["output_path"],
+        "stage evidence": successful_record["evidence_records"][0]["artifact_path"],
+        "findings bundle": first_run["findings_evidence"]["evidence_path"],
+        "gate bundle": ordinary_gate["evidence_path"],
+        "not-applicable bundle": not_applicable_gate["condition_evidence_path"],
+    }
+
+    aborted, messages = pipeline.abort(tmp_path)
+    assert aborted, "\n".join(messages)
+    started, messages = pipeline.start(tmp_path, task="archive verifier", mode="B")
+    assert started, "\n".join(messages)
+    _bind_managed_run(tmp_path)
+    assert pipeline.validate(tmp_path, strict=True)[0]
+
+    for artifact_name, relative in artifact_paths.items():
+        artifact = tmp_path / relative
+        original = artifact.read_bytes()
+        original_mode = artifact.stat().st_mode & 0o777
+        for mutation in ("tampered", "missing", "wrong-mode"):
+            if mutation == "tampered":
+                artifact.write_bytes(b"{}")
+            elif mutation == "missing":
+                artifact.unlink()
+            else:
+                artifact.chmod(0o644)
+            valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+            assert not valid, f"{artifact_name} {mutation} was accepted"
+            assert any("run_archives[0]" in message for message in validation_messages)
+            artifact.write_bytes(original)
+            artifact.chmod(original_mode)
+            assert pipeline.validate(tmp_path, strict=True)[0]
+
+    downgraded_archive = _read_snap(tmp_path)
+    archived_snapshot = downgraded_archive["run_archives"][0]["snapshot"]
+    archived_snapshot["managed_execution"].pop("evidence_contract_version")
+    downgraded_archive["run_archives"][0]["snapshot_sha256"] = (
+        pipeline._document_sha256(archived_snapshot)
+    )
+    snapshot_path = tmp_path / ".claude/state/pipeline-snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(downgraded_archive, indent=2) + "\n", encoding="utf-8"
+    )
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert not valid
+    assert any(
+        "run_archives[0]" in message
+        and "typed managed evidence contract version" in message
+        for message in validation_messages
+    )
+    with ExitStack() as stack:
+        assert schemas.validate_doc(downgraded_archive, "pipeline-snapshot", stack)
+
+
+def test_failed_typed_findings_are_persisted_and_block_a_clean_retry(tmp_path, payload):
+    _start_v2(payload, tmp_path, record_clean=False, mode="D")
+    managed, manager = _bind_managed_run(tmp_path, mode="D")
+    _finish_managed_stage(tmp_path, manager, stage="fast-implementation")
+    stage = "fast-review"
+    dispatch_id = "claude-fast-review-failing"
+    route = managed["active_stage_routes"][stage]
+    capabilities = tuple(managed["active_stage_requirements"][stage])
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage=stage,
+        role=route["role"],
+        provider="claude",
+        dispatch_id=dispatch_id,
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert claimed, "\n".join(messages)
+
+    verdict = _managed_evidence_document("review-verdict")
+    verdict["status"] = "FAIL"
+    verdict["findings"] = [
+        {
+            "id": "CRIT-FAILED-1",
+            "severity": "critical",
+            "disposition": "open",
+            "evidence": ["tests/test_pipeline.py"],
+        }
+    ]
+    output = json.dumps({"evidence": {"review-verdict": verdict}}, sort_keys=True)
+    records, error = pipeline.materialize_managed_stage_evidence(
+        tmp_path,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        dispatch_attempt=1,
+        output=output,
+        require_pass=False,
+    )
+    assert error is None and records is not None
+    snapshot = _read_snap(tmp_path)
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+    references = ("artifact://review-verdict",)
+    relative, artifact_sha = _write_managed_terminal_artifact(
+        tmp_path,
+        snapshot,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        dispatch_attempt=1,
+        status="failed",
+        output=output,
+        error="review verdict status is not PASS",
+        evidence=references,
+        evidence_records=records,
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    finished, messages = pipeline.finish_stage(
+        tmp_path,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        attempt=1,
+        status="failed",
+        output_sha256=hashlib.sha256(output.encode()).hexdigest(),
+        output_path=relative,
+        output_artifact_sha256=artifact_sha,
+        workspace_checkpoint=checkpoint.to_dict(),
+        evidence=references,
+        evidence_records=records,
+        error="review verdict status is not PASS",
+    )
+    assert finished, "\n".join(messages)
+
+    failed_record = next(
+        item
+        for item in _read_snap(tmp_path)["stage_history"]
+        if item["stage"] == stage and item["status"] == "failed"
+    )
+    assert failed_record["finding_counts"] == _findings(critical=1)
+    assert [item["finding_id"] for item in failed_record["findings"]] == [
+        "CRIT-FAILED-1"
+    ]
+    assert failed_record["evidence_records"] == list(records)
+
+    retried, retry_messages = pipeline.claim_stage(
+        tmp_path,
+        stage=stage,
+        role=route["role"],
+        provider="claude",
+        dispatch_id="claude-fast-review-clean-retry",
+        attempt=2,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert not retried
+    assert "unresolved authoritative typed evidence" in "\n".join(retry_messages)
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert valid, "\n".join(validation_messages)
+
+
+def test_managed_risk_acceptance_requires_exact_medium_finding_identity(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    owners = {gate: workflow.gates[gate].stage for gate in gates}
+    workspace, manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=owners,
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    verdict = _managed_evidence_document("review-verdict")
+    verdict["findings"] = [
+        {
+            "id": "MED-EXACT-1",
+            "severity": "medium",
+            "disposition": "open",
+            "evidence": ["src/example.py:10"],
+        }
+    ]
+    _finish_managed_stage(
+        tmp_path,
+        manager,
+        stage=owners[gates[0]],
+        evidence_documents={"review-verdict": verdict},
+    )
+    findings_input = tmp_path / "managed-medium-findings.json"
+    findings_input.write_text('{"medium": 1}\n', encoding="utf-8")
+    recorded, messages = pipeline.record_findings(
+        tmp_path,
+        critical=0,
+        high=0,
+        medium=1,
+        low=0,
+        cosmetic=0,
+        evidence=findings_input,
+    )
+    assert recorded, "\n".join(messages)
+    acceptance = tmp_path / "risk-acceptance.md"
+    acceptance.write_text(
+        "Owner accepts this exact Medium finding.\n", encoding="utf-8"
+    )
+    common = {
+        "reason": "bounded residual risk",
+        "accepted_by": "test-owner",
+        "owner": "test-owner",
+        "ticket": "TICKET-1",
+        "revisit": "before release",
+        "evidence": acceptance,
+    }
+    accepted, messages = pipeline.accept_risk(
+        tmp_path, gates[0], finding_id="MED-FORGED", **common
+    )
+    assert not accepted
+    assert "not an exact current Medium finding id" in "\n".join(messages)
+    accepted, messages = pipeline.accept_risk(
+        tmp_path, gates[0], finding_id="MED-EXACT-1", **common
+    )
+    assert accepted, "\n".join(messages)
+    entry = _read_snap(tmp_path)["gate_history"][0]
+    assert entry["status"] == "accepted-risk"
+    assert entry["owner_stage"] == owners[gates[0]]
+    assert pipeline.validate(tmp_path, strict=True)[0]
+    accepted_snapshot = _read_snap(tmp_path)
+    closeout_snapshot = json.loads(json.dumps(accepted_snapshot))
+    closeout_snapshot["ordered_gates"] = [gates[0]]
+    projected_gates, projected_risks, projection_problem = (
+        pipeline._managed_closeout_projection(ProjectFS(tmp_path), closeout_snapshot)
+    )
+    assert projection_problem is None and projected_gates is not None
+    assert projected_risks is not None and len(projected_risks) == 1
+    source_risk = accepted_snapshot["accepted_risks"][0]
+    projected_risk = projected_risks[0]
+    assert projected_risk["risk-id"] == source_risk["risk_id"]
+    assert projected_risk["compensating-control"] == source_risk["compensating_control"]
+    assert projected_risk["timestamp"] == source_risk["timestamp"]
+    assert projected_risk["repository-commit"] == source_risk["repository_commit"]
+    assert projected_risk["finding-set-digest"] == source_risk["finding_set_digest"]
+    assert projected_risk["finding-fingerprint"] == source_risk["finding_fingerprint"]
+    assert (
+        projected_risk["gate-definition-digest"]
+        == source_risk["gate_definition_digest"]
+    )
+    assert (
+        projected_risk["workspace-content-digest"]
+        == source_risk["workspace_content_digest"]
+    )
+    risk_artifact = tmp_path / source_risk["evidence_path"]
+    assert (
+        f"/evidence/runs/{accepted_snapshot['run_id']}/risks/{gates[0]}/"
+        in source_risk["evidence_path"]
+    )
+    assert risk_artifact.stat().st_mode & 0o777 == 0o600
+    risk_bytes = risk_artifact.read_bytes()
+    acceptance.write_text("mutable caller evidence changed\n", encoding="utf-8")
+    assert pipeline.validate(tmp_path, strict=True)[0]
+
+    aborted, messages = pipeline.abort(tmp_path)
+    assert aborted, "\n".join(messages)
+    started, messages = pipeline.start(tmp_path, task="risk archive verifier", mode="B")
+    assert started, "\n".join(messages)
+    _bind_managed_run(tmp_path)
+    for mutation in ("tampered", "missing", "wrong-mode"):
+        if mutation == "tampered":
+            risk_artifact.write_bytes(b"{}")
+        elif mutation == "missing":
+            risk_artifact.unlink()
+        else:
+            risk_artifact.chmod(0o644)
+        valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+        assert not valid
+        assert any(
+            "run_archives[0]" in message and "accepted-risk evidence" in message
+            for message in validation_messages
+        )
+        risk_artifact.write_bytes(risk_bytes)
+        risk_artifact.chmod(0o600)
+        assert pipeline.validate(tmp_path, strict=True)[0]
+
+
+def test_managed_evidence_rejects_oversized_tamper_before_unbounded_read(
+    tmp_path, payload, monkeypatch
+):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    owners = {gate: workflow.gates[gate].stage for gate in gates}
+    workspace, manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=owners,
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    _finish_managed_stage(tmp_path, manager, stage=owners[gates[0]])
+    snapshot = _read_snap(tmp_path)
+    record = next(
+        item
+        for item in snapshot["stage_history"]
+        if item["stage"] == owners[gates[0]] and item["status"] == "succeeded"
+    )
+    evidence_path = record["evidence_records"][0]["artifact_path"]
+    with (tmp_path / evidence_path).open("r+b") as handle:
+        handle.truncate(32 * 1024 * 1024)
+
+    original_read_bytes = ProjectFS.read_bytes
+
+    def guarded_read_bytes(self, relative):
+        if self.relpath(relative) == evidence_path:
+            raise AssertionError("oversized evidence reached unbounded read_bytes")
+        return original_read_bytes(self, relative)
+
+    monkeypatch.setattr(ProjectFS, "read_bytes", guarded_read_bytes)
+    valid, messages = pipeline.validate(tmp_path, strict=True)
+    assert not valid
+    assert "safety limit" in "\n".join(messages)
+
+
+def test_managed_not_applicable_rejects_successful_owner_and_true_predicate(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    definitions = pipeline.installed_gate_definitions(tmp_path)
+    conditional_gate = next(
+        gate for gate in gates if definitions[gate].requirement == "conditional"
+    )
+    preceding = gates[: gates.index(conditional_gate)]
+    owners = {gate: workflow.gates[gate].stage for gate in gates}
+    workspace, manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=owners,
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+
+    for owner in dict.fromkeys(owners[gate] for gate in preceding):
+        _finish_managed_stage(tmp_path, manager, stage=owner)
+    _record_findings(tmp_path)
+    evidence = tmp_path / "managed-gate.txt"
+    evidence.write_text("named owner verified\n", encoding="utf-8")
+    for gate in preceding:
+        closed, close_messages = pipeline.close_gate(tmp_path, gate, evidence)
+        assert closed, "\n".join(close_messages)
+
+    condition = definitions[conditional_gate].skip_conditions[0]
+    skipped, skip_messages = pipeline.not_applicable(
+        tmp_path,
+        conditional_gate,
+        condition=condition,
+        reason="canonical condition is evidenced",
+        evidence=evidence,
+    )
+    assert not skipped
+    assert "owner stage" in "\n".join(skip_messages)
+
+    frozen, freeze_error = pipeline.bind_workflow_condition_decisions(
+        tmp_path, {"api-contract-surface-present": True}
+    )
+    assert freeze_error is None and frozen is not None
+    _finish_managed_stage(tmp_path, manager, stage=owners[conditional_gate])
+    _record_findings(tmp_path)
+    skipped, skip_messages = pipeline.not_applicable(
+        tmp_path,
+        conditional_gate,
+        condition=condition,
+        reason="canonical condition is evidenced",
+        evidence=evidence,
+    )
+    assert not skipped
+    assert "requires frozen 'api-contract-surface-present'=false" in "\n".join(
+        skip_messages
+    )
+    assert pipeline.validate(tmp_path, strict=True)[0]
+
+    # Reproduce a pre-fix contradictory ledger: a successful positive-predicate
+    # owner must not become N/A merely because the frozen decision is flipped.
+    contradictory = _read_snap(tmp_path)
+    contradictory["condition_decisions"]["api-contract-surface-present"] = False
+    snapshot_path = tmp_path / ".claude/state/pipeline-snapshot.json"
+    snapshot_path.write_text(
+        json.dumps(contradictory, indent=2) + "\n", encoding="utf-8"
+    )
+    skipped, skip_messages = pipeline.not_applicable(
+        tmp_path,
+        conditional_gate,
+        condition=condition,
+        reason="canonical condition is evidenced",
+        evidence=evidence,
+    )
+    assert not skipped
+    assert "owner stage" in "\n".join(skip_messages) and "succeeded" in "\n".join(
+        skip_messages
+    )
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert not valid
+    assert "frozen condition" in "\n".join(validation_messages)
+
+
+def test_managed_skipped_owner_can_only_close_matching_not_applicable_gate(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    conditional_gate = "contract-clear"
+    owners = {gate: workflow.gates[gate].stage for gate in gates}
+    workspace, manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=owners,
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    frozen, error = pipeline.bind_workflow_condition_decisions(
+        tmp_path, {"api-contract-surface-present": False}
+    )
+    assert error is None and frozen is not None
+    conditional_owner = owners[conditional_gate]
+    owner_route = managed["active_stage_routes"][conditional_owner]
+    owner_capabilities = tuple(managed["active_stage_requirements"][conditional_owner])
+    claimed, claim_messages = pipeline.claim_stage(
+        tmp_path,
+        stage=conditional_owner,
+        role=owner_route["role"],
+        provider="claude",
+        dispatch_id="contradictory-owner",
+        attempt=1,
+        required_capabilities=owner_capabilities,
+        attested_capabilities=owner_capabilities,
+    )
+    assert not claimed
+    assert "frozen condition" in "\n".join(claim_messages)
+    _record_findings(tmp_path)
+    evidence = tmp_path / "managed-gate.txt"
+    evidence.write_text("verified\n", encoding="utf-8")
+
+    completed_owners: set[str] = set()
+    for gate in gates[: gates.index(conditional_gate)]:
+        owner = owners[gate]
+        if owner not in completed_owners:
+            _finish_managed_stage(tmp_path, manager, stage=owner)
+            completed_owners.add(owner)
+        closed, messages = pipeline.close_gate(tmp_path, gate, evidence)
+        assert closed, "\n".join(messages)
+
+    run = _read_snap(tmp_path)
+    dependencies = tuple(
+        run["managed_execution"]["active_stage_dependencies"][owners[conditional_gate]]
+    )
+    checkpoint = manager.checkpoint(str(run["run_id"]), "managed-workflow")
+    attested, messages = pipeline.attest_skipped_stage(
+        tmp_path,
+        stage=owners[conditional_gate],
+        condition="api-contract-surface-present",
+        dependencies=dependencies,
+        dependency_states={dependency: "succeeded" for dependency in dependencies},
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    assert attested, "\n".join(messages)
+    passed, messages = pipeline.close_gate(tmp_path, conditional_gate, evidence)
+    assert not passed and "successful owner" in "\n".join(messages)
+    skipped, messages = pipeline.not_applicable(
+        tmp_path,
+        conditional_gate,
+        condition="no-api-contract-surface",
+        reason="the frozen API surface decision is false",
+        evidence=evidence,
+    )
+    assert skipped, "\n".join(messages)
+    entry = _read_snap(tmp_path)["gate_history"][-1]
+    bundle = tmp_path / entry["condition_evidence_path"]
+    bundle_document = json.loads(bundle.read_text(encoding="utf-8"))
+    assert bundle_document["owner"]["kind"] == "skipped"
+    assert (
+        entry["owner_skip_attestation_sha256"]
+        == (bundle_document["owner"]["attestation_sha256"])
+    )
+    assert pipeline.skipped_stage_ids(tmp_path)[0] == {owners[conditional_gate]}
+    from claude_kit.workflow_executor import PipelineStageLedger
+
+    join_stage = workflow.stage_by_id["api-tests"]
+    join_stage = type(join_stage)(
+        join_stage.id,
+        join_stage.phase,
+        join_stage.route,
+        (owners[conditional_gate],),
+        join_stage.parallel_group,
+        join_stage.condition,
+        join_stage.gates,
+        join_stage.retry_budget,
+        join_stage.evidence,
+        join_stage.required_capabilities,
+    )
+    handoff = PipelineStageLedger(tmp_path).dependency_context(join_stage)
+    assert "durably skipped" in handoff
+    assert "api-contract-surface-present" in handoff
+    assert pipeline.validate(tmp_path, strict=True)[0]
+
+
+def test_managed_workflow_route_or_condition_digest_drift_blocks_resume(
+    tmp_path, payload, monkeypatch
+):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    identity = pipeline._current_workflow_identity()
+    workspace, _manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=identity[0],
+        workflow_schema_version=identity[1],
+        workflow_definition_digest=identity[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    monkeypatch.setattr(
+        pipeline,
+        "_current_workflow_identity",
+        lambda: (identity[0], identity[1], "0" * 64),
+    )
+
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role="orchestrator",
+        provider="codex",
+        dispatch_id="drifted-workflow",
+        attempt=1,
+        required_capabilities=("filesystem.read",),
+        attested_capabilities=("filesystem.read",),
+    )
+    assert not claimed
+    assert "workflow definition digest changed" in messages[0]
+
+
+def test_managed_binding_derives_gate_owners_and_claim_contract_atomically(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    owners = {gate: workflow.gates[gate].stage for gate in gates}
+    workspace, manager = _managed_workspace(tmp_path)
+
+    forged_owners = dict(owners)
+    forged_owners[gates[-1]] = "classify"
+    rejected, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=forged_owners,
+        workspace=workspace,
+    )
+    assert rejected is None
+    assert error is not None and "canonical mode policy" in error
+
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages=owners,
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    shell_roles = [
+        capabilities
+        for capabilities in managed["active_stage_requirements"].values()
+        if "shell" in capabilities
+    ]
+    assert shell_roles
+    assert all(
+        "process.descendant_containment" in capabilities for capabilities in shell_roles
+    )
+    classify_caps = tuple(managed["active_stage_requirements"]["classify"])
+    classify_role = managed["active_stage_routes"]["classify"]["role"]
+
+    for mutation, expected in (
+        ({"role": "developer"}, "frozen canonical role"),
+        ({"required_capabilities": ()}, "capabilities differ"),
+        ({"provider": "codex"}, "frozen managed provider set"),
+    ):
+        values = {
+            "stage": "classify",
+            "role": classify_role,
+            "provider": "claude",
+            "dispatch_id": "forged-classify",
+            "attempt": 1,
+            "required_capabilities": classify_caps,
+            "attested_capabilities": classify_caps,
+        }
+        values.update(mutation)
+        claimed, messages = pipeline.claim_stage(tmp_path, **values)
+        assert not claimed
+        assert expected in "\n".join(messages)
+
+    specification_caps = tuple(managed["active_stage_requirements"]["specification"])
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="specification",
+        role=managed["active_stage_routes"]["specification"]["role"],
+        provider="claude",
+        dispatch_id="early-specification",
+        attempt=1,
+        required_capabilities=specification_caps,
+        attested_capabilities=specification_caps,
+    )
+    assert not claimed
+    assert "dependency 'classify'" in "\n".join(messages)
+
+    _finish_managed_stage(tmp_path, manager, stage="classify", provider="claude")
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="specification",
+        role=managed["active_stage_routes"]["specification"]["role"],
+        provider="claude",
+        dispatch_id="ready-specification",
+        attempt=1,
+        required_capabilities=specification_caps,
+        attested_capabilities=specification_caps,
+    )
+    assert claimed, "\n".join(messages)
+
+
+def test_managed_provider_projection_drift_blocks_next_claim(tmp_path, payload):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, _manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    manifest = json.loads(
+        (tmp_path / ".claude/config/init-options.json").read_text(encoding="utf-8")
+    )
+    provider_file = next(
+        item["path"] for item in manifest["files"] if item["provider"] == "claude"
+    )
+    path = tmp_path / provider_file
+    path.write_bytes(path.read_bytes() + b"\nprovider projection drift\n")
+
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role=managed["active_stage_routes"]["classify"]["role"],
+        provider="claude",
+        dispatch_id="projection-drift",
+        attempt=1,
+        required_capabilities=tuple(managed["active_stage_requirements"]["classify"]),
+        attested_capabilities=tuple(managed["active_stage_requirements"]["classify"]),
+    )
+    assert not claimed
+    assert "provider projection changed" in "\n".join(messages)
+
+
+def test_managed_worker_controls_are_frozen_but_mutable_context_is_not(
+    tmp_path, payload
+):
+    selection = catalog.defaults(payload)
+    selection.detect_commands = False
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        tmp_path,
+        plan,
+        InstallRequest(selection=selection, runtime=Runtime.CLAUDE),
+    )
+    _init_git_repo(tmp_path)
+    started, messages = pipeline.start(tmp_path, task="test run", mode="B")
+    assert started, "\n".join(messages)
+    _record_findings(tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot, snapshot_error = pipeline.snapshot_document(tmp_path)
+    assert snapshot_error is None and snapshot is not None
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, _manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    layout = detect_state_layout(tmp_path)
+    manifest = json.loads((tmp_path / layout.manifest).read_text(encoding="utf-8"))
+    provider_path = next(
+        item["path"] for item in manifest["files"] if item["provider"] == "claude"
+    )
+    worker_path = tmp_path / workspace["target_path"] / provider_path
+    original = worker_path.read_bytes()
+    worker_path.write_bytes(original + b"\nworker control rewrite\n")
+    role = managed["active_stage_routes"]["classify"]["role"]
+    capabilities = tuple(managed["active_stage_requirements"]["classify"])
+
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role=role,
+        provider="claude",
+        dispatch_id="worker-control-drift",
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert not claimed
+    assert "workspace provider control surface changed" in "\n".join(messages)
+
+    worker_path.write_bytes(original)
+    artifact_template_path = next(
+        item["path"]
+        for item in manifest["files"]
+        if item["owner"] == "kit" and item["path"].startswith(".claude/templates/")
+    )
+    worker_template = tmp_path / workspace["target_path"] / artifact_template_path
+    original_template = worker_template.read_bytes()
+    worker_template.write_bytes(original_template + b"\nrewritten template\n")
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role=role,
+        provider="claude",
+        dispatch_id="artifact-template-drift",
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert not claimed
+    assert "workspace provider control surface changed" in "\n".join(messages)
+    worker_template.write_bytes(original_template)
+
+    mutable_path = next(
+        item["path"]
+        for item in manifest["files"]
+        if item["path"].endswith("CONTINUITY.md") or "/agent-memory/" in item["path"]
+    )
+    source_mutable = tmp_path / mutable_path
+    source_mutable.write_bytes(source_mutable.read_bytes() + b"\ncurrent context\n")
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role=role,
+        provider="claude",
+        dispatch_id="mutable-context-update",
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert claimed, "\n".join(messages)
+
+
+def test_failed_managed_attempt_requires_exact_pre_tree_restore_before_retry(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot = _read_snap(tmp_path)
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    role = managed["active_stage_routes"]["classify"]["role"]
+    capabilities = tuple(managed["active_stage_requirements"]["classify"])
+    claim = {
+        "stage": "classify",
+        "role": role,
+        "provider": "claude",
+        "required_capabilities": capabilities,
+        "attested_capabilities": capabilities,
+    }
+    claimed, messages = pipeline.claim_stage(
+        tmp_path, dispatch_id="classify-failed", attempt=1, **claim
+    )
+    assert claimed, "\n".join(messages)
+
+    worker = (tmp_path / workspace["target_path"]).resolve()
+    escaped = worker / "out-of-scope.txt"
+    escaped.write_text("must be remediated\n", encoding="utf-8")
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+    relative, artifact_sha = _write_managed_terminal_artifact(
+        tmp_path,
+        snapshot,
+        stage="classify",
+        dispatch_id="classify-failed",
+        dispatch_attempt=1,
+        status="failed",
+        output=None,
+        error="scope violation",
+        evidence=(),
+        evidence_records=(),
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    finished, messages = pipeline.finish_stage(
+        tmp_path,
+        stage="classify",
+        dispatch_id="classify-failed",
+        attempt=1,
+        status="failed",
+        output_path=relative,
+        output_artifact_sha256=artifact_sha,
+        workspace_checkpoint=checkpoint.to_dict(),
+        error="scope violation",
+    )
+    assert finished, "\n".join(messages)
+
+    retried, messages = pipeline.claim_stage(
+        tmp_path, dispatch_id="classify-retry", attempt=2, **claim
+    )
+    assert not retried
+    assert "restore its exact pre-attempt checkpoint" in "\n".join(messages)
+    escaped.unlink()
+    retried, messages = pipeline.claim_stage(
+        tmp_path, dispatch_id="classify-retry", attempt=2, **claim
+    )
+    assert retried, "\n".join(messages)
+
+
+def test_operator_can_reconcile_only_unchanged_side_effect_free_stale_attempt(
+    tmp_path, payload
+):
+    selection = catalog.defaults(payload)
+    selection.profile = "lean"
+    selection.detect_commands = False
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        tmp_path,
+        plan,
+        InstallRequest(selection=selection, runtime=Runtime.BOTH),
+    )
+    _init_git_repo(tmp_path)
+    started, messages = pipeline.start(tmp_path, task="test run", mode="B")
+    assert started, "\n".join(messages)
+    _record_findings(tmp_path)
+    workflow = pipeline._current_workflow_definition()
+    snapshot, snapshot_error = pipeline.snapshot_document(tmp_path)
+    assert snapshot_error is None and snapshot is not None
+    gates = tuple(snapshot["ordered_gates"])
+    workspace, manager = _managed_workspace(tmp_path)
+    managed, error = pipeline.bind_managed_execution(
+        tmp_path,
+        workflow_id=workflow.id,
+        workflow_schema_version=workflow.schema_version,
+        workflow_definition_digest=pipeline._current_workflow_identity()[2],
+        mode="B",
+        ordered_gates=gates,
+        gate_definition_digest=snapshot["gate_definition_digest"],
+        gate_owner_stages={gate: workflow.gates[gate].stage for gate in gates},
+        workspace=workspace,
+    )
+    assert error is None and managed is not None
+    _record_findings(tmp_path)
+    role = managed["active_stage_routes"]["classify"]["role"]
+    capabilities = tuple(managed["active_stage_requirements"]["classify"])
+    assert "shell" not in capabilities
+    assert "filesystem.write" not in capabilities
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role=role,
+        provider="codex",
+        dispatch_id="unrecoverable-codex-classifier",
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert claimed, "\n".join(messages)
+
+    operator_evidence = tmp_path / "operator-recovery.json"
+    operator_evidence.write_text(
+        json.dumps(
+            {
+                "operator": "release-owner",
+                "observation": "coordinator terminated before collecting the classifier",
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    reconciled, messages = pipeline.reconcile_stale_stage_attempt(
+        tmp_path,
+        stage="classify",
+        dispatch_id="unrecoverable-codex-classifier",
+        reconciled_by="release-owner",
+        evidence=operator_evidence,
+    )
+    assert not reconciled
+    assert "unsupported for this provider" in "\n".join(messages)
+
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+    cancelled_error = "coordinator retained control and cancelled the Codex process"
+    codex_cancelled_relative, codex_cancelled_sha = _write_managed_terminal_artifact(
+        tmp_path,
+        snapshot,
+        stage="classify",
+        dispatch_id="unrecoverable-codex-classifier",
+        dispatch_attempt=1,
+        status="cancelled",
+        output=None,
+        error=cancelled_error,
+        evidence=(),
+        evidence_records=(),
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    finished, messages = pipeline.finish_stage(
+        tmp_path,
+        stage="classify",
+        dispatch_id="unrecoverable-codex-classifier",
+        attempt=1,
+        status="cancelled",
+        output_path=codex_cancelled_relative,
+        output_artifact_sha256=codex_cancelled_sha,
+        workspace_checkpoint=checkpoint.to_dict(),
+        error=cancelled_error,
+    )
+    assert finished, "\n".join(messages)
+
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role=role,
+        provider="claude",
+        dispatch_id="crashed-classifier",
+        attempt=2,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert claimed, "\n".join(messages)
+    workspace_root = (tmp_path / workspace["target_path"]).resolve(strict=True)
+    drift = workspace_root / "post-crash-drift.txt"
+    drift.write_text("untrusted change after coordinator crash\n", encoding="utf-8")
+    reconciled, messages = pipeline.reconcile_stale_stage_attempt(
+        tmp_path,
+        stage="classify",
+        dispatch_id="crashed-classifier",
+        reconciled_by="release-owner",
+        evidence=operator_evidence,
+    )
+    assert not reconciled
+    assert "workspace changed" in "\n".join(messages)
+    drift.unlink()
+    reconciled, messages = pipeline.reconcile_stale_stage_attempt(
+        tmp_path,
+        stage="classify",
+        dispatch_id="crashed-classifier",
+        reconciled_by="release-owner",
+        evidence=operator_evidence,
+    )
+    assert reconciled, "\n".join(messages)
+    updated, snapshot_error = pipeline.snapshot_document(tmp_path)
+    assert snapshot_error is None and updated is not None
+    record = next(
+        item
+        for item in updated["stage_history"]
+        if item["dispatch_id"] == "crashed-classifier"
+    )
+    assert record["status"] == "cancelled"
+    assert record["workspace_checkpoint"] == record["workspace_checkpoint_before"]
+    assert record["reconciliation"]["reconciled_by"] == "release-owner"
+    stored_evidence = tmp_path / record["reconciliation"]["evidence_path"]
+    assert stored_evidence.is_file()
+    assert (
+        hashlib.sha256(stored_evidence.read_bytes()).hexdigest()
+        == record["reconciliation"]["evidence_sha256"]
+    )
+    valid, messages = pipeline.validate(tmp_path, strict=True)
+    assert valid, "\n".join(messages)
+    with ExitStack() as stack:
+        assert schemas.validate_doc(updated, "pipeline-snapshot", stack) == []
+
+    retried, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="classify",
+        role=role,
+        provider="codex",
+        dispatch_id="classifier-retry",
+        attempt=3,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert retried, "\n".join(messages)
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+    current, current_error = pipeline.snapshot_document(tmp_path)
+    assert current_error is None and current is not None
+    output, references, evidence_records = _managed_stage_result(
+        tmp_path,
+        current,
+        stage="classify",
+        dispatch_id="classifier-retry",
+        attempt=3,
+    )
+    relative, artifact_sha = _write_managed_terminal_artifact(
+        tmp_path,
+        current,
+        stage="classify",
+        dispatch_id="classifier-retry",
+        dispatch_attempt=3,
+        status="succeeded",
+        output=output,
+        error=None,
+        evidence=references,
+        evidence_records=evidence_records,
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    finished, messages = pipeline.finish_stage(
+        tmp_path,
+        stage="classify",
+        dispatch_id="classifier-retry",
+        attempt=3,
+        status="succeeded",
+        output_sha256=hashlib.sha256(output.encode()).hexdigest(),
+        output_path=relative,
+        output_artifact_sha256=artifact_sha,
+        workspace_checkpoint=checkpoint.to_dict(),
+        evidence=references,
+        evidence_records=evidence_records,
+    )
+    assert finished, "\n".join(messages)
+
+    specification_role = managed["active_stage_routes"]["specification"]["role"]
+    specification_caps = tuple(managed["active_stage_requirements"]["specification"])
+    assert "shell" in specification_caps
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="specification",
+        role=specification_role,
+        provider="claude",
+        dispatch_id="crashed-shell-stage",
+        attempt=1,
+        required_capabilities=specification_caps,
+        attested_capabilities=specification_caps,
+    )
+    assert claimed, "\n".join(messages)
+    reconciled, messages = pipeline.reconcile_stale_stage_attempt(
+        tmp_path,
+        stage="specification",
+        dispatch_id="crashed-shell-stage",
+        reconciled_by="release-owner",
+        evidence=operator_evidence,
+    )
+    assert not reconciled
+    assert "may have side effects" in "\n".join(messages)
+
+
+def test_existing_schema_v2_without_execution_binding_fields_remains_readable(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path)
+    path = tmp_path / ".claude/state/pipeline-snapshot.json"
+    snapshot = _read_snap(tmp_path)
+    snapshot.pop("selection_digest")
+    snapshot.pop("stage_history")
+    path.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
+    ok, messages = pipeline.validate(tmp_path, strict=True)
+
+    assert ok, "\n".join(messages)
+    assert pipeline.workflow_condition_decisions(tmp_path) == ({}, None)
 
 
 def test_start_rereads_gate_policy_after_acquiring_project_lease(
@@ -2776,6 +5220,19 @@ def test_exhaustive_bounded_transition_model_preserves_security_invariants():
                 elif resolution == "accepted-risk":
                     assert findings["critical"] == findings["high"] == 0
                     assert findings["medium"] > 0
+
+
+def test_headless_iteration_fails_closed_without_descendant_containment(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path, profile="lean")
+    before = _read_snap(tmp_path)
+
+    token, coordinator, messages = pipeline.begin_headless_iteration(tmp_path)
+
+    assert token is None and coordinator is None
+    assert "descendant-process containment" in "\n".join(messages)
+    assert _read_snap(tmp_path) == before
 
 
 def test_every_lifecycle_operation_refuses_symlinked_pipeline_state(tmp_path, payload):

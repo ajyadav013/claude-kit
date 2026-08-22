@@ -1,0 +1,16 @@
+schema_version: 1
+id: design-system-compliance
+description: Design-system compliance (React + Tailwind + Radix)
+strength: required
+applicability:
+  source: stack
+  stack_dir: frontend/react
+path_globs:
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.css'
+- '**/*.scss'
+references:
+- artifact://rules-directory
+- rule://quality-gates
+- rule://responsive-and-accessibility

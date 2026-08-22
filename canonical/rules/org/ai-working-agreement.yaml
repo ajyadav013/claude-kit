@@ -1,0 +1,20 @@
+schema_version: 1
+id: ai-working-agreement
+description: AI Working Agreement
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://autonomy-levels
+- rule://branch-and-pr-policy
+- rule://compliance-policy
+- rule://human-in-the-loop
+- rule://mandatory-workflow
+- rule://non-engineer-safe-coding
+- rule://pii-policy
+- rule://production-data-policy
+- rule://prompt-to-task-conversion
+- rule://quality-gates
+- rule://risk-classification
+- rule://secrets-policy

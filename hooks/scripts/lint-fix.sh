@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 # Stop hook: auto-fix lint/format issues using whatever tooling the project already has.
-# Stack-detecting and best-effort -- NEVER blocks (always exits 0). No-op if no tooling is found.
+# Stack-detecting and best-effort. It requests at most one Stop continuation when a proven lint
+# issue remains; no-op if no tooling is found.
 #
 # Scope (P0-3): by DEFAULT only the files changed in this repo are formatted, so a Stop never rewrites
-# files the user never touched. Set CLAUDE_KIT_AUTOFIX=1 to restore whole-repo formatting. When git is
+# files the user never touched. Set CKIT_AUTOFIX=1 (legacy CLAUDE_KIT_AUTOFIX is accepted) to
+# restore whole-repo formatting. When git is
 # unavailable or this isn't a work tree, it falls back to whole-repo (best-effort).
 # Tools: ruff (Python), gofmt/rustfmt (Go/Rust), and an npm "lint" script (JS/TS).
 #
 # Feedback path (Claude Code >= 2.1.163): unresolved lint problems are returned as
-# hookSpecificOutput.additionalContext JSON ("Stop hook feedback") so Claude fixes them before
-# finishing; on older versions the field is simply not read (the previous discard behavior).
+# top-level decision/reason JSON so the host continues the turn and the model can fix them before
+# finishing.
 # stop_hook_active gates it to ONE nudge per stop chain, per the hooks reference.
 set -u
 if [ -t 0 ]; then INPUT=""; else INPUT="$(cat 2>/dev/null || true)"; fi
@@ -25,7 +27,7 @@ out=""
 
 # Whole-repo only when explicitly opted in, or when we can't scope via git.
 SCOPED=1
-[ "${CLAUDE_KIT_AUTOFIX:-0}" = "1" ] && SCOPED=0
+[ "${CKIT_AUTOFIX:-${CLAUDE_KIT_AUTOFIX:-0}}" = "1" ] && SCOPED=0
 if [ "$SCOPED" = 1 ] && ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   SCOPED=0
 fi
@@ -95,9 +97,7 @@ if [ "$STOP_ACTIVE" != "true" ] && [ -n "${out:-}" ] && echo "$out" | grep -qiE 
 $(echo "$out" | tail -30)"
   if command -v jq >/dev/null 2>&1; then
     # stdout must be ONLY the JSON object for Claude Code to process it.
-    jq -n --arg ctx "$MSG" '{hookSpecificOutput: {hookEventName: "Stop", additionalContext: $ctx}}'
-  else
-    echo "$MSG"  # no jq: legacy plain stdout (debug log only)
+    jq -n --arg reason "$MSG" '{decision: "block", reason: $reason}'
   fi
 fi
 

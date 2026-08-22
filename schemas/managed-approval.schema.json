@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-kit.dev/schemas/managed-approval.schema.json",
+  "title": "claude-kit managed external-action approval record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "revision",
+    "state",
+    "request",
+    "request_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "revision": {"type": "integer", "minimum": 0, "maximum": 3},
+    "state": {
+      "enum": ["pending", "authorized", "consuming", "consumed", "indeterminate"]
+    },
+    "request": {"$ref": "#/$defs/request"},
+    "request_digest": {"$ref": "#/$defs/digest"},
+    "authorization": {"$ref": "#/$defs/authorization"},
+    "authorization_digest": {"$ref": "#/$defs/digest"},
+    "authorized_at": {"$ref": "#/$defs/timestamp"},
+    "consumption": {"$ref": "#/$defs/consumption"},
+    "receipt": {"$ref": "#/$defs/pull_request_receipt"},
+    "indeterminate_reason": {"$ref": "#/$defs/nonempty"},
+    "terminal_at": {"$ref": "#/$defs/timestamp"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"state": {"const": "pending"}}, "required": ["state"]},
+      "then": {
+        "properties": {"revision": {"const": 0}},
+        "not": {
+          "anyOf": [
+            {"required": ["authorization"]},
+            {"required": ["authorization_digest"]},
+            {"required": ["authorized_at"]},
+            {"required": ["consumption"]},
+            {"required": ["receipt"]},
+            {"required": ["indeterminate_reason"]},
+            {"required": ["terminal_at"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "authorized"}}, "required": ["state"]},
+      "then": {
+        "properties": {"revision": {"const": 1}},
+        "required": ["authorization", "authorization_digest", "authorized_at"],
+        "not": {
+          "anyOf": [
+            {"required": ["consumption"]},
+            {"required": ["receipt"]},
+            {"required": ["indeterminate_reason"]},
+            {"required": ["terminal_at"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "consuming"}}, "required": ["state"]},
+      "then": {
+        "properties": {"revision": {"const": 2}},
+        "required": [
+          "authorization",
+          "authorization_digest",
+          "authorized_at",
+          "consumption"
+        ],
+        "not": {
+          "anyOf": [
+            {"required": ["receipt"]},
+            {"required": ["indeterminate_reason"]},
+            {"required": ["terminal_at"]}
+          ]
+        }
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "consumed"}}, "required": ["state"]},
+      "then": {
+        "properties": {"revision": {"const": 3}},
+        "required": [
+          "authorization",
+          "authorization_digest",
+          "authorized_at",
+          "consumption",
+          "receipt",
+          "terminal_at"
+        ],
+        "not": {"required": ["indeterminate_reason"]}
+      }
+    },
+    {
+      "if": {"properties": {"state": {"const": "indeterminate"}}, "required": ["state"]},
+      "then": {
+        "properties": {"revision": {"const": 3}},
+        "required": [
+          "authorization",
+          "authorization_digest",
+          "authorized_at",
+          "consumption",
+          "indeterminate_reason",
+          "terminal_at"
+        ],
+        "not": {"required": ["receipt"]}
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "not": {"pattern": "\\.\\."}
+    },
+    "nonempty": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!.*[\\u0000-\\u001F])\\S(?:.*\\S)?$"
+    },
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "repository_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$",
+      "not": {"pattern": "(?:^|/)(?:\\.{1,2}|)(?:/|$)"}
+    },
+    "git_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/@+-]*$",
+      "not": {"pattern": "(?:\\.\\.|@\\{|//|(?:/|\\.|\\.lock)$)"}
+    },
+    "artifact_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$",
+      "not": {"pattern": "(?:^|/)(?:\\.{1,2}|)(?:/|$)"}
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "head_commit",
+        "tracked_digest",
+        "untracked_digest",
+        "content_digest"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "head_commit": {"$ref": "#/$defs/commit"},
+        "tracked_digest": {"$ref": "#/$defs/digest"},
+        "untracked_digest": {"$ref": "#/$defs/digest"},
+        "content_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner",
+        "worker_id",
+        "target_path",
+        "base_commit",
+        "provider_control_surface_digest",
+        "checkpoint"
+      ],
+      "properties": {
+        "owner": {"$ref": "#/$defs/identifier"},
+        "worker_id": {"$ref": "#/$defs/identifier"},
+        "target_path": {
+          "allOf": [
+            {"$ref": "#/$defs/nonempty"},
+            {"pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)"}
+          ]
+        },
+        "base_commit": {"$ref": "#/$defs/commit"},
+        "provider_control_surface_digest": {"$ref": "#/$defs/digest"},
+        "checkpoint": {"$ref": "#/$defs/checkpoint"}
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "branch", "commit"],
+      "properties": {
+        "repository": {"$ref": "#/$defs/repository_id"},
+        "branch": {"$ref": "#/$defs/git_ref"},
+        "commit": {"$ref": "#/$defs/commit"}
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "stop_id",
+        "workflow_id",
+        "workflow_schema_version",
+        "workflow_definition_digest",
+        "gate_definition_digest",
+        "stage_id",
+        "stage_attempt",
+        "dispatch_id",
+        "dispatch_attempt",
+        "provider",
+        "route",
+        "role",
+        "repository",
+        "workspace"
+      ],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/identifier"},
+        "stop_id": {"$ref": "#/$defs/identifier"},
+        "workflow_id": {"$ref": "#/$defs/identifier"},
+        "workflow_schema_version": {"type": "integer", "minimum": 1},
+        "workflow_definition_digest": {"$ref": "#/$defs/digest"},
+        "gate_definition_digest": {"$ref": "#/$defs/digest"},
+        "stage_id": {"$ref": "#/$defs/identifier"},
+        "stage_attempt": {"type": "integer", "minimum": 1},
+        "dispatch_id": {"$ref": "#/$defs/identifier"},
+        "dispatch_attempt": {"type": "integer", "minimum": 1},
+        "provider": {"$ref": "#/$defs/identifier"},
+        "route": {"$ref": "#/$defs/identifier"},
+        "role": {"$ref": "#/$defs/identifier"},
+        "repository": {"$ref": "#/$defs/repository"},
+        "workspace": {"$ref": "#/$defs/workspace"}
+      }
+    },
+    "artifact_map": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/artifact_id"},
+      "additionalProperties": {"$ref": "#/$defs/digest"}
+    },
+    "pull_request_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "repository",
+        "base_ref",
+        "head_ref",
+        "head_commit",
+        "title",
+        "body",
+        "draft",
+        "artifacts"
+      ],
+      "properties": {
+        "kind": {"const": "repository.pull-request.create"},
+        "repository": {"$ref": "#/$defs/repository_id"},
+        "base_ref": {"$ref": "#/$defs/git_ref"},
+        "head_ref": {"$ref": "#/$defs/git_ref"},
+        "head_commit": {"$ref": "#/$defs/commit"},
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!.*[\\u0000-\\u001F])\\S(?:.*\\S)?$"
+        },
+        "body": {"type": "string", "maxLength": 131072},
+        "draft": {"type": "boolean"},
+        "artifacts": {"$ref": "#/$defs/artifact_map"}
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "schema_version",
+        "request_id",
+        "created_at",
+        "expires_at",
+        "scope",
+        "action",
+        "action_digest"
+      ],
+      "properties": {
+        "domain": {"const": "claude-kit.managed-approval.request.v1"},
+        "schema_version": {"const": 1},
+        "request_id": {"$ref": "#/$defs/identifier"},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "expires_at": {"$ref": "#/$defs/timestamp"},
+        "scope": {"$ref": "#/$defs/scope"},
+        "action": {"$ref": "#/$defs/pull_request_action"},
+        "action_digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "schema_version",
+        "authorization_id",
+        "decision",
+        "request_id",
+        "request_digest",
+        "policy_id",
+        "policy_digest",
+        "signer_id",
+        "key_id",
+        "algorithm",
+        "issued_at",
+        "expires_at",
+        "signature"
+      ],
+      "properties": {
+        "domain": {"const": "claude-kit.managed-approval.authorization.v1"},
+        "schema_version": {"const": 1},
+        "authorization_id": {"$ref": "#/$defs/identifier"},
+        "decision": {"const": "approved"},
+        "request_id": {"$ref": "#/$defs/identifier"},
+        "request_digest": {"$ref": "#/$defs/digest"},
+        "policy_id": {"$ref": "#/$defs/identifier"},
+        "policy_digest": {"$ref": "#/$defs/digest"},
+        "signer_id": {"$ref": "#/$defs/identifier"},
+        "key_id": {"$ref": "#/$defs/identifier"},
+        "algorithm": {
+          "enum": ["ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256", "ssh-ed25519"]
+        },
+        "issued_at": {"$ref": "#/$defs/timestamp"},
+        "expires_at": {"$ref": "#/$defs/timestamp"},
+        "signature": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 2731,
+          "pattern": "^[A-Za-z0-9_-]+$"
+        }
+      }
+    },
+    "consumption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorization_digest", "idempotency_key", "started_at"],
+      "properties": {
+        "authorization_digest": {"$ref": "#/$defs/digest"},
+        "idempotency_key": {"$ref": "#/$defs/digest"},
+        "started_at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "pull_request_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "request_digest",
+        "action_digest",
+        "idempotency_key",
+        "repository",
+        "base_ref",
+        "head_ref",
+        "head_commit",
+        "external_id",
+        "url",
+        "marker",
+        "observed_at"
+      ],
+      "properties": {
+        "kind": {"const": "repository.pull-request.create"},
+        "request_digest": {"$ref": "#/$defs/digest"},
+        "action_digest": {"$ref": "#/$defs/digest"},
+        "idempotency_key": {"$ref": "#/$defs/digest"},
+        "repository": {"$ref": "#/$defs/repository_id"},
+        "base_ref": {"$ref": "#/$defs/git_ref"},
+        "head_ref": {"$ref": "#/$defs/git_ref"},
+        "head_commit": {"$ref": "#/$defs/commit"},
+        "external_id": {"$ref": "#/$defs/nonempty"},
+        "url": {
+          "type": "string",
+          "maxLength": 4096,
+          "format": "uri",
+          "pattern": "^https://[^/@\\s]+(?:/.*)?$"
+        },
+        "marker": {
+          "type": "string",
+          "pattern": "^ckit-managed-approval:[0-9a-f]{64}$"
+        },
+        "observed_at": {"$ref": "#/$defs/timestamp"}
+      }
+    }
+  }
+}

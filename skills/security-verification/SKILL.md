@@ -1,7 +1,7 @@
 ---
 name: security-verification
 description: Check that every user-input surface is validated and sanitized — forms, textareas, query and URL params, external data. Use when asked to verify input validation, audit sanitization, or confirm untrusted input is handled safely.
-argument-hint: [component, page, or "all"]
+argument-hint: '[component, page, or "all"]'
 disable-model-invocation: true
 ---
 

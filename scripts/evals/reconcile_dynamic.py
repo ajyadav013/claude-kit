@@ -29,6 +29,8 @@ Two properties matter more than the arithmetic:
      provenance cannot be printed is the hand-maintained boolean this replaces.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import pathlib

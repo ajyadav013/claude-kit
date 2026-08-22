@@ -1,0 +1,19 @@
+schema_version: 1
+id: agent-memory
+description: Agent Memory System
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@memory/**'
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+references:
+- artifact://project-instructions
+- artifact://rules-directory
+- artifact://skills-directory
+- rule://continuity
+- state://agent-memory
+- state://continuity

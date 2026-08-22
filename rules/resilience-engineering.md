@@ -1,14 +1,14 @@
 ---
 paths:
-  - '**/*.py'
-  - '**/*.ts'
-  - '**/*.tsx'
-  - '**/*.js'
-  - '**/*.jsx'
-  - '**/*.go'
-  - '**/*.rs'
-  - '**/*.java'
-  - '**/*.rb'
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
 ---
 
 # Resilience Engineering
@@ -31,7 +31,7 @@ patterns to the **product's** services. Same physics, different subject.
 Apply it when the change adds or touches a **networked dependency under load** — a service that calls
 another service, a database, a cache, a queue, or a third-party API on a hot path; anything with an
 SLO (`.claude/rules/devops-observability.md`); or any decision that depends on ordering events across
-more than one machine. **Skip (note why in `CONTINUITY.md`)** for a pure local computation, a
+more than one machine. **Skip (note why in `.claude/CONTINUITY.md`)** for a pure local computation, a
 single-process script, or a change with no concurrency-sensitive or cross-node surface.
 
 ---

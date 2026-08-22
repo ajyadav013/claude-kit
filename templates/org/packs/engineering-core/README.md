@@ -36,8 +36,8 @@ added by the org layer. It does not introduce competing agents.
 ## Examples
 ```
 /sdlc Add a "completed" flag to items: API field + a checkbox in the UI
-/refactor-safely Simplify the billing service without changing behavior   # → code-simplification
-/write-tests Add regression coverage for failed password-reset links      # → test-driven-development
+Use `/code-simplification` to simplify the billing service without changing behavior.
+Use `/test-driven-development` to add regression coverage for failed password-reset links.
 ```
 
 ## Autonomy & risk

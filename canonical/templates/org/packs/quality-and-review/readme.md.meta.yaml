@@ -1,0 +1,23 @@
+schema_version: 1
+id: org-pack-quality-and-review-readme
+description: quality-and-review organization pack readme
+category: org
+format: markdown
+destination: templates/org/packs/quality-and-review/README.md
+provider_placeholders:
+- provider.executable.cli
+references:
+- command://accessibility-review
+- command://code-review-and-quality
+- command://doubt-driven-development
+- command://manual-test
+- command://performance-optimization
+- command://security-verification
+- command://smoke-test
+- command://test-driven-development
+- command://unit-test
+- rule://risk-classification
+- skill://accessibility-review
+- skill://code-review-and-quality
+- skill://security-verification
+- skill://test-driven-development

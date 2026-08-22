@@ -1,0 +1,30 @@
+schema_version: 1
+id: devops-observability
+description: DevOps & Observability Phases
+strength: required
+applicability:
+  source: core
+path_globs:
+- .github/**
+- '**/Dockerfile*'
+- '**/docker-compose*'
+- '**/*.tf'
+- '**/k8s/**'
+- '**/deploy/**'
+- '**/Makefile'
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+references:
+- artifact://project-instructions
+- rule://quality-gates
+- rule://rarv-cycle
+- skill://load-testing
+- skill://performance-optimization
+- state://continuity

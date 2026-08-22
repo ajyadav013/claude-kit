@@ -28,11 +28,40 @@
     },
     "gate_definition_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "mcp": {"$ref": "#/$defs/stringArray"},
+    "mcp_semantics": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/mcpSemanticRecord"}
+    },
     "org": {"type": ["object", "null"]},
     "detected_commands": {"type": "object"}
   },
   "$defs": {
-    "stringArray": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+    "stringArray": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "mcpSemanticRecord": {
+      "type": "object",
+      "required": [
+        "label",
+        "transport",
+        "authentication",
+        "runtime_support",
+        "health_check",
+        "environment_references"
+      ],
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "transport": {"enum": ["stdio", "http", "sse"]},
+        "authentication": {"enum": ["inferred", "none", "oauth", "host"]},
+        "runtime_support": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["claude", "codex"]}
+        },
+        "health_check": {"const": "mcp-initialize"},
+        "environment_references": {"$ref": "#/$defs/stringArray"}
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": true
 }

@@ -1,15 +1,15 @@
 ---
 paths:
-  - '.claude/agent-memory/**'
-  - '.claude/agents/**'
-  - '.claude/skills/**'
-  - '**/agents/**'
-  - '**/skills/**'
+- .claude/agent-memory/**
+- .claude/agents/**
+- .claude/skills/**
+- '**/agents/**'
+- '**/skills/**'
 ---
 
 # Agent Memory System
 
-Claude maintains a project-scoped knowledge base in `.claude/agent-memory/` that persists learnings across sessions. This memory is shared — any Claude session working in this project can read and contribute.
+the coding agent maintains a project-scoped knowledge base in `.claude/agent-memory` that persists learnings across sessions. This memory is shared — any coding-agent session working in this project can read and contribute.
 
 ## The memory taxonomy (where each kind lives)
 
@@ -18,15 +18,15 @@ Agents use four kinds of memory; this kit splits them across two systems — don
 | Kind | What it is | Where it lives here |
 |------|-----------|---------------------|
 | **Working** (short-term) | The current task's state — phase, active work, next steps | `.claude/CONTINUITY.md` — ephemeral, this run only |
-| **Episodic** | What happened before — incidents, hard-won fixes, surprises | `agent-memory/debugging/`, `agent-memory/gotchas/` |
-| **Semantic** | Durable facts & decisions — conventions, architecture, API behavior | `agent-memory/architecture/`, `api/`, `patterns/`, `performance/` |
+| **Episodic** | What happened before — incidents, hard-won fixes, surprises | `.claude/agent-memory/debugging/`, `.claude/agent-memory/gotchas/` |
+| **Semantic** | Durable facts & decisions — conventions, architecture, API behavior | `.claude/agent-memory/architecture/`, `api/`, `patterns/`, `performance/` |
 | **Procedural** | How to do things — repeatable workflows and disciplines | the `.claude/rules/*` and `.claude/skills/*` themselves — and episodic/semantic clusters **graduate here**: when 3+ learnings in a category encode one repeatable procedure (or one learning proves out 3+ times), the `consolidate-learnings` skill's Promote step turns them into a project-local skill/rule |
 
-Working memory is the scratchpad (overwritten constantly); the rest is the notebook (accumulates). Promote a durable CONTINUITY learning into the right `agent-memory/` category via the `remember` skill. **Capture is opt-in** — when a `capture_mode` was chosen at init, the `capture-learnings` hook records (in a non-blocking background job) what Claude changed/learned from its own work; when no mode was chosen the hook is not installed and learnings are captured only via the `remember` skill. How often the hook fires is the init-time `capture_mode` choice (on clean exit · + a SessionStart catch-up for sessions closed abruptly · per task); it routes through the `remember` skill.
+Working memory is the scratchpad (overwritten constantly); the rest is the notebook (accumulates). Promote a durable CONTINUITY learning into the right `.claude/agent-memory/` category via the `remember` skill. **Capture is opt-in** — when a `capture_mode` was chosen at init, the `capture-learnings` hook records (in a non-blocking background job) what the coding agent changed/learned from its own work; when no mode was chosen the hook is not installed and learnings are captured only via the `remember` skill. How often the hook fires is the init-time `capture_mode` choice (on clean exit · + a session-start catch-up for sessions closed abruptly · per task); it routes through the `remember` skill. Hosts without background capture support must report that limitation and leave manual `remember` capture available.
 
 ## When to READ memory
 
-- **At the start of every task**: Read `.claude/agent-memory/MEMORY.md` to see what's been learned
+- **At the start of every task**: Read `.claude/agent-memory` to see what's been learned
 - **Before debugging**: Check `debugging/` and `gotchas/` for known issues
 - **Before architectural decisions**: Check `architecture/` for prior decisions and reasoning
 - **Before working with APIs**: Check `api/` for integration notes
@@ -35,8 +35,8 @@ Working memory is the scratchpad (overwritten constantly); the rest is the noteb
 
 Recalled memory is a claim about how things *were when it was written*, not a guarantee about now. Apply three checks before you rely on one:
 
-- **Verify before trust.** When an entry names a concrete file, function, flag, command, or endpoint, confirm it still exists (a quick Read / Grep / Bash) before acting on it. If reality has moved — the file was renamed, the flag removed, the behavior changed — the entry is stale: correct it or remove it (see **Maintenance**), and don't propagate the outdated claim.
-- **Attach selectively, and cite the source.** Pull in only the entries whose `trigger` / `Apply when` matches the task at hand — not the whole store. When a learning shapes a decision, name the entry it came from (e.g. "per `agent-memory/gotchas/<file>.md`") so the reasoning is traceable and a wrong memory can be found and fixed.
+- **Verify before trust.** When an entry names a concrete file, function, flag, command, or endpoint, confirm it still exists (with a quick file inspection, code search, or harmless verification command) before acting on it. If reality has moved — the file was renamed, the flag removed, the behavior changed — the entry is stale: correct it or remove it (see **Maintenance**), and don't propagate the outdated claim.
+- **Attach selectively, and cite the source.** Pull in only the entries whose `trigger` / `Apply when` matches the task at hand — not the whole store. When a learning shapes a decision, name the entry it came from (e.g. "per `.claude/agent-memory/gotchas/<file>.md`") so the reasoning is traceable and a wrong memory can be found and fixed.
 - **Committed instructions win.** When a memory conflicts with `CLAUDE.md` or a rule under `.claude/rules/`, the committed project instruction is authoritative — follow it, and flag or update the contradicting memory. Memory captures what was *learned*; the rules are what the project has *decided*.
 
 ## When to WRITE memory
@@ -98,7 +98,7 @@ match depth to the subject — a small remembered fact stays a few lines.
 
 ### Step 2: Update the index
 
-Add a one-line entry to `.claude/agent-memory/MEMORY.md` under the appropriate category:
+Add a one-line entry to `.claude/agent-memory` under the appropriate category:
 ```markdown
 - [Title](category/filename.md) — one-line hook
 ```

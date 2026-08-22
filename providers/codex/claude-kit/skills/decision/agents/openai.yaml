@@ -1,0 +1,5 @@
+interface:
+  display_name: Decision
+  short_description: Record an architecture decision as an ADR. Use when making significant...
+policy:
+  allow_implicit_invocation: false

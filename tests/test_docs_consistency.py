@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
+
+from claude_kit import catalog, hooks
+from claude_kit.components import HookEffect
+from claude_kit.models import INIT_OPTIONS_SCHEMA
+from tests._helpers import make_selection
 
 _SCRIPT = (
     Path(__file__).resolve().parent.parent / "scripts" / "check_docs_consistency.py"
 )
+_ROOT = _SCRIPT.parent.parent
 
 
 def _load():
@@ -76,3 +83,67 @@ def test_checker_detects_duplicate_gate_tables(monkeypatch):
     monkeypatch.setattr(mod, "_read", fake_read)
     errors = mod.check_profile_gates()
     assert any("duplicate gate table" in e for e in errors), errors
+
+
+def test_readme_profile_inventory_matches_resolved_default_stack(payload):
+    """The current README table is derived from the catalog, including overlay agents."""
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+    core_rules = len(list((payload / "rules").glob("*.md")))
+
+    for profile in ("lean", "standard", "enterprise"):
+        match = re.search(
+            rf"\| `{profile}`(?: \(default\))? \| (\d+) \| (\d+) \| (\d+) \|",
+            readme,
+        )
+        assert match is not None, profile
+        selection = make_selection(
+            payload,
+            profile=profile,
+            scope="individual",
+            teams=[],
+            org_packs=False,
+        )
+        plan = catalog.resolve(payload, selection)
+        expected = (
+            len(set(plan.agents) | set(plan.overlay_agents)),
+            len(plan.skills),
+            core_rules + len(plan.overlay_rules),
+        )
+        assert tuple(map(int, match.groups())) == expected
+
+    assert "installs the whole skill collection" not in readme
+
+
+def test_directory_submission_hook_audit_matches_registry_and_static_plugin():
+    """The release self-audit must name every handler and its real effect/channel."""
+    text = (_ROOT / "docs/launch/directory-submission.md").read_text(encoding="utf-8")
+    table = text.split("| Hook | Event | Mode | Network | In plugin hooks.json |", 1)[1]
+    table = table.split("\n\n**Audit result:**", 1)[0]
+    rows: dict[str, tuple[str, str]] = {}
+    for line in table.splitlines():
+        if not line.startswith("|") or line.startswith("|---"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) == 5:
+            rows[cells[0]] = (cells[2], cells[4])
+
+    expected = set(hooks.HOOK_REGISTRY) | set(hooks.PLUGIN_ONLY_HOOKS)
+    assert set(rows) == expected
+    documented_plugin = {
+        hook_id
+        for hook_id, (_mode, plugin) in rows.items()
+        if plugin.lower().startswith("yes")
+    }
+    assert documented_plugin == set(hooks.PLUGIN_HOOK_IDS) | set(
+        hooks.PLUGIN_ONLY_HOOKS
+    )
+    for hook_id, (mode, _plugin) in rows.items():
+        documented_blocking = "gated" in mode.lower()
+        assert documented_blocking is (
+            hooks.HOOK_SPECS[hook_id].effect is HookEffect.BLOCKING
+        ), hook_id
+
+
+def test_roadmap_names_the_current_native_manifest_schema():
+    roadmap = (_ROOT / "docs/launch/road-to-1.0.md").read_text(encoding="utf-8")
+    assert f"`schema_version` (currently `{INIT_OPTIONS_SCHEMA}`)" in roadmap

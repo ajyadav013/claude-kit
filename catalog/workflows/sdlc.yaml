@@ -1,0 +1,880 @@
+schema_version: 1
+id: sdlc
+title: Evidence-gated software delivery lifecycle
+description: >-
+  Provider-neutral orchestration contract for planning, implementation, verification,
+  security review, delivery readiness, and closeout.
+
+roles:
+  classification:
+    primary: risk-classifier
+    fallbacks: []
+    responsibility: Classify risk, affected surfaces, constraints, and the required protocol without mutation.
+  orchestration:
+    primary: orchestrator
+    fallbacks: []
+    responsibility: Own routing, joins, evidence accounting, and gate progression.
+  specification:
+    primary: spec-doc-writer
+    fallbacks: [orchestrator]
+    responsibility: Convert the requested outcome into a verifiable specification.
+  design:
+    primary: ui-designer
+    fallbacks: [technical-architect, orchestrator]
+    responsibility: Define user-facing interaction and accessibility intent when UI is in scope.
+  architecture:
+    primary: technical-architect
+    fallbacks: [senior-backend-dev, senior-frontend-dev, orchestrator]
+    responsibility: Define boundaries, interfaces, risks, and implementation sequencing.
+  management-review:
+    primary: em-reviewer
+    fallbacks: [technical-architect, orchestrator]
+    responsibility: Approve scope, ownership, dependencies, and delivery risk.
+  story-planning:
+    primary: story-planner
+    fallbacks: [orchestrator]
+    responsibility: Split approved work into independently verifiable stories.
+  frontend-delivery:
+    primary: senior-frontend-dev
+    fallbacks: [developer]
+    responsibility: Implement the user-facing lane within its declared boundary.
+  backend-delivery:
+    primary: senior-backend-dev
+    fallbacks: [developer]
+    responsibility: Implement the service and data lane within its declared boundary.
+  general-delivery:
+    primary: developer
+    fallbacks: []
+    responsibility: Implement a small or unspecialized change and provide local evidence.
+  code-review:
+    primary: sdlc-code-reviewer
+    fallbacks: [merge-reviewer]
+    responsibility: Review correctness, maintainability, and change-scope adherence.
+  merge-review:
+    primary: merge-reviewer
+    fallbacks: [sdlc-code-reviewer]
+    responsibility: Verify cross-lane integration, contracts, and build readiness.
+  unit-verification:
+    primary: unit-tester
+    fallbacks: [tester]
+    responsibility: Verify focused behavior and regression coverage.
+  system-verification:
+    primary: e2e-tester
+    fallbacks: [tester]
+    responsibility: Verify integrated behavior across relevant boundaries.
+  senior-verification:
+    primary: senior-tester
+    fallbacks: [tester]
+    responsibility: Aggregate test evidence and challenge coverage gaps.
+  security-review:
+    primary: security-reviewer
+    fallbacks: [policy-validator, sdlc-code-reviewer]
+    responsibility: Aggregate security findings and decide the security gate.
+  secret-scanning:
+    primary: secret-scanner
+    fallbacks: [security-reviewer, sdlc-code-reviewer]
+    responsibility: Detect credentials, tokens, and sensitive material in the change.
+  dependency-scanning:
+    primary: dependency-scanner
+    fallbacks: [security-reviewer, sdlc-code-reviewer]
+    responsibility: Assess dependency vulnerabilities and supply-chain risk.
+  application-security:
+    primary: owasp-reviewer
+    fallbacks: [security-reviewer, sdlc-code-reviewer]
+    responsibility: Assess application-level attack surfaces and abuse cases.
+  policy-review:
+    primary: policy-validator
+    fallbacks: [security-reviewer, sdlc-code-reviewer]
+    responsibility: Check project and organization policy compliance.
+  delivery-readiness:
+    primary: devops-engineer
+    fallbacks: [orchestrator]
+    responsibility: Verify delivery configuration and pipeline readiness when in scope.
+  observability-review:
+    primary: observability-engineer
+    fallbacks: [devops-engineer, orchestrator]
+    responsibility: Verify diagnostics, telemetry, and operational readiness when in scope.
+  acceptance-review:
+    primary: acceptance-reviewer
+    fallbacks: [senior-tester, tester]
+    responsibility: Decide whether the accepted outcome matches the approved specification.
+  accessibility-review:
+    primary: accessibility-reviewer
+    fallbacks: [acceptance-reviewer, tester]
+    responsibility: Verify accessibility requirements when a user interface is in scope.
+  pull-request-prepare:
+    primary: developer
+    fallbacks: []
+    responsibility: Run final workspace checks and produce a commit-bound pull-request plan without external effects.
+  pull-request:
+    primary: pr-raiser
+    fallbacks: [orchestrator]
+    responsibility: Create the approved pull request through a typed coordinator-owned external action.
+  adversarial-review:
+    primary: devils-advocate
+    fallbacks: [technical-architect, orchestrator]
+    responsibility: Challenge plans and evidence for hidden assumptions and failure modes.
+
+retry_budgets:
+  orchestration:
+    max_transient_retries: 1
+    max_feedback_iterations: 0
+    max_defect_cycles: 0
+    on_exhausted: checkpoint-and-escalate
+  planning:
+    max_transient_retries: 1
+    max_feedback_iterations: 3
+    max_defect_cycles: 0
+    on_exhausted: checkpoint-and-escalate
+  implementation:
+    max_transient_retries: 1
+    max_feedback_iterations: 2
+    max_defect_cycles: 2
+    on_exhausted: checkpoint-and-escalate
+  review:
+    max_transient_retries: 1
+    max_feedback_iterations: 5
+    max_defect_cycles: 2
+    on_exhausted: checkpoint-and-escalate
+  verification:
+    max_transient_retries: 1
+    max_feedback_iterations: 2
+    max_defect_cycles: 2
+    on_exhausted: checkpoint-and-escalate
+  scanners:
+    max_transient_retries: 1
+    max_feedback_iterations: 0
+    max_defect_cycles: 0
+    on_exhausted: checkpoint-and-escalate
+  delivery:
+    max_transient_retries: 1
+    max_feedback_iterations: 2
+    max_defect_cycles: 2
+    on_exhausted: checkpoint-and-escalate
+
+evidence_requirements:
+  scope-record:
+    kind: artifact
+    description: Classified scope, affected surfaces, constraints, and selected mode.
+    required_fields: [mode, surfaces, constraints, risks]
+    project_contained: true
+  specification:
+    kind: artifact
+    description: Approved specification with acceptance criteria and non-goals.
+    required_fields: [outcome, acceptance-criteria, non-goals, risks]
+    project_contained: true
+  architecture-plan:
+    kind: artifact
+    description: Implementation plan with boundaries, dependencies, and verification strategy.
+    required_fields: [boundaries, dependencies, interfaces, verification]
+    project_contained: true
+  review-verdict:
+    kind: verdict
+    description: Structured PASS or FAIL decision with cited findings.
+    required_fields: [status, reviewer, findings, evidence]
+    project_contained: true
+  command-evidence:
+    kind: command-output
+    description: Exact command, exit status, and relevant output for a local check.
+    required_fields: [command, exit-status, output]
+    project_contained: true
+  test-report:
+    kind: findings-report
+    description: Test scope, results, failures, and residual coverage risks.
+    required_fields: [scope, passed, failed, skipped, residual-risk]
+    project_contained: true
+  security-report:
+    kind: findings-report
+    description: Aggregated security findings with citations, severity, and disposition.
+    required_fields: [scanners, findings, dispositions, residual-risk]
+    project_contained: true
+  delivery-report:
+    kind: findings-report
+    description: Pipeline, rollback, observability, and operational-readiness evidence.
+    required_fields: [checks, rollback, residual-risk]
+    project_contained: true
+  human-approval:
+    kind: approval
+    description: Recorded human approval for an irreversible or policy-controlled action.
+    required_fields: [approver, scope, decision, timestamp]
+    project_contained: true
+  frozen-manifest:
+    kind: manifest
+    description: Immutable program manifest of lanes, boundaries, waves, owners, and gates.
+    required_fields: [lanes, boundaries, waves, owners, gates, digest]
+    project_contained: true
+  restore-point:
+    kind: restore-point
+    description: Verified recovery reference captured before an irreversible program wave.
+    required_fields: [scope, reference, verification]
+    project_contained: true
+  closeout-record:
+    kind: artifact
+    description: Final outcome, gate ledger, accepted risks, and reusable learnings.
+    required_fields: [outcome, gates, accepted-risks, learnings]
+    project_contained: true
+
+findings_policy:
+  severity_order: [critical, high, medium, low, info]
+  blocking_severities: [critical, high, medium]
+  pass_requires_zero: [critical, high]
+  critical_high_waivable: false
+  uncited_finding: incomplete
+  accepted_risk:
+    allowed_severities: [medium]
+    required_fields: [finding-id, reason, accepter, owner, ticket, revisit-trigger, evidence]
+
+# This is a total order. A resolved plan chooses membership without changing order.
+ordered_gates:
+  - spec-complete
+  - em-approved
+  - code-review
+  - build-green
+  - contract-clear
+  - test-coverage
+  - security-clear
+  - pipeline-green
+  - observability-ready
+  - acceptance
+  - accessibility-clear
+
+gates:
+  spec-complete:
+    stage: planning-gate
+    requirement: required
+    skippable: false
+    skip_conditions: []
+    evidence: [specification, architecture-plan, review-verdict]
+  em-approved:
+    stage: planning-merge
+    requirement: required
+    skippable: false
+    skip_conditions: []
+    evidence: [architecture-plan, review-verdict]
+  code-review:
+    stage: implementation-join
+    requirement: required
+    skippable: false
+    skip_conditions: []
+    evidence: [review-verdict]
+  build-green:
+    stage: implementation-join
+    requirement: required
+    skippable: false
+    skip_conditions: []
+    evidence: [command-evidence, test-report]
+  contract-clear:
+    stage: contract-review
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-api-contract-surface]
+    evidence: [review-verdict, test-report]
+  test-coverage:
+    stage: test-merge
+    requirement: required
+    skippable: false
+    skip_conditions: []
+    evidence: [test-report, review-verdict]
+  security-clear:
+    stage: security-aggregate
+    requirement: required
+    skippable: false
+    skip_conditions: []
+    evidence: [security-report, review-verdict]
+  pipeline-green:
+    stage: delivery-readiness
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-deploy-surface]
+    evidence: [delivery-report, command-evidence]
+  observability-ready:
+    stage: observability-review
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-observable-surface]
+    evidence: [delivery-report, review-verdict]
+  acceptance:
+    stage: acceptance-review
+    requirement: required
+    skippable: false
+    skip_conditions: []
+    evidence: [specification, test-report, review-verdict]
+  accessibility-clear:
+    stage: accessibility-review
+    requirement: conditional
+    skippable: true
+    skip_conditions: [no-ui-surface]
+    evidence: [test-report, review-verdict]
+
+stages:
+  - id: classify
+    phase: intake
+    route: classification
+    depends_on: []
+    parallel_group: null
+    condition: always
+    gates: []
+    retry_budget: orchestration
+    evidence: [scope-record]
+  - id: specification
+    phase: planning
+    route: specification
+    depends_on: [classify]
+    parallel_group: null
+    condition: full-sdlc-or-program
+    gates: []
+    retry_budget: planning
+    evidence: [specification]
+  - id: ui-design
+    phase: planning
+    route: design
+    depends_on: [specification]
+    parallel_group: null
+    condition: ui-surface-present
+    gates: []
+    retry_budget: planning
+    evidence: [architecture-plan]
+  - id: plan-critique
+    phase: planning
+    route: adversarial-review
+    depends_on: [specification]
+    parallel_group: null
+    condition: risk-or-uncertainty-present
+    gates: []
+    retry_budget: planning
+    evidence: [review-verdict]
+  - id: planning-gate
+    phase: planning
+    route: orchestration
+    depends_on: [specification]
+    parallel_group: null
+    condition: full-sdlc-or-program
+    gates: [spec-complete]
+    retry_budget: orchestration
+    evidence: [specification, architecture-plan, review-verdict]
+  - id: frontend-review
+    phase: planning
+    route: frontend-delivery
+    depends_on: [planning-gate]
+    parallel_group: planning-lanes
+    condition: frontend-surface-present
+    gates: []
+    retry_budget: planning
+    evidence: [architecture-plan]
+  - id: frontend-architecture
+    phase: planning
+    route: architecture
+    depends_on: [frontend-review]
+    parallel_group: planning-lanes
+    condition: frontend-surface-present
+    gates: []
+    retry_budget: planning
+    evidence: [architecture-plan]
+  - id: frontend-management-review
+    phase: planning
+    route: management-review
+    depends_on: [frontend-architecture]
+    parallel_group: planning-lanes
+    condition: frontend-surface-present
+    gates: []
+    retry_budget: planning
+    evidence: [review-verdict]
+  - id: backend-review
+    phase: planning
+    route: backend-delivery
+    depends_on: [planning-gate]
+    parallel_group: planning-lanes
+    condition: backend-surface-present
+    gates: []
+    retry_budget: planning
+    evidence: [architecture-plan]
+  - id: backend-architecture
+    phase: planning
+    route: architecture
+    depends_on: [backend-review]
+    parallel_group: planning-lanes
+    condition: backend-surface-present
+    gates: []
+    retry_budget: planning
+    evidence: [architecture-plan]
+  - id: backend-management-review
+    phase: planning
+    route: management-review
+    depends_on: [backend-architecture]
+    parallel_group: planning-lanes
+    condition: backend-surface-present
+    gates: []
+    retry_budget: planning
+    evidence: [review-verdict]
+  - id: planning-merge
+    phase: planning
+    route: management-review
+    depends_on: [planning-gate]
+    parallel_group: null
+    condition: full-sdlc-or-program
+    gates: [em-approved]
+    retry_budget: planning
+    evidence: [architecture-plan, review-verdict]
+  - id: story-planning
+    phase: planning
+    route: story-planning
+    depends_on: [planning-merge]
+    parallel_group: null
+    condition: full-sdlc-or-program
+    gates: []
+    retry_budget: planning
+    evidence: [architecture-plan]
+  - id: frontend-implementation
+    phase: implementation
+    route: frontend-delivery
+    depends_on: [story-planning]
+    parallel_group: implementation-lanes
+    condition: frontend-surface-present
+    gates: []
+    retry_budget: implementation
+    evidence: [command-evidence]
+  - id: frontend-code-review
+    phase: implementation
+    route: code-review
+    depends_on: [frontend-implementation]
+    parallel_group: implementation-lanes
+    condition: frontend-surface-present
+    gates: []
+    retry_budget: review
+    evidence: [review-verdict]
+  - id: frontend-unit-tests
+    phase: implementation
+    route: unit-verification
+    depends_on: [frontend-code-review]
+    parallel_group: implementation-lanes
+    condition: frontend-surface-present
+    gates: []
+    retry_budget: verification
+    evidence: [test-report, command-evidence]
+  - id: backend-implementation
+    phase: implementation
+    route: backend-delivery
+    depends_on: [story-planning]
+    parallel_group: implementation-lanes
+    condition: backend-surface-present
+    gates: []
+    retry_budget: implementation
+    evidence: [command-evidence]
+  - id: backend-code-review
+    phase: implementation
+    route: code-review
+    depends_on: [backend-implementation]
+    parallel_group: implementation-lanes
+    condition: backend-surface-present
+    gates: []
+    retry_budget: review
+    evidence: [review-verdict]
+  - id: backend-unit-tests
+    phase: implementation
+    route: unit-verification
+    depends_on: [backend-code-review]
+    parallel_group: implementation-lanes
+    condition: backend-surface-present
+    gates: []
+    retry_budget: verification
+    evidence: [test-report, command-evidence]
+  - id: implementation-join
+    phase: implementation
+    route: merge-review
+    depends_on: [story-planning]
+    parallel_group: null
+    condition: full-sdlc-or-program
+    gates: [code-review, build-green]
+    retry_budget: review
+    evidence: [review-verdict, test-report, command-evidence]
+  - id: contract-review
+    phase: verification
+    route: merge-review
+    depends_on: [implementation-join]
+    parallel_group: null
+    condition: api-contract-surface-present
+    gates: [contract-clear]
+    retry_budget: review
+    evidence: [review-verdict, test-report]
+  - id: api-tests
+    phase: verification
+    route: system-verification
+    depends_on: [implementation-join]
+    parallel_group: testing-lanes
+    condition: api-surface-present
+    gates: []
+    retry_budget: verification
+    evidence: [test-report]
+  - id: ui-tests
+    phase: verification
+    route: system-verification
+    depends_on: [implementation-join]
+    parallel_group: testing-lanes
+    condition: ui-surface-present
+    gates: []
+    retry_budget: verification
+    evidence: [test-report]
+  - id: integration-tests
+    phase: verification
+    route: system-verification
+    depends_on: [implementation-join]
+    parallel_group: testing-lanes
+    condition: multiple-boundaries-present
+    gates: []
+    retry_budget: verification
+    evidence: [test-report]
+  - id: end-to-end-tests
+    phase: verification
+    route: system-verification
+    depends_on: [implementation-join]
+    parallel_group: testing-lanes
+    condition: end-to-end-path-present
+    gates: []
+    retry_budget: verification
+    evidence: [test-report]
+  - id: senior-verification
+    phase: verification
+    route: senior-verification
+    depends_on: [implementation-join]
+    parallel_group: null
+    condition: full-sdlc-or-program
+    gates: []
+    retry_budget: verification
+    evidence: [test-report, review-verdict]
+  - id: test-merge
+    phase: verification
+    route: senior-verification
+    depends_on: [senior-verification]
+    parallel_group: null
+    condition: full-sdlc-or-program
+    gates: [test-coverage]
+    retry_budget: verification
+    evidence: [test-report, review-verdict]
+  - id: secret-scan
+    phase: security
+    route: secret-scanning
+    depends_on: [test-merge]
+    parallel_group: security-scanners
+    condition: security-gate-active
+    gates: []
+    retry_budget: scanners
+    evidence: [security-report]
+  - id: dependency-scan
+    phase: security
+    route: dependency-scanning
+    depends_on: [test-merge]
+    parallel_group: security-scanners
+    condition: security-gate-active
+    gates: []
+    retry_budget: scanners
+    evidence: [security-report]
+  - id: application-security-review
+    phase: security
+    route: application-security
+    depends_on: [test-merge]
+    parallel_group: security-scanners
+    condition: application-attack-surface-present
+    gates: []
+    retry_budget: scanners
+    evidence: [security-report]
+  - id: policy-review
+    phase: security
+    route: policy-review
+    depends_on: [test-merge]
+    parallel_group: security-scanners
+    condition: security-gate-active
+    gates: []
+    retry_budget: scanners
+    evidence: [security-report]
+  - id: security-aggregate
+    phase: security
+    route: security-review
+    depends_on: [test-merge]
+    parallel_group: null
+    condition: security-gate-active
+    gates: [security-clear]
+    retry_budget: review
+    evidence: [security-report, review-verdict]
+  - id: delivery-readiness
+    phase: delivery
+    route: delivery-readiness
+    depends_on: [security-aggregate]
+    parallel_group: null
+    condition: deploy-surface-present
+    gates: [pipeline-green]
+    retry_budget: delivery
+    evidence: [delivery-report, command-evidence]
+  - id: observability-review
+    phase: delivery
+    route: observability-review
+    depends_on: [delivery-readiness]
+    parallel_group: null
+    condition: observable-surface-present
+    gates: [observability-ready]
+    retry_budget: delivery
+    evidence: [delivery-report, review-verdict]
+  - id: acceptance-review
+    phase: acceptance
+    route: acceptance-review
+    depends_on: [security-aggregate]
+    parallel_group: null
+    condition: acceptance-gate-active
+    gates: [acceptance]
+    retry_budget: review
+    evidence: [specification, test-report, review-verdict]
+  - id: accessibility-review
+    phase: acceptance
+    route: accessibility-review
+    depends_on: [acceptance-review]
+    parallel_group: null
+    condition: ui-surface-present
+    gates: [accessibility-clear]
+    retry_budget: review
+    evidence: [test-report, review-verdict]
+  - id: pull-request-prepare
+    phase: closeout
+    route: pull-request-prepare
+    depends_on: [security-aggregate]
+    parallel_group: null
+    condition: all-active-gates-closed
+    gates: []
+    retry_budget: delivery
+    evidence: [closeout-record]
+  - id: pull-request
+    phase: closeout
+    route: pull-request
+    depends_on: [pull-request-prepare]
+    parallel_group: null
+    condition: all-active-gates-closed
+    gates: []
+    retry_budget: delivery
+    evidence: [closeout-record]
+    execution_kind: typed-external-action
+    action_kind: repository.pull-request.create
+    required_capabilities: [external.mutation]
+  - id: fast-implementation
+    phase: implementation
+    route: general-delivery
+    depends_on: [classify]
+    parallel_group: null
+    condition: fast-track-selected
+    gates: []
+    retry_budget: implementation
+    evidence: [command-evidence]
+  - id: fast-review
+    phase: implementation
+    route: code-review
+    depends_on: [fast-implementation]
+    parallel_group: null
+    condition: fast-track-selected
+    gates: []
+    retry_budget: review
+    evidence: [review-verdict]
+  - id: fast-verify
+    phase: verification
+    route: unit-verification
+    depends_on: [fast-review]
+    parallel_group: null
+    condition: fast-track-selected
+    gates: []
+    retry_budget: verification
+    evidence: [test-report, command-evidence]
+  - id: fast-pull-request-prepare
+    phase: closeout
+    route: pull-request-prepare
+    depends_on: [fast-verify]
+    parallel_group: null
+    condition: fast-track-gates-closed
+    gates: []
+    retry_budget: delivery
+    evidence: [closeout-record]
+  - id: fast-pull-request
+    phase: closeout
+    route: pull-request
+    depends_on: [fast-pull-request-prepare]
+    parallel_group: null
+    condition: fast-track-gates-closed
+    gates: []
+    retry_budget: delivery
+    evidence: [closeout-record]
+    execution_kind: typed-external-action
+    action_kind: repository.pull-request.create
+    required_capabilities: [external.mutation]
+  - id: program-audit
+    phase: program
+    route: orchestration
+    depends_on: [classify]
+    parallel_group: null
+    condition: program-mode-selected
+    gates: []
+    retry_budget: orchestration
+    evidence: [scope-record]
+  - id: program-manifest
+    phase: program
+    route: architecture
+    depends_on: [program-audit]
+    parallel_group: null
+    condition: program-mode-selected
+    gates: []
+    retry_budget: planning
+    evidence: [frozen-manifest]
+  - id: program-execution-waves
+    phase: program
+    route: orchestration
+    depends_on: [program-manifest]
+    parallel_group: null
+    condition: program-mode-selected
+    gates: []
+    retry_budget: implementation
+    evidence: [frozen-manifest, restore-point, human-approval]
+  - id: program-closeout
+    phase: closeout
+    route: orchestration
+    depends_on: [program-execution-waves]
+    parallel_group: null
+    condition: all-waves-and-gates-closed
+    gates: []
+    retry_budget: orchestration
+    evidence: [closeout-record]
+
+parallel_groups:
+  planning-lanes:
+    fork_after: planning-gate
+    join_before: planning-merge
+    concurrency: disjoint-only
+    lanes:
+      - id: frontend-plan
+        stages: [frontend-review, frontend-architecture, frontend-management-review]
+        boundary: User-facing planning surface only.
+      - id: backend-plan
+        stages: [backend-review, backend-architecture, backend-management-review]
+        boundary: Service, data, and integration planning surface only.
+  implementation-lanes:
+    fork_after: story-planning
+    join_before: implementation-join
+    concurrency: disjoint-only
+    lanes:
+      - id: frontend-build
+        stages: [frontend-implementation, frontend-code-review, frontend-unit-tests]
+        boundary: Files assigned to the user-facing implementation lane.
+      - id: backend-build
+        stages: [backend-implementation, backend-code-review, backend-unit-tests]
+        boundary: Files assigned to the service and data implementation lane.
+  testing-lanes:
+    fork_after: implementation-join
+    join_before: senior-verification
+    concurrency: disjoint-only
+    lanes:
+      - id: api-verification
+        stages: [api-tests]
+        boundary: API contract and behavior verification.
+      - id: ui-verification
+        stages: [ui-tests]
+        boundary: User-interface behavior verification.
+      - id: integration-verification
+        stages: [integration-tests]
+        boundary: Cross-boundary integration verification.
+      - id: end-to-end-verification
+        stages: [end-to-end-tests]
+        boundary: End-to-end critical-path verification.
+  security-scanners:
+    fork_after: test-merge
+    join_before: security-aggregate
+    concurrency: read-only-fanout
+    lanes:
+      - id: secrets
+        stages: [secret-scan]
+        boundary: Read-only secret discovery.
+      - id: dependencies
+        stages: [dependency-scan]
+        boundary: Read-only dependency and supply-chain analysis.
+      - id: application
+        stages: [application-security-review]
+        boundary: Read-only application-security analysis.
+      - id: policy
+        stages: [policy-review]
+        boundary: Read-only policy validation.
+
+modes:
+  single-stack:
+    code: A
+    description: Sequential full lifecycle for one implementation surface.
+    triggers: [one-primary-implementation-surface]
+    stages: all
+    parallel_groups: [testing-lanes, security-scanners]
+    gate_policy: resolved-plan
+    gates: []
+  full-stack:
+    code: B
+    description: Parallel frontend and backend planning and implementation with explicit joins.
+    triggers: [frontend-and-backend-surfaces]
+    stages: all
+    parallel_groups: [planning-lanes, implementation-lanes, testing-lanes, security-scanners]
+    gate_policy: resolved-plan
+    gates: []
+  multi-feature:
+    code: C
+    description: Multiple disjoint feature lanes join before shared verification and closeout.
+    triggers: [multiple-independent-features]
+    stages: all
+    parallel_groups: [implementation-lanes, testing-lanes, security-scanners]
+    gate_policy: resolved-plan
+    gates: []
+  fast-track:
+    code: D
+    description: Small low-risk change through implementation, review, verification, and closeout.
+    triggers: [estimated-files-at-most-five, low-risk, no-irreversible-action]
+    stages: [classify, fast-implementation, fast-review, fast-verify, fast-pull-request-prepare, fast-pull-request]
+    parallel_groups: []
+    gate_policy: subset
+    gates: [code-review, build-green]
+    gate_stages:
+      code-review: fast-review
+      build-green: fast-verify
+  program:
+    code: E
+    description: Wave-based execution for broad, multi-lane, or irreversible work.
+    triggers: [estimated-files-over-twenty, more-than-two-independent-lanes, irreversible-action]
+    stages: all
+    parallel_groups: [planning-lanes, implementation-lanes, testing-lanes, security-scanners]
+    gate_policy: resolved-plan
+    gates: []
+    program:
+      activation:
+        files_over: 20
+        independent_lanes_over: 2
+        irreversible_always: true
+      manifest_required: true
+      freeze_before_execution: true
+      disjoint_boundaries_required: true
+      human_approval_for_irreversible: true
+      restore_point_for_irreversible: true
+      waves:
+        - id: audit
+          order: 0
+          kind: read-only
+          parallel: true
+          risk_ordered: false
+          repeatable: false
+          evidence: [scope-record]
+        - id: execution
+          order: 1
+          kind: mutating
+          parallel: true
+          risk_ordered: true
+          repeatable: true
+          evidence: [frozen-manifest, restore-point, human-approval]
+        - id: gate-verification
+          order: 2
+          kind: verification
+          parallel: true
+          risk_ordered: true
+          repeatable: true
+          evidence: [review-verdict, test-report, security-report]
+        - id: knowledge-closeout
+          order: 3
+          kind: closeout
+          parallel: false
+          risk_ordered: false
+          repeatable: false
+          evidence: [closeout-record]

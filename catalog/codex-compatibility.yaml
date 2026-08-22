@@ -1,0 +1,168 @@
+# Codex host capabilities used by claude-kit's projection contract.
+#
+# `minimum` is the kit's conservative support floor, not an assertion that every feature first
+# appeared in that release. Portable Agent Plugins landed in Codex CLI 0.147.0, so the Preview
+# contract does not claim an older mixed-capability floor. The current stable pin comes from the
+# official Codex changelog and moves only through an explicit catalog/CI update.
+version: 1
+host: codex
+status: preview
+minimum: "0.147.0"
+current_stable: "0.149.0"
+stable_as_of: "2026-08-22"
+
+tested:
+  - version: "0.147.0"
+    role: minimum
+    tested_at: "2026-08-20"
+    ci: true
+    plugin_validator:
+      validate_plugin_sha256: "ebda00d55d7518b127f675f062fb5c6e7a1ffdc0a99df1a55ac594400d7d3228"
+      identifier_validation_sha256: null
+  - version: "0.148.0"
+    role: observed
+    tested_at: "2026-08-20"
+    ci: false
+    plugin_validator:
+      validate_plugin_sha256: "ebda00d55d7518b127f675f062fb5c6e7a1ffdc0a99df1a55ac594400d7d3228"
+      identifier_validation_sha256: null
+  - version: "0.149.0"
+    role: current-stable
+    tested_at: "2026-08-22"
+    ci: true
+    plugin_validator:
+      validate_plugin_sha256: "6ff4bc1cc8ca94827c30c8299951efdac900ff38a5069c03e9a6554fc194a723"
+      identifier_validation_sha256: "a6d51ce4a9a7e8f85626ff5808a467a67574e7f8cdf1167ffb467c5f67e57223"
+
+# `support: native` means Codex documents the host feature. It does not promote claude-kit's Codex
+# projection out of Preview; docs/runtime-support.md owns that product-maturity claim.
+features:
+  layered_project_instructions:
+    support: native
+    required: true
+    minimum_version: "0.147.0"
+    documentation: "https://developers.openai.com/codex/guides/agents-md/"
+  repository_skills:
+    support: native
+    required: true
+    minimum_version: "0.147.0"
+    documentation: "https://developers.openai.com/codex/skills/"
+  project_custom_agents:
+    support: native
+    required: true
+    minimum_version: "0.147.0"
+    documentation: "https://developers.openai.com/codex/subagents/"
+  lifecycle_hooks:
+    support: native
+    required: true
+    minimum_version: "0.147.0"
+    documentation: "https://developers.openai.com/codex/hooks/"
+  portable_plugins:
+    support: native
+    required: true
+    minimum_version: "0.147.0"
+    documentation: "https://developers.openai.com/plugins/build/plugins"
+  project_mcp:
+    support: native
+    required: true
+    minimum_version: "0.147.0"
+    documentation: "https://developers.openai.com/codex/mcp/"
+  noninteractive_execution:
+    support: native
+    required: false
+    minimum_version: "0.147.0"
+    documentation: "https://developers.openai.com/codex/noninteractive/"
+
+events:
+  support: native
+  project_sources:
+    - ".codex/hooks.json"
+    - ".codex/config.toml"
+  plugin_source: "hooks/hooks.json"
+  handler_types:
+    - command
+  trust_required: true
+  recognized:
+    - SessionStart
+    - SessionEnd
+    - SubagentStart
+    - SubagentStop
+    - PreToolUse
+    - PermissionRequest
+    - PostToolUse
+    - PreCompact
+    - PostCompact
+    - UserPromptSubmit
+    - Stop
+  required_by_projection:
+    - SessionStart
+    - SessionEnd
+    - PreToolUse
+    - PostToolUse
+    - Stop
+  plugin_environment:
+    - PLUGIN_ROOT
+    - PLUGIN_DATA
+    - CLAUDE_PLUGIN_ROOT
+    - CLAUDE_PLUGIN_DATA
+  documentation: "https://developers.openai.com/codex/hooks/"
+
+agents:
+  support: native
+  project_directory: ".codex/agents"
+  format: toml
+  # Null means inherit the host-selected model instead of pinning an unstable name.
+  model_tier_mapping:
+    fast: null
+    balanced: null
+    deep: null
+  sandbox_mapping:
+    read_only: read-only
+    workspace_write: workspace-write
+    external_effect: workspace-write
+  required_fields:
+    - name
+    - description
+    - developer_instructions
+  inheritable_fields:
+    - model
+    - model_reasoning_effort
+    - sandbox_mode
+    - mcp_servers
+    - skills.config
+  documentation: "https://developers.openai.com/codex/subagents/"
+
+skills:
+  support: native
+  project_directory: ".agents/skills"
+  required_file: "SKILL.md"
+  required_frontmatter:
+    - name
+    - description
+  metadata_file: "agents/openai.yaml"
+  manual_only_field: "policy.allow_implicit_invocation"
+  explicit_invocation_prefix: "$"
+  documentation: "https://developers.openai.com/codex/skills/"
+
+plugins:
+  support: native
+  # The repository root remains the Claude plugin root. Codex is a generated nested package so its
+  # strict skill metadata and reference layout cannot be confused with Claude compatibility files.
+  package_root: "providers/codex/claude-kit"
+  manifest: ".codex-plugin/plugin.json"
+  repo_marketplace: ".agents/plugins/marketplace.json"
+  marketplace_source: "./providers/codex/claude-kit"
+  default_hooks: "hooks/hooks.json"
+  component_types:
+    - skills
+    - hooks
+    - mcp
+    - apps
+    - assets
+  documentation: "https://developers.openai.com/plugins/build/plugins"
+
+mcp:
+  support: native
+  project_config: ".codex/config.toml"
+  table_prefix: "mcp_servers"
+  documentation: "https://developers.openai.com/codex/mcp/"

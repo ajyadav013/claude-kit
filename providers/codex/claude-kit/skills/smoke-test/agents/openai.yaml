@@ -1,0 +1,6 @@
+interface:
+  display_name: Smoke Test
+  short_description: Quick health check that every service is up and the basic user
+    flow works...
+policy:
+  allow_implicit_invocation: false

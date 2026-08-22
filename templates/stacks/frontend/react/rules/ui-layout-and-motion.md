@@ -1,9 +1,9 @@
 ---
 paths:
-  - "**/*.tsx"
-  - "**/*.jsx"
-  - "**/*.css"
-  - "**/*.scss"
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.css'
+- '**/*.scss'
 ---
 
 # UI Layout & Motion

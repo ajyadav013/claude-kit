@@ -1,0 +1,11 @@
+schema_version: 1
+id: continuity-seed
+description: Cross-session continuity seed
+category: continuity
+format: markdown
+destination: templates/CONTINUITY.template.md
+provider_placeholders: []
+references:
+- rule://continuity
+- state://continuity
+- state://workflow

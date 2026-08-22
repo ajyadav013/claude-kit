@@ -1,0 +1,23 @@
+schema_version: 1
+id: evals
+description: Evals (Evaluation-Driven Development)
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+- '**/test_*.py'
+- '**/*_test.py'
+- '**/*.test.*'
+- '**/*.spec.*'
+- '**/tests/**'
+- '**/__tests__/**'
+references:
+- rule://goal-setting-and-monitoring
+- rule://model-tiers
+- rule://quality-gates
+- rule://rarv-cycle
+- rule://testing

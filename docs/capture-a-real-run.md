@@ -6,9 +6,10 @@ most convincing evidence, though, is *your own* run: a real request that flowed 
 with the real spec, real gate verdicts, and the real diff it produced. This guide turns one completed
 run into a publishable, redaction-scrubbed bundle.
 
-> **You run this — not the kit.** `/sdlc` is interactive (it runs inside Claude Code). The script here
-> only *collects and scrubs* what a finished run left behind; it never drives the pipeline and never
-> edits your project.
+> **You run this — not the kit.** `/sdlc` is interactive inside Claude Code; Preview Codex managed
+> runs use the provider entry points documented in the CLI guide. The script here only *collects and
+> scrubs* what a finished run left behind; it never drives the pipeline and never edits your project.
+> Supporting a Codex or dual-runtime control-plane layout is not a claim of live-host parity.
 
 ## Where a run leaves its evidence
 
@@ -18,10 +19,17 @@ they never show up in a normal `git diff`:
 | Artifact | Location | Tracked? |
 |---|---|---|
 | Feature spec | `docs/specs/<feature>_spec.md` | committed |
-| Run lifecycle and gate state (resolved gate, exact findings, evidence hashes, not-applicable conditions, accepted risks, terminal summary) | `.claude/state/pipeline-snapshot.json` | gitignored runtime state |
-| Verdict log / phase history | `.claude/CONTINUITY.md` | gitignored runtime state |
-| Install snapshot (profile + resolved gate set) | `.claude/config/stack-catalog.snapshot.yaml` | committed |
+| Run lifecycle and gate state (resolved gate, exact findings, evidence hashes, not-applicable conditions, accepted risks, terminal summary) | `.ckit/state/pipeline-snapshot.json` | shared provider-neutral runtime state |
+| Verdict log / phase history | `.ckit/CONTINUITY.md` | shared provider-neutral working state |
+| Install snapshot (profile + resolved gate set) | `.ckit/config/stack-catalog.snapshot.yaml` | shared provider-neutral install state |
 | The code itself + the PR | git history (`diff` vs your base branch) | committed |
+
+Fresh `--runtime claude`, `codex`, and `both` installs use the `.ckit` paths above. An unmigrated
+legacy Claude install uses the corresponding `.claude/{state,config}` paths and
+`.claude/CONTINUITY.md`. The collector selects one complete layout with neutral state taking
+precedence; it never fills missing `.ckit` files from `.claude` or combines two histories.
+Control-plane markers and copied state files must be regular files reached without symlinks; the
+collector fails closed instead of following an unsafe path into a publishable bundle.
 
 ## Steps
 
@@ -36,7 +44,7 @@ they never show up in a normal `git diff`:
 2. **Capture the bundle** from the project root:
 
    ```bash
-   # from your project (the one with .claude/ in it):
+   # from your project (with fresh .ckit/ or an unmigrated legacy .claude/ control plane):
    bash /path/to/claude-kit/scripts/capture-sdlc-run.sh --base main --slug csv-export
    ```
 

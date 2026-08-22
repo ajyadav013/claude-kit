@@ -1,0 +1,245 @@
+# {{ project_name }} — {{ provider.name.host }} SDLC config
+
+This repository has a **{{ provider.executable.cli }}** autonomous-SDLC configuration installed. {{ provider.name.host }} reads it
+automatically when you open the project; nothing here is application code.
+
+- **Stack:** {% if has_frontend %}{{ frontend_label }} ({{ frontend_language }}){% endif %}{% if has_frontend and has_backend %} · {% endif %}{% if has_backend %}{{ backend_label }}
+  ({{ backend_language_label }}){% endif %}{% if has_database %}{% if has_frontend or has_backend %} · {% endif %}{{ db_label }}{% endif %}{% if not has_frontend and not has_backend and not has_database %}stack-agnostic (no stack lanes selected){% endif %}
+- **SDLC profile:** {{ profile_label }}
+- **MCP integrations:** {{ mcp_list }}
+- **Installed:** ~{{ agent_count }} agents · {{ skill_count }} skills · stack overlay rules
+  ({{ overlay_rules_list }})
+
+## What got installed
+
+```
+{{ provider.path.project_instructions }}                  entry point — rules + your stack's commands ("Project-specific rules")
+{{ provider.path.sdlc_readme }}      this file
+{{ provider.path.config_root }}
+  settings.json            hooks (working memory, learnings, guardrails, quality checks)
+  rules/                   the engineering rule set + your stack's overlay rules
+  agents/                  the SDLC agents for the chosen profile (+ stack specialists)
+  skills/                  on-demand skills, including sdlc/ — the pipeline entry point
+  hooks/                   the hook scripts referenced by settings.json
+  templates/               artifact templates (feature-spec, adr, test-plan, …)
+  config/                  init-options.json (selection + checksums) + the catalog snapshot
+  state/  tmp/             runtime scratch (gitignored)
+{% if mcp_list != "none" %}{{ provider.path.mcp_config }}                  the MCP servers you selected (fill in the ${ENV} placeholders)
+{% endif %}```
+
+How {{ provider.name.host }} discovers it: `{{ provider.path.project_instructions }}` is loaded as project context; `{{ provider.path.agents }}*.md`,
+`{{ provider.path.skills }}*/SKILL.md`, and the hooks in `{{ provider.path.settings }}` are auto-discovered;
+`{{ provider.path.mcp_config }}` (if present) registers MCP servers.
+
+## Privacy — learning capture
+
+{% if capture_mode != "off" %}Learning capture is **ON for this install** (`{{capture_mode}}`, chosen at init): a background {{ provider.name.agent }}
+job reads your session transcript and changed files to record durable learnings under
+`state://agent-memory/` (a committed store). It skips secret-bearing files (`.env`, `*.pem`/`*.key`,
+`credentials.*`) and redacts secret-shaped values, but transcripts can still hold sensitive context —
+**review new `agent-memory/` entries before committing them**. Controls:
+
+- `{{ provider.environment.kit_prefix }}_NO_AUTOCAPTURE=1` — disable capture entirely.
+- `{{ provider.environment.kit_prefix }}_CAPTURE_MAX_LINES` / `{{ provider.environment.kit_prefix }}_CAPTURE_MAX_BYTES` — bound what each run feeds the job.
+- `{{ provider.executable.cli }} privacy-report` — audit every installed hook: what it reads/writes, whether a
+  background job spawns, and how to disable it.
+{% else %}Learning capture is **OFF for this install** (capture is opt-in — no background job reads your
+session transcripts). Recall still works: learnings already in `state://agent-memory/` load at
+session start. To enable capture, re-run `{{ provider.executable.cli }} init` interactively (or set `capture_mode:` in
+a `--config` file), then audit the result with `{{ provider.executable.cli }} privacy-report`.
+{% endif %}
+
+## Start the workflow
+
+Open the project in {{ provider.name.host }} and run the pipeline entry point:
+
+```
+command://sdlc Build JWT authentication for the backend
+```
+
+The orchestrator asks a few ordered questions, classifies the work, then delegates to specialist
+agents through the pipeline phases — enforcing a quality gate between each. With this profile the
+active gates are: **{{ profile_label }}**.
+
+You can also invoke any single skill directly (e.g. `command://spec-driven-development`, `command://code-review-and-quality`)
+or ask {{ provider.name.agent }} to use a specific agent.
+
+The versioned headless-loop interface ships at `{{ provider.path.loop_script }}`, but new unattended
+iterations currently fail closed before a host process starts. Portable process groups cannot prove
+containment of deliberately detached descendants, so the kit does not mint an automated gate-
+transition token. Use the interactive lifecycle; the script can still strictly validate an already-
+completed run. See the autonomous-operation guide before relying on a future promotion.
+
+## Core rules (non-negotiable)
+
+- Never read or print secrets. Never run destructive commands without confirmation.
+- Plan before large edits; write a spec before implementing a feature.
+- Run the project's validation (lint, type-check, tests) before declaring work complete.
+
+See `{{ provider.path.project_instructions }}` and `{{ provider.path.rules }}` for the full set.
+
+## Extending the config
+
+- **Add a stack** (frontend framework, backend language/framework, or database): add an entry to the
+  {{ provider.executable.cli }} catalog and a `templates/stacks/<stack_dir>/` folder with overlay rules — then re-run
+  `{{ provider.executable.cli }} init`. It's a data change, not code.
+- **Add a skill / agent:** drop a `{{ provider.path.skills }}<name>/SKILL.md` or `{{ provider.path.agents }}<name>.md`.
+- **Enable MCP later:** add servers to `{{ provider.path.mcp_config }}` (see `{{ provider.executable.cli }} list-options` for the catalog).
+- **Upgrade safely:** `{{ provider.executable.cli }} diff` to preview, then `{{ provider.executable.cli }} upgrade` (your edits are backed
+  up, never silently overwritten). `{{ provider.executable.cli }} doctor` checks config health.
+
+## Organization-wide vibe-coding capabilities
+
+{{ provider.executable.cli }} isn't just for one developer. Engineers, PMs, designers, QA, DevOps, security, data,
+support, and founders can all drive work in natural language — creating features, fixing bugs, writing
+tests, reviewing code, generating docs, shipping releases, and maintaining systems — through a shared,
+safe, consistent set of **skills · agents · rules · hooks · workflows · MCP**.
+
+- **This project's scope:** `{{ scope }}`{% if scope == "organization" %} · **teams:** {{ teams_list }} · **autonomy:** `{{ autonomy }}` ({{ autonomy_policy }}) · **review strictness:** `{{ review_strictness }}` · **packs:** {{ org_packs_list }}{% endif %}
+- **The vocabulary:** *Skills* are reusable playbooks (slash commands). *Agents* are specialized
+  workers with isolated context and tool limits. *Rules* are always-on (or path-scoped) conventions.
+  *Hooks* are deterministic checks at lifecycle events. *Workflows* orchestrate agents+skills.
+  *MCP* connects {{ provider.name.agent }} to GitHub, Jira, Linear, databases, browsers, and docs.
+
+### 1. Skills for org-wide reusable workflows
+`command://sdlc` (the pipeline), `command://spec-driven-development`, `command://planning-and-task-breakdown`,
+`command://code-review-and-quality`, `command://test-driven-development`, `command://security-and-hardening`, `command://threat-model`,
+`command://accessibility-review`, `command://performance-optimization`, `command://shipping-and-launch`, `command://refresh-docs`{% if scope == "organization" %}, and the
+non-engineer playbooks `command://feature-from-idea`, `command://prompt-to-safe-task`, `command://prototype-to-production`,
+`command://customer-issue-to-fix`, `command://repo-onboarding`{% else %} (organization scope adds the five non-engineer
+playbooks: feature-from-idea, prompt-to-safe-task, prototype-to-production, customer-issue-to-fix,
+repo-onboarding){% endif %}.
+
+### 2. Agents by role/team
+Orchestration/quality: `orchestrator`, `risk-classifier`, `sdlc-code-reviewer`, `acceptance-reviewer`,
+`merge-reviewer`, `devils-advocate`. Product: {% if scope == "organization" %}`pm-copilot`, {% endif %}`spec-doc-writer`, `story-planner`,
+`ui-designer`. Engineering: `developer`, `senior-backend-dev`, `senior-frontend-dev`,
+`technical-architect` (+ DB specialists). Quality: `tester`, `unit-tester`, `e2e-tester`,
+`senior-tester`. Security/reliability: `security-reviewer`, `owasp-reviewer`, `secret-scanner`,
+`dependency-scanner`, `policy-validator`, `devops-engineer`, `observability-engineer`,
+`incident-responder`.{% if scope == "organization" %} Non-engineers: `pm-copilot`, `founder-prototype-agent`, `support-ticket-engineer`,
+`data-workflow-agent`, `internal-tools-builder`.{% endif %}
+
+### 3. Rules to share across repositories
+`mandatory-workflow`, `quality-gates`, `autonomy-levels`, `risk-classification`, `human-in-the-loop`,
+`agent-guardrails`, plus the policy set `secrets-policy`, `pii-policy`, `production-data-policy`,
+`branch-and-pr-policy`, `compliance-policy`, and the vibe-coding set `prompt-to-task-conversion`,
+`non-engineer-safe-coding`, `prototype-boundaries`, `ambiguity-resolution`.
+
+### 4. Hooks to enforce for safety & quality
+`guard-rm-rf` (dangerous shell), `protect-secrets` + `guard-commit-secrets` (secrets),
+`warn-sensitive-files` (auth/payments/migrations/infra), `validate-frontmatter` + `validate-settings`,
+`warn-large-edits`, `warn-missing-tests`, `audit-log` (local, org mode), `lint-fix`, `type-check`.
+Conservative by default; higher autonomy levels enable more. Disable any per-repo in
+`{{ provider.path.settings_local }}`.
+
+### 5. Optional MCP integrations
+GitHub (issues/PRs), Jira/Linear (tickets), the project database (read), Playwright (browser/E2E),
+and Context7 (live library docs). Select at init; they land in `{{ provider.path.mcp_config }}` with `${ENV}` placeholders.
+
+### 6. Distributing capabilities across projects
+| Layer | Lives in | Use for |
+|-------|----------|---------|
+| **Project** | `{{ provider.path.config_root }}`, `{{ provider.path.project_instructions }}`, `{{ provider.path.mcp_config }}` (committed) | what this repo needs — the per-repo source of truth |
+| **User** | `{{ provider.path.user_config }}` (per developer, not committed) | personal preferences, personal skills, local overrides |
+| **Organization** | reusable packs / plugins, versioned + changelogged in an approved registry | shared, governed capabilities adopted across repos |
+
+**Never commit:** local secrets, `.env`, personal tokens, personal `settings.local.json`.
+(Planned: `{{ provider.executable.cli_legacy }} package-org-pack` / `install-org-pack` to package + install approved packs.)
+{% if scope == "organization" and org_packs_list != "none" %}
+### 7. Governing changes, versions, security & adoption
+See `artifact://org-packs/README.md` for the pack registry and governance: how to add a skill/agent,
+retire duplicates, approve hooks, review sensitive rules, version packs, roll out across repos, run
+different autonomy levels per repo, and measure adoption.
+{% endif %}
+## Capability matrix
+
+| Capability area | Skills | Agents | Rules | Hooks | Example |
+|---|---|---|---|---|---|
+| Feature development | `command://sdlc`, `command://spec-driven-development`, `command://incremental-implementation` | `orchestrator`, `developer`, `sdlc-code-reviewer` | `mandatory-workflow`, `quality-gates` | `lint-fix`, `type-check` | `command://sdlc Add team invites` |
+| Bug fixing | `command://debugging-and-error-recovery`, `command://triage` | `developer`, `tester`, `sdlc-code-reviewer` | `testing`, `rarv-cycle` | `warn-missing-tests` | `command://sdlc Fix 500 on empty title` |
+| Refactoring | `command://code-simplification` | `developer`, `sdlc-code-reviewer` | `code-organization`, `design-patterns` | `warn-large-edits` | `command://code-simplification the billing service` |
+| Test generation | `command://test-driven-development`, `command://unit-test` | `tester`, `unit-tester`, `e2e-tester`, `senior-tester` | `testing` | `warn-missing-tests` | `command://test-driven-development password-reset links` |
+| PR review | `command://code-review-and-quality` | `sdlc-code-reviewer`, `merge-reviewer`, `devils-advocate` | `quality-gates`, `branch-and-pr-policy` | `guard-push-main` | `command://code-review-and-quality` |
+| Product discovery | `command://idea-refine`, `command://interview-me`{% if scope == "organization" %}, `command://feature-from-idea`{% endif %} | {% if scope == "organization" %}`pm-copilot`, {% endif %}`story-planner` | `ambiguity-resolution` | — | {% if scope == "organization" %}`command://feature-from-idea team invites`{% else %}`command://idea-refine team invites`{% endif %} |
+| Requirements clarification | `command://interview-me`, `command://scope`{% if scope == "organization" %}, `command://prompt-to-safe-task`{% endif %} | {% if scope == "organization" %}`pm-copilot`, {% endif %}`spec-doc-writer`, `risk-classifier` | `prompt-to-task-conversion`, `ambiguity-resolution` | — | {% if scope == "organization" %}`command://prompt-to-safe-task make dashboard faster`{% else %}`command://scope make dashboard faster`{% endif %} |
+| Architecture decisions | `command://spec-driven-development`, `command://decision`, `command://documentation-and-adrs` | `technical-architect` | `design-patterns` | — | ADR for a new module |
+| API design | `command://api-and-interface-design` | `technical-architect`, `senior-backend-dev` | `design-patterns`, `documentation` | — | `command://api-and-interface-design` for invites |
+| Database design | `command://spec-driven-development` | `postgres-specialist`/`mongodb-specialist`, `migration-specialist` | (stack overlay db rules) | `warn-sensitive-files` | schema + migration for invites |
+| Frontend implementation | `command://frontend-ui-engineering`, `command://component-design`, `command://ui-ux-design` | `senior-frontend-dev`, `ui-designer`, `developer` | `frontend-best-practices`, `responsive-and-accessibility` | `lint-fix` | `command://component-design` the invite modal |
+| Backend implementation | `command://incremental-implementation`, `command://api-and-interface-design` | `senior-backend-dev`, `developer` | `code-organization` | `lint-fix`, `type-check` | implement the invites endpoint |
+| Security review | `command://security-and-hardening`, `command://security-verification`, `command://threat-model` | `security-reviewer`, `owasp-reviewer`, `secret-scanner`, `dependency-scanner`, `policy-validator` | `secrets-policy`, `agent-guardrails` | `protect-secrets`, `guard-commit-secrets`, `warn-sensitive-files` | `command://security-verification` the auth change |
+| Performance review | `command://performance-optimization`, `command://load-testing` | `db-performance-reviewer` (PostgreSQL) | `risk-classification` | — | `command://performance-optimization` the list endpoint |
+| Accessibility review | `command://accessibility-review` | `ui-designer` | `responsive-and-accessibility` | — | `command://accessibility-review` the modal |
+| DevOps / release | `command://deploy`, `command://shipping-and-launch`, `command://ci-cd-and-automation` | `devops-engineer`, `pr-raiser`, `observability-engineer` | `devops-observability`, `branch-and-pr-policy` | `guard-push-main` | `command://deploy loop` until the release verifies clean |
+| Incident response | `command://incident-postmortem` | `incident-responder` | `devops-observability` | `audit-log` | `command://incident-postmortem` after a SEV1 |
+| Documentation | `command://documentation-and-adrs`, `command://refresh-docs` | `technical-architect` | `documentation` | — | `command://refresh-docs` after an API change |
+{% if scope == "organization" %}| Onboarding | `command://repo-onboarding` | read-only research role, `technical-architect` | `documentation`, `code-organization` | — | `command://repo-onboarding` for a new hire |
+| Data analysis | (planning, read-only) | `data-workflow-agent` | `production-data-policy`, `pii-policy` | — | plan a report query safely |
+| Customer-support engineering | `command://customer-issue-to-fix` | `support-ticket-engineer`, `developer`, `tester` | `risk-classification` | — | `command://customer-issue-to-fix` invoice export |
+| Internal tools | `command://prototype-to-production`, `command://feature-from-idea` | `internal-tools-builder`, `founder-prototype-agent` | `non-engineer-safe-coding`, `prototype-boundaries` | `warn-sensitive-files` | build an internal admin utility |
+| Prototype-to-production hardening | `command://prototype-to-production` | `founder-prototype-agent`, `security-reviewer`, `tester` | `prototype-boundaries`, `risk-classification` | `warn-large-edits`, `warn-missing-tests` | `command://prototype-to-production` a CSV script |
+{% endif %}
+## Autonomy model
+
+How much {{ provider.name.agent }} may do before a human acts (set per repo; default `assisted`). Full detail in
+`rule://autonomy-levels`.
+
+| Level | May do | Must not, without a human |
+|-------|--------|----------------------------|
+| advisory | inspect · explain · plan · review | edit files unless asked |
+| assisted *(default)* | edit after explaining the plan | broad/cross-cutting changes without asking |
+| autonomous-local | implement locally + run validation | push, open PRs, leave the repo |
+| autonomous-pr | create branches + PR-ready changes | **merge** (human review required) |
+| enterprise-controlled | work through strict gates + audit | edit sensitive files / complete without security + review |
+
+## Risk classification
+
+Every task is classified **low · medium · high · restricted** before work starts
+(`rule://risk-classification`). High-risk areas — authentication, authorization, payments,
+secrets, production data, database migrations, infrastructure, security controls, compliance, destructive
+operations, dependency upgrades, many-file changes — require: a plan · explicit approval · security
+review · test review · rollback notes · a residual-risk summary. Restricted work cannot start without
+written human authorization.
+
+## Governance & adoption
+
+- **Add a skill/agent:** create it in the kit's `templates/org/…`, list it in the pack's `pack.yaml`,
+  document it in the pack README. **Reuse before creating** — never add a competing duplicate.
+- **Retire duplicates:** prefer one canonical component; deprecate aliases via `command://deprecation-and-migration`.
+- **Approve hooks & sensitive rules:** security/DevOps review before rollout; keep hooks conservative.
+- **Version & roll out:** version packs, keep a changelog, roll out repo-by-repo with `{{ provider.executable.cli }} diff`
+  then `{{ provider.executable.cli }} upgrade` (edits are backed up).
+- **Different teams, different autonomy:** choose the level per repo (a regulated service vs an internal tool).
+- **Collect feedback:** capture recurring prompts (→ new skills) and recurring mistakes (→ new rules)
+  via the `remember` skill.
+
+### Metrics worth tracking
+tasks completed through `command://sdlc` · PRs created with {{ provider.name.agent }} assistance · test-coverage change · escaped
+defects · review comments per PR · idea→PR time · security findings caught pre-merge · rollback
+frequency · docs updated with code · unsafe actions blocked by hooks · repeated prompts that should
+become skills · repeated mistakes that should become rules.
+
+## Examples{% if scope == "organization" %} for different org users{% endif %}
+
+```text
+# Engineer — behavior-preserving refactor (reads files, classifies risk, plans, proposes tests,
+#            small changes, invokes code + test review)
+{{skill_invocation:skill://code-simplification}} Simplify the billing service without changing behavior
+
+# QA — regression coverage (finds modules, proposes unit/integration/e2e tests, writes + validates,
+#      summarizes coverage gaps)
+{{skill_invocation:skill://test-driven-development}} Add regression coverage for failed password-reset links
+{% if scope == "organization" %}
+# PM — idea to reviewable plan (asks product questions, writes acceptance criteria + stories,
+#      routes to engineering, STOPS for approval before any code)
+{{skill_invocation:skill://feature-from-idea}} Add team invites to the admin dashboard
+
+# Support — issue to fix (repro report, asks for logs/steps, finds code paths, proposes fix +
+#           validation checklist)
+{{skill_invocation:skill://customer-issue-to-fix}} Customer cannot export invoices over 10MB
+
+# Founder/operator — prototype to production (identifies risks, asks about users + data sensitivity,
+#                    adds validation/auth/error handling/logging/tests, requires review)
+{{skill_invocation:skill://prototype-to-production}} Turn this internal CSV upload script into a safe admin feature
+{% endif %}```

@@ -1,0 +1,378 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://claude-kit.dev/schemas/workflow.schema.json",
+  "title": "Provider-neutral workflow catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "title",
+    "description",
+    "roles",
+    "retry_budgets",
+    "evidence_requirements",
+    "findings_policy",
+    "ordered_gates",
+    "gates",
+    "stages",
+    "parallel_groups",
+    "modes"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"$ref": "#/$defs/identifier"},
+    "title": {"$ref": "#/$defs/nonempty"},
+    "description": {"$ref": "#/$defs/nonempty"},
+    "roles": {"$ref": "#/$defs/role_map"},
+    "retry_budgets": {"$ref": "#/$defs/retry_map"},
+    "evidence_requirements": {"$ref": "#/$defs/evidence_map"},
+    "findings_policy": {"$ref": "#/$defs/findings_policy"},
+    "ordered_gates": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/identifier"}
+    },
+    "gates": {"$ref": "#/$defs/gate_map"},
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/stage"}
+    },
+    "parallel_groups": {"$ref": "#/$defs/parallel_group_map"},
+    "modes": {"$ref": "#/$defs/mode_map"}
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "not": {"pattern": "\\.\\."}
+    },
+    "nonempty": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "identifier_array": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/identifier"}
+    },
+    "nonempty_identifier_array": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/identifier"}
+    },
+    "role_map": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9._-]*$": {"$ref": "#/$defs/role"}
+      },
+      "additionalProperties": false
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "fallbacks", "responsibility"],
+      "properties": {
+        "primary": {"$ref": "#/$defs/identifier"},
+        "fallbacks": {"$ref": "#/$defs/identifier_array"},
+        "responsibility": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "retry_map": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9._-]*$": {"$ref": "#/$defs/retry_budget"}
+      },
+      "additionalProperties": false
+    },
+    "retry_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_transient_retries",
+        "max_feedback_iterations",
+        "max_defect_cycles",
+        "on_exhausted"
+      ],
+      "properties": {
+        "max_transient_retries": {"type": "integer", "minimum": 0},
+        "max_feedback_iterations": {"type": "integer", "minimum": 0},
+        "max_defect_cycles": {"type": "integer", "minimum": 0},
+        "on_exhausted": {
+          "enum": ["escalate-human", "cancel-lane", "checkpoint-and-escalate"]
+        }
+      }
+    },
+    "evidence_map": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9._-]*$": {"$ref": "#/$defs/evidence"}
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "description", "required_fields", "project_contained"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "artifact",
+            "command-output",
+            "verdict",
+            "findings-report",
+            "manifest",
+            "approval",
+            "restore-point"
+          ]
+        },
+        "description": {"$ref": "#/$defs/nonempty"},
+        "required_fields": {"$ref": "#/$defs/nonempty_identifier_array"},
+        "project_contained": {"type": "boolean"}
+      }
+    },
+    "findings_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "severity_order",
+        "blocking_severities",
+        "pass_requires_zero",
+        "critical_high_waivable",
+        "uncited_finding",
+        "accepted_risk"
+      ],
+      "properties": {
+        "severity_order": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["critical", "high", "medium", "low", "info"]}
+        },
+        "blocking_severities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["critical", "high", "medium", "low", "info"]}
+        },
+        "pass_requires_zero": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["critical", "high", "medium", "low", "info"]}
+        },
+        "critical_high_waivable": {"type": "boolean"},
+        "uncited_finding": {"enum": ["incomplete", "blocking"]},
+        "accepted_risk": {"$ref": "#/$defs/accepted_risk"}
+      }
+    },
+    "accepted_risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed_severities", "required_fields"],
+      "properties": {
+        "allowed_severities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["critical", "high", "medium", "low", "info"]}
+        },
+        "required_fields": {"$ref": "#/$defs/nonempty_identifier_array"}
+      }
+    },
+    "gate_map": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9._-]*$": {"$ref": "#/$defs/gate"}
+      },
+      "additionalProperties": false
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "requirement", "skippable", "skip_conditions", "evidence"],
+      "properties": {
+        "stage": {"$ref": "#/$defs/identifier"},
+        "requirement": {"enum": ["required", "conditional"]},
+        "skippable": {"type": "boolean"},
+        "skip_conditions": {"$ref": "#/$defs/identifier_array"},
+        "evidence": {"$ref": "#/$defs/nonempty_identifier_array"}
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "phase",
+        "route",
+        "depends_on",
+        "parallel_group",
+        "condition",
+        "gates",
+        "retry_budget",
+        "evidence"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "phase": {
+          "enum": ["intake", "planning", "implementation", "verification", "security", "delivery", "acceptance", "closeout", "program"]
+        },
+        "route": {"$ref": "#/$defs/identifier"},
+        "depends_on": {"$ref": "#/$defs/identifier_array"},
+        "parallel_group": {
+          "oneOf": [{"type": "null"}, {"$ref": "#/$defs/identifier"}]
+        },
+        "condition": {"$ref": "#/$defs/nonempty"},
+        "gates": {"$ref": "#/$defs/identifier_array"},
+        "retry_budget": {"$ref": "#/$defs/identifier"},
+        "evidence": {"$ref": "#/$defs/nonempty_identifier_array"},
+        "execution_kind": {
+          "enum": ["native-role", "typed-external-action"]
+        },
+        "action_kind": {
+          "oneOf": [
+            {"type": "null"},
+            {"enum": ["repository.pull-request.create"]}
+          ]
+        },
+        "required_capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "filesystem.read", "filesystem.write", "filesystem.search", "shell",
+              "delegation", "delegation.message", "workflow.ledger", "browser",
+              "human.input", "mcp", "external.mutation",
+              "process.descendant_containment"
+            ]
+          }
+        }
+      }
+    },
+    "parallel_group_map": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9._-]*$": {"$ref": "#/$defs/parallel_group"}
+      },
+      "additionalProperties": false
+    },
+    "parallel_group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fork_after", "join_before", "concurrency", "lanes"],
+      "properties": {
+        "fork_after": {"$ref": "#/$defs/identifier"},
+        "join_before": {"$ref": "#/$defs/identifier"},
+        "concurrency": {"enum": ["disjoint-only", "read-only-fanout"]},
+        "lanes": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/parallel_lane"}
+        }
+      }
+    },
+    "parallel_lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "stages", "boundary"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "stages": {"$ref": "#/$defs/nonempty_identifier_array"},
+        "boundary": {"$ref": "#/$defs/nonempty"}
+      }
+    },
+    "mode_map": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "patternProperties": {
+        "^[a-z0-9][a-z0-9._-]*$": {"$ref": "#/$defs/mode"}
+      },
+      "additionalProperties": false
+    },
+    "mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "description", "triggers", "stages", "parallel_groups", "gate_policy", "gates"],
+      "properties": {
+        "code": {"enum": ["A", "B", "C", "D", "E"]},
+        "description": {"$ref": "#/$defs/nonempty"},
+        "triggers": {"$ref": "#/$defs/nonempty_identifier_array"},
+        "stages": {
+          "oneOf": [
+            {"const": "all"},
+            {"$ref": "#/$defs/nonempty_identifier_array"}
+          ]
+        },
+        "parallel_groups": {"$ref": "#/$defs/identifier_array"},
+        "gate_policy": {"enum": ["resolved-plan", "subset"]},
+        "gates": {"$ref": "#/$defs/identifier_array"},
+        "gate_stages": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"$ref": "#/$defs/identifier"}
+        },
+        "program": {"$ref": "#/$defs/program"}
+      }
+    },
+    "program": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "activation",
+        "manifest_required",
+        "freeze_before_execution",
+        "disjoint_boundaries_required",
+        "human_approval_for_irreversible",
+        "restore_point_for_irreversible",
+        "waves"
+      ],
+      "properties": {
+        "activation": {"$ref": "#/$defs/program_activation"},
+        "manifest_required": {"const": true},
+        "freeze_before_execution": {"const": true},
+        "disjoint_boundaries_required": {"const": true},
+        "human_approval_for_irreversible": {"const": true},
+        "restore_point_for_irreversible": {"const": true},
+        "waves": {
+          "type": "array",
+          "minItems": 3,
+          "items": {"$ref": "#/$defs/program_wave"}
+        }
+      }
+    },
+    "program_activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["files_over", "independent_lanes_over", "irreversible_always"],
+      "properties": {
+        "files_over": {"type": "integer", "minimum": 1},
+        "independent_lanes_over": {"type": "integer", "minimum": 1},
+        "irreversible_always": {"const": true}
+      }
+    },
+    "program_wave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "order", "kind", "parallel", "risk_ordered", "repeatable", "evidence"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "order": {"type": "integer", "minimum": 0},
+        "kind": {"enum": ["read-only", "mutating", "verification", "closeout"]},
+        "parallel": {"type": "boolean"},
+        "risk_ordered": {"type": "boolean"},
+        "repeatable": {"type": "boolean"},
+        "evidence": {"$ref": "#/$defs/nonempty_identifier_array"}
+      }
+    }
+  }
+}

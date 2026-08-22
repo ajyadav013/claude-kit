@@ -1,0 +1,19 @@
+schema_version: 1
+id: org-pack-non-engineer-builder-readme
+description: non-engineer-builder organization pack readme
+category: org
+format: markdown
+destination: templates/org/packs/non-engineer-builder/README.md
+provider_placeholders:
+- provider.executable.cli
+references:
+- command://customer-issue-to-fix
+- command://feature-from-idea
+- command://idea-refine
+- command://interview-me
+- command://prompt-to-safe-task
+- command://prototype-to-production
+- command://repo-onboarding
+- skill://customer-issue-to-fix
+- skill://feature-from-idea
+- skill://prototype-to-production

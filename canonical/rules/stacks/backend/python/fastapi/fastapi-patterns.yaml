@@ -1,0 +1,16 @@
+schema_version: 1
+id: fastapi-patterns
+description: FastAPI backend patterns
+strength: required
+applicability:
+  source: stack
+  stack_dir: backend/python/fastapi
+path_globs:
+- '**/*.py'
+references:
+- artifact://project-instructions
+- artifact://rules-directory
+- rule://code-organization
+- rule://design-patterns
+- rule://documentation
+- rule://testing

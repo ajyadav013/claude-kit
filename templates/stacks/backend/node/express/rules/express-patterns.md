@@ -1,17 +1,17 @@
 ---
 paths:
-  - "**/*.js"
-  - "**/*.cjs"
-  - "**/*.mjs"
-  - "**/*.ts"
+- '**/*.js'
+- '**/*.cjs'
+- '**/*.mjs'
+- '**/*.ts'
 ---
 
 # Express backend patterns
 
-Stack-specific conventions for the backend. This overlay is installed into `.claude/rules/` only
-when the **Node.js · Express** stack is selected. It complements the generic rules - read
-`.claude/rules/code-organization.md`, `.claude/rules/design-patterns.md`, and
-`.claude/rules/testing.md` first; this file makes them concrete for Express.
+Stack-specific conventions for the backend. This overlay is installed into
+`.claude/rules/` only when the **Node.js · Express** stack is selected. It complements
+the generic rules — read `.claude/rules/code-organization.md`, `.claude/rules/design-patterns.md`, and `.claude/rules/testing.md`
+first; this file makes them concrete for Express.
 
 ## Stack
 
@@ -21,16 +21,16 @@ when the **Node.js · Express** stack is selected. It complements the generic ru
 - Tooling: the repository's own **lint**, **typecheck**, and **build** commands are the source of
   truth. Use the stack's configured package manager and scripts rather than ad hoc shell commands.
 
-Run the project's own commands for these tasks (see the **Commands** section of `CLAUDE.md`):
-install, dev, test, lint, typecheck, build.
+Run the project's own commands for these tasks (see the **Commands** section of
+`CLAUDE.md`): install, dev, test, lint, typecheck, build.
 
 ## Layered architecture (never skip a layer)
 
 ```
-route/controller (src/routes/, src/controllers/)  HTTP only: validate request, call service, map errors -> status
-  -> service (src/services/)                      business logic; no Express imports
-    -> repository/data access (src/repositories/) queries and persistence only
-      -> model/schema (src/models/, src/schemas/) plain data definitions
+route/controller (src/routes/, src/controllers/)  HTTP only: validate request, call service, map errors → status
+  → service (src/services/)                      business logic; no Express imports
+    → repository/data access (src/repositories/) queries and persistence only
+      → model/schema (src/models/, src/schemas/) plain data definitions
 middleware (src/middleware/)                      cross-cutting concerns: auth, logging, parsing
 ```
 
@@ -48,12 +48,12 @@ Rules of thumb:
 
 To add `<thing>`:
 
-1. **Model / schema** - define the request/response shape in `src/models/` or `src/schemas/`.
-2. **Repository** - add data access in `src/repositories/<thing>.ts` or `.js`.
-3. **Service** - put the business rules in `src/services/<thing>.ts`.
-4. **Route** - add endpoints in `src/routes/<thing>.ts`; mount them from the app factory.
-5. **Middleware** - add reusable cross-cutting behavior in `src/middleware/` if needed.
-6. **Tests** - cover the service and the HTTP contract with `supertest` or the project's runner.
+1. **Model / schema** — define the request/response shape in `src/models/` or `src/schemas/`.
+2. **Repository** — add data access in `src/repositories/<thing>.ts` or `.js`.
+3. **Service** — put the business rules in `src/services/<thing>.ts`.
+4. **Route** — add endpoints in `src/routes/<thing>.ts`; mount them from the app factory.
+5. **Middleware** — add reusable cross-cutting behavior in `src/middleware/` if needed.
+6. **Tests** — cover the service and the HTTP contract with `supertest` or the project's runner.
 
 ## Conventions
 
@@ -66,14 +66,14 @@ To add `<thing>`:
 - **Mask secrets in logs.** Redact passwords, tokens, and API keys before logging request bodies.
 - **Prefer config through env + validated defaults.** Keep runtime settings in one config module and
   validate them at startup.
-- **Keep the package scripts honest.** If `CLAUDE.md` advertises `test`, `lint`, `typecheck`, or
-  `build`, those scripts should exist in `package.json`.
+- **Keep the package scripts honest.** If `CLAUDE.md` advertises `test`,
+  `lint`, `typecheck`, or `build`, those scripts should exist in `package.json`.
 
 ## HTTP status & error mapping
 
 The concrete mapping the route layer applies when translating domain results and errors to HTTP:
 
-**Method -> success status:**
+**Method → success status:**
 
 | Operation | Method | Success status |
 |---|---|---|
@@ -82,7 +82,7 @@ The concrete mapping the route layer applies when translating domain results and
 | Full / partial update | `PUT` / `PATCH` | `200 OK` |
 | Delete | `DELETE` | `200 OK` or `204 No Content` |
 
-**Domain error -> status:**
+**Domain error → status:**
 
 | Domain exception | Status |
 |---|---|

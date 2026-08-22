@@ -1,0 +1,16 @@
+schema_version: 1
+id: postgres-patterns
+description: PostgreSQL patterns
+strength: required
+applicability:
+  source: stack
+  stack_dir: db/postgres
+path_globs:
+- '**/*.sql'
+- '**/migrations/**/*'
+- '**/alembic/**/*'
+- '**/models/**/*'
+references:
+- artifact://rules-directory
+- rule://design-patterns
+- rule://quality-gates

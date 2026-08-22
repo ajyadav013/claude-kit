@@ -26,12 +26,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .secure_fs import ProjectFS
+from .state import detect_state_layout
 from .telemetry import Telemetry, human_duration, human_tokens
 
 #: Store locations, relative to the project root.
 TICKETS_REL = "docs/project/tickets"
 INDEX_REL = "docs/project/tickets/index.json"
-#: Runtime pipeline snapshot, read (never written) for the stage/gate a ticket sits at.
+#: Legacy runtime pipeline snapshot retained as a public compatibility constant.
 SNAPSHOT_REL = ".claude/state/pipeline-snapshot.json"
 
 #: Lifecycle. ``BLOCKED`` is derived from unmet dependencies, not written by hand.
@@ -316,7 +318,8 @@ def attach_telemetry(store: Store, by_branch: dict[str, Telemetry]) -> None:
 def pipeline_stage(project_root: Path) -> dict[str, Any]:
     """Current stage/gate from the runtime snapshot. Empty dict when there is no active run."""
     try:
-        raw = json.loads((project_root / SNAPSHOT_REL).read_text(encoding="utf-8"))
+        fs = ProjectFS(project_root)
+        raw = json.loads(fs.read_text(detect_state_layout(fs.root).pipeline_snapshot))
     except (OSError, ValueError):
         return {}
     return raw if isinstance(raw, dict) else {}

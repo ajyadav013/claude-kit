@@ -1,0 +1,12 @@
+schema_version: 1
+id: production-data-policy
+description: Production Data Policy
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://human-in-the-loop
+- rule://pii-policy
+- rule://prompt-to-task-conversion
+- rule://risk-classification

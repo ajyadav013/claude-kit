@@ -1,9 +1,9 @@
-# SDLC workflow guide (single-agent)
+# SDLC workflow guide (portable)
 
-> Exported by **claude-kit** for the **{{ profile_label }}** profile. In Claude Code this workflow
-> runs as a multi-agent pipeline with **enforced quality gates** and independent reviewer subagents.
-> Outside Claude Code you are a **single agent**, so treat the phases below as a **self-check
-> checklist you apply to your own work** — the discipline is the same even though nothing blocks you.
+> Exported by **claude-kit** for the **{{ profile_label }}** profile. When the
+> destination host supports named delegation, run this as a multi-agent pipeline with enforced
+> quality gates and independent reviewers. Otherwise use the same phases as a single-agent
+> self-check checklist; the discipline remains even when the host cannot enforce the gate.
 
 Move every non-trivial change through these phases in order. A phase "passes" only when it has **zero
 open Critical/High/Medium issues** — if you find one, fix it and re-check before moving on.

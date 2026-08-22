@@ -1,0 +1,10 @@
+schema_version: 1
+id: branch-and-pr-policy
+description: Branch & PR Policy
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://autonomy-levels
+- rule://quality-gates

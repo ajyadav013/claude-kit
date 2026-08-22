@@ -1,17 +1,17 @@
 ---
 paths:
-  - '**/*.tsx'
-  - '**/*.jsx'
-  - '**/*.vue'
-  - '**/*.svelte'
-  - '**/*.css'
-  - '**/*.scss'
-  - '**/components/**'
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.vue'
+- '**/*.svelte'
+- '**/*.css'
+- '**/*.scss'
+- '**/components/**'
 ---
 
 # Frontend Best Practices
 
-These rules are enforced on all code generated or modified by Claude agents in this project.
+These rules are enforced on all code generated or modified by coding agents in this project.
 
 ## Naming Conventions
 

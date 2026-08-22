@@ -1,0 +1,16 @@
+schema_version: 1
+id: go-patterns
+description: Go backend patterns (net/http)
+strength: required
+applicability:
+  source: stack
+  stack_dir: backend/go/net-http
+path_globs:
+- '**/*.go'
+references:
+- artifact://project-instructions
+- artifact://rules-directory
+- rule://code-organization
+- rule://design-patterns
+- rule://documentation
+- rule://testing

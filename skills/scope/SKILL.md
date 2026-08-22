@@ -1,7 +1,7 @@
 ---
 name: scope
 description: Generate a detailed scope document for a backlog item by analyzing the codebase, dependencies, and reference docs.
-argument-hint: [backlog item number]
+argument-hint: '[backlog item number]'
 disable-model-invocation: true
 ---
 
@@ -19,7 +19,7 @@ Scope backlog item #$ARGUMENTS for implementation.
    - For user journey changes: read product specs or user journey documentation
    - For role/authorization changes: read architecture docs defining roles and permissions
 
-4. **Explore the codebase**: Use the Explore agent to find the actual code that's relevant:
+4. **Explore the codebase**: Use a read-only research pass to find the actual code that's relevant:
    - Find existing components, modules, and data files that would be modified
    - Identify data structures (schemas, models, mock data) that need changes
    - Find state management (stores, hooks, contexts) that would change

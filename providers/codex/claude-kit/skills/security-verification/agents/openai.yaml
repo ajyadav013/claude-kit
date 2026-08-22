@@ -1,0 +1,6 @@
+interface:
+  display_name: Security Verification
+  short_description: Check that every user-input surface is validated and sanitized
+    — forms...
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,12 @@
+schema_version: 1
+id: prompt-to-task-conversion
+description: Prompt → Task Conversion
+strength: required
+applicability:
+  source: org
+path_globs: []
+references:
+- rule://ambiguity-resolution
+- rule://autonomy-levels
+- rule://non-engineer-safe-coding
+- rule://risk-classification

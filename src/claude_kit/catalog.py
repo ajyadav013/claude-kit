@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from claude_kit import hooks as hooks_mod
+from claude_kit.components import MCPServerSpec
 from claude_kit.models import (
     GateDefinition,
     OrgPlan,
@@ -403,13 +404,19 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
     )
 
     mcp_servers: dict[str, dict[str, Any]] = {}
+    mcp_server_specs: dict[str, MCPServerSpec] = {}
     servers = mcp.get("servers", {})
     for sid in selection.mcp:
         if sid not in servers:
             raise ValueError(
                 f"unknown MCP server {sid!r} (choices: {', '.join(servers)})"
             )
-        mcp_servers[sid] = servers[sid]["config"]
+        server = servers[sid]
+        if not isinstance(server, dict):
+            raise ValueError(f"MCP server {sid!r} must be a mapping")
+        spec = MCPServerSpec.from_catalog(sid, server)
+        mcp_server_specs[sid] = spec
+        mcp_servers[sid] = spec.provider_config
 
     stack_dirs = {
         "frontend": str(frontend.get("stack_dir", "")),
@@ -443,6 +450,7 @@ def resolve(payload_root: str | Path, selection: Selection) -> ResolvedPlan:
         gate_definitions=gate_definitions,
         gate_definition_digest=gate_definition_digest,
         mcp_servers=mcp_servers,
+        mcp_server_specs=mcp_server_specs,
         context=context,
         stack_dirs=stack_dirs,
         org=org,

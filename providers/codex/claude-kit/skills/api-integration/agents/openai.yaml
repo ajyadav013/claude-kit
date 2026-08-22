@@ -1,0 +1,6 @@
+interface:
+  display_name: API Integration
+  short_description: Wire the app to a backend API — data fetching, caching, error
+    handling...
+policy:
+  allow_implicit_invocation: false

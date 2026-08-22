@@ -82,7 +82,7 @@ After the merge pass, check each category for learnings that have outgrown the m
 
 ### 7. Report
 Tell the user concisely what changed, e.g.:
-> Consolidated UX: merged 3 entries about spacing into `ux/spacing-rules.md`. No information lost. 9 learnings → 7. Promoted the 4 deploy-pipeline gotchas into `.claude/skills/deploy-debugging/SKILL.md`.
+> Consolidated UX: merged 3 entries about spacing into `ux/spacing-rules.md`. No information lost. 9 learnings → 7. Promoted the 4 deploy-pipeline gotchas into `.claude/skills/<domain>/SKILL.md`.
 
 ## What NOT to do
 - Do not delete a learning because it seems minor or old — age is not staleness; these are durable rules.

@@ -1,12 +1,12 @@
-# Working Memory — CONTINUITY.md
+# Working Memory — .claude/CONTINUITY.md
 
-Cross-session, cross-compaction working memory. The single source of truth for **"where am I right now."** Read at the start of every turn; written at the end. When a session hits its token limit or context is compacted, the next turn reads `CONTINUITY.md` and resumes exactly where work left off — no lost state.
+Cross-session, cross-compaction working memory. The single source of truth for **"where am I right now."** Read at the start of every turn; written at the end. When a session hits its token limit or context is compacted, the next turn reads `.claude/CONTINUITY.md` and resumes exactly where work left off — no lost state.
 
 ## CONTINUITY vs. agent-memory
 
 These are different systems. Do not conflate them.
 
-| | `.claude/CONTINUITY.md` | `.claude/agent-memory/` |
+| | `.claude/CONTINUITY.md` | `.claude/agent-memory` |
 |---|---|---|
 | Holds | Current task state — phase, active work, next steps | Durable learnings — rules, gotchas, patterns |
 | Lifespan | Ephemeral — overwritten as work progresses | Permanent — accumulates across all work |
@@ -14,31 +14,31 @@ These are different systems. Do not conflate them.
 | Diff churn | High (changes every turn) — **gitignored** | Low — committed |
 | Written by | Orchestrator + any long-running agent, every turn | `remember` skill + learning-detector hook |
 
-When a CONTINUITY entry under **Mistakes & Learnings** is durable (a correction, convention, or hard-won insight that should outlive this task), promote it to `agent-memory/` via the `remember` skill. CONTINUITY is the scratchpad; agent-memory is the notebook.
+When a CONTINUITY entry under **Mistakes & Learnings** is durable (a correction, convention, or hard-won insight that should outlive this task), promote it to `.claude/agent-memory/` via the `remember` skill. CONTINUITY is the scratchpad; agent-memory is the notebook.
 
 ## Location & lifecycle
 
 - **Live file:** `.claude/CONTINUITY.md` — gitignored, local working state.
-- **Seed:** `.claude/CONTINUITY.template.md` — committed. The `load-continuity.sh` SessionStart hook copies the template to the live file if the live file is missing, then prints it into context.
+- **Seed:** `.claude/CONTINUITY.template.md` — committed. The session-start continuity hook copies the template to the live file if the live file is missing, then prints it into context.
 - Never commit the live file. Never store secrets, tokens, or credentials in it.
 
 **This rule deliberately restates what the hook already does.** Ablation shows `load-continuity.sh`
 is both necessary and sufficient for the file-observable half of this protocol: with the hook on,
 the behaviour happens whether or not this rule is loaded. That makes the overlap look like dead
 weight, and it is kept anyway — hooks are opt-out, can be disabled per project, are skipped by
-harnesses that do not run SessionStart, and are the first thing removed when someone is debugging.
+harnesses that do not run session-start hooks, and are the first thing removed when someone is debugging.
 An install with no hooks still needs the resume contract to be *stated somewhere*, so the prose is
 defence-in-depth rather than duplication. Read it as the contract; the hook is one implementation
 of it, not the only one. Do not delete either on the grounds that the other covers it.
 
 ## Resume snapshot (`.claude/state/pipeline-snapshot.json`)
 
-`CONTINUITY.md` is the human-readable scratchpad; for a pipeline run it is paired with a small
+`.claude/CONTINUITY.md` is the human-readable scratchpad; for a pipeline run it is paired with a small
 **structured snapshot** so a later session can re-enter precisely. The Orchestrator invokes the
 `claude-kit pipeline` lifecycle commands at every transition; those commands alone update the
 snapshot while the Orchestrator mirrors the result into the `PIPELINE:` line under **Current
 Phase**. It is gitignored runtime state under `.claude/state/` — created by the installer and
-ensured by the `load-continuity` SessionStart hook.
+ensured by the `load-continuity` session-start hook.
 
 Schema v2 is explicit and fail-closed. Do not omit required fields or guess values; create it with
 `claude-kit pipeline start` or `adopt`, then mutate it only through lifecycle commands:
@@ -139,9 +139,10 @@ upgrade rather than manufacturing JSON.
 
 ## Concurrency
 
-- There is exactly **one** live `.claude/CONTINUITY.md` per working directory. Two pipeline runs in the **same** checkout share it and will clobber each other's state — don't run concurrent `/sdlc` in one directory.
-- To run pipelines **concurrently** on one repo, give each its own **git worktree** (the isolation primitive already used for parallel lanes in `.claude/rules/mandatory-workflow.md`). Each worktree is a separate checkout, so the `load-continuity.sh` SessionStart hook seeds it an independent `CONTINUITY.md` (it copies the template to `$ROOT/.claude/CONTINUITY.md` when absent). This is also the substrate for **story-group fan-out**: the `sdlc` entrypoint may run one orchestrator per disjoint story group, one worktree each (`.claude/skills/sdlc/SKILL.md`).
-- `agent-memory/` is the opposite by design: a single **shared, committed** store any session reads and contributes to (last-writer-wins on distinct kebab-case files; the `remember` skill dedups). It is intentionally **not** namespaced per branch — cross-run learnings pool on purpose.
+- There is exactly **one** live `.claude/CONTINUITY.md` and one `.claude/state/pipeline-snapshot` for a run. Two independent pipeline runs in the **same** checkout would clobber that control plane — do not start them concurrently.
+- Parallel lanes and story-group fan-out may use separate run-owned git worktrees for code and evidence artifacts, but those workers do **not** seed or own another continuity file, snapshot, or gate ledger. The coordinator checkout's single control plane remains authoritative across every lane, provider, retry, and merge; workers return evidence to the coordinator and never mutate lifecycle state directly (`.claude/skills/sdlc/SKILL.md`).
+- If two genuinely independent runs are required, use separately initialized project checkouts with distinct control planes and run identities. A worker worktree inside one run is not an independent project merely because it is a separate checkout.
+- `.claude/agent-memory/` is the opposite by design: a single **shared, committed** store any session reads and contributes to (last-writer-wins on distinct kebab-case files; the `remember` skill dedups). It is intentionally **not** namespaced per branch — cross-run learnings pool on purpose.
 
 ## Protocol
 
@@ -170,8 +171,8 @@ state as **historical context**, not a current plan: verify it against `git log`
 
 ## Size budget & rotation (hot state vs. cold archive)
 
-`CONTINUITY.md` is **hot state**, and hot state has a hard budget: keep the live file under
-**~8,000 bytes (~150 lines)** — the size the `load-continuity.sh` SessionStart hook injects
+`.claude/CONTINUITY.md` is **hot state**, and hot state has a hard budget: keep the live file under
+**~8,000 bytes (~150 lines)** — the size the session-start continuity hook injects
 **uncut**. Past that, the hook still fires but trims the *middle* of the file out of the
 injection — and the middle is where **Decisions Made** and **Mistakes & Learnings** sit, so an
 over-budget file silently mutilates exactly the sections resume depends on. The read-side trim is
@@ -185,7 +186,7 @@ When a phase completes — or the file nears the budget — **rotate, don't let 
    file** in the gitignored runtime-state dir the hook already ensures exists. It is never
    injected into context; open it on demand when an archived detail is actually needed.
 3. The archive is spillover for *run history only* — durable lessons still promote to
-   `agent-memory/` (Rule 4), decisions of record still become ADRs, and neither store is
+   `.claude/agent-memory/` (Rule 4), decisions of record still become ADRs, and neither store is
    duplicated into it.
 
 The test, after rotating: the live file alone still passes both probes below. If the next session
@@ -262,7 +263,7 @@ still hold the context.
 The two probes catch different failures: the gap probe alone misses a *confident-but-wrong* belief
 about state; the progress probe catches it. This is the same standard as Rule 2 below — truthful state
 — applied *before* the handoff rather than after. (Dual-probe pattern adapted, stack-agnostic, from
-the MIT-licensed [`athola/claude-night-market`](https://github.com/athola/claude-night-market)
+the MIT-licensed a public agent-harness reference implementation
 `memory-clarity-probe` skill, © 2025 athola.)
 
 ## Rules
@@ -270,5 +271,5 @@ the MIT-licensed [`athola/claude-night-market`](https://github.com/athola/claude
 1. **Keep it short.** Working memory, not a transcript. Overwrite stale content; do not append endlessly — stay under the size budget above and rotate completed detail to the archive.
 2. **Truthful state only.** If tests are failing, say so. CONTINUITY must never claim green when it isn't.
 3. **Orchestrator owns the phase line.** Mirror the `PIPELINE:` state line into **Current Phase**.
-4. **Promote, don't hoard.** Durable lessons go to `agent-memory/` via `remember`; CONTINUITY keeps only what this run needs.
+4. **Promote, don't hoard.** Durable lessons go to `.claude/agent-memory/` via `remember`; CONTINUITY keeps only what this run needs.
 5. **No secrets.** Same redaction rules as logging.

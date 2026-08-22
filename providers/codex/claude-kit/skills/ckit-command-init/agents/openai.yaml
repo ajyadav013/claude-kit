@@ -1,0 +1,6 @@
+interface:
+  display_name: Init
+  short_description: 'Install the Codex-native ckit configuration: AGENTS.md plus
+    .agents, .codex...'
+policy:
+  allow_implicit_invocation: false

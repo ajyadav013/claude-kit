@@ -1,7 +1,7 @@
 ---
 name: component-design
 description: Create or restructure a UI component — architecture, component patterns, accessibility, design-system rules. Use when adding a new component, splitting a large one, or making one reusable. App-level work belongs to frontend-ui-engineering.
-argument-hint: [component name and purpose]
+argument-hint: '[component name and purpose]'
 disable-model-invocation: true
 ---
 
@@ -71,7 +71,7 @@ Design and implement the component: $ARGUMENTS.
    - Parent component provides shared context
    - Sub-components consume context or accept explicit props
    - Usage: compose sub-components within parent wrapper
-   
+
    Example:
    ```
    <Card>

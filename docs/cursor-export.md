@@ -1,10 +1,12 @@
 # Exporting to Cursor / VS Code / GitHub Copilot
 
-claude-kit's home is **Claude Code**, where it installs a `.claude/` configuration and runs a gated,
-multi-agent `/sdlc` pipeline. A teammate working in **Cursor**, **VS Code**, or **GitHub Copilot**
-uses that editor's *own* single agent — which can't read `.claude/` or run the pipeline. `claude-kit
-export` bridges the gap by projecting the **same resolved plan** into the formats those agents read
-natively.
+claude-kit has a stable native Claude Code scaffold and a native Codex scaffold in Preview. The
+`export` command is a separate, lower-fidelity bridge for **Cursor**, generic `AGENTS.md` consumers,
+and **GitHub Copilot**. It does not install native Codex skills, custom-agent TOML, hooks, MCP tables,
+or shared lifecycle state.
+
+Use `CKIT_EXPERIMENTAL=1 ckit init --runtime codex` for Codex. Do not use `export -t agents` as a
+Codex installation or as evidence of Codex parity.
 
 It is a **projection**, not a second source of truth: the exporter re-targets the exact `ResolvedPlan`
 that `init` installs (`catalog.resolve()` is untouched, no new stack knowledge). Re-run it any time to
@@ -13,15 +15,16 @@ regenerate; it writes **configuration only** — no application code, no Docker.
 ## Usage
 
 ```bash
-claude-kit export .                                   # default target: cursor
-claude-kit export . -t cursor -t agents -t copilot    # all three
-claude-kit export . --dry-run                         # preview; write nothing
-claude-kit export . --force                            # refresh existing files in place
-claude-kit export . -t agents --json                  # machine-readable file list
+ckit export .                                   # default target: cursor
+ckit export . -t cursor -t agents -t copilot    # all three generic targets
+ckit export . --dry-run                         # preview; write nothing
+ckit export . --force                           # refresh existing files in place
+ckit export . -t agents --json                  # machine-readable file list
 ```
 
 By default `export` resolves from the project's **installed selection**
-(`.claude/config/init-options.json`), so the export matches what was scaffolded. Pass `--config FILE`
+(`.ckit/config/init-options.json`, with a legacy `.claude` reader), so the export matches what was
+scaffolded. Pass `--config FILE`
 or `--defaults` to resolve a fresh selection instead — useful for a standalone export into a project
 that never ran `init`.
 
@@ -36,7 +39,7 @@ as a `<name>.claude-kit` sidecar — the same non-destructive convention the ins
 | `cursor` | `.cursor/rules/000-project.mdc` | The project **charter** + single-agent SDLC workflow + fidelity note. `alwaysApply: true` — always in context. |
 | | `.cursor/rules/<rule>.mdc` (one per rule) | Every core rule and every stack overlay, `alwaysApply: false` (agent pulls on demand by `description`); overlays also carry `globs` to auto-attach on matching files. |
 | | `.cursor/mcp.json` | Your selected MCP servers (omitted when none are selected). |
-| `agents` | `AGENTS.md` (repo root) | Charter + workflow + a **rule index** (one line per rule) + the fidelity note. Read by both Cursor and Copilot. `claude-kit init` already emits this file (sidecar-safe); the target regenerates it — a byte-identical existing file is reported as current, never sidecar'd. |
+| `agents` | `AGENTS.md` (repo root) | Generic charter + single-agent workflow + a **rule index** + fidelity note. This is not the native Codex renderer's managed workflow/gate document. |
 | `copilot` | `.github/copilot-instructions.md` | The same synthesized document as `agents`. |
 
 ## `.mdc` frontmatter derivation
@@ -75,20 +78,19 @@ internal `type` discriminator is **dropped**; every other key passes through ver
 
 ## Fidelity: what ports, and what doesn't
 
-| Capability | Claude Code | Exported (Cursor / AGENTS.md / Copilot) |
+| Capability | Native scaffold | Generic export (Cursor / AGENTS.md / Copilot) |
 |---|---|---|
-| Engineering rules + stack/design-system overlays | ✅ enforced/on-demand | ✅ full text (`.mdc`) or index (AGENTS.md) |
+| Engineering rules + stack/design-system overlays | Claude native files; Codex adapted managed instructions + complete `.ckit/rules` | Full text (`.mdc`) or an advisory index (`AGENTS.md`) |
 | Project charter (stack, commands, lanes) | ✅ | ✅ |
-| MCP servers | ✅ (`.mcp.json`) | ✅ Cursor (`.cursor/mcp.json`); not applicable to AGENTS.md/Copilot |
-| SDLC phases | ✅ **enforced quality gates** | ⚠️ single-agent **self-check checklist** (guidance) |
-| Independent reviewer subagents | ✅ separate agents | ❌ one agent plays every role |
-| Security scan (parallel sub-scanners) | ✅ | ⚠️ a security self-check step in the checklist |
-| Automated defect loop (blocks on unproven verdict) | ✅ | ⚠️ described as discipline; nothing blocks |
+| MCP servers | `.mcp.json` (Claude) or `.codex/config.toml` (Codex) | Cursor `.cursor/mcp.json`; not applicable to AGENTS.md/Copilot |
+| SDLC phases and gate ledger | Shared `.ckit` lifecycle with native instructions | Single-agent **self-check checklist** only |
+| Independent reviewer agents | Native/adapted named project agents, subject to the runtime support matrix | One editor agent plays every role |
+| Hooks and automatic defect loop | Host-specific mappings plus Python gate enforcement | Not exported; prose guidance does not block |
+| Continuity, upgrades, and state | One ownership-aware `.ckit` control plane | Not exported |
 
-The enforced gates, reviewer subagents, and automated defect loop depend on Claude Code's multi-agent
-runtime and **cannot** be reproduced under a single-agent editor. The export is honest about this: the
-charter carries a "What ports from Claude Code — and what doesn't" note, and the workflow guide opens
-by stating it is a self-check checklist, not enforced gates.
+The generic targets cannot reproduce a host-native multi-agent workflow. Their charter states that
+the workflow is a self-check checklist rather than an enforced gate pipeline. Native Codex support
+is documented separately in [runtime support](runtime-support.md).
 
 ## Out of scope (for now)
 

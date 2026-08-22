@@ -39,10 +39,10 @@ expectations and lanes), `rarv-cycle.md` (every reviewer shows a green Verify be
 
 ## Examples
 ```
-/review-pr Check the latest change to the items service                # → code-review-and-quality
-/write-tests Add regression coverage for the failed-login path         # → test-driven-development
-/security-verification Review the new file-upload handler              # → security-verification
-/accessibility-review Audit the new settings screen                    # → accessibility-review
+Use `/code-review-and-quality` to check the latest change to the items service.
+Use `/test-driven-development` to add regression coverage for the failed-login path.
+Use `/security-verification` to review the new file-upload handler.
+Use `/accessibility-review` to audit the new settings screen.
 ```
 
 ## Autonomy & risk

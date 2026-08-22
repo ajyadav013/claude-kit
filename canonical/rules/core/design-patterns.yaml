@@ -1,0 +1,18 @@
+schema_version: 1
+id: design-patterns
+description: Design Patterns
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+references:
+- rule://code-organization

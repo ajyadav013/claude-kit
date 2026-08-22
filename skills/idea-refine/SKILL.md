@@ -1,6 +1,7 @@
 ---
 name: idea-refine
 description: Refines raw ideas into sharp, actionable concepts via divergent-then-convergent thinking. Use when an idea is vague or to stress-test assumptions. Triggers on ideate, refine this idea, stress-test my plan.
+argument-hint: '[request]'
 ---
 
 # Idea Refine
@@ -19,7 +20,7 @@ This skill is primarily an interactive dialogue. Invoke it with an idea, and the
 
 ```bash
 # Optional: Initialize the ideas directory
-bash /mnt/skills/user/idea-refine/scripts/idea-refine.sh
+bash .claude/skills/idea-refine/scripts/idea-refine.sh
 ```
 
 **Trigger Phrases:**

@@ -1,0 +1,10 @@
+schema_version: 1
+id: org-pack-devops-and-release-manifest
+description: devops-and-release organization pack manifest
+category: org
+format: yaml
+destination: templates/org/packs/devops-and-release/pack.yaml
+provider_placeholders:
+- provider.executable.cli
+- provider.path.config_root
+references: []

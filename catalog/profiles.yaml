@@ -76,7 +76,7 @@ gate_definitions:
 profiles:
   lean:
     label: "Lean — fast track, minimal gates"
-    agents: [orchestrator, developer, sdlc-code-reviewer, tester, pr-raiser]
+    agents: [orchestrator, risk-classifier, developer, sdlc-code-reviewer, tester, pr-raiser]
     skills:
       - sdlc
       - execute

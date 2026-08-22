@@ -1,159 +1,360 @@
-# Installing claude-kit - the full detail
+# Installing claude-kit
 
-The README's [Quick start](../README.md#quick-start) covers the happy path. This page holds
-everything else: prerequisites, Windows, plugin updates, every `init` question, the non-interactive
-config format, and exactly what lands on disk.
+The recommended entry point is the `ckit` CLI. The PyPI package remains
+`claude-code-kit`, and the established `claude-kit` and `claude-sdlc` command aliases remain
+supported.
+
+Claude Code scaffolding is stable. Native Codex and dual-runtime scaffolding are **Preview** and
+must be enabled explicitly. See the normative [runtime support contract](runtime-support.md) before
+depending on a Preview mapping.
 
 ## Prerequisites
 
-- [Claude Code](https://www.claude.com/product/claude-code)
-- Python >= 3.9 for the CLI
-- `jq` to enable the shell hooks (they no-op without it)
-- Node / `npx` only if you enable an MCP (Model Context Protocol) server
+- Python 3.9 or newer for the CLI.
+- [Claude Code](https://www.claude.com/product/claude-code), Codex, or both, according to the
+  runtime you select.
+- `jq` for shell hook adapters. Hooks that need it no-op when it is unavailable.
+- Node.js / `npx` only for selected MCP servers that launch through `npx`.
 
-**Windows:** plugin payload discovery and read-only inspection can work natively, but commands that
-mutate a project (`init`, merge, `upgrade`, export, and pipeline transitions) deliberately fail
-closed on native Windows in 0.83. They require descriptor-anchored path operations and a handle-tied
-project lease; the former fallback could not exclude a junction-swap race. Run those commands in
-**WSL on a filesystem with POSIX descriptor and lock semantics**. The shell hooks additionally need
-a POSIX shell + `jq`; without them the hooks silently no-op. A native Win32 handle-backed mutation
-backend and Windows CI are tracked for the 1.0 support decision.
+On native Windows, project-mutating commands fail closed because the current secure filesystem
+backend requires POSIX descriptor and lock semantics. Use WSL on a POSIX-semantics filesystem.
+Plugin discovery and read-only inspection can still work natively. Shell hooks also require a POSIX
+shell.
 
-## Path A: as a Claude Code plugin
+## Install the CLI
 
-Makes all agents, skills, commands, and hooks available inside Claude Code:
+```bash
+pipx install claude-code-kit
+# Or inside a virtual environment:
+pip install claude-code-kit
 
-```text
-/plugin marketplace add ajyadav013/claude-kit
-/plugin install claude-kit@claude-kit        # qualified name: the claude-kit plugin from the claude-kit marketplace
+ckit version
 ```
 
-Then, inside any project you want the pipeline to manage:
+The aliases below enter the same CLI:
+
+- `ckit` — recommended in new documentation and automation.
+- `claude-kit` — compatibility alias.
+- `claude-sdlc` — compatibility alias.
+
+## Quick start: Claude Code
+
+Use an explicit runtime on a new install so it receives the provider-neutral `.ckit` control plane:
+
+```bash
+ckit init . --defaults --runtime claude
+ckit validate . --strict
+ckit doctor .
+```
+
+Restart Claude Code so it discovers the new project configuration, then run:
 
 ```text
-/claude-kit:init        # Claude asks you the questions in chat, then runs the CLI non-interactively
-# -> restart Claude Code so the project's agents, skills, and hooks load
 /sdlc Add a CSV export button to the reports page
 ```
 
-> **`/claude-kit:init` requires the Python CLI** (`pipx install claude-code-kit`, or `pip install
-> claude-code-kit`) - it's what resolves your stack/profile/MCP catalog and records `init-options.json`
-> for safe `upgrade`/`diff`. If the CLI isn't on PATH the command stops and tells you to install it
-> rather than doing a partial install. The historical shell scaffolder was retired in 0.83.0 because
-> it could not share the Python installer's path-containment and rollback guarantees; `scripts/init.sh`
-> now only dispatches to the installed CLI and otherwise changes nothing.
+For backward compatibility, omitting `--runtime` still enters the legacy Claude-only installer.
+New installations should spell out `--runtime claude`.
 
-> `/sdlc` is a **project skill** installed by `init`, so it becomes available after the restart. The
-> plugin also exposes `/claude-kit:sdlc <task>`, which works immediately (no restart needed).
+When starting from the Claude plugin instead of the CLI, `/claude-kit:init` remains the
+backward-compatible implicit-Claude path; use the explicit `--runtime claude` command above when a
+fresh install must use the provider-neutral `.ckit` control plane. The plugin command asks the
+selection questions in chat and delegates to the installed Python CLI. It requires
+`pipx install claude-code-kit` (or `pip install claude-code-kit`) because the CLI resolves the
+stack/profile/MCP catalog and records `init-options.json` for safe `upgrade` and `diff`. If `ckit`
+is not on `PATH`, it stops without making a partial install. The historical shell scaffolder was
+retired in 0.83.0 because it could not provide the Python installer's containment and rollback
+guarantees; `scripts/init.sh` now only delegates to the installed CLI.
 
-### Updating the plugin
+## Quick start: Codex Preview
 
-The plugin is cached, so a plain `/reload-plugins` won't fetch new code - refresh the marketplace
-snapshot first:
-
-```text
-/plugin marketplace update claude-kit   # refresh the marketplace snapshot from the repo
-/plugin update claude-kit@claude-kit    # install the newer version into the cache
-/reload-plugins                         # load it into the running session
-```
-
-## Path B: as a pip package
-
-A CLI (`claude-kit`, aliases `ckit` / `claude-sdlc`) that scaffolds the same config into any repo:
+Codex and `both` are opt-in while their protected live-host promotion gates remain open:
 
 ```bash
-pip install claude-code-kit             # note: the pip name is claude-code-kit, not claude-kit
-# or, for the bleeding edge straight from the repo:
-#   pip install "git+https://github.com/ajyadav013/claude-kit.git"
-
-claude-kit init                 # interactive: prompts for stack, profile, MCP
-claude-kit init --defaults      # non-interactive: React + Python/FastAPI + Postgres + standard
+CKIT_EXPERIMENTAL=1 ckit init . --defaults --runtime codex
+ckit validate . --strict
+ckit doctor .
 ```
 
-## What the init flow asks
+Trust the project in Codex before relying on project hooks. Open the project and explicitly invoke
+the workflow skill:
 
-`claude-kit init` asks an ordered set of questions (all with sensible defaults), then writes the
-config - nothing else:
+```text
+$sdlc Add a CSV export button to the reports page
+```
 
-1. **Target path** (default: current dir; if `.claude/` exists -> **merge / overwrite / backup / abort**)
-2. **Frontend framework** (default: React; `none` for backend-only projects) -> **frontend language** (default: TypeScript; skipped for `none`)
-3. **Backend language** (default: Python; `none` for frontend-only projects) -> **backend framework** (default: FastAPI)
-4. **Database** (PostgreSQL, MongoDB, `none`)
-5. **SDLC profile** (`lean`, `standard`, `enterprise`)
-6. **Optional MCP integrations** (GitHub, Jira/Linear, Azure DevOps, Postgres/Mongo, Playwright, Chrome DevTools, Docs/MS Learn, Azure, Wassette, Sentry, Grafana, Repowise, the Google security suite - full list: `claude-kit list-options`) - a
-   project-root `.mcp.json` is written **only** if you select any (env placeholders, never secrets)
-7. **Learning capture** (`off` default, `session-end-catchup` recommended, `session-end`, `per-task`) - **opt-in**: capture stays off unless you pick a mode here (non-interactive installs -
-   `--defaults`, the plugin, piped stdin - are always off). *Privacy note:* when enabled it reads your
-   session transcript + changed files to write `.claude/agent-memory/` entries (secret-bearing files
-   skipped, secret-shaped values redacted); disable anytime with `CLAUDE_KIT_NO_AUTOCAPTURE=1` and
-   audit with `claude-kit privacy-report`
-8. **Usage scope** (`individual`, `team`, `organization`) - organization scope asks four follow-ups:
-   teams, autonomy level, review strictness, and org capability packs
+Codex skills use `$skill-name`; Claude slash-command syntax is not copied into the native Codex
+projection.
 
-### Non-interactive: `--defaults` or `--config init.yaml`
+## Quick start: both runtimes Preview
 
-Flat keys or this nested form:
+```bash
+CKIT_EXPERIMENTAL=1 ckit init . --defaults --runtime both
+ckit validate . --strict
+ckit doctor .
+```
+
+Open the same checkout in Claude Code or Codex. Both native discovery surfaces refer to exactly one
+`.ckit` manifest, continuity file, upgrade journal, and gate ledger. Do not copy `.ckit` into either
+host directory.
+
+## Exact emitted layouts
+
+The trees below show the native topology for a fresh default selection. Profiles, stacks, scope,
+and selected MCP servers change the files inside each component directory.
+
+### `--runtime claude`
+
+```text
+.ckit/CONTINUITY.md
+.ckit/agent-memory/
+.ckit/artifacts/
+.ckit/config/
+.ckit/scripts/
+.ckit/state/
+.ckit/tmp/
+.claude/agents/
+.claude/hooks/
+.claude/rules/
+.claude/scripts/
+.claude/settings.json
+.claude/skills/
+.claude/templates/
+.gitignore
+CLAUDE.md
+README.claude-sdlc.md
+```
+
+Selecting Claude MCP servers additionally emits `.mcp.json` and, when locked, `.mcp.lock.json`.
+
+### `--runtime codex`
+
+```text
+.agents/skills/
+.ckit/CONTINUITY.md
+.ckit/CONTINUITY.template.md
+.ckit/README.sdlc.md
+.ckit/STACK.md
+.ckit/agent-memory/
+.ckit/artifacts/
+.ckit/config/
+.ckit/rules/
+.ckit/scripts/
+.ckit/state/
+.ckit/templates/
+.ckit/tmp/
+.codex/agents/
+.codex/config.toml
+.codex/hooks.json
+.codex/hooks/scripts/
+.gitignore
+AGENTS.md
+```
+
+### `--runtime both`
+
+```text
+.agents/skills/
+.ckit/CONTINUITY.md
+.ckit/CONTINUITY.template.md
+.ckit/README.sdlc.md
+.ckit/STACK.md
+.ckit/agent-memory/
+.ckit/artifacts/
+.ckit/config/
+.ckit/rules/
+.ckit/scripts/
+.ckit/state/
+.ckit/templates/
+.ckit/tmp/
+.claude/agents/
+.claude/hooks/
+.claude/rules/
+.claude/scripts/
+.claude/settings.json
+.claude/skills/
+.claude/templates/
+.codex/agents/
+.codex/config.toml
+.codex/hooks.json
+.codex/hooks/scripts/
+.gitignore
+AGENTS.md
+CLAUDE.md
+README.claude-sdlc.md
+```
+
+Each directory line is a topology family, not a claim that every profile emits the same members.
+The lists are checked against a fresh default install in the repository test suite. The `both`
+list contains the union of native surfaces and only one `.ckit` family.
+
+The installer also manages relevant `.gitignore` entries. Presence of `CLAUDE.md`, `AGENTS.md`,
+`.claude`, or `.codex` is not the runtime authority; `.ckit/config/init-options.json` is.
+
+## Interactive choices and config files
+
+`ckit init` resolves the same provider-neutral selection for every runtime:
+
+1. target project and safe merge behavior;
+2. frontend framework/language, backend language/framework, and database;
+3. `lean`, `standard`, or `enterprise` profile;
+4. optional MCP integrations;
+5. opt-in learning capture mode;
+6. individual, team, or organization scope and any organization follow-ups.
+
+Runtime is deployment metadata, not part of stack/profile catalog resolution. A non-interactive
+configuration can include it at the top level:
 
 ```yaml
-frontend: { framework: react, language: typescript }
-backend:  { language: python, framework: fastapi }
+runtime: codex                       # claude · codex · both
+frontend: {framework: react, language: typescript}
+backend: {language: python, framework: fastapi}
 database: postgres
-profile:  standard                     # lean, standard, enterprise
-mcp:      [github]                     # [] = none; ids from `claude-kit list-options`
-capture_mode: "off"                    # "off" (default), session-end, session-end-catchup, per-task - quote off
-scope:    team                         # individual, team, organization (org adds org: {teams, autonomy, review_strictness, packs})
+profile: standard                     # lean, standard, enterprise
+mcp: [github]                         # [] = none; ids from `ckit list-options`
+capture_mode: "off"                   # off, session-end, session-end-catchup, per-task
+scope: team                           # individual, team, organization
 ```
 
-### What lands on disk
+For Codex or `both`, the environment switch is still required even when `runtime` comes from the
+YAML file:
 
-```
-CLAUDE.md                      # "Project-specific rules" filled from your stack's commands
-README.claude-sdlc.md
-.claude/
-  settings.json                # assembled from the profile's hooks
-  rules/                        # stack-agnostic core + selected overlay rules
-  agents/                       # the profile's agent subset + DB overlay agents
-  skills/  (incl. sdlc/)        # the profile's skill subset; sdlc/ is the /sdlc entrypoint
-  hooks/                        # the profile's hook scripts
-  templates/                    # artifact templates (spec, ADR, test-plan, ...)
-  config/                       # init-options.json (checksums) + stack snapshot
-  state/  tmp/                  # gitignored runtime
-.mcp.json                       # only if MCP servers were selected
+```bash
+CKIT_EXPERIMENTAL=1 ckit init . --config init.yaml
 ```
 
-## Stacks & overlays
+Use `ckit list-options` for current catalog IDs. Secrets are never written into the configuration;
+MCP entries use environment placeholders.
 
-- **Stack-agnostic core** - the pipeline assumes no language or framework; it never writes your app
-  code and never needs Docker.
-- **15 stack overlay rule files** layer matching guidance on top - React, FastAPI, Django,
-  Go/net-http, Express, PostgreSQL, MongoDB - wired to your exact lint/test/build commands. Overlays are **path-scoped**
-  (`paths:` frontmatter) so they enter context only when Claude touches matching files; MongoDB's
-  stays always-on (a document store has no reliable file signal to scope by).
-- **Installs are stack-true** - every lane offers `none` (backend-only, frontend-only, no-database
-  projects), and a lane you don't have installs nothing: no off-stack rules, skills, agents, or
-  commands. Frontend-specific skills ride the React selection, not the profile core.
-- **A full React design system** - picking React installs design tokens, UX patterns, and
-  mobile/Capacitor guidelines that the UI skills and `ui-designer` agent read.
+## Stacks and overlays
 
-## Watching a run
+The stack-agnostic core never requires a particular language, framework, database, container tool,
+or Docker. The catalog currently selects among **15 stack overlay rule files** for React, FastAPI,
+Django, Go/net-http, Express, PostgreSQL, and MongoDB. Path-glob metadata is projected into Claude
+scoped rules and retained in Codex's complete `.ckit/rules` set while the bounded `AGENTS.md` layer
+stays under its host size budget. Unselected lanes install no off-stack rules, skills, agents, or
+commands. Every lane also offers `none`, so backend-only, frontend-only, and no-database projects do
+not receive irrelevant guidance. Selecting React additionally installs its design-system, UX, and
+mobile/Capacitor guidance.
 
-`/sdlc` opens the ticket board for you. At Stage TK - after the stories are approved and the
-tickets are written, before any implementation agent starts - the orchestrator runs `claude-kit
-tickets --open`, which writes `.claude/state/ticket-board.html` and launches your browser. From
-then on the `capture-ticket-telemetry` Stop hook refreshes that file after every turn, so the page
-tracks the run live with nothing daemonised. The board is a single self-contained file: no
-JavaScript, no network requests, no server.
+## Watching a managed run
 
-Outside a run, `claude-kit tickets` renders the same store as a terminal chart, `--html` writes the
-board without opening it, and `claude-kit tickets <PREFIX>-<N>` prints one ticket's detail. If no
-browser can be launched (SSH, CI, a container), `--open` prints the `file://` URL and exits 0.
+The SDLC workflow can open the ticket board after stories are approved and before implementation
+starts. `ckit tickets --open` writes `.ckit/state/ticket-board.html` for runtime-aware installs and
+launches the browser; the implicit legacy Claude installer retains `.claude/state/ticket-board.html`.
+Claude transcript metadata can enrich the board through the `capture-ticket-telemetry` Stop hook;
+automatic Codex host telemetry is not claimed. The board is one self-contained file with no
+JavaScript, network request, daemon, or server.
 
-## Memory & continuous learning
+## Plugin installation is narrower than scaffolding
 
-- **Working memory across sessions** - `CONTINUITY.md` survives context compaction so the pipeline
-  never loses its place.
-- **A learnings loop** - `agent-memory/` captures fixes from your corrections *and*, in a non-blocking
-  background job, from what Claude changed, so the same mistake isn't made twice.
-- **Cost-aware capture** - how aggressively learnings are captured (`capture_mode`: off, on clean
-  exit, + catch-up, per task) is a choice at `init` (see question 7 above for the privacy note).
+Plugins expose static components that a host can discover. They do not run catalog selection or
+the projection compiler. A plugin cannot choose a stack/profile/scope, create or migrate `.ckit`,
+perform ownership-aware upgrades, or install project `CLAUDE.md`, `AGENTS.md`, and project custom
+agents. Use the CLI for those capabilities.
 
+### Claude Code plugin
+
+```text
+/plugin marketplace add ajyadav013/claude-kit
+/plugin install claude-kit@claude-kit
+```
+
+The plugin exposes its Claude skills, commands, agents, and hooks. In a project,
+`/claude-kit:init` delegates to the installed Python CLI's compatibility installer; use
+`ckit init . --runtime claude` for the provider-neutral `.ckit` path, then restart Claude Code. If
+`ckit` is not on `PATH`, the plugin command stops without performing a partial shell install.
+
+The plugin is cached, so `/reload-plugins` alone does not fetch new code. Refresh the marketplace
+snapshot before loading an update:
+
+```text
+/plugin marketplace update claude-kit
+/plugin update claude-kit@claude-kit
+/reload-plugins
+```
+
+### Codex plugin Preview
+
+From a local checkout, Codex's non-credentialed lifecycle is:
+
+```bash
+codex plugin marketplace add /path/to/claude-kit --json
+codex plugin list --available --json
+codex plugin add claude-kit@claude-kit --json
+```
+
+The repository marketplace and plugin add/content/list/remove lifecycle are exercised in isolated
+host tests. The plugin provides the static subset documented in
+[runtime-support.md](runtime-support.md#plugin-limits); use `ckit init --runtime codex` for native
+project instructions, custom agents, selected rules, `.ckit`, and lifecycle operations.
+
+## Trust, duplication, and project ownership
+
+- Review generated hooks and MCP entries before trusting a project. Codex does not run non-managed
+  project hooks until the project is trusted.
+- Installing the plugin and scaffolding a project can make the same logical skill visible from two
+  sources. `ckit doctor` reports detectable project-local duplication; it does not inspect every
+  user-level host registry.
+- The scaffold records ownership and checksums in `.ckit/config/init-options.json`. `ckit diff`
+  previews an upgrade. User-modified managed files are preserved and receive a `.claude-kit`
+  sidecar instead of being silently replaced.
+- A runtime transition that removes a native provider surface requires
+  `--confirm-runtime-removal` and uses the existing backup/rollback machinery.
+
+## Migrating an existing Claude install
+
+Do not manually move `.claude/state` into `.ckit`. The migration is non-destructive,
+transactional, and resumable:
+
+```bash
+CKIT_EXPERIMENTAL=1 ckit migrate-state .
+# Or migrate while selecting the first native projection:
+CKIT_EXPERIMENTAL=1 ckit init . --defaults --runtime codex --migrate-state
+```
+
+If both legacy and neutral state exist, `.ckit` is authoritative and legacy state is retained for
+diagnostics during the compatibility window. Runtime transitions are described in
+[runtime migration](runtime-migration.md).
+
+## Learning capture and privacy
+
+Capture defaults to `off`, including non-interactive installs. When enabled, it writes bounded,
+redacted learnings to `.ckit/agent-memory/`. Use the provider-neutral names in new automation:
+
+```bash
+CKIT_NO_AUTOCAPTURE=1
+CKIT_CAPTURE_MAX_LINES=400
+CKIT_CAPTURE_MAX_BYTES=65536
+ckit privacy-report .
+```
+
+The corresponding legacy names remain accepted during the compatibility window. User-facing
+environment variables are:
+
+| Preferred | Compatibility alias | Purpose |
+|---|---|---|
+| `CKIT_EXPERIMENTAL` | `CLAUDE_KIT_EXPERIMENTAL` | Expose Preview/planned CLI surfaces; Codex/`both` installation requires it |
+| `CKIT_NO_AUTOCAPTURE` | `CLAUDE_KIT_NO_AUTOCAPTURE` | Disable learning capture |
+| `CKIT_CAPTURE_MAX_LINES` | `CLAUDE_KIT_CAPTURE_MAX_LINES` | Bound captured context by lines |
+| `CKIT_CAPTURE_MAX_BYTES` | `CLAUDE_KIT_CAPTURE_MAX_BYTES` | Bound captured context by bytes |
+| `CKIT_CAPTURE_MODEL` | `CLAUDE_KIT_CAPTURE_MODEL` | Override the capture job's provider model where supported |
+| `CKIT_NO_TELEMETRY` | `CLAUDE_KIT_NO_TELEMETRY` | Disable ticket telemetry enrichment |
+| `CKIT_TELEMETRY_INTERVAL` | `CLAUDE_KIT_TELEMETRY_INTERVAL` | Bound telemetry refresh frequency |
+| `CKIT_AUTOFIX` | `CLAUDE_KIT_AUTOFIX` | Control the opt-in lint-fix hook behavior |
+
+The fail-closed loop currently accepts no runtime, budget, iteration, sandbox, or prompt knobs and
+never launches a host. Former `CKIT_RUNTIME`, `CKIT_SDLC_*`, `CKIT_CODEX_SANDBOX`, and legacy
+`SDLC_*` values do not authorize execution. See [autonomous operation](autonomous-operation.md).
+`CKIT_PROJECT_ROOT` and `CKIT_HOOK_PROVIDER` are adapter-owned context variables, not user
+configuration.
+
+Codex capture uses the changed-path set and a provider background task; historical Claude transcript
+catch-up and automatic Codex ticket telemetry are not claimed. See [Security](../SECURITY.md).
+
+## Next steps
+
+- [CLI reference and troubleshooting](cli.md)
+- [Runtime support matrix](runtime-support.md)
+- [Migration between runtimes](runtime-migration.md)
+- [Autonomous operation](autonomous-operation.md)

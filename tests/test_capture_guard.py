@@ -82,6 +82,19 @@ def test_changed_files_honours_max_lines_env(tmp_path):
     assert len([line for line in out.split() if line]) == 2
 
 
+@_NEED_JQ
+def test_neutral_capture_limit_env_wins_over_legacy_alias(tmp_path):
+    t = tmp_path / "transcript.jsonl"
+    t.write_text(
+        "\n".join(_edit(f"src/a{i}.py") for i in range(5)) + "\n", encoding="utf-8"
+    )
+    out = _bash(
+        f'changed_files "{t}"',
+        env={"CLAUDE_KIT_CAPTURE_MAX_LINES": "4", "CKIT_CAPTURE_MAX_LINES": "1"},
+    )
+    assert len([line for line in out.split() if line]) == 1
+
+
 @pytest.mark.parametrize(
     "secret",
     [
@@ -159,3 +172,58 @@ def test_end_mode_returns_immediately_and_detaches_the_capture(tmp_path):
             break
         time.sleep(0.1)
     assert ran.exists(), "background capture never ran"
+
+
+@_NEED_JQ
+def test_codex_end_mode_uses_headless_runner_and_shared_memory_without_transcript(
+    tmp_path,
+):
+    import time
+
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    ran = tmp_path / "ckit-ran.txt"
+    codex_shim = bindir / "codex"
+    codex_shim.write_text("#!/usr/bin/env bash\nexit 99\n", encoding="utf-8")
+    codex_shim.chmod(0o755)
+    ckit_shim = bindir / "ckit"
+    ckit_shim.write_text(
+        f'#!/usr/bin/env bash\nprintf \'%s\\n\' "$*" > "{ran}"\n',
+        encoding="utf-8",
+    )
+    ckit_shim.chmod(0o755)
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=proj, check=True)
+    (proj / ".ckit/agent-memory").mkdir(parents=True)
+    (proj / "src").mkdir()
+    (proj / "src/app.py").write_text("changed = True\n", encoding="utf-8")
+    hook_tmp = tmp_path / "hook-tmp"
+    hook_tmp.mkdir()
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "TMPDIR": str(hook_tmp),
+        "CKIT_HOOK_PROVIDER": "codex",
+    }
+    env.pop("CKIT_NO_AUTOCAPTURE", None)
+    env.pop("CLAUDE_KIT_NO_AUTOCAPTURE", None)
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "end"],
+        input=json.dumps({"session_id": "codex-session", "cwd": str(proj)}),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0
+    assert (hook_tmp / "claude-kit-captured-codex-session.done").exists()
+    for _ in range(100):
+        if ran.exists():
+            break
+        time.sleep(0.1)
+    invocation = ran.read_text(encoding="utf-8")
+    assert invocation.startswith("learning-capture --path ")
+    assert str(proj) in invocation
+    assert "--max-files 50 --max-bytes 8000" in invocation
+    assert "workspace-write" not in invocation

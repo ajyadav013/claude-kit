@@ -1,0 +1,19 @@
+schema_version: 1
+id: model-tiers
+description: Model Tiers
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+references:
+- rule://agent-guardrails
+- rule://agent-resilience
+- rule://human-in-the-loop
+- rule://quality-gates
+- rule://reasoning-techniques
+- rule://risk-classification
+- state://continuity

@@ -1,0 +1,6 @@
+interface:
+  display_name: Backlog
+  short_description: Add a new feature idea to the product backlog. Use when the user
+    wants to...
+policy:
+  allow_implicit_invocation: false

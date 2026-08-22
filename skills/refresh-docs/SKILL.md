@@ -1,7 +1,7 @@
 ---
 name: refresh-docs
 description: Scan for stale reference docs and update them by reading current source code and data files.
-argument-hint: [--since N | path/to/doc.md]
+argument-hint: '[--since N | path/to/doc.md]'
 disable-model-invocation: true
 ---
 
@@ -77,5 +77,5 @@ shape**, not shipped paths):
 
 - **Don't rewrite docs that are only slightly stale.** If the source change was minor (a small bug fix, import reorder), note it but skip the update.
 - **Preserve existing structure.** When updating, match the existing doc's heading structure and level of detail.
-- **Use the Explore agent** to understand source files before writing docs. Don't guess at behavior from file names alone.
+- **Use a read-only research role** to understand source files before writing docs. Don't guess at behavior from file names alone.
 - **Parallelize with subagents** when refreshing 5+ docs — spawn general-purpose subagents to handle batches concurrently.

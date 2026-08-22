@@ -1,7 +1,7 @@
 ---
 name: triage
 description: Triage unsorted backlog items into the appropriate execution horizon. Review, confirm placement, and move items from unsorted.md to their horizon file.
-argument-hint: [item number or "all"]
+argument-hint: '[item number or "all"]'
 disable-model-invocation: true
 ---
 

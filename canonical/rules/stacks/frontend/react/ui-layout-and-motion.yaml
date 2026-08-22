@@ -1,0 +1,13 @@
+schema_version: 1
+id: ui-layout-and-motion
+description: UI Layout & Motion
+strength: required
+applicability:
+  source: stack
+  stack_dir: frontend/react
+path_globs:
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.css'
+- '**/*.scss'
+references: []

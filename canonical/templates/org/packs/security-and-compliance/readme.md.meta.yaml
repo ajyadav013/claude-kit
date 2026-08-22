@@ -1,0 +1,15 @@
+schema_version: 1
+id: org-pack-security-and-compliance-readme
+description: security-and-compliance organization pack readme
+category: org
+format: markdown
+destination: templates/org/packs/security-and-compliance/README.md
+provider_placeholders:
+- provider.executable.cli
+references:
+- command://security-and-hardening
+- command://security-verification
+- command://threat-model
+- skill://security-and-hardening
+- skill://security-verification
+- skill://threat-model

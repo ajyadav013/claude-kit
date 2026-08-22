@@ -1,6 +1,6 @@
 # AI Working Agreement
 
-This is the charter for how humans and Claude work together in this project. It is the umbrella over
+This is the charter for how humans and the coding agent work together in this project. It is the umbrella over
 the organization capability layer: a short summary of the contract, with each clause pointing at the
 rule that defines it in full. When the rules below conflict, the stricter one wins.
 

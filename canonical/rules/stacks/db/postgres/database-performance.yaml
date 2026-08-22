@@ -1,0 +1,15 @@
+schema_version: 1
+id: database-performance
+description: Database Performance (PostgreSQL + SQLAlchemy 2.0 async)
+strength: required
+applicability:
+  source: stack
+  stack_dir: db/postgres
+path_globs:
+- '**/*.sql'
+- '**/migrations/**/*'
+- '**/alembic/**/*'
+- '**/models/**/*'
+references:
+- rule://postgres-patterns
+- rule://quality-gates

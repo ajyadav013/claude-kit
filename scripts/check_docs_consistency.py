@@ -10,8 +10,9 @@ the catalog and asserts the docs agree.
 It checks three classes of drift:
 
 1. **Version parity** — the single version string must be identical across ``pyproject.toml``,
-   ``src/claude_kit/__init__.py``, both plugin manifests, the latest ``CHANGELOG.md`` heading, and
-   ``SECURITY.md``.
+   ``src/claude_kit/__init__.py``, both provider plugin manifests, the versioned Claude marketplace
+   entry, the latest ``CHANGELOG.md`` heading, and ``SECURITY.md``. (The native Codex marketplace
+   format intentionally has no version field.)
 2. **Component counts** — agents / core rules / core skills / collection skills / hook scripts /
    MCP fragments, counted on disk (or in ``catalog/mcp.yaml``), must match every number the docs
    quote for them.
@@ -52,6 +53,9 @@ def _versions() -> dict[str, str]:
     out["src/claude_kit/__init__.py"] = m.group(1) if m else "??"
     out[".claude-plugin/plugin.json"] = json.loads(
         _read(".claude-plugin/plugin.json")
+    ).get("version", "??")
+    out["providers/codex/claude-kit/.codex-plugin/plugin.json"] = json.loads(
+        _read("providers/codex/claude-kit/.codex-plugin/plugin.json")
     ).get("version", "??")
     market = json.loads(_read(".claude-plugin/marketplace.json"))
     for i, p in enumerate(market.get("plugins", [])):

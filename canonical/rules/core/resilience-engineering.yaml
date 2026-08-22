@@ -1,0 +1,22 @@
+schema_version: 1
+id: resilience-engineering
+description: Resilience Engineering
+strength: required
+applicability:
+  source: core
+path_globs:
+- '**/*.py'
+- '**/*.ts'
+- '**/*.tsx'
+- '**/*.js'
+- '**/*.jsx'
+- '**/*.go'
+- '**/*.rs'
+- '**/*.java'
+- '**/*.rb'
+references:
+- rule://agent-resilience
+- rule://devops-observability
+- rule://quality-gates
+- rule://testing
+- state://continuity

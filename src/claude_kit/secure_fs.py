@@ -24,6 +24,7 @@ import sys
 import tempfile
 import threading
 import uuid
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Literal
@@ -35,7 +36,15 @@ JOURNAL_PATH = ".claude/config/upgrade-in-progress.json"
 _TRANSACTION_PREFIX = ".claude-kit-txn-"
 _TRANSACTION_MARKER = "transaction.json"
 _REPARSE_POINT = 0x400
-_BACKUP_PREFIXES = (".claude-kit.bak-", ".claude.bak-")
+_BACKUP_PREFIXES = (
+    ".claude-kit.bak-",
+    ".claude.bak-",
+    ".ckit.bak-",
+    ".codex.bak-",
+    ".agents.bak-",
+    ".claude-plugin.bak-",
+    ".codex-plugin.bak-",
+)
 
 _PROTECTED_PATHS = (
     ".claude",
@@ -49,6 +58,26 @@ _PROTECTED_PATHS = (
     ".mcp.json.claude-kit",
     ".mcp.lock.json",
     ".gitignore",
+)
+
+_PROVIDER_ROOTS = frozenset(
+    {".ckit", ".claude", ".codex", ".agents", ".claude-plugin", ".codex-plugin"}
+)
+_ROOT_PROTECTED_FILES = frozenset(
+    {
+        "CLAUDE.md",
+        "AGENTS.md",
+        "README.claude-sdlc.md",
+        ".mcp.json",
+        ".mcp.lock.json",
+        ".gitignore",
+    }
+)
+_SIDECAR_SUFFIXES = (".claude-kit", ".codex-kit")
+_KNOWN_JOURNAL_PATHS = (
+    JOURNAL_PATH,
+    ".ckit/config/upgrade-in-progress.json",
+    ".codex/config/upgrade-in-progress.json",
 )
 
 
@@ -96,6 +125,113 @@ def normalize_relative_path(raw: str | os.PathLike[str]) -> str:
             f"unsafe project path {value!r}: ':' is refused in project path components"
         )
     return posix.as_posix()
+
+
+def _is_backup_surface(name: str) -> bool:
+    """Return whether ``name`` is one closed, numbered provider/kit backup root."""
+
+    for prefix in _BACKUP_PREFIXES:
+        if not name.startswith(prefix):
+            continue
+        suffix = name.removeprefix(prefix)
+        return suffix.isdigit() and int(suffix) > 0
+    return False
+
+
+def _is_allowed_transaction_surface(rel: str) -> bool:
+    """Return whether a transaction may snapshot and later restore ``rel``.
+
+    A recovery document is project-controlled input. Containment alone is not
+    sufficient: accepting an arbitrary relative path would let a forged marker
+    turn the rollback engine into a project-wide deletion primitive. Keep the
+    mutation surface closed to provider roots, the kit state root, the small set
+    of root files the installer owns, and their explicit sidecar/backup forms.
+    """
+
+    parts = PurePosixPath(rel).parts
+    if not parts:
+        return False
+    if parts[0] in _PROVIDER_ROOTS:
+        return True
+    if _is_backup_surface(parts[0]):
+        return True
+    if len(parts) != 1:
+        return False
+    if rel in _ROOT_PROTECTED_FILES:
+        return True
+    return any(
+        rel == f"{base}{suffix}"
+        for base in _ROOT_PROTECTED_FILES
+        for suffix in _SIDECAR_SUFFIXES
+    )
+
+
+def _validated_protected_paths(
+    paths: Iterable[str | os.PathLike[str]],
+) -> tuple[str, ...]:
+    """Normalize and validate an exact rollback surface.
+
+    Ancestor/descendant overlaps are refused because restoring both entries is
+    order-dependent: restoring the ancestor can invalidate the descendant
+    snapshot (or vice versa). A caller protects either the provider root or
+    selected leaves below it, never both.
+    """
+
+    if isinstance(paths, (str, bytes, os.PathLike)):
+        raise UnsafePathError(
+            "transaction protected_paths must be an iterable of project-relative paths"
+        )
+    normalized: list[str] = []
+    for raw in paths:
+        rel = normalize_relative_path(raw)
+        if not _is_allowed_transaction_surface(rel):
+            raise UnsafePathError(
+                f"refusing transaction path {rel!r}: outside the closed claude-kit mutation surface"
+            )
+        if rel in normalized:
+            raise UnsafePathError(
+                f"refusing duplicate transaction protected path {rel!r}"
+            )
+        normalized.append(rel)
+    if not normalized:
+        raise UnsafePathError("transaction protected_paths must not be empty")
+    for index, rel in enumerate(normalized):
+        for other in normalized[index + 1 :]:
+            if rel.startswith(other + "/") or other.startswith(rel + "/"):
+                raise UnsafePathError(
+                    "transaction protected paths must not overlap: "
+                    f"{rel!r} and {other!r}"
+                )
+    return tuple(normalized)
+
+
+def _validated_journal_path(raw: str | os.PathLike[str]) -> str:
+    """Return one supported provider/state journal path or fail closed."""
+
+    rel = normalize_relative_path(raw)
+    if rel not in _KNOWN_JOURNAL_PATHS:
+        raise UnsafePathError(
+            f"refusing transaction journal path {rel!r}: expected one of "
+            + ", ".join(_KNOWN_JOURNAL_PATHS)
+        )
+    return rel
+
+
+def _path_contains(parent: str, child: str) -> bool:
+    """Return whether ``child`` is ``parent`` or is nested immediately below it."""
+
+    return child == parent or child.startswith(parent.rstrip("/") + "/")
+
+
+def _journal_path_from_document(document: dict[str, Any]) -> str:
+    """Read a transaction journal path, defaulting old schema-2 docs to Claude."""
+
+    raw = document.get("journal_path", JOURNAL_PATH)
+    if not isinstance(raw, str):
+        raise UnsafePathError(
+            "cannot recover interrupted transaction: journal_path must be a string"
+        )
+    return _validated_journal_path(raw)
 
 
 def _is_link_or_reparse(path: Path, info: os.stat_result | None = None) -> bool:
@@ -1255,6 +1391,8 @@ class ProjectTransaction:
         from_version: str = "(untracked)",
         to_version: str = "",
         actions: list[dict[str, str]] | None = None,
+        protected_paths: Iterable[str | os.PathLike[str]] | None = None,
+        journal_path: str | os.PathLike[str] = JOURNAL_PATH,
     ) -> None:
         if operation not in {"install", "force", "merge", "upgrade"}:
             raise ValueError(f"unsupported project transaction operation: {operation}")
@@ -1263,6 +1401,18 @@ class ProjectTransaction:
         self.from_version = from_version
         self.to_version = to_version
         self.actions = list(actions or [])
+        self.protected_paths = _validated_protected_paths(
+            _PROTECTED_PATHS if protected_paths is None else protected_paths
+        )
+        self.journal_path = _validated_journal_path(journal_path)
+        if not any(
+            _path_contains(protected, self.journal_path)
+            for protected in self.protected_paths
+        ):
+            raise UnsafePathError(
+                f"transaction journal {self.journal_path!r} must be contained in one of its "
+                "protected paths"
+            )
         self.transaction_rel = f"{_TRANSACTION_PREFIX}{uuid.uuid4().hex}"
         self._started = False
         self._lease: ProjectMutationLease | None = None
@@ -1284,6 +1434,7 @@ class ProjectTransaction:
             "transaction_kind": self.operation,
             "phase": "applying",
             "transaction_dir": self.transaction_rel,
+            "journal_path": self.journal_path,
             "root_existed": self._root_existed,
             "protected": states,
             "existing_backups": backups,
@@ -1309,7 +1460,7 @@ class ProjectTransaction:
                     self.operation = "install"
             backups: list[str] = []
             for entry in self.fs.root.iterdir():
-                if not entry.name.startswith(_BACKUP_PREFIXES):
+                if not _is_backup_surface(entry.name):
                     continue
                 rel = normalize_relative_path(entry.name)
                 checked = self.fs.assert_tree_safe(rel)
@@ -1318,7 +1469,7 @@ class ProjectTransaction:
             backups.sort()
             states: dict[str, str] = {}
             self.fs.mkdir(f"{self.transaction_rel}/rollback")
-            for rel in _PROTECTED_PATHS:
+            for rel in self.protected_paths:
                 path = self.fs.assert_tree_safe(rel)
                 if not path.exists():
                     states[rel] = "missing"
@@ -1338,7 +1489,7 @@ class ProjectTransaction:
             encoded = json.dumps(document, indent=2) + "\n"
             self.fs.write_text(f"{self.transaction_rel}/{_TRANSACTION_MARKER}", encoded)
             # Journal last: its presence promises that the rollback snapshot is complete.
-            self.fs.write_text(JOURNAL_PATH, encoded)
+            self.fs.write_text(self.journal_path, encoded)
         except Exception:
             try:
                 if document is not None:
@@ -1362,20 +1513,32 @@ class ProjectTransaction:
     def commit(self) -> None:
         if not self._started:
             return
-        document = self._read_document()
-        document["phase"] = "committed"
-        encoded = json.dumps(document, indent=2) + "\n"
-        # The durable commit point is the top-level marker.  Recovery consults it
-        # even while an older ``applying`` copy remains in .claude/config.
         try:
+            document = self._read_document()
+            transaction_rel, states, _backups, journal_path = _validate_document(
+                document
+            )
+            if (
+                transaction_rel != self.transaction_rel
+                or tuple(states) != self.protected_paths
+                or journal_path != self.journal_path
+            ):
+                raise UnsafePathError(
+                    "cannot commit claude-kit transaction: marker no longer matches the "
+                    "active surface"
+                )
+            document["phase"] = "committed"
+            encoded = json.dumps(document, indent=2) + "\n"
+            # The durable commit point is the top-level marker. Recovery consults
+            # it even while an older ``applying`` copy remains in provider state.
             self.fs.write_text(f"{self.transaction_rel}/{_TRANSACTION_MARKER}", encoded)
         except Exception:
             self.rollback()
             raise
         try:
-            if self.fs.is_file(JOURNAL_PATH):
-                self.fs.write_text(JOURNAL_PATH, encoded)
-            self.fs.unlink(JOURNAL_PATH, missing_ok=True)
+            if self.fs.is_file(self.journal_path):
+                self.fs.write_text(self.journal_path, encoded)
+            self.fs.unlink(self.journal_path, missing_ok=True)
             self.fs.remove_tree(self.transaction_rel, missing_ok=True)
         finally:
             self._started = False
@@ -1440,70 +1603,103 @@ def _is_legacy_upgrade_document(document: dict[str, Any]) -> bool:
     )
 
 
-def _load_recovery_document(fs: ProjectFS) -> dict[str, Any] | None:
-    legacy: dict[str, Any] | None = None
-    if fs.is_file(JOURNAL_PATH):
-        primary = _read_json_object(fs, JOURNAL_PATH)
-        schema = primary.get("schema_version", 1)
-        if schema == TRANSACTION_SCHEMA:
-            # A crash can happen after the top marker reaches ``committed`` but
-            # before the live journal is updated/removed.  The commit marker is
-            # authoritative, so never roll that successful operation back.
-            transaction_rel = normalize_relative_path(
-                str(primary.get("transaction_dir", ""))
-            )
-            marker_rel = f"{transaction_rel}/{_TRANSACTION_MARKER}"
-            if fs.is_file(marker_rel):
-                marker = _read_json_object(fs, marker_rel)
-                if marker.get("schema_version") != TRANSACTION_SCHEMA:
-                    raise UnsafePathError(
-                        "cannot recover interrupted claude-kit transaction: "
-                        "transaction marker uses an unsupported schema"
-                    )
-                if marker.get("transaction_dir") != transaction_rel:
-                    raise UnsafePathError(
-                        "cannot recover interrupted claude-kit transaction: "
-                        "journal and transaction marker disagree"
-                    )
-                if marker.get("phase") == "committed":
-                    return marker
-                if primary.get("phase") == "committed":
-                    raise UnsafePathError(
-                        "cannot recover interrupted claude-kit transaction: "
-                        "journal is committed but transaction marker is not"
-                    )
-            elif primary.get("phase") == "committed":
-                raise UnsafePathError(
-                    "cannot recover interrupted claude-kit transaction: "
-                    "committed journal has no transaction marker"
-                )
-            return primary
-        if _is_legacy_upgrade_document(primary):
-            legacy = primary
-        else:
-            raise UnsafePathError(
-                "cannot recover interrupted claude-kit transaction: unsupported journal schema "
-                f"{schema!r}; expected legacy schema 1 or transaction schema "
-                f"{TRANSACTION_SCHEMA}"
-            )
-    # Rollback may have removed .claude (and therefore the primary journal)
-    # before an interruption.  The top-level duplicate makes recovery resumable.
-    if not fs.root.exists():
-        return None
+def _load_top_level_marker(fs: ProjectFS) -> dict[str, Any] | None:
+    """Find the authoritative top-level marker before consulting provider state."""
+
+    markers: list[dict[str, Any]] = []
     for candidate in sorted(fs.root.iterdir()):
         if not candidate.name.startswith(_TRANSACTION_PREFIX):
             continue
-        candidate = fs.assert_tree_safe(normalize_relative_path(candidate.name))
-        rel = f"{candidate.name}/{_TRANSACTION_MARKER}"
-        if fs.is_file(rel):
-            candidate_document = _read_json_object(fs, rel)
-            if candidate_document.get("schema_version") != TRANSACTION_SCHEMA:
+        candidate_rel = normalize_relative_path(candidate.name)
+        checked = fs.assert_tree_safe(candidate_rel)
+        marker_rel = f"{candidate_rel}/{_TRANSACTION_MARKER}"
+        if not fs.is_file(marker_rel):
+            continue
+        marker = _read_json_object(fs, marker_rel)
+        if marker.get("schema_version") != TRANSACTION_SCHEMA:
+            raise UnsafePathError(
+                "cannot recover interrupted claude-kit transaction: unsupported marker schema "
+                f"{marker.get('schema_version')!r}"
+            )
+        transaction_rel, _states, _backups, _journal_path = _validate_document(marker)
+        if transaction_rel != checked.name:
+            raise UnsafePathError(
+                "cannot recover interrupted claude-kit transaction: marker directory and "
+                "transaction document disagree"
+            )
+        markers.append(marker)
+    if len(markers) > 1:
+        raise UnsafePathError(
+            "cannot recover interrupted claude-kit transaction: multiple top-level markers found"
+        )
+    return markers[0] if markers else None
+
+
+def _load_recovery_document(fs: ProjectFS) -> dict[str, Any] | None:
+    # The top-level marker is deliberately provider-neutral and survives moving
+    # or removing .claude/.codex/.ckit. Discover it first, then use its validated
+    # journal_path only as a consistency check for an applying transaction.
+    marker = _load_top_level_marker(fs)
+    if marker is not None:
+        _transaction_rel, _states, _backups, journal_path = _validate_document(marker)
+        if marker.get("phase") == "committed":
+            return marker
+        if fs.is_file(journal_path):
+            primary = _read_json_object(fs, journal_path)
+            if primary.get("schema_version") != TRANSACTION_SCHEMA:
                 raise UnsafePathError(
-                    "cannot recover interrupted claude-kit transaction: unsupported marker schema "
-                    f"{candidate_document.get('schema_version')!r}"
+                    "cannot recover interrupted claude-kit transaction: active journal uses an "
+                    f"unsupported schema {primary.get('schema_version')!r}"
                 )
-            return candidate_document
-    return legacy
+            _validate_document(primary)
+            if primary.get("phase") == "committed":
+                raise UnsafePathError(
+                    "cannot recover interrupted claude-kit transaction: journal is committed "
+                    "but transaction marker is not"
+                )
+            if not _documents_match_marker(primary, marker):
+                raise UnsafePathError(
+                    "cannot recover interrupted claude-kit transaction: journal and transaction "
+                    "marker disagree"
+                )
+        return marker
+
+    journals: list[tuple[str, dict[str, Any]]] = []
+    for journal_path in _KNOWN_JOURNAL_PATHS:
+        if fs.is_file(journal_path):
+            journals.append((journal_path, _read_json_object(fs, journal_path)))
+    if len(journals) > 1:
+        raise UnsafePathError(
+            "cannot recover interrupted claude-kit transaction: multiple provider journals found "
+            "without a top-level marker"
+        )
+    if not journals:
+        return None
+
+    journal_path, primary = journals[0]
+    schema = primary.get("schema_version", 1)
+    if schema == TRANSACTION_SCHEMA:
+        _transaction_rel, _states, _backups, recorded_journal = _validate_document(
+            primary
+        )
+        if recorded_journal != journal_path:
+            raise UnsafePathError(
+                "cannot recover interrupted claude-kit transaction: journal location and "
+                "transaction document disagree"
+            )
+        if primary.get("phase") == "committed":
+            raise UnsafePathError(
+                "cannot recover interrupted claude-kit transaction: committed journal has no "
+                "transaction marker"
+            )
+        return primary
+    if _is_legacy_upgrade_document(primary) and journal_path == JOURNAL_PATH:
+        return primary
+    raise UnsafePathError(
+        "cannot recover interrupted claude-kit transaction: unsupported journal schema "
+        f"{schema!r}; expected legacy schema 1 at {JOURNAL_PATH} or transaction schema "
+        f"{TRANSACTION_SCHEMA}"
+    )
 
 
 def inspect_interrupted_transaction(fs: ProjectFS) -> dict[str, Any] | None:
@@ -1525,7 +1721,7 @@ def inspect_interrupted_transaction(fs: ProjectFS) -> dict[str, Any] | None:
 
 def _validate_document(
     document: dict[str, Any],
-) -> tuple[str, dict[str, str], set[str]]:
+) -> tuple[str, dict[str, str], set[str], str]:
     if document.get("schema_version") != TRANSACTION_SCHEMA:
         raise UnsafePathError(
             "cannot recover interrupted claude-kit transaction: unsupported journal schema "
@@ -1537,25 +1733,44 @@ def _validate_document(
             f"cannot recover interrupted transaction from unexpected directory {transaction_rel!r}"
         )
     raw_states = document.get("protected")
-    if not isinstance(raw_states, dict) or set(raw_states) != set(_PROTECTED_PATHS):
+    if not isinstance(raw_states, dict):
         raise UnsafePathError(
             "cannot recover interrupted transaction: invalid protected-path map"
         )
+    if any(not isinstance(rel, str) for rel in raw_states):
+        raise UnsafePathError(
+            "cannot recover interrupted transaction: protected paths must be strings"
+        )
+    try:
+        protected_paths = _validated_protected_paths(raw_states)
+    except UnsafePathError as exc:
+        raise UnsafePathError(
+            f"cannot recover interrupted transaction: invalid protected-path map ({exc})"
+        ) from exc
     states: dict[str, str] = {}
-    for rel, value in raw_states.items():
-        normalize_relative_path(str(rel))
-        if rel not in _PROTECTED_PATHS or value not in {"missing", "file", "directory"}:
+    for rel in protected_paths:
+        value = raw_states[rel]
+        if value not in {"missing", "file", "directory"}:
             raise UnsafePathError(
                 "cannot recover interrupted transaction: invalid protected state"
             )
-        states[str(rel)] = str(value)
+        states[rel] = str(value)
+    journal_path = _journal_path_from_document(document)
+    if not any(_path_contains(protected, journal_path) for protected in states):
+        raise UnsafePathError(
+            "cannot recover interrupted transaction: journal_path is outside the protected surface"
+        )
     raw_backups = document.get("existing_backups", [])
-    if not isinstance(raw_backups, list):
+    if not isinstance(raw_backups, list) or any(
+        not isinstance(item, str) for item in raw_backups
+    ):
         raise UnsafePathError(
             "cannot recover interrupted transaction: invalid backup list"
         )
-    backups = {normalize_relative_path(str(item)) for item in raw_backups}
-    if any(not item.startswith(_BACKUP_PREFIXES) or "/" in item for item in backups):
+    backups = {normalize_relative_path(item) for item in raw_backups}
+    if len(backups) != len(raw_backups) or any(
+        not _is_backup_surface(item) or "/" in item for item in backups
+    ):
         raise UnsafePathError(
             "cannot recover interrupted transaction: invalid backup directory"
         )
@@ -1563,7 +1778,7 @@ def _validate_document(
         raise UnsafePathError(
             "cannot recover interrupted transaction: invalid transaction phase"
         )
-    return transaction_rel, states, backups
+    return transaction_rel, states, backups, journal_path
 
 
 def _documents_match_marker(document: dict[str, Any], marker: dict[str, Any]) -> bool:
@@ -1578,7 +1793,9 @@ def _documents_match_marker(document: dict[str, Any], marker: dict[str, Any]) ->
         "to_version",
         "actions",
     )
-    return all(document.get(key) == marker.get(key) for key in keys)
+    return all(document.get(key) == marker.get(key) for key in keys) and (
+        _journal_path_from_document(document) == _journal_path_from_document(marker)
+    )
 
 
 def _preflight_restore(
@@ -1586,10 +1803,12 @@ def _preflight_restore(
     document: dict[str, Any],
     *,
     require_marker: bool,
-) -> tuple[str, dict[str, str], set[str], list[str]]:
+) -> tuple[str, dict[str, str], set[str], list[str], str]:
     """Validate the complete rollback set before the first destructive action."""
 
-    transaction_rel, states, existing_backups = _validate_document(document)
+    transaction_rel, states, existing_backups, journal_path = _validate_document(
+        document
+    )
     transaction = fs.assert_tree_safe(transaction_rel)
     if not transaction.is_dir():
         raise UnsafePathError(
@@ -1656,7 +1875,7 @@ def _preflight_restore(
 
     current_backups: list[str] = []
     for path in sorted(fs.root.iterdir()):
-        if not path.name.startswith(_BACKUP_PREFIXES):
+        if not _is_backup_surface(path.name):
             continue
         rel = normalize_relative_path(path.name)
         if rel in existing_backups:
@@ -1668,7 +1887,7 @@ def _preflight_restore(
         else:
             fs._check(rel, include_leaf=False)
         current_backups.append(rel)
-    return transaction_rel, states, existing_backups, current_backups
+    return transaction_rel, states, existing_backups, current_backups, journal_path
 
 
 def _restore_document(
@@ -1678,9 +1897,13 @@ def _restore_document(
     require_marker: bool = True,
     preserve_root: bool = False,
 ) -> None:
-    transaction_rel, states, existing_backups, current_backups = _preflight_restore(
-        fs, document, require_marker=require_marker
-    )
+    (
+        transaction_rel,
+        states,
+        existing_backups,
+        current_backups,
+        _journal_path,
+    ) = _preflight_restore(fs, document, require_marker=require_marker)
     for rel, state_name in states.items():
         fs.remove_entry_nofollow(rel, missing_ok=True)
         if state_name == "directory":
@@ -1695,8 +1918,8 @@ def _restore_document(
             continue
         fs.remove_entry_nofollow(rel, missing_ok=True)
     fs.remove_tree(transaction_rel, missing_ok=True)
-    # Replacing .claude removed the transaction's live journal.  If the original
-    # tree contained a legacy journal, the snapshot deliberately restored it.
+    # Replacing a provider/state root removed the transaction's live journal. If
+    # the original tree contained an older journal, the snapshot restored it.
     if not preserve_root and not bool(document.get("root_existed", True)):
         try:
             fs.root.rmdir()
@@ -1722,11 +1945,11 @@ def _recover_interrupted_transaction_locked(
             f"{document.get('schema_version')!r}"
         )
     if document.get("phase") == "committed":
-        transaction_rel, _states, _backups = _validate_document(document)
+        transaction_rel, _states, _backups, journal_path = _validate_document(document)
         if fs.exists(transaction_rel):
             fs.assert_tree_safe(transaction_rel)
-        if fs.exists(JOURNAL_PATH):
-            fs.unlink(JOURNAL_PATH)
+        if fs.exists(journal_path):
+            fs.unlink(journal_path)
         fs.remove_tree(transaction_rel, missing_ok=True)
         return document
     _restore_document(fs, document, preserve_root=preserve_root)

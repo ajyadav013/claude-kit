@@ -1,0 +1,24 @@
+schema_version: 1
+id: wave-orchestration
+description: Wave Orchestration (Program-Scale Work)
+strength: required
+applicability:
+  source: core
+path_globs:
+- '@agents/**'
+- '@skills/**'
+- '**/agents/**'
+- '**/skills/**'
+- '@runtime/**'
+references:
+- artifact://project-instructions
+- artifact://rules-directory
+- rule://agent-resilience
+- rule://continuity
+- rule://goal-setting-and-monitoring
+- rule://human-in-the-loop
+- rule://mandatory-workflow
+- rule://model-tiers
+- rule://quality-gates
+- rule://risk-classification
+- state://continuity

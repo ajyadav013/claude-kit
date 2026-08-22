@@ -67,7 +67,7 @@ providerFiles.forEach((file) => {
 });
 
 // Dispatcher
-export const sendMail = (provider: string, emailContent: EmailContent) => 
+export const sendMail = (provider: string, emailContent: EmailContent) =>
   providers[provider].sendMail(emailContent);
 ```
 

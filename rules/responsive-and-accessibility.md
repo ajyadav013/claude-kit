@@ -1,12 +1,12 @@
 ---
 paths:
-  - '**/*.tsx'
-  - '**/*.jsx'
-  - '**/*.vue'
-  - '**/*.svelte'
-  - '**/*.css'
-  - '**/*.scss'
-  - '**/components/**'
+- '**/*.tsx'
+- '**/*.jsx'
+- '**/*.vue'
+- '**/*.svelte'
+- '**/*.css'
+- '**/*.scss'
+- '**/components/**'
 ---
 
 # Responsive & Accessibility
