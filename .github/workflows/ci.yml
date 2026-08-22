@@ -300,7 +300,7 @@ jobs:
       - run: claude plugin validate . --strict
       - name: Isolated Claude plugin install/list/remove lifecycle
         run: |
-          python -m pip install pytest==8.4.2
+          python -m pip install -e . pytest==8.4.2
           python -m pytest -q tests/test_plugin_host_smoke.py -k "provider_manifests or claude_native"
 
   claude-plugin-compat:
@@ -397,7 +397,7 @@ jobs:
           printf 'CODEX_PLUGIN_VALIDATOR=%s\n' "$validator" >> "$GITHUB_ENV"
       - name: Isolated Codex marketplace add/list/remove lifecycle
         run: |
-          python -m pip install pytest==8.4.2 pyyaml==6.0.3
+          python -m pip install -e . pytest==8.4.2 pyyaml==6.0.3
           python -m pytest -q tests/test_plugin_host_smoke.py -k "provider_manifests or codex_native"
 
   codex-plugin-compat:

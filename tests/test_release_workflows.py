@@ -51,6 +51,19 @@ def test_ci_fetches_each_codex_validator_bundle_from_catalog_hashes():
     assert "VALIDATOR_SHA256: ebda00" not in CI
 
 
+def test_native_plugin_compatibility_jobs_install_the_checkout_before_pytest():
+    claude_job = CI.split("  official-plugin-validation:", 1)[1].split(
+        "  claude-plugin-compat:", 1
+    )[0]
+    codex_job = CI.split("  official-codex-plugin-conformance:", 1)[1].split(
+        "  codex-plugin-compat:", 1
+    )[0]
+    assert "python -m pip install -e . pytest==8.4.2" in claude_job
+    assert "python -m pip install -e . pytest==8.4.2 pyyaml==6.0.3" in codex_job
+    assert "tests/test_plugin_host_smoke.py" in claude_job
+    assert "tests/test_plugin_host_smoke.py" in codex_job
+
+
 def test_ci_exposes_the_pinned_actionlint_binary_to_later_steps():
     assert 'GOBIN="$workflow_tools" go install' in CI
     assert 'echo "$workflow_tools" >> "$GITHUB_PATH"' in CI
