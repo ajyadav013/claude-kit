@@ -9,7 +9,14 @@ import pytest
 import yaml
 
 from claude_kit import catalog, validator
-from claude_kit.models import InstallRequest
+from claude_kit.models import (
+    ExecutionPolicy,
+    InstallRequest,
+    ModelChoice,
+    ModelChoiceKind,
+    Runtime,
+    WorkerBinding,
+)
 from claude_kit.runtime_scaffold import install_runtime
 from claude_kit.secure_fs import ProjectFS, ProjectTransaction
 from tests._helpers import install
@@ -149,6 +156,212 @@ def _install_native_mcp(payload, target, runtime, server_id):
     selection.mcp = [server_id]
     plan = catalog.resolve(payload, selection)
     install_runtime(payload, target, plan, InstallRequest(selection, runtime))
+
+
+def _maker_checker_policy(
+    *,
+    maker_provider=Runtime.CLAUDE,
+    maker_choice=None,
+    reviewer_provider=Runtime.CODEX,
+    reviewer_choice=None,
+):
+    return ExecutionPolicy(
+        maker=WorkerBinding(
+            maker_provider,
+            maker_choice or ModelChoice(ModelChoiceKind.EXACT, "maker-model-v1"),
+        ),
+        reviewer=WorkerBinding(
+            reviewer_provider,
+            reviewer_choice or ModelChoice(ModelChoiceKind.INHERIT),
+        ),
+    )
+
+
+def _install_native_maker_checker(payload, target, runtime, policy):
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, runtime, execution_policy=policy),
+    )
+
+
+def test_native_validate_reports_enabled_maker_checker_policy_and_passive_routes(
+    tmp_path, payload
+):
+    _install_native_maker_checker(
+        payload,
+        tmp_path,
+        Runtime.BOTH,
+        _maker_checker_policy(),
+    )
+
+    ok, messages = validator.validate(tmp_path)
+
+    assert ok, "\n".join(messages)
+    joined = "\n".join(messages)
+    assert "maker-checker execution policy is enabled" in joined
+    assert "maker route 'maker-checker-maker' is passive on claude" in joined
+    assert "reviewer route 'maker-checker-reviewer' is passive on codex" in joined
+    assert "maker exact model id has valid syntax" in joined
+
+
+def test_native_validate_rejects_maker_checker_provider_outside_installed_runtimes(
+    tmp_path, payload
+):
+    _install_native_maker_checker(
+        payload,
+        tmp_path,
+        Runtime.CLAUDE,
+        _maker_checker_policy(
+            reviewer_provider=Runtime.CLAUDE,
+            reviewer_choice=ModelChoice(ModelChoiceKind.INHERIT),
+        ),
+    )
+    manifest = tmp_path / ".ckit/config/init-options.json"
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    document["execution"]["reviewer"]["provider"] = "codex"
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+
+    ok, messages = validator.validate(tmp_path)
+
+    assert not ok
+    assert any(
+        "reviewer provider 'codex' is not installed" in message for message in messages
+    )
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        ({"kind": "exact", "value": "unsafe model id"}, "exact model id"),
+        ({"kind": "tier", "value": "enormous"}, "model tier"),
+    ],
+)
+def test_native_validate_rejects_malformed_maker_checker_model_choice(
+    tmp_path, payload, model, expected
+):
+    _install_native_maker_checker(
+        payload,
+        tmp_path,
+        Runtime.CLAUDE,
+        _maker_checker_policy(reviewer_provider=Runtime.CLAUDE),
+    )
+    manifest = tmp_path / ".ckit/config/init-options.json"
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    document["execution"]["maker"]["model"] = model
+    manifest.write_text(json.dumps(document), encoding="utf-8")
+
+    ok, messages = validator.validate(tmp_path)
+
+    assert not ok
+    assert any(expected in message for message in messages)
+
+
+def test_native_validate_fails_when_a_configured_maker_checker_route_is_missing(
+    tmp_path, payload
+):
+    _install_native_maker_checker(
+        payload,
+        tmp_path,
+        Runtime.CODEX,
+        _maker_checker_policy(
+            maker_provider=Runtime.CODEX,
+            reviewer_provider=Runtime.CODEX,
+        ),
+    )
+    (tmp_path / ".codex/agents/maker-checker-maker.toml").unlink()
+
+    ok, messages = validator.validate(tmp_path)
+
+    assert not ok
+    assert any(
+        "maker route 'maker-checker-maker' is unavailable for codex" in message
+        for message in messages
+    )
+
+
+def test_native_validate_fails_when_a_maker_checker_role_is_not_passive(
+    tmp_path, payload
+):
+    _install_native_maker_checker(
+        payload,
+        tmp_path,
+        Runtime.CODEX,
+        _maker_checker_policy(
+            maker_provider=Runtime.CODEX,
+            reviewer_provider=Runtime.CODEX,
+        ),
+    )
+    role = tmp_path / ".codex/agents/maker-checker-reviewer.toml"
+    role.write_text(
+        role.read_text(encoding="utf-8").replace(
+            "filesystem.read, filesystem.search",
+            "filesystem.read, filesystem.search, shell",
+        ),
+        encoding="utf-8",
+    )
+
+    ok, messages = validator.validate(tmp_path)
+
+    assert not ok
+    assert any(
+        "reviewer route 'maker-checker-reviewer' is not passive" in message
+        and "shell" in message
+        for message in messages
+    )
+
+
+def test_native_validate_warns_when_codex_tier_inherits_the_host_default(
+    tmp_path, payload
+):
+    _install_native_maker_checker(
+        payload,
+        tmp_path,
+        Runtime.CODEX,
+        _maker_checker_policy(
+            maker_provider=Runtime.CODEX,
+            maker_choice=ModelChoice(ModelChoiceKind.TIER, "deep"),
+            reviewer_provider=Runtime.CODEX,
+            reviewer_choice=ModelChoice(ModelChoiceKind.EXACT, "reviewer-model-v1"),
+        ),
+    )
+
+    ok, messages = validator.validate(tmp_path)
+
+    assert ok, "\n".join(messages)
+    assert any(
+        message.startswith("WARN")
+        and "maker tier 'deep' has no pinned codex model mapping" in message
+        and "host default" in message
+        for message in messages
+    )
+
+
+def test_doctor_warns_when_maker_and_reviewer_share_one_binding(tmp_path, payload):
+    shared = ModelChoice(ModelChoiceKind.EXACT, "shared-model-v1")
+    _install_native_maker_checker(
+        payload,
+        tmp_path,
+        Runtime.CLAUDE,
+        _maker_checker_policy(
+            maker_choice=shared,
+            reviewer_provider=Runtime.CLAUDE,
+            reviewer_choice=shared,
+        ),
+    )
+
+    ok, messages = validator.doctor(tmp_path)
+
+    assert ok, "\n".join(messages)
+    assert any(
+        message.startswith("WARN")
+        and "maker and reviewer use the same provider/model binding" in message
+        and "review independence is reduced" in message
+        for message in messages
+    )
 
 
 @pytest.mark.parametrize(

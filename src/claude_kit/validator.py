@@ -237,6 +237,162 @@ def _check_snapshot_mcp_semantics(
         good("stack snapshot retains resolved MCP semantics")
 
 
+def _check_maker_checker_execution_policy(
+    target: Path,
+    options: InitOptions,
+    fail: Callable[[str], None],
+    warn: Callable[[str], None],
+    good: Callable[[str], None],
+) -> None:
+    """Validate one configured maker/reviewer pair without contacting a host.
+
+    Parsing :class:`InitOptions` already enforces the bounded configuration
+    schema. This check makes that policy visible and verifies the two installed
+    native routes through the same loader used by process dispatch. Model tiers
+    are resolved only against the pinned compatibility catalog; exact model
+    availability remains a live run preflight concern.
+    """
+
+    policy = options.execution_policy
+    if policy is None:
+        return
+
+    from claude_kit.components import (
+        Capability,
+        IsolationRequirement,
+        ModelTier,
+        NestedDelegationPolicy,
+        PermissionClass,
+    )
+    from claude_kit.models import ModelChoiceKind
+    from claude_kit.process_dispatch import (
+        FilesystemNativeRoleLoader,
+        RoleUnavailableError,
+    )
+    from claude_kit.projection import Provider
+    from claude_kit.provider_compatibility import (
+        ProviderCompatibilityError,
+        load_agent_projection_compatibility,
+    )
+
+    try:
+        policy.validate_providers(options.runtimes)
+    except ValueError as exc:  # defensive: InitOptions normally rejects this first
+        fail(
+            f"maker-checker execution policy references an unavailable provider: {exc}"
+        )
+        return
+
+    good(
+        "maker-checker execution policy is enabled "
+        f"(max revisions={policy.max_revisions})"
+    )
+    if policy.maker == policy.reviewer:
+        warn(
+            "maker and reviewer use the same provider/model binding; "
+            "review independence is reduced"
+        )
+
+    role_loader = FilesystemNativeRoleLoader(target)
+    expected_capabilities = frozenset({Capability.FILE_READ, Capability.SEARCH})
+    routes = (
+        ("maker", "maker-checker-maker", policy.maker),
+        ("reviewer", "maker-checker-reviewer", policy.reviewer),
+    )
+    compatibility: dict[str, object] = {}
+    with ExitStack() as stack:
+        from claude_kit import scaffold
+
+        payload = scaffold.payload_dir(stack)
+        for slot, route, binding in routes:
+            provider_name = binding.provider.value
+            provider = Provider.parse(provider_name)
+            try:
+                provider_policy = compatibility.get(provider_name)
+                if provider_policy is None:
+                    provider_policy = load_agent_projection_compatibility(
+                        payload,
+                        provider_name,  # type: ignore[arg-type]
+                    )
+                    compatibility[provider_name] = provider_policy
+            except (OSError, ProviderCompatibilityError, ValueError) as exc:
+                fail(
+                    f"maker-checker {slot} provider compatibility is unavailable "
+                    f"for {provider_name}: {exc}"
+                )
+                continue
+
+            choice = binding.model
+            if choice.kind is ModelChoiceKind.EXACT:
+                # ModelChoice construction has applied the bounded native-id
+                # grammar. Do not turn this into an availability claim.
+                good(
+                    f"maker-checker {slot} exact model id has valid syntax "
+                    f"for {provider_name}; validate/doctor do not make a live availability claim"
+                )
+            elif choice.kind is ModelChoiceKind.INHERIT:
+                good(
+                    f"maker-checker {slot} is configured to inherit the "
+                    f"{provider_name} host model"
+                )
+            else:
+                tier = ModelTier(str(choice.value))
+                mapped_model = provider_policy.model_tiers[tier]  # type: ignore[attr-defined]
+                if mapped_model is None:
+                    warn(
+                        f"maker-checker {slot} tier {tier.value!r} has no pinned "
+                        f"{provider_name} model mapping and resolves to the host default; "
+                        "use an exact model id when deterministic model routing is required"
+                    )
+                else:
+                    good(
+                        f"maker-checker {slot} tier {tier.value!r} has a pinned "
+                        f"{provider_name} compatibility mapping"
+                    )
+
+            try:
+                native_role = role_loader.load(provider, route)
+            except (OSError, RoleUnavailableError, UnicodeError, ValueError) as exc:
+                fail(
+                    f"maker-checker {slot} route {route!r} is unavailable for "
+                    f"{provider_name}: {exc}"
+                )
+                continue
+
+            violations: list[str] = []
+            if native_role.permission is not PermissionClass.READ_ONLY:
+                violations.append(f"permission={native_role.permission.value}")
+            if native_role.capabilities != expected_capabilities:
+                rendered = (
+                    ",".join(
+                        capability.value
+                        for capability in sorted(
+                            native_role.capabilities, key=lambda item: item.value
+                        )
+                    )
+                    or "none"
+                )
+                violations.append(f"capabilities={rendered}")
+            if native_role.write_scope:
+                violations.append("write-scope-present")
+            if native_role.isolation is not IsolationRequirement.NONE:
+                violations.append(f"isolation={native_role.isolation.value}")
+            if native_role.nested_delegation is not NestedDelegationPolicy.FORBIDDEN:
+                violations.append(
+                    f"nested-delegation={native_role.nested_delegation.value}"
+                )
+            if violations:
+                fail(
+                    f"maker-checker {slot} route {route!r} is not passive on "
+                    f"{provider_name}: " + ", ".join(violations)
+                )
+            else:
+                good(
+                    f"maker-checker {slot} route {route!r} is passive on "
+                    f"{provider_name} (read/search only, no writes or delegation)"
+                )
+
+
 def _parse_frontmatter(text: str) -> dict[str, str] | None:
     """Return the frontmatter key/values at the top of a markdown file, or None if absent.
 
@@ -484,6 +640,8 @@ def _validate_native_runtime(target: Path, *, strict: bool) -> tuple[bool, list[
                         )
                     else:
                         good("Codex MCP config contains every selected server")
+
+    _check_maker_checker_execution_policy(target, options, fail, warn, good)
 
     try:
         snapshot = yaml.safe_load((target / layout.stack_snapshot).read_text())
