@@ -14,7 +14,7 @@ provider-neutral; the compiler emits Claude project-agent Markdown or Codex proj
 > live-host proof of equivalent per-agent confinement is still a Preview gap. Static plugins are
 > narrower than project scaffolds and should not be used as evidence of that confinement.
 
-## Two ways to invoke
+## Three ways to invoke
 
 ### 1. Run the whole pipeline (recommended)
 
@@ -65,7 +65,24 @@ attested physical-boundary backend, and irreversible units stop before claim bec
 approval broker is integrated. Managed approval cannot resume either stop; only rejection for
 replan/abort is recorded.
 
-### 2. Invoke a single agent
+### 2. Run the configured maker–checker pair
+
+Use the explicit pair when one maker should produce a bounded code, design, or specification
+artifact and a separately configured model should review it:
+
+```text
+Claude Code: /maker-checker --kind design <task>
+Codex:       $maker-checker --kind design <task>
+```
+
+The two passive roles cannot talk directly, write files, run commands, use local tools, or delegate.
+A trusted coordinator mediates artifacts and typed findings, supplies a bounded filtered/redacted
+projection of tracked text for their semantic read/search input, creates a new reviewer context each
+iteration, and applies code only as a validated patch in a preserved worktree. Configure
+providers/models with `ckit maker-checker configure`; see the
+[maker–checker guide](maker-checker.md) for limitations.
+
+### 3. Invoke a single agent
 
 For a focused task, ask the host to use one agent by name — no full pipeline:
 
@@ -109,6 +126,7 @@ metadata; Claude still auto-selects by description.
 | **Plan** | `spec-doc-writer`, `story-planner`, `ui-designer` |
 | **Review** | `senior-backend-dev`, `senior-frontend-dev`, `technical-architect`, `em-reviewer`, `merge-reviewer` |
 | **Build** | `developer`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`, and `db-performance-reviewer` for PostgreSQL) |
+| **Explicit pair** | `maker-checker-maker`, `maker-checker-reviewer` (passive roles used only by the managed maker–checker coordinator) |
 | **Test** | `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `auditor` |
 | **Rigor** | `risk-classifier` (all profiles), `devils-advocate`, `acceptance-reviewer` |
 | **Secure** | `security-reviewer` + `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` (static) + `pentest-scanner` (optional dynamic pentest — Strix / Shannon / PentesterFlow / ZAP) |
@@ -131,7 +149,7 @@ write code themselves and require human approval before any change. They pair wi
 
 ## The full roster
 
-**29 specialized roles**, each tagged with a `tier` and installed per profile — plus per-database
+**31 specialized roles**, each tagged with a `tier` and installed per profile — plus per-database
 **overlay agents** and, in organization scope, **persona agents**:
 
 | Agent | Role |
@@ -145,6 +163,8 @@ write code themselves and require human approval before any change. They pair wi
 | `em-reviewer` | Engineering-manager strategic & completeness review |
 | `merge-reviewer` | Verifies consistency between parallel lanes at join points |
 | `developer` | Writes production code from an approved spec, in an isolated worktree |
+| `maker-checker-maker` | Passive, nondelegating maker role for the explicit managed maker–checker loop; returns a document or unified diff through the response channel and cannot mutate the workspace or run commands |
+| `maker-checker-reviewer` | Fresh-context, read-only reviewer for the managed maker–checker loop; returns a typed, digest-bound PASS/FAIL and never repairs the artifact |
 | `sdlc-code-reviewer` | Reviews code for bugs, security, performance, spec compliance |
 | `unit-tester` · `e2e-tester` | Author unit and end-to-end test suites |
 | `tester` · `senior-tester` | Integration testing and independent verification of coverage |
@@ -165,13 +185,20 @@ write code themselves and require human approval before any change. They pair wi
 ## Model tiers and cost
 
 Canonical agents declare a semantic tier — `fast`, `balanced`, or `deep` — rather than a provider
-model name. The current roster assigns four deep roles (`orchestrator`, `developer`,
-`devils-advocate`, and `owasp-reviewer`), balanced to the remaining roles, and no fast role.
+model name. The current roster assigns five deep roles (`orchestrator`, `developer`,
+`maker-checker-maker`, `devils-advocate`, and `owasp-reviewer`), balanced to the remaining roles,
+and no fast role.
 
 | Projection | Mapping |
 |---|---|
 | Claude Code | The renderer maps semantic tiers to the native `haiku` / `sonnet` / `opus` aliases. |
 | Codex Preview | Generated agent TOML deliberately contains no hard-coded model. The active Codex runtime selects the model; tier intent remains in the role instructions. |
+
+The maker–checker policy is an installation-time execution binding rather than canonical agent
+metadata. It may select `inherit`, a semantic tier, or an exact provider model ID separately for
+each slot. Claude tiers resolve through the aliases above; Codex tiers currently resolve to the host
+default, so use an exact ID when a specific Codex model is required. The CLI announces and freezes
+the requested pair before sending task content.
 
 Therefore the profile and fan-out are the reliable cross-provider cost controls; a provider-to-
 provider price comparison is not. The orchestrator announces lane/agent counts and tier intent before

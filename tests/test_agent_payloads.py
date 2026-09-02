@@ -132,8 +132,7 @@ def test_maker_checker_roles_project_to_native_read_only_hosts(payload: Path) ->
     native = {
         Path(item.path).stem: tomllib.loads(item.text_content)
         for item in files
-        if item.path.startswith(".codex/agents/")
-        and Path(item.path).stem in role_ids
+        if item.path.startswith(".codex/agents/") and Path(item.path).stem in role_ids
     }
 
     assert set(native) == role_ids
@@ -141,9 +140,12 @@ def test_maker_checker_roles_project_to_native_read_only_hosts(payload: Path) ->
         assert document["sandbox_mode"] == "read-only"
         assert document["agents"]["enabled"] is False
         assert document["features"]["multi_agent"] is False
-        assert "shell" not in document["developer_instructions"].split(
-            "## Semantic role contract", 1
-        )[1].split("\n\n", 1)[0]
+        assert (
+            "shell"
+            not in document["developer_instructions"]
+            .split("## Semantic role contract", 1)[1]
+            .split("\n\n", 1)[0]
+        )
 
 
 def test_every_canonical_agent_is_a_complete_leak_free_agent_spec(

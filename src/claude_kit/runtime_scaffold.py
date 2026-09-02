@@ -15,10 +15,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 import yaml
 
@@ -29,6 +30,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10 dependency
 
 from claude_kit import __version__, detect
 from claude_kit.claude_renderer import ClaudeRenderer
+from claude_kit.execution_lease import (
+    ManagedExecutionLeaseHeld,
+    managed_execution_lease,
+)
 from claude_kit.models import (
     FileRecord,
     InitOptions,
@@ -94,6 +99,7 @@ _GITIGNORE_ENTRIES = (
     ".codex.bak-*/",
     ".agents.bak-*/",
     ".claude-kit-txn-*/",
+    ".claude-kit-managed-execution.lock",
     "*.claude-kit",
     "*.codex-kit",
 )
@@ -107,6 +113,106 @@ _MIGRATION_REMOVAL_ERROR = (
 
 class RuntimeInstallError(RuntimeError):
     """A provider projection or live merge could not be installed safely."""
+
+
+@contextmanager
+def _runtime_mutation_lease(fs: ProjectFS) -> Iterator[None]:
+    """Serialize lifecycle writes in managed -> project order."""
+
+    lease_stack = ExitStack()
+    try:
+        # A fresh install has no root yet, while the persistent managed lock is
+        # deliberately anchored inside that verified root. Projection staging
+        # must finish before callers enter this context so an invalid install
+        # still leaves no project behind.
+        fs.ensure_root()
+        lease_stack.enter_context(managed_execution_lease(fs.root))
+        lease_stack.enter_context(fs.mutation_lease(exclusive=True))
+    except ManagedExecutionLeaseHeld as exc:
+        lease_stack.close()
+        raise RuntimeInstallError(
+            "runtime transition cannot change provider files while a managed "
+            "workflow coordinator is running"
+        ) from exc
+    except BaseException:
+        lease_stack.close()
+        raise
+    with lease_stack:
+        yield
+
+
+@contextmanager
+def _provider_removal_guard(
+    fs: ProjectFS, removed_providers: set[str]
+) -> Iterator[None]:
+    """Check frozen bindings while the caller holds the managed execution lease."""
+
+    try:
+        from claude_kit import pipeline
+
+        snapshot_path = fs.path(StateLayout.neutral().pipeline_snapshot)
+        with pipeline._pipeline_write_lock(fs, snapshot_path):
+            snapshot, error = pipeline._load_snapshot(fs.root)
+            if error:
+                raise RuntimeInstallError(
+                    "runtime transition cannot verify the shared pipeline snapshot: "
+                    f"{error}"
+                )
+            if (
+                isinstance(snapshot, dict)
+                and snapshot.get("status") == "active"
+                and snapshot.get("snapshot_kind") == "maker-checker"
+            ):
+                from claude_kit.maker_checker import (
+                    validate_maker_checker_snapshot,
+                )
+
+                valid, messages = validate_maker_checker_snapshot(
+                    fs.root,
+                    snapshot,
+                )
+                if not valid:
+                    raise RuntimeInstallError(
+                        "runtime transition cannot verify the active frozen "
+                        "maker-checker run: " + "; ".join(messages)
+                    )
+                state = snapshot.get("maker_checker")
+                bindings = state.get("bindings") if isinstance(state, dict) else None
+                if not isinstance(bindings, dict) or set(bindings) != {
+                    "maker",
+                    "reviewer",
+                }:
+                    raise RuntimeInstallError(
+                        "runtime transition cannot verify the active frozen "
+                        "maker-checker provider bindings"
+                    )
+                frozen_providers: set[str] = set()
+                for slot in ("maker", "reviewer"):
+                    binding = bindings.get(slot)
+                    provider = (
+                        binding.get("provider") if isinstance(binding, dict) else None
+                    )
+                    if provider not in {"claude", "codex"}:
+                        raise RuntimeInstallError(
+                            "runtime transition cannot verify the active frozen "
+                            "maker-checker provider bindings"
+                        )
+                    frozen_providers.add(str(provider))
+                blocked = sorted(frozen_providers & removed_providers)
+                if blocked:
+                    raise RuntimeInstallError(
+                        "runtime transition would remove provider(s) used by the "
+                        "active frozen maker-checker run: "
+                        + ", ".join(blocked)
+                        + "; resume or abort that run first"
+                    )
+        # Release the subordinate snapshot lock before the transaction takes its
+        # rollback backup. The caller retains managed -> exclusive ProjectFS in
+        # that global order, so neither execution nor another lifecycle writer
+        # can race this check and commit.
+        yield
+    except TimeoutError as exc:
+        raise RuntimeInstallError(str(exc)) from exc
 
 
 @dataclass(frozen=True)
@@ -972,16 +1078,55 @@ def install_runtime(
 ) -> list[str]:
     """Install every selected native projection and one shared state root atomically."""
 
-    log, _migration = _install_runtime_transaction(
-        source,
-        target,
-        plan,
-        request,
-        force=force,
-        migrate_legacy=False,
-        require_legacy_source=False,
-    )
-    return log
+    target = Path(target).expanduser()
+    # Finish projection validation before creating a fresh target.  The same
+    # projection is rendered again only for an existing neutral install, after
+    # its authoritative selection and policy have been read under both leases.
+    prepared = render_runtime_artifacts(source, target, plan, request)
+    fs = ProjectFS(target)
+    with _runtime_mutation_lease(fs):
+        recover_interrupted_transaction(fs, preserve_root=True)
+        if fs.is_file(StateLayout.neutral().manifest):
+            options = _load_runtime_options_for_transition(fs)
+            if options.runtime is not request.runtime:
+                raise RuntimeInstallError(
+                    "installed runtime differs from the requested runtime; use "
+                    "`ckit upgrade --runtime <runtime>` so provider removal is "
+                    "confirmed and backed up"
+                )
+            # Re-init intentionally permits a new provider-neutral Selection
+            # (for example removing one managed MCP server). Only execution
+            # configuration is independently mutable and must be rebased from
+            # the authoritative manifest read under the lifecycle leases.
+            rebased_request = InstallRequest(
+                plan.selection,
+                request.runtime,
+                options.execution_policy,
+            )
+            log, _migration = _install_runtime_transaction(
+                source,
+                target,
+                plan,
+                rebased_request,
+                force=force,
+                migrate_legacy=False,
+                require_legacy_source=False,
+                fs=fs,
+            )
+            return log
+
+        log, _migration = _install_runtime_transaction(
+            source,
+            target,
+            plan,
+            request,
+            force=force,
+            migrate_legacy=False,
+            require_legacy_source=False,
+            fs=fs,
+            prepared=prepared,
+        )
+        return log
 
 
 def install_runtime_with_state_migration(
@@ -1002,29 +1147,56 @@ def install_runtime_with_state_migration(
     """
 
     target = Path(target).expanduser()
+    prepared = render_runtime_artifacts(source, target, plan, request)
     fs = ProjectFS(target)
-    if active_state_layout(fs) == StateLayout.legacy_claude():
-        legacy_options = _old_options(fs)
-        if legacy_options is not None and set(legacy_options.runtime.providers) - set(
-            request.runtime.providers
-        ):
-            # Refuse before projection work for a stable, actionable CLI error.
-            # The same check runs again under the transaction lease below to
-            # close a concurrent legacy-manifest change between check and use.
-            raise RuntimeInstallError(_MIGRATION_REMOVAL_ERROR)
+    with _runtime_mutation_lease(fs):
+        recover_interrupted_transaction(fs, preserve_root=True)
+        if fs.is_file(StateLayout.neutral().manifest):
+            options = _load_runtime_options_for_transition(fs)
+            if options.runtime is not request.runtime:
+                raise RuntimeInstallError(
+                    "installed runtime differs from the requested runtime; use "
+                    "`ckit upgrade --runtime <runtime>` so provider removal is "
+                    "confirmed and backed up"
+                )
+            rebased_request = InstallRequest(
+                plan.selection,
+                request.runtime,
+                options.execution_policy,
+            )
+            log, _migration = _install_runtime_transaction(
+                source,
+                target,
+                plan,
+                rebased_request,
+                force=force,
+                migrate_legacy=True,
+                require_legacy_source=require_legacy_source,
+                fs=fs,
+            )
+            return log, StateMigrationResult(migrated=False, already_neutral=True)
 
-    log, migration = _install_runtime_transaction(
-        source,
-        target,
-        plan,
-        request,
-        force=force,
-        migrate_legacy=True,
-        require_legacy_source=require_legacy_source,
-    )
-    if migration is None:  # pragma: no cover - internal invariant
-        raise RuntimeInstallError("legacy state migration result was not recorded")
-    return log, migration
+        if active_state_layout(fs) == StateLayout.legacy_claude():
+            legacy_options = _old_options(fs)
+            if legacy_options is not None and set(
+                legacy_options.runtime.providers
+            ) - set(request.runtime.providers):
+                raise RuntimeInstallError(_MIGRATION_REMOVAL_ERROR)
+
+        log, migration = _install_runtime_transaction(
+            source,
+            target,
+            plan,
+            request,
+            force=force,
+            migrate_legacy=True,
+            require_legacy_source=require_legacy_source,
+            fs=fs,
+            prepared=prepared,
+        )
+        if migration is None:  # pragma: no cover - internal invariant
+            raise RuntimeInstallError("legacy state migration result was not recorded")
+        return log, migration
 
 
 def _install_runtime_transaction(
@@ -1037,11 +1209,16 @@ def _install_runtime_transaction(
     migrate_legacy: bool,
     require_legacy_source: bool,
     fs: ProjectFS | None = None,
+    prepared: tuple[ProjectionPlan, tuple[RuntimeArtifact, ...]] | None = None,
 ) -> tuple[list[str], StateMigrationResult | None]:
     """Apply one pre-rendered runtime install under one lifecycle transaction."""
 
     target = Path(target).expanduser()
-    projection, artifacts = render_runtime_artifacts(source, target, plan, request)
+    projection, artifacts = (
+        render_runtime_artifacts(source, target, plan, request)
+        if prepared is None
+        else prepared
+    )
     fs = fs or ProjectFS(target)
     log: list[str] = []
     migration: StateMigrationResult | None = None
@@ -1159,47 +1336,91 @@ def transition_runtime(
         raise RuntimeInstallError(
             "runtime transitions require a neutral .ckit manifest; migrate legacy state first"
         )
-    with fs.mutation_lease(exclusive=True):
-        # The live manifest may be a partially applied target-runtime manifest.
-        # Recover before choosing same-runtime upgrade versus provider transition,
-        # and retain this lease until the new transaction commits.
-        recover_interrupted_transaction(fs, preserve_root=True)
-        if not fs.is_file(StateLayout.neutral().manifest):
-            raise RuntimeInstallError(
-                "runtime transitions require a neutral .ckit manifest; "
-                "migrate legacy state first"
-            )
-        try:
-            options = InitOptions.from_dict(
-                json.loads(fs.read_text(StateLayout.neutral().manifest))
-            )
-        except (ValueError, TypeError, json.JSONDecodeError) as exc:
-            raise RuntimeInstallError(
-                f"installed runtime manifest is corrupt: {exc}"
-            ) from exc
-        if options.selection != plan.selection or request.selection != plan.selection:
-            raise RuntimeInstallError(
-                "runtime transition must reuse the installed provider-neutral selection"
-            )
-        current = options.runtime
-        if current is request.runtime:
-            log, _migration = _install_runtime_transaction(
-                source,
-                target,
-                plan,
-                request,
-                force=force,
-                migrate_legacy=False,
-                require_legacy_source=False,
-                fs=fs,
-            )
-            return log
+    with _runtime_mutation_lease(fs):
+        options = _load_runtime_options_for_transition(fs)
+        return _transition_runtime_locked(
+            source,
+            target,
+            plan,
+            request,
+            fs=fs,
+            options=options,
+            confirm_removal=confirm_removal,
+            force=force,
+        )
 
-        removed = _removed_surfaces(options, request.runtime)
-        if removed and not confirm_removal:
-            raise RuntimeInstallError(
-                "runtime transition removes native provider files; confirmation is required"
-            )
+
+def _load_runtime_options_for_transition(fs: ProjectFS) -> InitOptions:
+    """Recover and read the authoritative manifest under both lifecycle leases."""
+
+    recover_interrupted_transaction(fs, preserve_root=True)
+    if not fs.is_file(StateLayout.neutral().manifest):
+        raise RuntimeInstallError(
+            "runtime transitions require a neutral .ckit manifest; "
+            "migrate legacy state first"
+        )
+    try:
+        return InitOptions.from_dict(
+            json.loads(fs.read_text(StateLayout.neutral().manifest))
+        )
+    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeInstallError(
+            f"installed runtime manifest is corrupt: {exc}"
+        ) from exc
+
+
+def _transition_runtime_locked(
+    source: Path,
+    target: Path,
+    plan: ResolvedPlan,
+    request: InstallRequest,
+    *,
+    fs: ProjectFS,
+    options: InitOptions,
+    confirm_removal: bool,
+    force: bool,
+) -> list[str]:
+    """Apply a refresh/transition after authoritative state was read under lease."""
+
+    if options.selection != plan.selection or request.selection != plan.selection:
+        raise RuntimeInstallError(
+            "runtime transition must reuse the installed provider-neutral selection"
+        )
+
+    # Configuration is independently mutable. Always rebase the projection onto
+    # the policy read under the lifecycle lease instead of trusting a caller's
+    # potentially stale pre-lock request.
+    request = InstallRequest(
+        options.selection,
+        request.runtime,
+        options.execution_policy,
+    )
+    current = options.runtime
+    if current is request.runtime:
+        log, _migration = _install_runtime_transaction(
+            source,
+            target,
+            plan,
+            request,
+            force=force,
+            migrate_legacy=False,
+            require_legacy_source=False,
+            fs=fs,
+        )
+        return log
+
+    removed = _removed_surfaces(options, request.runtime)
+    if removed and not confirm_removal:
+        raise RuntimeInstallError(
+            "runtime transition removes native provider files; confirmation is required"
+        )
+    removed_providers = set(current.providers) - set(request.runtime.providers)
+    guard = (
+        _provider_removal_guard(fs, removed_providers)
+        if removed_providers
+        else nullcontext()
+    )
+    with guard:
         projection, artifacts = render_runtime_artifacts(source, target, plan, request)
         backup = _next_provider_backup(fs) if removed else None
         protected = _PROTECTED_PATHS + ((backup,) if backup is not None else ())
@@ -1237,7 +1458,68 @@ def transition_runtime(
                     old_records=old_records,
                 )
             )
-        return log
+    return log
+
+
+def refresh_runtime(
+    source: Path,
+    target: Path,
+    *,
+    runtime: str | Runtime | None = None,
+    confirm_removal: bool = False,
+    force: bool = False,
+) -> tuple[list[str], Runtime, Runtime]:
+    """Resolve and refresh a recorded native install under one ordered lease."""
+
+    target = Path(target).expanduser()
+    fs = ProjectFS(target)
+    if not fs.root.exists():
+        raise RuntimeInstallError(
+            "runtime transitions require a neutral .ckit manifest; migrate legacy state first"
+        )
+    with _runtime_mutation_lease(fs):
+        return _refresh_runtime_locked(
+            source,
+            target,
+            fs=fs,
+            runtime=runtime,
+            confirm_removal=confirm_removal,
+            force=force,
+        )
+
+
+def _refresh_runtime_locked(
+    source: Path,
+    target: Path,
+    *,
+    fs: ProjectFS,
+    runtime: str | Runtime | None,
+    confirm_removal: bool,
+    force: bool,
+) -> tuple[list[str], Runtime, Runtime]:
+    """Refresh native state while the caller owns both lifecycle leases."""
+
+    from claude_kit import catalog
+
+    options = _load_runtime_options_for_transition(fs)
+    selected = options.runtime if runtime is None else Runtime.parse(runtime)
+    plan = catalog.resolve(source, options.selection)
+    request = InstallRequest(
+        options.selection,
+        selected,
+        options.execution_policy,
+    )
+    log = _transition_runtime_locked(
+        source,
+        target,
+        plan,
+        request,
+        fs=fs,
+        options=options,
+        confirm_removal=confirm_removal,
+        force=force,
+    )
+    return log, options.runtime, selected
 
 
 __all__ = [
@@ -1247,6 +1529,7 @@ __all__ = [
     "install_runtime",
     "install_runtime_with_state_migration",
     "preview_runtime_install",
+    "refresh_runtime",
     "render_runtime_artifacts",
     "transition_runtime",
     "validate_projection",

@@ -7,6 +7,7 @@ import json
 import pytest
 
 from claude_kit import catalog, upgrader
+from claude_kit.execution_lease import managed_execution_lease
 from claude_kit.models import (
     ExecutionPolicy,
     InitOptions,
@@ -69,6 +70,67 @@ def test_native_upgrade_preserves_execution_policy(payload, tmp_path):
 
     assert diff_ok, diff_messages
     assert upgrade_ok, upgrade_messages
+    assert _options(target).execution_policy == policy
+
+
+def test_native_upgrade_refuses_while_managed_execution_is_active(payload, tmp_path):
+    target = tmp_path / "managed"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, "both", _maker_checker_policy()),
+    )
+    manifest = target / StateLayout.neutral().manifest
+    role = target / ".codex/agents/maker-checker-reviewer.toml"
+    before_manifest = manifest.read_bytes()
+    before_role = role.read_bytes()
+
+    with managed_execution_lease(target):
+        ok, messages = upgrader.upgrade(target)
+
+    assert not ok
+    assert "managed workflow coordinator is running" in "\n".join(messages)
+    assert manifest.read_bytes() == before_manifest
+    assert role.read_bytes() == before_role
+    assert not list(target.glob(".claude-kit-txn-*"))
+
+
+def test_upgrade_invalid_existing_target_does_not_create_coordination_files(
+    tmp_path,
+):
+    target = tmp_path / "not-installed"
+    target.mkdir()
+
+    ok, messages = upgrader.upgrade(target)
+
+    assert not ok
+    assert "no .claude/" in "\n".join(messages)
+    assert list(target.iterdir()) == []
+
+
+def test_runtime_transition_rebases_onto_current_execution_policy(payload, tmp_path):
+    target = tmp_path / "policy-rebase"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    policy = _maker_checker_policy()
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, "both", policy),
+    )
+
+    # Model a caller that resolved its request before configuration changed.
+    transition_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, "both", None),
+    )
+
     assert _options(target).execution_policy == policy
 
 

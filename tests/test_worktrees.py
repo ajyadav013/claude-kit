@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -18,6 +19,10 @@ from claude_kit.worktrees import (
 )
 
 RUNNER = CliRunner()
+
+
+class _SimulatedCreateCrash(BaseException):
+    pass
 
 
 def _repo(path: Path) -> Path:
@@ -321,3 +326,304 @@ def test_cli_worktree_lifecycle_uses_json_records(tmp_path: Path) -> None:
     )
     assert removed.exit_code == 0, removed.output
     assert json.loads(removed.stdout)["status"] == "removed"
+
+
+def test_create_intent_recovers_after_git_worktree_add_before_registry_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    manager = WorktreeManager(repo)
+    anchored_add = worktrees_module._run_git_worktree_add_anchored
+
+    def crash_after_add(*args, **kwargs):
+        anchored_add(*args, **kwargs)
+        raise _SimulatedCreateCrash
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", crash_after_add
+    )
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("creating-after-add", "worker")
+    intent = manager.records("creating-after-add")[0]
+    assert intent.status is WorktreeStatus.CREATING
+    assert (repo / intent.target_path).is_dir()
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", anchored_add
+    )
+    active = manager.create("creating-after-add", "worker")
+    assert active.status is WorktreeStatus.ACTIVE
+    assert manager.verify(active.run_id, active.worker_id) == active
+    manager.cleanup(active.run_id, active.worker_id)
+
+
+def test_create_intent_recovers_partial_filter_neutral_materialization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    (repo / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    subprocess.run(["git", "add", "app.py"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "add app"], cwd=repo, check=True)
+    manager = WorktreeManager(repo)
+    materialize = worktrees_module._materialize_head_without_repository_commands
+
+    def crash_after_one_path(target: Path) -> None:
+        worktrees_module._run_git(target, "read-tree", "HEAD")
+        worktrees_module._run_git(
+            target, "checkout-index", "--force", "--", "README.md"
+        )
+        raise _SimulatedCreateCrash
+
+    monkeypatch.setattr(
+        worktrees_module,
+        "_materialize_head_without_repository_commands",
+        crash_after_one_path,
+    )
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("partial-materialization", "worker")
+    intent = manager.records("partial-materialization")[0]
+    target = repo / intent.target_path
+    assert intent.status is WorktreeStatus.CREATING
+    assert (target / "README.md").is_file()
+    assert not (target / "app.py").exists()
+
+    monkeypatch.setattr(
+        worktrees_module,
+        "_materialize_head_without_repository_commands",
+        materialize,
+    )
+    active = manager.resume_run("partial-materialization")[0]
+    assert active.status is WorktreeStatus.ACTIVE
+    assert (target / "README.md").read_text(encoding="utf-8") == "root\n"
+    assert (target / "app.py").read_text(encoding="utf-8") == "VALUE = 1\n"
+    manager.cleanup(active.run_id, active.worker_id)
+
+
+def test_create_intent_recovers_after_owned_target_mkdir_before_git_add(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    manager = WorktreeManager(repo)
+    anchored_add = worktrees_module._run_git_worktree_add_anchored
+
+    def crash_before_add(*_args, **_kwargs):
+        raise _SimulatedCreateCrash
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", crash_before_add
+    )
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("creating-after-mkdir", "worker")
+    intent = manager.records("creating-after-mkdir")[0]
+    target = repo / intent.target_path
+    assert intent.status is WorktreeStatus.CREATING
+    assert target.is_dir() and list(target.iterdir()) == []
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", anchored_add
+    )
+    resumed = manager.resume_run("creating-after-mkdir")[0]
+    assert resumed.status is WorktreeStatus.ACTIVE
+    manager.cleanup(resumed.run_id, resumed.worker_id)
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", crash_before_add
+    )
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("aborting-after-mkdir", "worker")
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", anchored_add
+    )
+    aborted = manager.abort_run("aborting-after-mkdir")[0]
+    assert aborted.status is WorktreeStatus.ABORTED
+    manager.cleanup(aborted.run_id, aborted.worker_id)
+
+
+def test_anchored_create_cannot_follow_a_swapped_run_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    manager = WorktreeManager(repo)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    anchored_add = worktrees_module._run_git_worktree_add_anchored
+
+    def swap_parent_then_add(repository: Path, **kwargs) -> None:
+        run_parent = manager.container / "race-run"
+        moved = manager.container / "race-run-moved"
+        run_parent.rename(moved)
+        run_parent.symlink_to(outside, target_is_directory=True)
+        anchored_add(repository, **kwargs)
+
+    monkeypatch.setattr(
+        worktrees_module,
+        "_run_git_worktree_add_anchored",
+        swap_parent_then_add,
+    )
+    with pytest.raises(WorktreeError, match="namespace changed"):
+        manager.create("race-run", "worker")
+
+    assert list(outside.iterdir()) == []
+    registered = subprocess.run(
+        ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "race-run-moved/worker" not in registered
+
+
+def test_abort_cancels_never_created_intent_and_preserves_created_intent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    manager = WorktreeManager(repo)
+    finish = WorktreeManager._finish_creating
+
+    def crash_before_add(
+        _manager: WorktreeManager, _intent: worktrees_module.WorktreeRecord
+    ) -> worktrees_module.WorktreeRecord:
+        raise _SimulatedCreateCrash
+
+    monkeypatch.setattr(WorktreeManager, "_finish_creating", crash_before_add)
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("creating-before-add", "worker")
+    monkeypatch.setattr(WorktreeManager, "_finish_creating", finish)
+    cancelled = manager.abort_run("creating-before-add")[0]
+    assert cancelled.status is WorktreeStatus.REMOVED
+    assert not (repo / cancelled.target_path).exists()
+
+    anchored_add = worktrees_module._run_git_worktree_add_anchored
+
+    def crash_after_add(*args, **kwargs):
+        anchored_add(*args, **kwargs)
+        raise _SimulatedCreateCrash
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", crash_after_add
+    )
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("creating-abort-after-add", "worker")
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", anchored_add
+    )
+    preserved = manager.abort_run("creating-abort-after-add")[0]
+    assert preserved.status is WorktreeStatus.ABORTED
+    assert (repo / preserved.target_path).is_dir()
+    manager.cleanup(preserved.run_id, preserved.worker_id)
+
+
+def test_create_intent_rejects_unregistered_target_wrong_head_and_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    (repo / "README.md").write_text("second\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "second"], cwd=repo, check=True)
+    manager = WorktreeManager(repo)
+    finish = WorktreeManager._finish_creating
+
+    def crash_before_add(
+        _manager: WorktreeManager, _intent: worktrees_module.WorktreeRecord
+    ) -> worktrees_module.WorktreeRecord:
+        raise _SimulatedCreateCrash
+
+    monkeypatch.setattr(WorktreeManager, "_finish_creating", crash_before_add)
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("hostile-target", "worker")
+    hostile = manager.records("hostile-target")[0]
+    target = repo / hostile.target_path
+    target.mkdir(parents=True)
+    monkeypatch.setattr(WorktreeManager, "_finish_creating", finish)
+    with pytest.raises(WorktreeError, match="ownership"):
+        manager.create("hostile-target", "worker")
+
+    anchored_add = worktrees_module._run_git_worktree_add_anchored
+
+    def crash_after_add(*args, **kwargs):
+        anchored_add(*args, **kwargs)
+        raise _SimulatedCreateCrash
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", crash_after_add
+    )
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("wrong-head", "worker")
+    wrong_head = manager.records("wrong-head")[0]
+    wrong_head_target = repo / wrong_head.target_path
+    subprocess.run(
+        ["git", "-C", str(wrong_head_target), "update-ref", "HEAD", "HEAD^"],
+        check=True,
+    )
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", anchored_add
+    )
+    with pytest.raises(WorktreeError, match="HEAD differs"):
+        manager.create("wrong-head", "worker")
+
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", crash_after_add
+    )
+    with pytest.raises(_SimulatedCreateCrash):
+        manager.create("wrong-index", "worker")
+    wrong_index = manager.records("wrong-index")[0]
+    wrong_index_target = repo / wrong_index.target_path
+    subprocess.run(
+        ["git", "-C", str(wrong_index_target), "read-tree", "HEAD^"], check=True
+    )
+    monkeypatch.setattr(
+        worktrees_module, "_run_git_worktree_add_anchored", anchored_add
+    )
+    with pytest.raises(WorktreeError, match="index differs"):
+        manager.create("wrong-index", "worker")
+
+
+def test_lifecycle_git_commands_execute_no_repo_filters_hooks_or_fsmonitor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path / "project")
+    (repo / ".gitattributes").write_text("README.md filter=hostile\n", encoding="utf-8")
+    subprocess.run(["git", "add", ".gitattributes"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "attribute fixture"], cwd=repo, check=True)
+    marker = tmp_path / "repository-command-ran"
+    hostile = tmp_path / "hostile.sh"
+    hostile.write_text(
+        "#!/bin/sh\n" + f": > {shlex.quote(str(marker))}\n" + "exit 1\n",
+        encoding="utf-8",
+    )
+    hostile.chmod(0o700)
+    command = shlex.quote(str(hostile))
+    for key in (
+        "filter.hostile.clean",
+        "filter.hostile.smudge",
+        "filter.hostile.process",
+    ):
+        subprocess.run(["git", "config", key, command], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "filter.hostile.required", "true"], cwd=repo, check=True
+    )
+    subprocess.run(["git", "config", "core.fsmonitor", command], cwd=repo, check=True)
+    for hook_name in ("post-checkout", "post-index-change"):
+        hook = repo / ".git/hooks" / hook_name
+        hook.write_text(hostile.read_text(encoding="utf-8"), encoding="utf-8")
+        hook.chmod(0o700)
+    marker.unlink(missing_ok=True)
+    redirected_git = tmp_path / "redirected-git"
+    redirected_worktree = tmp_path / "redirected-worktree"
+    redirected_git.mkdir()
+    redirected_worktree.mkdir()
+    hostile_index = tmp_path / "redirected-index"
+    monkeypatch.setenv("GIT_DIR", str(redirected_git))
+    monkeypatch.setenv("GIT_WORK_TREE", str(redirected_worktree))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(hostile_index))
+
+    manager = WorktreeManager(repo)
+    record = manager.create("no-repository-commands", "worker")
+    manager.checkpoint(record.run_id, record.worker_id)
+    manager.mark(record.run_id, record.worker_id, WorktreeStatus.SUCCEEDED)
+    manager.cleanup(record.run_id, record.worker_id)
+
+    assert not marker.exists()
+    assert not hostile_index.exists()
+    assert list(redirected_git.iterdir()) == []
+    assert list(redirected_worktree.iterdir()) == []

@@ -8,7 +8,13 @@ from typing import Any
 
 from claude_kit import __version__
 from claude_kit.models import ExecutionPolicy, InitOptions, StateLayout
-from claude_kit.secure_fs import ProjectFS, ProjectTransaction, UnsafePathError
+from claude_kit.secure_fs import (
+    ProjectFS,
+    ProjectTransaction,
+    UnsafePathError,
+    inspect_interrupted_transaction,
+    recover_interrupted_transaction,
+)
 
 
 class ExecutionConfigError(RuntimeError):
@@ -43,7 +49,19 @@ def load_execution_policy(target: str | Path) -> ExecutionPolicy | None:
     """Return the configured project policy without mutating the installation."""
 
     try:
-        _document, options = _load_document(ProjectFS(Path(target).expanduser()))
+        fs = ProjectFS(Path(target).expanduser())
+        if not fs.root.exists():
+            _document, options = _load_document(fs)
+            return options.execution_policy
+        # A shared lease makes the manifest and lifecycle marker one coherent
+        # read. Read-only configuration inspection never performs recovery.
+        with fs.mutation_lease(exclusive=False):
+            if inspect_interrupted_transaction(fs) is not None:
+                raise ExecutionConfigError(
+                    "cannot read maker-checker configuration while an interrupted "
+                    "project transaction requires recovery"
+                )
+            _document, options = _load_document(fs)
     except (OSError, UnsafePathError) as exc:
         raise ExecutionConfigError(
             f"cannot read maker-checker configuration: {exc}"
@@ -61,9 +79,13 @@ def _write_policy(
 
     if policy is not None:
         policy.validate_providers(options.runtimes)
-    normalized = options.to_dict()
-    normalized["execution"] = policy.to_dict() if policy is not None else None
-    merged = {**document, **normalized}
+    # This command owns only the execution binding. Keep every other byte-level
+    # structure represented by the parsed document, including forward-compatible
+    # keys inside known containers such as ``selection`` and ``state_layout``.
+    merged = {
+        **document,
+        "execution": policy.to_dict() if policy is not None else None,
+    }
     # Validate the exact bytes before a rollback-capable mutation begins.
     InitOptions.from_dict(merged)
     encoded = json.dumps(merged, indent=2) + "\n"
@@ -74,7 +96,10 @@ def _write_policy(
         from_version=options.claude_kit_version,
         to_version=__version__,
         actions=[{"rel": manifest, "kind": "update", "owner": "kit"}],
-        protected_paths=(StateLayout.neutral().root,),
+        # Configuration owns only this directory. Snapshotting all of .ckit
+        # would let a later config rollback erase pipeline evidence appended by
+        # a concurrently active, already-frozen managed run.
+        protected_paths=(f"{StateLayout.neutral().root}/config",),
         journal_path=StateLayout.neutral().journal,
     ):
         fs.write_text(manifest, encoded)
@@ -91,8 +116,18 @@ def configure_execution_policy(
         raise ValueError("policy must be an ExecutionPolicy")
     try:
         fs = ProjectFS(Path(target).expanduser())
-        document, options = _load_document(fs)
-        _write_policy(fs, document, options, policy)
+        # Runtime transitions and upgrades mutate the same manifest. Hold one
+        # project-wide lease from the authoritative read through verification so
+        # configuration cannot restore a stale runtime or file inventory.
+        with fs.mutation_lease(exclusive=True):
+            recover_interrupted_transaction(fs, preserve_root=True)
+            if inspect_interrupted_transaction(fs) is not None:
+                raise ExecutionConfigError(
+                    "cannot configure maker-checker while an unsupported project "
+                    "transaction requires lifecycle recovery"
+                )
+            document, options = _load_document(fs)
+            _write_policy(fs, document, options, policy)
     except ExecutionConfigError:
         raise
     except (OSError, UnsafePathError, TypeError, ValueError) as exc:
@@ -105,10 +140,17 @@ def disable_execution_policy(target: str | Path) -> bool:
 
     try:
         fs = ProjectFS(Path(target).expanduser())
-        document, options = _load_document(fs)
-        if options.execution_policy is None:
-            return False
-        _write_policy(fs, document, options, None)
+        with fs.mutation_lease(exclusive=True):
+            recover_interrupted_transaction(fs, preserve_root=True)
+            if inspect_interrupted_transaction(fs) is not None:
+                raise ExecutionConfigError(
+                    "cannot disable maker-checker while an unsupported project "
+                    "transaction requires lifecycle recovery"
+                )
+            document, options = _load_document(fs)
+            if options.execution_policy is None:
+                return False
+            _write_policy(fs, document, options, None)
     except ExecutionConfigError:
         raise
     except (OSError, UnsafePathError, TypeError, ValueError) as exc:

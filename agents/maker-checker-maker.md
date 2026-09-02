@@ -36,10 +36,12 @@ whether your own work passes.
 
 ## Produce the artifact
 
-- **Code:** return the complete textual patch payload requested by the coordinator. Keep every path
-  inside the frozen allowlist. Do not propose binary data, path moves, permission changes, links, or
-  repository metadata changes unless the contract explicitly permits them and the output channel
-  supports them.
+- **Code:** on the initial attempt, return a complete textual unified diff against the owned
+  worktree's `HEAD`. On a revision, return an incremental unified diff against the current owned
+  worktree; the coordinator derives and reviews the cumulative `HEAD` diff. Keep every path inside
+  the initial attempt's frozen path set. Do not propose binary data, path moves, permission changes,
+  links, or repository metadata changes unless the contract explicitly permits them and the output
+  channel supports them.
 - **Design:** return a complete design artifact that covers the user goal, main flow, relevant
   states, accessibility, consistency, constraints, and implementation feasibility required by the
   contract.

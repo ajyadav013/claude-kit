@@ -108,6 +108,7 @@ or physical host paths. Renderers are the only layer that resolves those semanti
 | `workflows.py` / `dispatch.py` | Structured workflow and provider-neutral six-operation dispatch protocol |
 | `workflow_evidence.py` | Provider-neutral typed evidence, findings, and PASS semantics for managed gates |
 | `workflow_executor.py` / `process_dispatch.py` | Preview managed entry point, run-owned workspace binding, and native host subprocess adapters |
+| `execution_config.py` / `maker_checker.py` | Transactional project-scoped model bindings and the authoritative bounded maker–checker loop |
 | `program_runtime.py` | Frozen, content-addressed Mode E program manifests and safeguard bindings |
 | `program_execution.py` | Authoritative Mode E wave/unit execution over the shared pipeline ledger |
 | `managed_approval.py` | Detached asymmetric authorization and typed external-action receipt contracts |

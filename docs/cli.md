@@ -19,6 +19,9 @@ command, are Preview and require `CKIT_EXPERIMENTAL=1`. The legacy
 | `export [path] -t cursor\|agents\|copilot [--force] [--dry-run] [--json]` | Project the config into Cursor (`.cursor/`), a root `AGENTS.md`, or GitHub Copilot (`.github/copilot-instructions.md`) for editors that aren't Claude Code |
 | `upgrade [path] [--runtime claude\|codex\|both] [--confirm-runtime-removal] [--force]` | Refresh managed files or transition an existing neutral install. Removing a provider surface requires explicit confirmation and creates a recoverable backup |
 | `migrate-state [path]` | **Preview/hidden:** transactionally copy legacy mutable `.claude` state into authoritative `.ckit` while preserving legacy bytes |
+| `maker-checker configure [path] [role options]` · `show` · `probe` · `disable` | Configure, inspect, locally probe, or disable the project-scoped maker/reviewer pair. A non-interactive configure requires a provider and exactly one model-selection form for each role; `probe` uses executable lookup and `--version` only |
+| `maker-checker run [path] [--kind auto\|code\|design\|specification] [--task TEXT] [--resume RUN_ID]` | Start the explicit bounded maker→fresh-reviewer loop (`--task` required for a new run), or resume its exact frozen ID (`--task` optional as an exact assertion). PASS returns the maker artifact; unresolved findings, unsafe output, stale evidence, and exhausted revisions fail closed |
+| `maker-checker confirm-terminated [path] --run-id RUN --attempt-id ATTEMPT --route ROUTE --dispatch-id ID --dispatch-attempt N --evidence TEXT` | After independently proving an uncertain native worker has terminated, bind that operator evidence to its exact logical and host dispatch identities so the frozen run can be resumed or aborted. This command does not terminate a worker itself |
 | `pipeline run --provider claude\|codex [--condition NAME=true\|false]… [--program-manifest FILE]` | **Preview/hidden:** execute or resume one active frozen workflow through a concrete installed host. Modes A–D freeze the structured stage graph; Mode E additionally requires an explicit project-contained program manifest and freezes its waves, units, budgets, evidence, and checkpoints in the same ledger |
 | `pipeline start · adopt · resume · reconcile-stale-attempt · reconcile-stale-program-attempt · pause · resolve-pause · record-findings · close-gate · not-applicable · accept-risk · complete · abort · validate · status` | Inspect/mutate schema-versioned `/sdlc` state. Lifecycle is explicit, required gates cannot be skipped, Critical/High always block, Medium uses a distinct structured risk acceptance, and findings/evidence are SHA-256 bound to the current gate/commit. `skip-gate` is retained only as a compatibility alias for structured `not-applicable` |
 | `worktree create · list · mark · cleanup · abort-run · resume-run` | Manage provider-neutral, run-owned fallback worktrees. Dirty/failed artifacts require explicit discard; exact ownership is revalidated on resume/cleanup |
@@ -43,6 +46,105 @@ before looking for a command that was never installed.
 Codex has no exact project slash-command analogue. Its native projection adapts the four wrappers
 as explicit skills, including `$sdlc`; plugin and scaffold capabilities remain distinct. See
 [installation](install.md#plugin-installation-is-narrower-than-scaffolding).
+
+## Maker–checker configuration and execution
+
+The optional pair is a Preview managed-execution surface and belongs to a runtime-aware project,
+not to global CLI state. Configure it
+interactively with `ckit maker-checker configure .` (stored values are offered as defaults), or
+provide one complete non-interactive pair:
+
+```bash
+# Replace YOUR_CODEX_MODEL_ID with an exact ID accepted by your Codex host.
+ckit maker-checker configure . \
+  --maker-provider claude --maker-model-tier deep \
+  --reviewer-provider codex --reviewer-model-id YOUR_CODEX_MODEL_ID \
+  --max-revisions 2
+```
+
+For each role, choose exactly one of `--ROLE-inherit`,
+`--ROLE-model-tier fast|balanced|deep`, or `--ROLE-model-id ID`. Each named provider must be present
+in the installed runtime, so a Claude→Codex pair requires a `both` scaffold. The same provider may
+fill both slots; the same provider/model pair is also accepted but produces an independence warning.
+
+Inspect or disable the persisted policy without editing the manifest:
+
+```bash
+ckit maker-checker show .
+ckit maker-checker probe .
+ckit maker-checker disable .
+```
+
+`probe` sends no model request. It validates configuration, resolves each executable from `PATH`,
+and runs `--version`; exact-model availability, entitlement, and login are not probed. A green probe
+therefore means local CLI compatibility, not a successful inference. `validate` and `doctor`
+add installed-provider, rendered-route, passive-role, and tier-mapping checks; `doctor` also warns
+when the two slots use the same binding. Neither command calls the configured model.
+
+During a run, both built-in provider paths deny native local tools and receive the same bounded
+coordinator projection of Git-tracked UTF-8 text. Sensitive/control/generated paths are withheld and
+secret-shaped values are heuristically redacted, but the projection remains sensitive. Snapshot
+ambiguity, eligible non-ignored untracked text, races, decode failures, and size/count bounds stop
+before host launch. A separate all-path mutation checkpoint stays private to the coordinator; no
+digest derived from withheld bytes enters a model prompt. See the detailed guide below before
+enabling a cross-provider pair.
+
+Run through the native explicit skill (`/maker-checker` in Claude Code or `$maker-checker` in Codex)
+or call the coordinator directly:
+
+```bash
+ckit maker-checker run . \
+  --kind specification \
+  --task 'Specify retry and idempotency behavior for webhook delivery'
+```
+
+The CLI announces and freezes the pair before inference. PASS exits 0. Configuration, preflight, or
+snapshot-setup failure exits 1. A native launch/transport failure or other typed human stop exits 2
+and preserves the available evidence; it is never translated into a successful result. See
+[Configurable maker–checker](maker-checker.md) for the artifact paths, patch containment, evidence
+schema, revision loop, and current deterministic-check limits.
+
+An interrupted run owns the one shared pipeline snapshot. Inspect it, validate its resume context,
+then continue the exact run ID:
+
+```bash
+ckit pipeline status .
+ckit pipeline resume .
+ckit maker-checker run . --resume RUN_ID
+```
+
+`pipeline resume` only validates this snapshot kind and points to the last command; the
+`maker-checker run --resume` invocation launches the frozen stage. Its default `--kind auto` reuses
+the frozen deliverable kind. An optional explicit `--kind` must match, and an optional `--task` is
+an exact equality assertion. Resume announces and uses the frozen providers, resolved models, and
+revision budget even if the current pair was changed or disabled or the compatibility catalog later
+changed; `disable` affects future runs only. Use `ckit pipeline abort .` to record a terminal
+`operator-aborted` result for the active pair. Completed and human-stop runs cannot resume.
+Artifact/evidence hash drift, worktree-checkpoint/index drift, an ID/task/kind mismatch, or another
+active snapshot variant is refused. Completed stages are not replayed; a stale active attempt is
+recorded as interrupted before its frozen stage is retried. An unavailable frozen route, provider,
+or capability produces a typed stop, never model substitution.
+
+If cancellation or retry ownership cannot be confirmed, the coordinator keeps the run active and
+blocks resume, abort, provider removal, and replacement dispatch. `ckit pipeline status .` prints
+the exact logical attempt, route, native dispatch ID, and native attempt number. First inspect that
+exact host job/process outside claude-kit and prove it is no longer running. Then record a concise,
+human-auditable reference:
+
+```bash
+ckit maker-checker confirm-terminated . \
+  --run-id RUN_ID \
+  --attempt-id ATTEMPT_ID \
+  --route maker-checker-maker \
+  --dispatch-id NATIVE_DISPATCH_ID \
+  --dispatch-attempt 1 \
+  --evidence 'host job NATIVE_DISPATCH_ID reports terminated at TIMESTAMP'
+```
+
+Every identity must match the unsafe marker exactly. The command stores a bounded, hash-bound proof
+under the mode-0600 run evidence tree and marks that attempt interrupted; it neither kills the
+process nor treats assertion text as automatic process evidence. Afterward, explicitly resume or
+abort the frozen run.
 
 ## Pipeline state lifecycle
 
@@ -267,6 +369,11 @@ If the destination removes Claude or Codex files, add `--confirm-runtime-removal
 surface is first moved into a numbered project-local backup. See the
 [runtime migration guide](runtime-migration.md).
 
+Removal is also refused while the provider is named by an active frozen maker–checker snapshot.
+Changing or disabling the current pair does not rewrite that run. Finish it with
+`maker-checker run --resume RUN_ID` or explicitly end it with `pipeline abort`, then retry the
+transition.
+
 ## Troubleshooting
 
 Run **`ckit doctor`** first — it reports installed runtimes and shared state, host CLI compatibility,
@@ -277,6 +384,10 @@ duplication.
 |---|---|---|
 | `/sdlc`, agents, or skills "not found" right after `init` | Claude Code hasn't loaded the new project config yet | **Restart Claude Code** — or use `/claude-kit:sdlc <task>` (works without a restart) |
 | `$sdlc` or a Codex agent is missing | Codex Preview was not selected, the project was not reopened, or the wrong skill syntax was used | Run `CKIT_EXPERIMENTAL=1 ckit init . --runtime codex` (or `both`), reopen the project, and use `$sdlc` rather than a Claude slash command |
+| `/maker-checker` or `$maker-checker` says configuration is disabled | `--defaults` does not opt into model calls, or the static plugin was installed without a project scaffold | Run a runtime-aware `ckit init`, then `ckit maker-checker configure .`; use `runtime: both` when the roles name different providers |
+| `maker-checker probe` passes but `run` rejects a model or login | Probe checks only policy shape, executable discovery, and `--version` | Verify the host login and exact provider model ID outside the probe, then rerun; probe deliberately sends no project content or inference request |
+| A runtime transition says a provider belongs to an active maker–checker run | The frozen run still owns that provider binding; changing or disabling current defaults cannot alter it | Resume it with `ckit maker-checker run . --resume RUN_ID`, or explicitly end it with `ckit pipeline abort .`; then retry the transition |
+| Maker–checker says native dispatch termination is unconfirmed | Cancellation/retry lost authoritative ownership of a native host attempt, so replacing it could run two workers | Run `ckit pipeline status .`, independently verify the exact printed native dispatch is terminated, record that proof with `ckit maker-checker confirm-terminated ...`, then resume or abort |
 | Codex project hooks do nothing | The project is not trusted, the event is unsupported, or `jq`/a POSIX shell is absent | Trust the project after reviewing `.codex/hooks.json`; run `ckit doctor`; `PermissionRequest` and `PostCompact` are intentionally not projected |
 | `init --runtime codex` or `both` exits 2 | Preview features are not enabled | Set `CKIT_EXPERIMENTAL=1`; the legacy `CLAUDE_KIT_EXPERIMENTAL=1` alias is accepted temporarily |
 | Native install refuses because legacy state exists | Mutable state still lives under `.claude` | Retry with `--migrate-state`, or run `CKIT_EXPERIMENTAL=1 ckit migrate-state .` first; do not manually copy the ledger |

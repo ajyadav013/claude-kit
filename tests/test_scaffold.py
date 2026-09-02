@@ -9,7 +9,7 @@ from contextlib import ExitStack
 import pytest
 
 from claude_kit import scaffold, validator
-from claude_kit.models import InitOptions
+from claude_kit.models import INIT_OPTIONS_SCHEMA, InitOptions
 from tests._helpers import install, live_matrix
 
 
@@ -197,7 +197,7 @@ def test_init_options_round_trips_and_records_files(tmp_path, payload):
         )
     )
     options = InitOptions.from_dict(data)
-    assert options.schema_version == 2
+    assert options.schema_version == INIT_OPTIONS_SCHEMA
     assert options.runtimes == ["claude"]
     assert options.state_layout.root == ".claude"
     assert options.selection.database == "postgres"
@@ -327,7 +327,11 @@ def test_gitignore_ignores_upgrade_backups(tmp_path, payload):
     them. A fresh scaffold's .gitignore must list both so `git add -A` skips them."""
     install(payload, tmp_path)
     gi = (tmp_path / ".gitignore").read_text(encoding="utf-8")
-    for entry in (".claude-kit.bak-*/", "*.claude-kit"):
+    for entry in (
+        ".claude-kit.bak-*/",
+        ".claude-kit-managed-execution.lock",
+        "*.claude-kit",
+    ):
         assert entry in gi, f"managed .gitignore must ignore upgrade artifact {entry!r}"
 
 

@@ -266,6 +266,432 @@
             },
             "additionalProperties": false
         },
+        "makerCheckerModelChoice": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+                "kind": {"enum": ["inherit", "tier", "exact"]},
+                "value": {"type": "string", "minLength": 1, "maxLength": 128}
+            },
+            "additionalProperties": false
+        },
+        "makerCheckerBinding": {
+            "type": "object",
+            "required": ["provider", "configured_model", "requested_model"],
+            "properties": {
+                "provider": {"enum": ["claude", "codex"]},
+                "configured_model": {"$ref": "#/$defs/makerCheckerModelChoice"},
+                "requested_model": {
+                    "type": ["string", "null"],
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,127}$"
+                }
+            },
+            "additionalProperties": false
+        },
+        "makerCheckerPolicyWorker": {
+            "type": "object",
+            "required": ["provider", "model"],
+            "properties": {
+                "provider": {"enum": ["claude", "codex"]},
+                "model": {"$ref": "#/$defs/makerCheckerModelChoice"}
+            },
+            "additionalProperties": false
+        },
+        "makerCheckerPolicy": {
+            "type": "object",
+            "required": ["strategy", "maker", "reviewer", "max_revisions"],
+            "properties": {
+                "strategy": {"const": "maker-reviewer"},
+                "maker": {"$ref": "#/$defs/makerCheckerPolicyWorker"},
+                "reviewer": {"$ref": "#/$defs/makerCheckerPolicyWorker"},
+                "max_revisions": {"type": "integer", "minimum": 0, "maximum": 3}
+            },
+            "additionalProperties": false
+        },
+        "makerCheckerAttempt": {
+            "type": "object",
+            "required": [
+                "attempt_id",
+                "sequence",
+                "predecessor_attempt",
+                "iteration",
+                "execution_slot",
+                "route",
+                "provider",
+                "requested_model",
+                "contract_digest",
+                "artifact_digest",
+                "status",
+                "started_at",
+                "ended_at",
+                "output_path",
+                "output_sha256",
+                "termination_proof_path",
+                "termination_proof_sha256",
+                "termination_dispatch_id",
+                "termination_dispatch_attempt"
+            ],
+            "properties": {
+                "attempt_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                },
+                "sequence": {"type": "integer", "minimum": 1},
+                "predecessor_attempt": {
+                    "type": ["string", "null"],
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                },
+                "iteration": {"type": "integer", "minimum": 1, "maximum": 4},
+                "execution_slot": {"enum": ["maker", "reviewer"]},
+                "route": {"enum": ["maker-checker-maker", "maker-checker-reviewer"]},
+                "provider": {"enum": ["claude", "codex"]},
+                "requested_model": {
+                    "type": ["string", "null"],
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,127}$"
+                },
+                "contract_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "artifact_digest": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "status": {"enum": ["running", "succeeded", "failed", "interrupted"]},
+                "started_at": {"type": "string", "minLength": 1},
+                "ended_at": {"type": ["string", "null"], "minLength": 1},
+                "output_path": {"type": ["string", "null"], "minLength": 1},
+                "output_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "termination_proof_path": {
+                    "type": ["string", "null"],
+                    "minLength": 1
+                },
+                "termination_proof_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "termination_dispatch_id": {
+                    "type": ["string", "null"],
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                },
+                "termination_dispatch_attempt": {
+                    "type": ["integer", "null"],
+                    "minimum": 1
+                }
+            },
+            "additionalProperties": false
+        },
+        "makerCheckerIteration": {
+            "type": "object",
+            "required": [
+                "iteration",
+                "contract_digest",
+                "maker_response_path",
+                "maker_response_sha256",
+                "artifact_path",
+                "artifact_digest",
+                "checks_path",
+                "checks_sha256",
+                "verdict",
+                "finding_ids",
+                "findings",
+                "review_response_path",
+                "review_response_sha256"
+            ],
+            "properties": {
+                "iteration": {"type": "integer", "minimum": 1, "maximum": 4},
+                "contract_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "maker_response_path": {"type": "string", "minLength": 1},
+                "maker_response_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "artifact_path": {"type": "string", "minLength": 1},
+                "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "checks_path": {"type": "string", "minLength": 1},
+                "checks_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "verdict": {"enum": ["PASS", "FAIL", null]},
+                "finding_ids": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {"type": "string", "minLength": 1}
+                },
+                "findings": {
+                    "type": "array",
+                    "maxItems": 128,
+                    "items": {"$ref": "#/$defs/makerCheckerFinding"}
+                },
+                "review_response_path": {"type": ["string", "null"], "minLength": 1},
+                "review_response_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                }
+            },
+            "additionalProperties": false
+        },
+        "makerCheckerFinding": {
+            "type": "object",
+            "required": ["finding_id", "severity", "message", "evidence"],
+            "properties": {
+                "finding_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                },
+                "severity": {"enum": ["critical", "high", "medium", "low", "info"]},
+                "message": {"type": "string", "minLength": 1, "maxLength": 16384},
+                "evidence": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string", "minLength": 1, "maxLength": 16384}
+                }
+            },
+            "additionalProperties": false
+        },
+        "makerCheckerState": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "policy",
+                "policy_digest",
+                "binding_digest",
+                "contract_digest",
+                "contract_path",
+                "contract_file_sha256",
+                "bindings",
+                "max_revisions",
+                "iteration",
+                "attempts",
+                "iteration_records",
+                "findings",
+                "artifact",
+                "pending_apply",
+                "unsafe_dispatch",
+                "workspace",
+                "workspace_checkpoint"
+            ],
+            "properties": {
+                "schema_version": {"const": 1},
+                "policy": {"$ref": "#/$defs/makerCheckerPolicy"},
+                "policy_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "binding_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "contract_digest": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "contract_path": {"type": ["string", "null"], "minLength": 1},
+                "contract_file_sha256": {
+                    "type": ["string", "null"],
+                    "pattern": "^[0-9a-f]{64}$"
+                },
+                "bindings": {
+                    "type": "object",
+                    "required": ["maker", "reviewer"],
+                    "properties": {
+                        "maker": {"$ref": "#/$defs/makerCheckerBinding"},
+                        "reviewer": {"$ref": "#/$defs/makerCheckerBinding"}
+                    },
+                    "additionalProperties": false
+                },
+                "max_revisions": {"type": "integer", "minimum": 0, "maximum": 3},
+                "iteration": {"type": "integer", "minimum": 1, "maximum": 4},
+                "attempts": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/makerCheckerAttempt"}
+                },
+                "iteration_records": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/makerCheckerIteration"},
+                    "maxItems": 4
+                },
+                "findings": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/makerCheckerFinding"},
+                    "maxItems": 128
+                },
+                "artifact": {
+                    "oneOf": [
+                        {"type": "null"},
+                        {
+                            "type": "object",
+                            "required": ["kind", "path", "digest"],
+                            "properties": {
+                                "kind": {"enum": ["document", "unified-diff"]},
+                                "path": {"type": "string", "minLength": 1},
+                                "digest": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    ]
+                },
+                "pending_apply": {
+                    "oneOf": [
+                        {"type": "null"},
+                        {
+                            "type": "object",
+                            "required": [
+                                "attempt_id",
+                                "maker_response_path",
+                                "maker_response_sha256",
+                                "patch_path",
+                                "patch_sha256",
+                                "expected_artifact_digest",
+                                "allowed_paths"
+                            ],
+                            "properties": {
+                                "attempt_id": {
+                                    "type": "string",
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                                },
+                                "maker_response_path": {
+                                    "type": "string",
+                                    "minLength": 1
+                                },
+                                "maker_response_sha256": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                },
+                                "patch_path": {"type": "string", "minLength": 1},
+                                "patch_sha256": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                },
+                                "expected_artifact_digest": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                },
+                                "allowed_paths": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "uniqueItems": true,
+                                    "items": {"type": "string", "minLength": 1}
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    ]
+                },
+                "unsafe_dispatch": {
+                    "oneOf": [
+                        {"type": "null"},
+                        {
+                            "type": "object",
+                            "required": [
+                                "attempt_id",
+                                "route",
+                                "dispatch_id",
+                                "dispatch_attempt",
+                                "reason"
+                            ],
+                            "properties": {
+                                "attempt_id": {
+                                    "type": "string",
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                                },
+                                "route": {
+                                    "enum": ["maker-checker-maker", "maker-checker-reviewer"]
+                                },
+                                "dispatch_id": {
+                                    "type": "string",
+                                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                                },
+                                "dispatch_attempt": {"type": "integer", "minimum": 1},
+                                "reason": {"type": "string", "minLength": 1, "maxLength": 16384}
+                            },
+                            "additionalProperties": false
+                        }
+                    ]
+                },
+                "workspace": {
+                    "oneOf": [{"type": "null"}, {"$ref": "#/$defs/workspaceBinding"}]
+                },
+                "workspace_checkpoint": {
+                    "oneOf": [{"type": "null"}, {"$ref": "#/$defs/workspaceCheckpoint"}]
+                }
+            },
+            "additionalProperties": false
+        },
+        "makerChecker": {
+            "type": "object",
+            "required": [
+                "schema_version",
+                "snapshot_kind",
+                "run_id",
+                "repository_root",
+                "status",
+                "task",
+                "kind",
+                "stage",
+                "next",
+                "created_at",
+                "updated_at",
+                "state_revision",
+                "maker_checker"
+            ],
+            "properties": {
+                "schema_version": {"const": 2},
+                "snapshot_kind": {"const": "maker-checker"},
+                "run_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+                },
+                "repository_root": {"type": "string", "minLength": 1},
+                "status": {"enum": ["active", "completed", "aborted"]},
+                "task": {"type": "string", "minLength": 1, "maxLength": 65536},
+                "kind": {"enum": ["code", "design", "specification"]},
+                "stage": {
+                    "enum": [
+                        "setup",
+                        "maker",
+                        "apply",
+                        "reviewer",
+                        "completed",
+                        "human-stop"
+                    ]
+                },
+                "next": {"type": "string", "minLength": 1},
+                "created_at": {"type": "string", "minLength": 1},
+                "updated_at": {"type": "string", "minLength": 1},
+                "state_revision": {"type": "integer", "minimum": 1},
+                "maker_checker": {"$ref": "#/$defs/makerCheckerState"},
+                "completed_at": {"type": "string", "minLength": 1},
+                "aborted_at": {"type": "string", "minLength": 1},
+                "human_stop": {
+                    "type": "object",
+                    "required": ["reason", "message", "requested_action"],
+                    "properties": {
+                        "reason": {
+                            "enum": [
+                                "missing-requirements",
+                                "scope-expansion",
+                                "irreversible-operation",
+                                "external-side-effect",
+                                "operator-aborted",
+                                "retry-budget-exhausted",
+                                "conflicting-evidence",
+                                "unsupported-required-capability"
+                            ]
+                        },
+                        "message": {"type": "string", "minLength": 1},
+                        "requested_action": {"type": "string", "minLength": 1}
+                    },
+                    "additionalProperties": false
+                },
+                "result_path": {"type": "string", "minLength": 1},
+                "result_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "run_archives": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/runArchive"}
+                }
+            },
+            "additionalProperties": false
+        },
         "legacy": {
             "type": "object",
             "not": {"required": ["schema_version"]},
@@ -871,10 +1297,7 @@
             "properties": {
                 "kind": {"const": "managed"},
                 "schema_version": {"const": 1},
-                "contract_digest": {
-                    "type": "string",
-                    "pattern": "^[0-9a-f]{64}$"
-                }
+                "contract_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
             },
             "additionalProperties": false
         },
@@ -1584,6 +2007,24 @@
             ],
             "additionalProperties": false
         },
+        "archiveSnapshot": {
+            "oneOf": [
+                {
+                    "allOf": [
+                        {"$ref": "#/$defs/v2"},
+                        {"properties": {"status": {"enum": ["completed", "aborted"]}}},
+                        {"not": {"required": ["run_archives"]}}
+                    ]
+                },
+                {
+                    "allOf": [
+                        {"$ref": "#/$defs/makerChecker"},
+                        {"properties": {"status": {"enum": ["completed", "aborted"]}}},
+                        {"not": {"required": ["run_archives"]}}
+                    ]
+                }
+            ]
+        },
         "runArchive": {
             "type": "object",
             "required": [
@@ -1598,7 +2039,7 @@
                 "status": {"type": "string", "enum": ["completed", "aborted"]},
                 "archived_at": {"type": "string", "minLength": 1},
                 "snapshot_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-                "snapshot": {"$ref": "#/$defs/v2"}
+                "snapshot": {"$ref": "#/$defs/archiveSnapshot"}
             },
             "additionalProperties": false
         },
@@ -1623,6 +2064,7 @@
                         "scope-expansion",
                         "irreversible-operation",
                         "external-side-effect",
+                        "operator-aborted",
                         "retry-budget-exhausted",
                         "conflicting-evidence",
                         "unsupported-required-capability"
@@ -2092,5 +2534,9 @@
             "additionalProperties": true
         }
     },
-    "oneOf": [{"$ref": "#/$defs/legacy"}, {"$ref": "#/$defs/v2"}]
+    "oneOf": [
+        {"$ref": "#/$defs/legacy"},
+        {"$ref": "#/$defs/v2"},
+        {"$ref": "#/$defs/makerChecker"}
+    ]
 }

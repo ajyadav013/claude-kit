@@ -21,7 +21,7 @@ The desired experience has three parts:
 This follows the evaluator–optimizer pattern described by
 [Anthropic](https://www.anthropic.com/engineering/building-effective-agents), while keeping the
 provider boundary explicit as recommended by the
-[OpenAI Agents SDK orchestration guidance](https://openai.github.io/openai-agents-python/multi_agent/).
+[OpenAI multi-agent orchestration guidance](https://developers.openai.com/api/docs/guides/responses-multi-agent).
 The official [Codex plugin for Claude Code](https://github.com/openai/codex-plugin-cc) is useful
 evidence that cross-provider delegation is viable, but claude-kit needs provider-neutral,
 ledger-backed behavior rather than a provider-specific prompt bridge.
@@ -52,6 +52,9 @@ ledger-backed behavior rather than a provider-specific prompt bridge.
 - Writing provider names or exact model identifiers into canonical agent or skill definitions.
 - Letting a reviewer edit the artifact, delegate work, approve its own changes, or authorize merge,
   deployment, publication, purchase, or another external effect.
+- Executing repository-defined test, lint, type-check, build, render, accessibility, or link-check
+  commands. The first release runs only coordinator-owned content checks and `git diff --check`;
+  project commands require a separately contained execution design and remain promotion work.
 - Changing an already-started run when project defaults are reconfigured.
 - Replacing `doubt-driven-development`. That skill remains an optional adversarial check on an
   in-flight decision; `maker-checker` is the explicit end-to-end production loop.
@@ -130,8 +133,10 @@ Validation rules:
 - Prompts, tools, permissions, credentials, and API keys are not configurable through this object.
 
 Exact model availability changes faster than the package. Configuration validates shape and host
-compatibility; a live preflight validates login, executable, selected model, and required runtime
-capabilities before a task sends project content.
+compatibility, while the read-only probe checks the executable, version floor, and declared runtime
+capabilities without inference. Authentication and exact-model entitlement are known only when the
+explicitly requested run launches that provider, so the user-visible binding announcement is the
+final consent boundary before task and projected source content are sent.
 
 ### Installation UX
 
@@ -240,9 +245,9 @@ Codex:       $maker-checker <task>
 CLI:         ckit maker-checker run --kind auto --task '<task>'
 ```
 
-In `auto`, the coordinator infers the deliverable type and asks one question only when the
-distinction changes the artifact or review contract. Design is further classified as UI/product
-design or technical/system design.
+In `auto`, the coordinator selects a deliverable type only when the task has one unambiguous local
+classification. It fails with exact `--kind` guidance when the distinction would change the
+artifact or review contract; it does not spend a model call guessing.
 
 The skill runs only from the coordinating session. It must not be attached to a worker persona or
 recursively invoked by the maker or reviewer. Static plugin installation alone cannot configure it;
@@ -256,7 +261,7 @@ preferences are not perpetual authorization to send arbitrary content to an exte
 ```text
 explicit skill invocation
         |
-load policy + live preflight
+load policy + announce binding + capability preflight
         |
 freeze task contract + pair binding + digests
         |
@@ -280,14 +285,15 @@ structured findings <---- fresh read-only reviewer
 
 2. **Freeze the contract**
    - Record objective, deliverable kind, acceptance criteria, non-goals, allowed read/write scope,
-     artifact location, and deterministic verification commands.
+     artifact location, and the coordinator-owned deterministic validation contract.
    - Resolve material ambiguity through the existing human-stop mechanism.
    - Freeze the contract digest and slot-to-provider/model binding before the first dispatch.
 
 3. **Make**
    - Route the appropriate domain persona through the maker slot.
    - Produce the deliverable in an owned workspace or through a constrained patch/artifact channel.
-   - Run the declared deterministic checks and bind their evidence to the artifact digest.
+   - Run only the coordinator-owned deterministic checks and bind their evidence to the artifact
+     digest. The first release does not execute repository-defined commands.
    - Do not ask the maker to approve its own work or expose hidden reasoning as evidence.
 
 4. **Check independently**
@@ -315,12 +321,16 @@ structured findings <---- fresh read-only reviewer
 
 ### Deliverable-specific routing
 
-| Kind | Maker route | Reviewer lens | Required deterministic evidence |
+| Kind | Maker route | Reviewer lens | First-release deterministic evidence |
 |---|---|---|---|
-| Code | developer appropriate to selected stack | correctness, security, maintainability, spec compliance | scoped diff plus declared tests/lint/build/type checks |
-| UI/product design | UI/product designer | user goal, states, accessibility, consistency, feasibility | artifact/render existence plus available design checks |
-| Technical/system design | technical architect/spec writer | requirements, boundaries, failure modes, operability | schema/link/diagram validation where available |
-| Specification | spec writer | completeness, testability, contradictions, scope, acceptance criteria | document/schema/link validation where available |
+| Code | developer appropriate to selected stack | correctness, security, maintainability, spec compliance | non-empty scoped diff plus `git diff --check` |
+| UI/product design | UI/product designer | user goal, states, accessibility, consistency, feasibility | non-empty artifact content |
+| Technical/system design | technical architect/spec writer | requirements, boundaries, failure modes, operability | non-empty artifact content |
+| Specification | spec writer | completeness, testability, contradictions, scope, acceptance criteria | non-empty artifact content |
+
+These checks establish only that the coordinator produced a structurally usable artifact. They do
+not replace project tests, lint, type checks, builds, render checks, accessibility checks, link
+validation, or human inspection before code is accepted or merged.
 
 The skill uses progressively disclosed, provider-neutral rubric references for code, UI/product
 design, technical/system design, specification, and the common verdict schema. It does not add all
@@ -390,7 +400,7 @@ A PASS is legal only when:
 - the contract digest and reviewed artifact digest match the frozen current values;
 - every acceptance criterion has a disposition and evidence;
 - every blocking finding is resolved;
-- declared deterministic checks are green;
+- the first-release coordinator-owned deterministic checks are green;
 - the frozen reviewer binding was used; and
 - the reviewer read-only/nondelegating boundary is attested.
 
@@ -477,12 +487,15 @@ admits only passive read-only roles without stronger descendant containment.
 3. **Safe coding loop**
    - Add dispatch-time exact model selection for both adapters.
    - Either attest independent write/shell containment or have the maker emit a constrained patch
-     that a trusted coordinator validates and applies before running checks.
+     that a trusted coordinator validates and applies before running its owned checks.
    - Enable code only when the required boundary is proven; otherwise report it as Unsupported,
      never silently fall back to an unconstrained process.
 
 4. **Managed-workflow integration and promotion**
    - Connect pair slots to existing SDLC routes and feedback budgets.
+   - Add separately contained execution for owner-declared project verification commands before
+     treating test, lint, type-check, build, render, accessibility, or link-check results as managed
+     evidence.
    - Validate resume, cancellation, concurrency, drift, and protected credentialed hosts.
    - Update the normative fidelity matrix and promotion status from evidence.
 
@@ -499,7 +512,7 @@ Focused tests cover:
 - Codex as the invoking coordinator for Codex-maker/Codex-reviewer, Codex-maker/Claude-reviewer, and
   Claude-maker/Codex-reviewer bindings;
 - proof that Codex invocation does not require a running Claude session or provider-local state;
-- safe argv construction and unavailable model/auth/capability preflight;
+- safe argv construction plus unavailable model/auth/capability launch failures;
 - fresh read-only reviewer enforcement and binding attestation;
 - first-pass PASS, FAIL/revision/PASS, unchanged digest rejection, disputed findings, exhausted
   revisions, timeout, cancellation, and resume;
@@ -507,8 +520,9 @@ Focused tests cover:
 - legacy unconfigured workflow behavior; and
 - canonical skill projection, reference closure, profile reachability, and generated-payload drift.
 
-After focused tests, run the repository's required pytest, ruff, mypy, shellcheck, generator drift,
-documentation consistency, cross-reference, skill-description, runtime smoke, and build checks.
+For development of this feature—not as part of an end-user maker–checker run—follow focused tests
+with the repository's required pytest, ruff, mypy, shellcheck, generator drift, documentation
+consistency, cross-reference, skill-description, runtime smoke, and build checks.
 
 ## Proposed decisions awaiting approval
 

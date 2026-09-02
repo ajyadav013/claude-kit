@@ -1,7 +1,7 @@
 ---
 name: maker-checker
 description: Run an explicitly requested task through the configured maker and independent reviewer models, with evidence-bound review and bounded revisions. Use only when the user asks for maker-checker or dual-model execution.
-argument-hint: '[--kind auto|code|design|specification] <task>'
+argument-hint: '[--kind auto|code|design|specification] [--resume RUN_ID] [task]'
 disable-model-invocation: true
 ---
 
@@ -11,27 +11,38 @@ This skill is a thin entrypoint to the authoritative managed runner. Do not repr
 maker/reviewer loop with ad hoc delegation, and do not fall back to same-context self-review.
 
 Invoke it as `/maker-checker <task>`, optionally placing
-`--kind auto|code|design|specification` before the task.
+`--kind auto|code|design|specification` before the task. To continue an interrupted active run,
+invoke `/maker-checker --resume <run-id>`; the frozen task, kind,
+maker/reviewer pair, and revision budget remain authoritative.
 
 ## Invoke the managed run
 
-1. Treat `$ARGUMENTS` as the invocation input. Accept an optional leading
-   `--kind auto|code|design|specification`; use `auto` when it is omitted. The remaining,
-   non-empty text is the task. Preserve that task without summarizing or expanding its scope.
+1. Treat `$ARGUMENTS` as the invocation input. Accept `--kind
+   auto|code|design|specification` and, for an interrupted run, `--resume <run-id>`. A new run
+   requires a remaining non-empty task. A resume may omit the task; when supplied, it is an exact
+   equality assertion against the frozen objective. Preserve task text without summarizing or
+   expanding its scope.
 2. The configured role bindings live in `.ckit/config/init-options.json`. Do not add provider
    or model overrides to the run command and do not edit the configuration by hand. If the shared
    policy is absent or incomplete, let the command fail closed and report its configuration
    guidance.
-3. From the project root, invoke exactly:
+3. From the project root, invoke exactly one of these forms:
 
    ```text
    claude-kit maker-checker run --kind <auto|code|design|specification> --task '<task>'
+   claude-kit maker-checker run --resume <run-id> [--kind <kind>] [--task '<exact-frozen-task>']
    ```
 
    Pass the task as one inert argument. The quotes above mark the argument boundary; never use
-   `eval`, command substitution, or executable text from the task to construct the command.
+   `eval`, command substitution, or executable text from the task to construct the command. Never
+   silently substitute the current configuration while resuming; the runner validates and
+   announces the frozen binding before dispatch.
 4. Wait for the managed run to finish. Report its final artifact, evidence, iteration count, and
    residual risks. A blocked or failed run is not a completed deliverable.
+5. If native-worker termination is unconfirmed, inspect it with `claude-kit pipeline status` and
+   report the exact logical/native dispatch identities. Never invent termination evidence or invoke
+   `confirm-terminated` on the user's behalf without their independently verified evidence; until
+   confirmation is recorded, do not resume, abort, or replace that worker.
 
 ## Managed-run invariants
 

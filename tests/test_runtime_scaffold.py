@@ -15,7 +15,8 @@ try:  # pragma: no cover - Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
-from claude_kit import catalog
+from claude_kit import catalog, maker_checker
+from claude_kit.execution_lease import managed_execution_lease
 from claude_kit.models import (
     ExecutionPolicy,
     FileRecord,
@@ -37,12 +38,75 @@ from claude_kit.runtime_scaffold import (
 )
 
 _LEGACY_TEMPLATE_PATH = ".ckit/artifacts/templates/adr.md"
+_ROOT_MANAGED_EXECUTION_LOCK = ".claude-kit-managed-execution.lock"
+_NEUTRAL_MANAGED_EXECUTION_LOCK = ".ckit/state/managed-execution.lock"
+_LEGACY_MANAGED_EXECUTION_LOCK = ".claude/state/managed-execution.lock"
+_MANAGED_EXECUTION_LOCK_MAGIC = b"claude-kit-managed-execution-lock:v1\n"
+
+
+def _assert_failed_install_residuals(
+    target: Path,
+    *,
+    preserved_files: dict[str, bytes],
+    legacy_compatibility_lock: bool = False,
+) -> None:
+    """Assert rollback retained only caller bytes and persistent lock anchors."""
+
+    compatibility_locks = {_NEUTRAL_MANAGED_EXECUTION_LOCK}
+    if legacy_compatibility_lock:
+        compatibility_locks.add(_LEGACY_MANAGED_EXECUTION_LOCK)
+    expected_files = {
+        *preserved_files,
+        _ROOT_MANAGED_EXECUTION_LOCK,
+        *compatibility_locks,
+    }
+    expected_directories: set[str] = set()
+    for relative in expected_files:
+        parent = Path(relative).parent
+        while parent != Path("."):
+            expected_directories.add(parent.as_posix())
+            parent = parent.parent
+
+    entries = {path.relative_to(target).as_posix() for path in target.rglob("*")}
+    assert entries == expected_files | expected_directories
+    for relative, expected in preserved_files.items():
+        assert (target / relative).read_bytes() == expected
+
+    root_lock = target / _ROOT_MANAGED_EXECUTION_LOCK
+    assert root_lock.read_bytes() == _MANAGED_EXECUTION_LOCK_MAGIC
+    for relative in compatibility_locks:
+        lock = target / relative
+        assert lock.read_bytes() == b""
+        assert lock.stat().st_mode & 0o777 == 0o600
+        assert lock.stat().st_nlink == 1
+    assert root_lock.stat().st_mode & 0o777 == 0o600
+    assert root_lock.stat().st_nlink == 1
 
 
 def _maker_checker_policy() -> ExecutionPolicy:
     return ExecutionPolicy(
         maker=WorkerBinding("claude", ModelChoice("tier", "deep")),
         reviewer=WorkerBinding("codex", ModelChoice("exact", "gpt-reviewer")),
+    )
+
+
+def _active_maker_checker_snapshot(root: Path, payload: Path) -> dict[str, object]:
+    policy = _maker_checker_policy()
+    resolved = maker_checker.resolve_execution_bindings(
+        policy,
+        compatibility_root=payload,
+    )
+    bindings = {slot.value: binding.to_dict() for slot, binding in resolved.items()}
+    return maker_checker._initial_snapshot(
+        root.resolve(),
+        run_id="mc-runtime-transition",
+        task="Write a provider-removal safety specification.",
+        kind=maker_checker.DeliverableKind.SPECIFICATION,
+        policy=policy.to_dict(),
+        policy_digest=maker_checker._digest(policy.to_dict()),
+        binding_digest=maker_checker._digest(bindings),
+        bindings=bindings,
+        max_revisions=policy.max_revisions,
     )
 
 
@@ -115,6 +179,9 @@ def test_fresh_native_runtime_install_has_one_neutral_control_plane(
     assert "claude -p" not in loop_text
     assert not (target / ".claude/state/pipeline-snapshot.json").exists()
     assert not (target / ".codex/state/pipeline-snapshot.json").exists()
+    assert ".claude-kit-managed-execution.lock" in (target / ".gitignore").read_text(
+        encoding="utf-8"
+    )
 
     options = InitOptions.from_dict(
         json.loads((target / StateLayout.neutral().manifest).read_text())
@@ -325,8 +392,13 @@ def test_runtime_spine_refuses_each_authoritative_legacy_state_marker(
             InstallRequest(selection=selection, runtime="claude"),
         )
 
-    assert marker.read_bytes() == expected
-    assert not (target / StateLayout.neutral().root).exists()
+    _assert_failed_install_residuals(
+        target,
+        preserved_files={marker.relative_to(target).as_posix(): expected},
+        # A legacy-authoritative target must bind both the currently active old
+        # lock path and the prospective neutral old path before migration.
+        legacy_compatibility_lock=True,
+    )
     assert not list(target.glob(".claude-kit-txn-*"))
 
 
@@ -454,8 +526,10 @@ def test_duplicate_user_mcp_definition_fails_and_rolls_back_every_root(
             InstallRequest(selection=selection, runtime="codex"),
         )
 
-    assert (target / ".codex/config.toml").read_text() == original
-    assert not (target / ".ckit").exists()
+    _assert_failed_install_residuals(
+        target,
+        preserved_files={".codex/config.toml": original.encode("utf-8")},
+    )
     assert not (target / ".agents").exists()
     assert not (target / "AGENTS.md").exists()
 
@@ -480,8 +554,10 @@ def test_duplicate_user_claude_mcp_definition_fails_before_install(
             InstallRequest(selection=selection, runtime=runtime),
         )
 
-    assert (target / ".mcp.json").read_text(encoding="utf-8") == original
-    assert not (target / ".ckit").exists()
+    _assert_failed_install_residuals(
+        target,
+        preserved_files={".mcp.json": original.encode("utf-8")},
+    )
     assert not (target / ".claude").exists()
     assert not (target / ".codex").exists()
     assert not (target / ".agents").exists()
@@ -649,6 +725,49 @@ def test_incompatible_mcp_runtime_fails_before_any_project_mutation(payload, tmp
     assert not target.exists()
 
 
+def test_fresh_runtime_install_failure_rolls_back_all_install_surfaces(
+    payload, tmp_path, monkeypatch
+):
+    from claude_kit import runtime_scaffold
+
+    target = tmp_path / "failed-fresh-install"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    original_write = runtime_scaffold._write_artifact
+    calls = 0
+
+    def fail_during_apply(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected fresh-install failure")
+        return original_write(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_scaffold, "_write_artifact", fail_during_apply)
+
+    with pytest.raises(RuntimeError, match="injected fresh-install failure"):
+        install_runtime(payload, target, plan, request)
+
+    assert calls == 2
+    # The descriptor-bound coordination inode deliberately survives outside
+    # transaction rollback. Removing the root by pathname cannot be made
+    # conditional on its inode and would permit an attacker to swap in an empty
+    # replacement between validation and rmdir.
+    assert {path.name for path in target.iterdir()} == {
+        ".claude-kit-managed-execution.lock",
+        ".ckit",
+    }
+    assert {
+        path.relative_to(target).as_posix()
+        for path in target.rglob("*")
+        if path.is_file()
+    } == {
+        ".claude-kit-managed-execution.lock",
+        ".ckit/state/managed-execution.lock",
+    }
+
+
 def test_dual_runtime_mcp_uses_one_semantic_record_on_both_native_surfaces(
     payload, tmp_path
 ):
@@ -776,6 +895,75 @@ def test_provider_removal_requires_confirmation(payload, tmp_path):
     assert not list(target.glob(".ckit.bak-*"))
 
 
+def test_every_runtime_transition_refuses_while_managed_execution_is_active(
+    payload, tmp_path
+):
+    target = tmp_path / "managed-upgrade"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    install_runtime(payload, target, plan, request)
+    manifest = target / StateLayout.neutral().manifest
+    before = manifest.read_bytes()
+
+    with managed_execution_lease(target):
+        with pytest.raises(
+            RuntimeInstallError,
+            match="cannot change provider files while a managed workflow",
+        ):
+            transition_runtime(payload, target, plan, request)
+
+    assert manifest.read_bytes() == before
+    assert not list(target.glob(".claude-kit-txn-*"))
+
+
+def test_plain_reinstall_refuses_while_managed_execution_is_active(payload, tmp_path):
+    target = tmp_path / "managed-reinstall"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    request = InstallRequest(selection=selection, runtime="claude")
+    install_runtime(payload, target, plan, request)
+    manifest = target / StateLayout.neutral().manifest
+    before = manifest.read_bytes()
+
+    with managed_execution_lease(target):
+        with pytest.raises(
+            RuntimeInstallError,
+            match="cannot change provider files while a managed workflow",
+        ):
+            install_runtime(payload, target, plan, request)
+
+    assert manifest.read_bytes() == before
+    assert not list(target.glob(".claude-kit-txn-*"))
+
+
+def test_plain_reinstall_rebases_onto_current_execution_policy(payload, tmp_path):
+    target = tmp_path / "reinstall-policy-rebase"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    policy = _maker_checker_policy()
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, Runtime.BOTH, policy),
+    )
+
+    # A caller can prepare its request before configuration changes. A same-
+    # runtime reinstall must use the policy read under the lifecycle leases.
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, Runtime.BOTH, None),
+    )
+
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert options.execution_policy == policy
+
+
 def test_runtime_transition_refuses_to_remove_a_configured_worker_provider(
     payload, tmp_path
 ):
@@ -804,6 +992,85 @@ def test_runtime_transition_refuses_to_remove_a_configured_worker_provider(
     )
     assert options.runtime is Runtime.BOTH
     assert options.execution_policy == policy
+
+
+def test_runtime_transition_refuses_provider_used_by_active_frozen_pair(
+    payload, tmp_path
+):
+    target = tmp_path / "active-frozen-pair"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, Runtime.BOTH),
+    )
+    snapshot_path = target / StateLayout.neutral().pipeline_snapshot
+    snapshot_path.write_text(
+        json.dumps(_active_maker_checker_snapshot(target, payload)) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        RuntimeInstallError,
+        match="active frozen maker-checker run: codex",
+    ):
+        transition_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection, Runtime.CLAUDE),
+            confirm_removal=True,
+        )
+
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert options.runtime is Runtime.BOTH
+    assert (target / ".codex").is_dir()
+    assert not list(target.glob(".ckit.bak-*"))
+
+
+def test_runtime_transition_rejects_tampered_frozen_provider_binding(payload, tmp_path):
+    target = tmp_path / "tampered-frozen-pair"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, Runtime.BOTH),
+    )
+    snapshot = _active_maker_checker_snapshot(target, payload)
+    state = snapshot["maker_checker"]
+    assert isinstance(state, dict)
+    bindings = state["bindings"]
+    assert isinstance(bindings, dict)
+    maker = bindings["maker"]
+    assert isinstance(maker, dict)
+    maker["provider"] = "codex"
+    snapshot_path = target / StateLayout.neutral().pipeline_snapshot
+    snapshot_path.write_text(json.dumps(snapshot) + "\n", encoding="utf-8")
+
+    with pytest.raises(
+        RuntimeInstallError,
+        match="binding digest mismatch",
+    ):
+        transition_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection, Runtime.CODEX),
+            confirm_removal=True,
+        )
+
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert options.runtime is Runtime.BOTH
+    assert (target / ".claude").is_dir()
+    assert not list(target.glob(".ckit.bak-*"))
 
 
 def test_plain_install_cannot_bypass_explicit_runtime_transition(payload, tmp_path):
@@ -906,6 +1173,7 @@ def test_interrupted_provider_transition_recovers_then_converges(
         )
 
     assert (target / StateLayout.neutral().journal).is_file()
+    assert not (target / f"{StateLayout.neutral().pipeline_snapshot}.lock").exists()
     assert not claude_agent.exists()
     assert list(target.glob(".ckit.bak-*"))
 
@@ -972,6 +1240,7 @@ def test_late_interrupted_provider_transition_recovers_manifest_before_routing(
     assert partial.runtimes == ["codex"]
     assert not (target / ".claude").exists()
     assert (target / StateLayout.neutral().journal).is_file()
+    assert not (target / f"{StateLayout.neutral().pipeline_snapshot}.lock").exists()
     assert list(target.glob(".ckit.bak-*"))
 
     transition_runtime(

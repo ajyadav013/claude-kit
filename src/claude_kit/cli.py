@@ -48,6 +48,15 @@ from claude_kit.learning_capture import (
     LearningCaptureError,
     run_codex_learning_capture,
 )
+from claude_kit.maker_checker import (
+    DeliverableKind,
+    FrozenMakerCheckerRun,
+    MakerCheckerError,
+    MakerCheckerStatus,
+    ResolvedWorkerBinding,
+    confirm_maker_checker_dispatch_terminated,
+    run_maker_checker,
+)
 from claude_kit.models import (
     ExecutionPolicy,
     InitOptions,
@@ -121,7 +130,7 @@ worktree_app = typer.Typer(
 app.add_typer(worktree_app, name="worktree")
 maker_checker_app = typer.Typer(
     no_args_is_help=True,
-    help="Configure and inspect the project maker/reviewer model pair.",
+    help="Configure, inspect, and run the project maker/reviewer model pair.",
 )
 app.add_typer(maker_checker_app, name="maker-checker")
 
@@ -132,6 +141,11 @@ app.add_typer(maker_checker_app, name="maker-checker")
 _HOOK_PROVIDER_OPTION = typer.Option(..., "--provider")
 _HOOK_ID_OPTION = typer.Option(..., "--hook-id")
 _WORKTREE_STATUS_OPTION = typer.Option(..., "--status")
+_MAKER_CHECKER_TASK_OPTION = typer.Option(
+    None,
+    "--task",
+    help="exact objective; required for a new run and optional as a resume assertion",
+)
 _PIPELINE_PROVIDER_OPTION = typer.Option(
     ...,
     "--provider",
@@ -525,7 +539,11 @@ def maker_checker_configure(
     else:
         try:
             installed_runtime = _installed_maker_checker_runtime(path)
-            policy = prompts.interactive_execution(installed_runtime)
+            current_policy = load_execution_policy(path)
+            policy = prompts.interactive_execution(
+                installed_runtime,
+                current=current_policy,
+            )
         except ExecutionConfigError as exc:
             _maker_checker_failure(exc)
         except ValueError as exc:
@@ -650,7 +668,167 @@ def maker_checker_probe(
         raise typer.Exit(1)
 
 
-# ``maker-checker run`` is intentionally registered by the managed coordinator slice.
+@maker_checker_app.command("confirm-terminated")
+def maker_checker_confirm_terminated(
+    path: str = typer.Argument(
+        ".", help="runtime-aware project containing the uncertain dispatch"
+    ),
+    run_id: str = typer.Option(..., "--run-id", help="exact frozen run identifier"),
+    attempt_id: str = typer.Option(
+        ..., "--attempt-id", help="exact maker-checker attempt identifier"
+    ),
+    route: str = typer.Option(
+        ...,
+        "--route",
+        help="exact maker-checker-maker or maker-checker-reviewer route",
+    ),
+    dispatch_id: str = typer.Option(
+        ..., "--dispatch-id", help="exact native host dispatch identifier"
+    ),
+    dispatch_attempt: int = typer.Option(
+        ..., "--dispatch-attempt", min=1, help="exact native host attempt number"
+    ),
+    evidence: str = typer.Option(
+        ...,
+        "--evidence",
+        help="bounded operator evidence that the exact native worker is terminated",
+    ),
+) -> None:
+    """Reconcile an uncertain dispatch only after independently confirming termination."""
+
+    try:
+        proof_path = confirm_maker_checker_dispatch_terminated(
+            path,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            route=route,
+            dispatch_id=dispatch_id,
+            dispatch_attempt=dispatch_attempt,
+            evidence=evidence,
+        )
+    except MakerCheckerError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo("Maker-checker dispatch termination confirmed.")
+    typer.echo(f"  proof: {proof_path}")
+    typer.echo("  next: resume or abort the frozen run")
+
+
+@maker_checker_app.command("run")
+def maker_checker_run(
+    path: str = typer.Argument(
+        ".", help="runtime-aware installed project in which to run the pair"
+    ),
+    kind: str = typer.Option(
+        DeliverableKind.AUTO.value,
+        "--kind",
+        help="artifact contract: auto, code, design, or specification",
+    ),
+    task: Optional[str] = _MAKER_CHECKER_TASK_OPTION,
+    resume: Optional[str] = typer.Option(
+        None,
+        "--resume",
+        metavar="RUN_ID",
+        help="resume the active run using its frozen task, pair, and revision budget",
+    ),
+) -> None:
+    """Run one explicit maker→fresh-reviewer loop with bounded revisions."""
+
+    try:
+        selected_kind = DeliverableKind(kind)
+    except ValueError as exc:
+        typer.echo(
+            "error: --kind must be auto, code, design, or specification",
+            err=True,
+        )
+        raise typer.Exit(2) from exc
+    try:
+        root = ProjectFS(Path(path).expanduser()).root.resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if resume is None and (task is None or not task.strip()):
+        typer.echo(
+            "error: --task is required when starting a maker-checker run",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    def requested_model_label(value: Optional[str]) -> str:
+        return value if value is not None else "host default"
+
+    def configured_model_label(binding: ResolvedWorkerBinding) -> str:
+        return _model_choice_label(
+            ModelChoice.from_dict(dict(binding.configured_model))
+        )
+
+    def announce_frozen(frozen: FrozenMakerCheckerRun) -> None:
+        maker_binding = frozen.maker
+        reviewer_binding = frozen.reviewer
+        typer.echo("Maker-checker binding (frozen for this run):")
+        typer.echo(
+            f"  maker: {maker_binding.provider} / "
+            f"{configured_model_label(maker_binding)} "
+            f"(requested model: {requested_model_label(maker_binding.requested_model)})"
+        )
+        typer.echo(
+            f"  reviewer: {reviewer_binding.provider} / "
+            f"{configured_model_label(reviewer_binding)} "
+            f"(requested model: {requested_model_label(reviewer_binding.requested_model)})"
+        )
+        typer.echo(f"  maximum revisions: {frozen.max_revisions}")
+        if resume is not None:
+            typer.echo(
+                f"  resuming: {frozen.run_id} at {frozen.stage} "
+                f"iteration {frozen.iteration}"
+            )
+        if (
+            maker_binding.provider == reviewer_binding.provider
+            and maker_binding.requested_model == reviewer_binding.requested_model
+        ):
+            typer.echo(
+                "WARN  maker and reviewer use the same provider/model binding; "
+                "review independence is reduced"
+            )
+
+    try:
+        result = run_maker_checker(
+            str(root),
+            task=task,
+            kind=selected_kind,
+            policy=None,
+            resume_run_id=resume,
+            on_frozen=announce_frozen,
+        )
+    except MakerCheckerError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if result.status is MakerCheckerStatus.PASSED:
+        typer.echo(
+            f"PASS  maker-checker passed after {result.iterations} iteration(s) "
+            f"(run {result.run_id})"
+        )
+        if result.artifact_path is not None:
+            typer.echo(f"  artifact: {result.artifact_path}")
+        if result.artifact_digest is not None:
+            typer.echo(f"  sha256: {result.artifact_digest}")
+        if result.workspace is not None and result.kind is DeliverableKind.CODE:
+            typer.echo(f"  preserved worktree: {result.workspace}")
+        for risk in result.residual_risks:
+            typer.echo(f"  residual risk: {risk}")
+        return
+
+    if result.human_stop is not None:
+        stop = result.human_stop
+        typer.echo(f"HUMAN STOP [{stop.reason.value}] {stop.message}", err=True)
+        typer.echo(f"Required action: {stop.requested_action}", err=True)
+    else:
+        typer.echo("FAIL  maker-checker ended without a valid PASS", err=True)
+    if result.artifact_path is not None:
+        typer.echo(f"Preserved artifact: {result.artifact_path}", err=True)
+    raise typer.Exit(2)
 
 
 def _emit_report(ok: bool, messages: list[str], *, as_json: bool) -> None:
@@ -1327,7 +1505,7 @@ def validate(
         False, "--json", help="emit a machine-readable JSON report instead of text"
     ),
 ) -> None:
-    """Structurally validate a scaffolded .claude/ configuration."""
+    """Structurally validate a scaffolded native Claude/Codex configuration."""
     entered_target = Path(path).expanduser()
     try:
         result = validator.validate(entered_target, strict=strict)

@@ -79,6 +79,10 @@ _KNOWN_JOURNAL_PATHS = (
     ".ckit/config/upgrade-in-progress.json",
     ".codex/config/upgrade-in-progress.json",
 )
+_MANAGED_EXECUTION_COMPATIBILITY_LOCKS = (
+    ".ckit/state/managed-execution.lock",
+    ".claude/state/managed-execution.lock",
+)
 
 
 class UnsafePathError(OSError):
@@ -1077,7 +1081,12 @@ class ProjectFS:
             os.close(parent_fd)
 
     def _empty_directory_fd(
-        self, directory_fd: int, display: Path, *, allow_links: bool
+        self,
+        directory_fd: int,
+        display: Path,
+        *,
+        allow_links: bool,
+        preserve: tuple[str, ...] | None = None,
     ) -> None:
         flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
         for name in sorted(os.listdir(directory_fd)):
@@ -1086,6 +1095,53 @@ class ProjectFS:
             except FileNotFoundError:
                 continue
             child_display = display / name
+            if preserve is not None and name == preserve[0]:
+                if len(preserve) == 1:
+                    # The rollback helper pins and revalidates this exact leaf
+                    # inode. Never create a pathname gap by unlinking it.
+                    continue
+                if _is_link_or_reparse(child_display, info) or not stat.S_ISDIR(
+                    info.st_mode
+                ):
+                    raise _unsafe(
+                        child_display,
+                        "managed execution lock ancestry is not a regular directory",
+                    )
+                preserve_child_fd: int | None = None
+                try:
+                    preserve_child_fd = os.open(name, flags, dir_fd=directory_fd)
+                    opened = os.fstat(preserve_child_fd)
+                    if (opened.st_dev, opened.st_ino) != (
+                        info.st_dev,
+                        info.st_ino,
+                    ):
+                        raise _unsafe(
+                            child_display,
+                            "managed execution lock ancestry changed while it was opened",
+                        )
+                    self._empty_directory_fd(
+                        preserve_child_fd,
+                        child_display,
+                        allow_links=allow_links,
+                        preserve=preserve[1:],
+                    )
+                    current = os.stat(
+                        name,
+                        dir_fd=directory_fd,
+                        follow_symlinks=False,
+                    )
+                    if (current.st_dev, current.st_ino) != (
+                        opened.st_dev,
+                        opened.st_ino,
+                    ):
+                        raise _unsafe(
+                            child_display,
+                            "managed execution lock ancestry changed during rollback",
+                        )
+                finally:
+                    if preserve_child_fd is not None:
+                        os.close(preserve_child_fd)
+                continue
             if _is_link_or_reparse(child_display, info):
                 if allow_links:
                     os.unlink(name, dir_fd=directory_fd)
@@ -1129,6 +1185,60 @@ class ProjectFS:
                     child_display,
                     "tree changed to contain a special filesystem entry",
                 )
+
+    def _empty_tree_around_preserved_file(
+        self, directory_rel: str, preserved_rel: str
+    ) -> None:
+        """Empty a rollback root without unlinking one pinned descendant path."""
+
+        directory = PurePosixPath(normalize_relative_path(directory_rel))
+        preserved = PurePosixPath(normalize_relative_path(preserved_rel))
+        try:
+            suffix = preserved.relative_to(directory).parts
+        except ValueError as exc:  # pragma: no cover - internal contract
+            raise UnsafePathError(
+                f"preserved path {preserved_rel!r} is outside {directory_rel!r}"
+            ) from exc
+        if not suffix:
+            raise UnsafePathError("preserved rollback path must be below a directory")
+
+        parent_fd = self._open_parent_fd(directory.as_posix())
+        directory_fd: int | None = None
+        try:
+            leaf = directory.name
+            before = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            if not stat.S_ISDIR(before.st_mode):
+                raise _unsafe(
+                    self.root / directory,
+                    "rollback root containing a managed execution lock is not a directory",
+                )
+            flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+            directory_fd = os.open(leaf, flags, dir_fd=parent_fd)
+            opened = os.fstat(directory_fd)
+            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                raise _unsafe(
+                    self.root / directory,
+                    "rollback root changed while it was opened",
+                )
+            self._empty_directory_fd(
+                directory_fd,
+                self.root / directory,
+                allow_links=True,
+                preserve=tuple(suffix),
+            )
+            current = os.stat(leaf, dir_fd=parent_fd, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (
+                opened.st_dev,
+                opened.st_ino,
+            ):
+                raise _unsafe(
+                    self.root / directory,
+                    "rollback root changed while preserving a managed execution lock",
+                )
+        finally:
+            if directory_fd is not None:
+                os.close(directory_fd)
+            os.close(parent_fd)
 
     def remove_entry_nofollow(
         self, rel: str | os.PathLike[str], *, missing_ok: bool = False
@@ -1890,6 +2000,202 @@ def _preflight_restore(
     return transaction_rel, states, existing_backups, current_backups, journal_path
 
 
+def _validate_compatibility_lock_metadata(info: os.stat_result, display: Path) -> None:
+    """Fail closed unless an old-path execution lock is one private inode."""
+
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or stat.S_IMODE(info.st_mode) != 0o600
+    ):
+        raise _unsafe(
+            display,
+            "managed execution compatibility lock is not one mode-0600 regular file",
+        )
+
+
+def _pin_compatibility_lock(
+    fs: ProjectFS, relative: str
+) -> tuple[int, int, tuple[int, int]] | None:
+    """Pin a live old-path lock, returning ``None`` only when it is absent."""
+
+    try:
+        parent_fd = fs._open_parent_fd(relative)
+    except FileNotFoundError:
+        return None
+    fd = -1
+    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+    try:
+        try:
+            fd = os.open(
+                PurePosixPath(relative).name,
+                flags,
+                dir_fd=parent_fd,
+            )
+        except FileNotFoundError:
+            os.close(parent_fd)
+            parent_fd = -1
+            return None
+        opened = os.fstat(fd)
+        named = os.stat(
+            PurePosixPath(relative).name,
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+        _validate_compatibility_lock_metadata(opened, fs.root / relative)
+        if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+            raise _unsafe(
+                fs.root / relative,
+                "managed execution compatibility lock changed while it was pinned",
+            )
+        result = parent_fd, fd, (opened.st_dev, opened.st_ino)
+        parent_fd = -1
+        fd = -1
+        return result
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if parent_fd >= 0:
+            os.close(parent_fd)
+
+
+def _validate_snapshot_lock_path(
+    snapshot_root: Path | None, suffix: tuple[str, ...]
+) -> None:
+    """Validate the optional rollback copy of a preserved compatibility lock."""
+
+    if snapshot_root is None:
+        return
+    current = snapshot_root
+    for index, part in enumerate(suffix):
+        current /= part
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise _unsafe(
+                current,
+                f"could not inspect managed execution lock rollback copy ({exc})",
+            ) from exc
+        if index == len(suffix) - 1:
+            _validate_compatibility_lock_metadata(info, current)
+        elif _is_link_or_reparse(current, info) or not stat.S_ISDIR(info.st_mode):
+            raise _unsafe(
+                current,
+                "managed execution lock rollback ancestry is not a regular directory",
+            )
+
+
+def _copy_snapshot_around_preserved_lock(
+    fs: ProjectFS,
+    snapshot_root: Path | None,
+    destination_rel: str,
+    suffix: tuple[str, ...],
+) -> None:
+    """Merge a rollback copy while leaving one already-live lock path untouched."""
+
+    if snapshot_root is None:
+        return
+    preserve_name = suffix[0]
+    for source in sorted(snapshot_root.iterdir(), key=lambda path: path.name):
+        destination = PurePosixPath(destination_rel, source.name).as_posix()
+        info = source.lstat()
+        if source.name == preserve_name:
+            if len(suffix) > 1:
+                if _is_link_or_reparse(source, info) or not stat.S_ISDIR(info.st_mode):
+                    raise _unsafe(
+                        source,
+                        "managed execution lock rollback ancestry is not a directory",
+                    )
+                _copy_snapshot_around_preserved_lock(
+                    fs,
+                    source,
+                    destination,
+                    suffix[1:],
+                )
+            continue
+        if _is_link_or_reparse(source, info):
+            raise _unsafe(source, "rollback copy contains a link or reparse point")
+        if stat.S_ISDIR(info.st_mode):
+            fs.copy_tree(source, destination)
+        elif stat.S_ISREG(info.st_mode):
+            fs.copy_file(source, destination)
+        else:
+            raise _unsafe(source, "rollback copy contains a special filesystem entry")
+
+
+def _restore_around_compatibility_lock(
+    fs: ProjectFS,
+    protected_rel: str,
+    state_name: str,
+    backup: Path | None,
+) -> bool:
+    """Restore one surface while preserving any live old-client lock inode."""
+
+    for lock_rel in _MANAGED_EXECUTION_COMPATIBILITY_LOCKS:
+        if lock_rel != protected_rel and not lock_rel.startswith(protected_rel + "/"):
+            continue
+        pinned = _pin_compatibility_lock(fs, lock_rel)
+        if pinned is None:
+            continue
+        parent_fd, lock_fd, identity = pinned
+        try:
+            suffix: tuple[str, ...]
+            if lock_rel == protected_rel:
+                snapshot_root = backup.parent if backup is not None else None
+                suffix = (
+                    (backup.name,) if backup is not None else (Path(lock_rel).name,)
+                )
+            else:
+                if state_name not in {"missing", "directory"}:
+                    raise UnsafePathError(
+                        "cannot preserve a managed execution lock below a non-directory "
+                        f"rollback surface: {protected_rel}"
+                    )
+                snapshot_root = backup
+                suffix = (
+                    PurePosixPath(lock_rel)
+                    .relative_to(PurePosixPath(protected_rel))
+                    .parts
+                )
+            _validate_snapshot_lock_path(snapshot_root, tuple(suffix))
+            if lock_rel != protected_rel:
+                fs._empty_tree_around_preserved_file(protected_rel, lock_rel)
+                _copy_snapshot_around_preserved_lock(
+                    fs,
+                    snapshot_root,
+                    protected_rel,
+                    tuple(suffix),
+                )
+
+            opened = os.fstat(lock_fd)
+            named = os.stat(
+                PurePosixPath(lock_rel).name,
+                dir_fd=parent_fd,
+                follow_symlinks=False,
+            )
+            lexical = fs.stat(lock_rel)
+            _validate_compatibility_lock_metadata(opened, fs.root / lock_rel)
+            if any(
+                (current.st_dev, current.st_ino) != identity
+                for current in (opened, named, lexical)
+            ):
+                raise _unsafe(
+                    fs.root / lock_rel,
+                    "managed execution compatibility lock changed during rollback",
+                )
+            return True
+        finally:
+            os.close(lock_fd)
+            os.close(parent_fd)
+    return False
+
+
 def _restore_document(
     fs: ProjectFS,
     document: dict[str, Any],
@@ -1905,11 +2211,22 @@ def _restore_document(
         _journal_path,
     ) = _preflight_restore(fs, document, require_marker=require_marker)
     for rel, state_name in states.items():
+        backup = (
+            fs.path(f"{transaction_rel}/rollback/{rel}")
+            if state_name != "missing"
+            else None
+        )
+        if _restore_around_compatibility_lock(fs, rel, state_name, backup):
+            continue
         fs.remove_entry_nofollow(rel, missing_ok=True)
         if state_name == "directory":
-            fs.copy_tree(fs.path(f"{transaction_rel}/rollback/{rel}"), rel)
+            if backup is None:  # pragma: no cover - state invariant
+                raise UnsafePathError("directory rollback copy is missing")
+            fs.copy_tree(backup, rel)
         elif state_name == "file":
-            fs.copy_file(fs.path(f"{transaction_rel}/rollback/{rel}"), rel)
+            if backup is None:  # pragma: no cover - state invariant
+                raise UnsafePathError("file rollback copy is missing")
+            fs.copy_file(backup, rel)
 
     # Rescue/upgrade backups created during the aborted transaction are part of
     # the mutation and must not survive rollback.  Older backups are untouched.

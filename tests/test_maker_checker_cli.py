@@ -11,6 +11,13 @@ from typer.testing import CliRunner
 from claude_kit import cli
 from claude_kit.cli import app
 from claude_kit.execution_config import load_execution_policy
+from claude_kit.maker_checker import (
+    DeliverableKind,
+    FrozenMakerCheckerRun,
+    MakerCheckerResult,
+    MakerCheckerStatus,
+    ResolvedWorkerBinding,
+)
 from claude_kit.models import (
     ExecutionPolicy,
     InitOptions,
@@ -152,8 +159,8 @@ def test_maker_checker_configure_without_role_flags_is_interactive(
     _write_manifest(tmp_path, payload)
     seen = []
 
-    def configured(runtime):
-        seen.append(runtime)
+    def configured(runtime, *, current=None):
+        seen.append((runtime, current))
         return _policy()
 
     monkeypatch.setattr(cli.prompts, "interactive_execution", configured)
@@ -161,8 +168,28 @@ def test_maker_checker_configure_without_role_flags_is_interactive(
     result = runner.invoke(app, ["maker-checker", "configure", str(tmp_path)])
 
     assert result.exit_code == 0, result.output
-    assert seen == [Runtime.BOTH]
+    assert seen == [(Runtime.BOTH, None)]
     assert load_execution_policy(tmp_path) == _policy()
+
+
+def test_maker_checker_reconfigure_prefills_the_current_pair(
+    tmp_path, payload, monkeypatch
+):
+    current = _policy()
+    _write_manifest(tmp_path, payload, policy=current)
+    seen = []
+
+    def configured(runtime, *, current=None):
+        seen.append((runtime, current))
+        return current
+
+    monkeypatch.setattr(cli.prompts, "interactive_execution", configured)
+
+    result = runner.invoke(app, ["maker-checker", "configure", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert seen == [(Runtime.BOTH, current)]
+    assert load_execution_policy(tmp_path) == current
 
 
 def test_maker_checker_show_and_disable_are_clear_and_disable_is_idempotent(
@@ -242,6 +269,98 @@ def test_maker_checker_probe_fails_when_a_configured_provider_is_missing(
     assert result.exit_code == 1
     assert "codex executable not found" in result.output.lower()
     assert calls == [("/tools/claude", "--version")]
+
+
+def test_maker_checker_confirm_terminated_forwards_exact_native_identity(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    def confirm(project_root, **kwargs):
+        calls.append((project_root, kwargs))
+        return ".ckit/artifacts/maker-checker/runs/mc-1/termination-proofs/a-1.json"
+
+    monkeypatch.setattr(
+        cli,
+        "confirm_maker_checker_dispatch_terminated",
+        confirm,
+    )
+    result = runner.invoke(
+        app,
+        [
+            "maker-checker",
+            "confirm-terminated",
+            str(tmp_path),
+            "--run-id",
+            "mc-1",
+            "--attempt-id",
+            "a-1",
+            "--route",
+            "maker-checker-maker",
+            "--dispatch-id",
+            "native-42",
+            "--dispatch-attempt",
+            "2",
+            "--evidence",
+            "host job native-42 reports terminated",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "termination confirmed" in result.output.lower()
+    assert "termination-proofs/a-1.json" in result.output
+    assert calls == [
+        (
+            str(tmp_path),
+            {
+                "run_id": "mc-1",
+                "attempt_id": "a-1",
+                "route": "maker-checker-maker",
+                "dispatch_id": "native-42",
+                "dispatch_attempt": 2,
+                "evidence": "host job native-42 reports terminated",
+            },
+        )
+    ]
+
+
+def test_maker_checker_confirm_terminated_reports_a_clean_refusal(
+    tmp_path, monkeypatch
+):
+    def refuse(*_args, **_kwargs):
+        raise cli.MakerCheckerError(
+            "termination confirmation does not match the uncertain dispatch"
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "confirm_maker_checker_dispatch_terminated",
+        refuse,
+    )
+    result = runner.invoke(
+        app,
+        [
+            "maker-checker",
+            "confirm-terminated",
+            str(tmp_path),
+            "--run-id",
+            "wrong-run",
+            "--attempt-id",
+            "a-1",
+            "--route",
+            "maker-checker-maker",
+            "--dispatch-id",
+            "native-42",
+            "--dispatch-attempt",
+            "1",
+            "--evidence",
+            "terminated",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "does not match" in result.output
+    assert "traceback" not in result.output.lower()
 
 
 def test_runtime_init_config_policy_is_resolved_once_persisted_and_previewed(
@@ -355,3 +474,268 @@ def test_runtime_init_interactive_policy_is_resolved_once(tmp_path, monkeypatch)
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["execution"] == _policy().to_dict()
     assert calls == [Runtime.BOTH]
+
+
+def test_maker_checker_run_announces_bindings_and_returns_maker_artifact(
+    tmp_path, payload, monkeypatch
+):
+    policy = _policy()
+    _write_manifest(tmp_path, payload, policy=policy)
+    artifact = ".ckit/artifacts/maker-checker/runs/mc-live/design.md"
+    calls = []
+
+    def run(project_root, **kwargs):
+        on_frozen = kwargs.pop("on_frozen")
+        on_frozen(
+            FrozenMakerCheckerRun(
+                run_id="mc-live",
+                task="Design a login flow.",
+                kind=DeliverableKind.DESIGN,
+                stage="reviewer",
+                iteration=2,
+                max_revisions=policy.max_revisions,
+                maker=ResolvedWorkerBinding(
+                    provider="claude",
+                    configured_model={"kind": "tier", "value": "deep"},
+                    requested_model="opus",
+                ),
+                reviewer=ResolvedWorkerBinding(
+                    provider="codex",
+                    configured_model={"kind": "exact", "value": "gpt-reviewer"},
+                    requested_model="gpt-reviewer",
+                ),
+            )
+        )
+        calls.append((project_root, kwargs))
+        return MakerCheckerResult(
+            MakerCheckerStatus.PASSED,
+            "mc-live",
+            DeliverableKind.DESIGN,
+            2,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+            artifact_path=artifact,
+            artifact_digest="d" * 64,
+            workspace=str(tmp_path),
+            residual_risks=("Confirm copy with users.",),
+        )
+
+    monkeypatch.setattr(cli, "run_maker_checker", run)
+
+    result = runner.invoke(
+        app,
+        [
+            "maker-checker",
+            "run",
+            str(tmp_path),
+            "--kind",
+            "design",
+            "--task",
+            "Design a login flow.",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "maker: claude / tier:deep" in result.output.lower()
+    assert "reviewer: codex / exact:gpt-reviewer" in result.output.lower()
+    assert "requested model: opus" in result.output.lower()
+    assert "requested model: gpt-reviewer" in result.output.lower()
+    assert "passed after 2 iteration" in result.output.lower()
+    assert artifact in result.output
+    assert "Confirm copy with users." in result.output
+    assert calls == [
+        (
+            str(tmp_path.resolve()),
+            {
+                "task": "Design a login flow.",
+                "kind": DeliverableKind.DESIGN,
+                "policy": None,
+                "resume_run_id": None,
+            },
+        )
+    ]
+
+
+def test_maker_checker_run_surfaces_typed_human_stop(tmp_path, payload, monkeypatch):
+    from claude_kit.dispatch import HumanStopReason, HumanStopRequest
+
+    policy = _policy()
+    _write_manifest(tmp_path, payload, policy=policy)
+
+    def run(project_root, **kwargs):
+        del project_root
+        on_frozen = kwargs.pop("on_frozen")
+        on_frozen(
+            FrozenMakerCheckerRun(
+                run_id="mc-stop",
+                task="Implement login.",
+                kind=DeliverableKind.CODE,
+                stage="maker",
+                iteration=1,
+                max_revisions=policy.max_revisions,
+                maker=ResolvedWorkerBinding(
+                    provider="claude",
+                    configured_model={"kind": "tier", "value": "deep"},
+                    requested_model="opus",
+                ),
+                reviewer=ResolvedWorkerBinding(
+                    provider="codex",
+                    configured_model={"kind": "exact", "value": "gpt-reviewer"},
+                    requested_model="gpt-reviewer",
+                ),
+            )
+        )
+        return MakerCheckerResult(
+            MakerCheckerStatus.HUMAN_STOP,
+            "mc-stop",
+            DeliverableKind.CODE,
+            1,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+            human_stop=HumanStopRequest(
+                HumanStopReason.RETRY_BUDGET_EXHAUSTED,
+                "review findings remain",
+                "inspect the preserved evidence",
+            ),
+        )
+
+    monkeypatch.setattr(cli, "run_maker_checker", run)
+
+    result = runner.invoke(
+        app,
+        [
+            "maker-checker",
+            "run",
+            str(tmp_path),
+            "--kind",
+            "code",
+            "--task",
+            "Implement login.",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "human stop" in result.output.lower()
+    assert "retry-budget-exhausted" in result.output
+    assert "review findings remain" in result.output
+    assert "inspect the preserved evidence" in result.output
+
+
+def test_maker_checker_run_requires_task_only_for_a_new_run(
+    tmp_path, payload, monkeypatch
+):
+    _write_manifest(tmp_path, payload, policy=_policy())
+    monkeypatch.setattr(
+        cli,
+        "run_maker_checker",
+        lambda *args, **kwargs: pytest.fail("coordinator must not be called"),
+    )
+
+    result = runner.invoke(app, ["maker-checker", "run", str(tmp_path)])
+
+    assert result.exit_code == 2
+    assert "--task is required" in result.output
+
+
+@pytest.mark.parametrize("manifest_bytes", [None, b'{"schema_version":3,"execution":'])
+def test_maker_checker_run_reports_unreadable_configuration_without_traceback(
+    tmp_path, manifest_bytes
+):
+    (tmp_path / ".ckit/config").mkdir(parents=True)
+    if manifest_bytes is not None:
+        (tmp_path / StateLayout.neutral().manifest).write_bytes(manifest_bytes)
+
+    result = runner.invoke(
+        app,
+        [
+            "maker-checker",
+            "run",
+            str(tmp_path),
+            "--kind",
+            "specification",
+            "--task",
+            "Specify one behavior.",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "error:" in result.output.lower()
+    assert "traceback" not in result.output.lower()
+
+
+def test_maker_checker_resume_announces_and_uses_frozen_pair_without_current_policy(
+    tmp_path, payload, monkeypatch
+):
+    _write_manifest(tmp_path, payload, policy=None)
+    frozen = FrozenMakerCheckerRun(
+        run_id="mc-resume",
+        task="Frozen objective.",
+        kind=DeliverableKind.SPECIFICATION,
+        stage="reviewer",
+        iteration=2,
+        max_revisions=3,
+        maker=ResolvedWorkerBinding(
+            provider="codex",
+            configured_model={"kind": "tier", "value": "balanced"},
+            requested_model="gpt-5.6-terra",
+        ),
+        reviewer=ResolvedWorkerBinding(
+            provider="claude",
+            configured_model={"kind": "inherit"},
+            requested_model=None,
+        ),
+    )
+    calls = []
+
+    monkeypatch.setattr(
+        cli,
+        "load_execution_policy",
+        lambda _root: pytest.fail("resume must not read current defaults"),
+    )
+
+    def run(project_root, **kwargs):
+        on_frozen = kwargs.pop("on_frozen")
+        on_frozen(frozen)
+        calls.append((project_root, kwargs))
+        return MakerCheckerResult(
+            MakerCheckerStatus.PASSED,
+            "mc-resume",
+            DeliverableKind.SPECIFICATION,
+            2,
+            "a" * 64,
+            "b" * 64,
+            "c" * 64,
+            artifact_path=(
+                ".ckit/artifacts/maker-checker/runs/mc-resume/specification.md"
+            ),
+            artifact_digest="d" * 64,
+            workspace=str(tmp_path),
+        )
+
+    monkeypatch.setattr(cli, "run_maker_checker", run)
+
+    result = runner.invoke(
+        app,
+        ["maker-checker", "run", str(tmp_path), "--resume", "mc-resume"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "maker: codex / tier:balanced" in result.output.lower()
+    assert "requested model: gpt-5.6-terra" in result.output.lower()
+    assert "reviewer: claude / inherit" in result.output.lower()
+    assert "requested model: host default" in result.output.lower()
+    assert "maximum revisions: 3" in result.output.lower()
+    assert "resuming: mc-resume at reviewer iteration 2" in result.output.lower()
+    assert calls == [
+        (
+            str(tmp_path.resolve()),
+            {
+                "task": None,
+                "kind": DeliverableKind.AUTO,
+                "policy": None,
+                "resume_run_id": "mc-resume",
+            },
+        )
+    ]

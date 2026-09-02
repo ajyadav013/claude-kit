@@ -35,7 +35,11 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+# The protected harness control document and the installed init-options manifest
+# evolve independently. Keep both explicit so a control-format change cannot
+# accidentally weaken the exact-wheel manifest assertion.
 SCHEMA_VERSION = 2
+INIT_OPTIONS_SCHEMA_VERSION = 3
 CONTROL_FILE = "control.json"
 EVENT_LOG = Path(".ckit/artifacts/protected-host-events.jsonl")
 PIPELINE_SNAPSHOT = Path(".ckit/state/pipeline-snapshot.json")
@@ -819,10 +823,9 @@ def _scaffold_inventory(project: Path) -> dict[str, Any]:
         raise SmokeError(
             f"built-wheel scaffold manifest is missing or invalid: {exc}"
         ) from exc
-    if document.get("schema_version") != 2 or document.get("runtimes") != [
-        "claude",
-        "codex",
-    ]:
+    if document.get("schema_version") != INIT_OPTIONS_SCHEMA_VERSION or document.get(
+        "runtimes"
+    ) != ["claude", "codex"]:
         raise SmokeError(
             "built-wheel scaffold did not install the exact both-runtime contract"
         )

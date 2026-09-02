@@ -7,12 +7,17 @@ Failed or dirty workers are preserved unless a caller explicitly authorizes disc
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import json
 import os
 import re
+import secrets
 import stat
 import subprocess
+import sys
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -27,6 +32,125 @@ _ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$")
 _MAX_CHECKPOINT_PATHS = 100_000
 _MAX_CHECKPOINT_BYTES = 2 * 1024 * 1024 * 1024
 _CHECKPOINT_HASH_TIMEOUT_SECONDS = 30
+_FILTER_DRIVER_RE = re.compile(rb"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_MANAGED_EXECUTION_LOCK_PATH = b".claude-kit-managed-execution.lock"
+
+
+def _set_directory_xattr(descriptor: int, name: str, value: bytes) -> None:
+    """Set an ownership tag on an open directory without resolving its path."""
+
+    setter = getattr(os, "setxattr", None)
+    if setter is not None:
+        setter(descriptor, name, value)
+        return
+    if (
+        sys.platform != "darwin"
+    ):  # pragma: no cover - supported Unix exposes os.setxattr
+        raise OSError("descriptor extended attributes are unavailable")
+    libc = ctypes.CDLL(None, use_errno=True)
+    fsetxattr = libc.fsetxattr
+    fsetxattr.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_int,
+    ]
+    fsetxattr.restype = ctypes.c_int
+    payload = ctypes.create_string_buffer(value)
+    if (
+        fsetxattr(
+            descriptor,
+            name.encode("utf-8"),
+            payload,
+            len(value),
+            0,
+            0,
+        )
+        != 0
+    ):
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+def _get_directory_xattr(descriptor: int, name: str) -> bytes:
+    """Read an ownership tag from an open directory without resolving its path."""
+
+    getter = getattr(os, "getxattr", None)
+    if getter is not None:
+        return bytes(getter(descriptor, name))
+    if (
+        sys.platform != "darwin"
+    ):  # pragma: no cover - supported Unix exposes os.getxattr
+        raise OSError("descriptor extended attributes are unavailable")
+    libc = ctypes.CDLL(None, use_errno=True)
+    fgetxattr = libc.fgetxattr
+    fgetxattr.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_int,
+    ]
+    fgetxattr.restype = ctypes.c_ssize_t
+    attribute = name.encode("utf-8")
+    size = fgetxattr(descriptor, attribute, None, 0, 0, 0)
+    if size < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    payload = ctypes.create_string_buffer(size)
+    read = fgetxattr(descriptor, attribute, payload, size, 0, 0)
+    if read < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    return payload.raw[:read]
+
+
+def _rename_directory_noreplace(parent_fd: int, source: str, destination: str) -> None:
+    """Atomically publish one descriptor-anchored directory without overwrite."""
+
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "darwin":
+        rename = libc.renameatx_np
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(
+            parent_fd,
+            source.encode("utf-8"),
+            parent_fd,
+            destination.encode("utf-8"),
+            0x00000004,  # RENAME_EXCL
+        )
+    elif hasattr(libc, "renameat2"):
+        rename = libc.renameat2
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(
+            parent_fd,
+            source.encode("utf-8"),
+            parent_fd,
+            destination.encode("utf-8"),
+            1,  # RENAME_NOREPLACE
+        )
+    else:  # pragma: no cover - non-POSIX callers use the lexical fallback
+        raise OSError(errno.ENOTSUP, "atomic no-replace rename is unavailable")
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
 
 
 class WorktreeError(RuntimeError):
@@ -34,6 +158,7 @@ class WorktreeError(RuntimeError):
 
 
 class WorktreeStatus(str, Enum):
+    CREATING = "creating"
     ACTIVE = "active"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -93,6 +218,20 @@ class WorktreeRecord:
     owner: str = "ckit"
     failure_reason: str | None = None
     removed_at: str | None = None
+    creation_nonce: str | None = None
+
+    def __post_init__(self) -> None:
+        _validate_id(self.run_id, "run_id")
+        _validate_id(self.worker_id, "worker_id")
+        if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", self.base_commit):
+            raise WorktreeError("worktree base_commit must be a frozen object id")
+        if self.status is WorktreeStatus.CREATING and self.gitdir_path:
+            raise WorktreeError("creating worktree intent must not pre-bind a gitdir")
+        if self.status is WorktreeStatus.CREATING and not (
+            isinstance(self.creation_nonce, str)
+            and re.fullmatch(r"[0-9a-f]{32}", self.creation_nonce)
+        ):
+            raise WorktreeError("creating worktree intent has no valid nonce")
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WorktreeRecord:
@@ -116,6 +255,11 @@ class WorktreeRecord:
                 removed_at=(
                     str(data["removed_at"])
                     if data.get("removed_at") is not None
+                    else None
+                ),
+                creation_nonce=(
+                    str(data["creation_nonce"])
+                    if data.get("creation_nonce") is not None
                     else None
                 ),
             )
@@ -157,32 +301,300 @@ def _validate_id(value: str, field: str) -> str:
     return value
 
 
+def _git_environment() -> dict[str, str]:
+    """Drop caller-controlled Git repository/index redirection variables."""
+
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if not name.upper().startswith("GIT_")
+    }
+
+
 def _run_git(
     root: Path, *args: str, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
-            ["git", "-C", str(root), *args],
-            check=check,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+        with tempfile.TemporaryDirectory(prefix="ckit-empty-hooks-") as hooks:
+            return subprocess.run(
+                [
+                    "git",
+                    "--no-pager",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    f"core.hooksPath={hooks}",
+                    *args,
+                ],
+                check=check,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=_git_environment(),
+            )
     except (OSError, subprocess.SubprocessError) as exc:
         raise WorktreeError(f"git {' '.join(args)} failed: {exc}") from exc
 
 
-def _run_git_bytes(root: Path, *args: str) -> bytes:
+def _run_git_bytes(root: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
     try:
-        result = subprocess.run(
-            ["git", "-C", str(root), *args],
-            check=True,
-            capture_output=True,
-            timeout=30,
-        )
+        with tempfile.TemporaryDirectory(prefix="ckit-empty-hooks-") as hooks:
+            result = subprocess.run(
+                [
+                    "git",
+                    "--no-pager",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    f"core.hooksPath={hooks}",
+                    *args,
+                ],
+                input=input_bytes,
+                check=True,
+                capture_output=True,
+                timeout=30,
+                env=_git_environment(),
+            )
     except (OSError, subprocess.SubprocessError) as exc:
         raise WorktreeError(f"git {' '.join(args)} failed: {exc}") from exc
     return result.stdout
+
+
+def _run_git_worktree_add_anchored(
+    repository: Path,
+    *,
+    parent_fd: int,
+    common_git_dir: Path,
+    base_commit: str,
+) -> None:
+    """Create ``.`` as a worktree with cwd pinned to an open directory.
+
+    A lexical sibling path can be swapped to a symlink between validation and
+    Git's first open. The tiny exec trampoline enters the already-open worker
+    directory with ``fchdir`` before invoking Git, so namespace replacement
+    cannot redirect creation into an unrelated location.
+    """
+
+    helper = (
+        "import os,sys; os.fchdir(int(sys.argv[1])); "
+        "os.execvp(sys.argv[2], sys.argv[2:])"
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="ckit-empty-hooks-") as hooks:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    helper,
+                    str(parent_fd),
+                    "git",
+                    "--no-pager",
+                    f"--git-dir={common_git_dir}",
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    f"core.hooksPath={hooks}",
+                    "worktree",
+                    "add",
+                    "--no-checkout",
+                    "--detach",
+                    ".",
+                    base_commit,
+                ],
+                pass_fds=(parent_fd,),
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=_git_environment(),
+            )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise WorktreeError(f"anchored git worktree add failed: {exc}") from exc
+    if result.returncode != 0:
+        raise WorktreeError("anchored git worktree add failed")
+
+
+def _open_or_create_directory(
+    parent_fd: int,
+    name: str,
+    *,
+    must_create: bool = False,
+    creation_nonce: str | None = None,
+) -> int:
+    """Open one exact non-link child directory, creating it mode 0700."""
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    created = False
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(name, flags, dir_fd=parent_fd)
+    except FileNotFoundError:
+        temporary = ".ckit-create-" + secrets.token_hex(16)
+        try:
+            os.mkdir(temporary, mode=0o700, dir_fd=parent_fd)
+            descriptor = os.open(temporary, flags, dir_fd=parent_fd)
+            _rename_directory_noreplace(parent_fd, temporary, name)
+            created = True
+        except OSError as exc:
+            if descriptor is not None:
+                os.close(descriptor)
+                descriptor = None
+            try:
+                os.rmdir(temporary, dir_fd=parent_fd)
+            except OSError:
+                pass
+            if exc.errno == errno.EEXIST:
+                if must_create:
+                    raise WorktreeError(
+                        f"managed worktree target already exists: {name}"
+                    ) from None
+                try:
+                    descriptor = os.open(name, flags, dir_fd=parent_fd)
+                except OSError as open_error:
+                    raise WorktreeError(
+                        f"managed worktree path is not an anchored directory: {name}"
+                    ) from open_error
+            else:
+                raise WorktreeError(
+                    f"cannot atomically create managed worktree directory: {name}"
+                ) from exc
+    except OSError as exc:
+        raise WorktreeError(
+            f"managed worktree path is not an anchored directory: {name}"
+        ) from exc
+    else:
+        if must_create:
+            os.close(descriptor)
+            raise WorktreeError(f"managed worktree target already exists: {name}")
+    assert descriptor is not None
+    if not stat.S_ISDIR(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        raise WorktreeError(f"managed worktree path is not a directory: {name}")
+    if creation_nonce is not None:
+        attribute = (
+            "com.claude-kit.worktree-intent"
+            if sys.platform == "darwin"
+            else "user.claude-kit.worktree-intent"
+        )
+        expected = creation_nonce.encode("ascii")
+        try:
+            if created:
+                _set_directory_xattr(descriptor, attribute, expected)
+            else:
+                actual = _get_directory_xattr(descriptor, attribute)
+        except OSError as exc:
+            os.close(descriptor)
+            if created:
+                try:
+                    os.rmdir(name, dir_fd=parent_fd)
+                except OSError:
+                    pass
+            raise WorktreeError(
+                "cannot bind creating worktree directory ownership"
+            ) from exc
+        if not created and actual != expected:
+            os.close(descriptor)
+            raise WorktreeError("creating worktree directory ownership nonce mismatch")
+    try:
+        published = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        anchored = os.fstat(descriptor)
+    except OSError as exc:
+        os.close(descriptor)
+        raise WorktreeError(
+            f"managed worktree directory changed during anchored open: {name}"
+        ) from exc
+    if (
+        published.st_dev != anchored.st_dev
+        or published.st_ino != anchored.st_ino
+        or not stat.S_ISDIR(published.st_mode)
+    ):
+        os.close(descriptor)
+        raise WorktreeError(
+            f"managed worktree directory changed during anchored open: {name}"
+        )
+    return descriptor
+
+
+def _descriptor_directory_path(descriptor: int) -> Path:
+    """Resolve the current path of an open POSIX directory descriptor."""
+
+    proc_path = Path(f"/proc/self/fd/{descriptor}")
+    try:
+        return Path(os.readlink(proc_path)).resolve(strict=True)
+    except OSError:
+        pass
+    try:  # Darwin has no traversable /proc/self/fd but exposes F_GETPATH.
+        import fcntl
+
+        command = fcntl.F_GETPATH  # type: ignore[attr-defined]
+        # Python's fcntl wrapper caps mutable buffers at 1024 bytes on Darwin,
+        # matching the platform's MAXPATHLEN used by F_GETPATH.
+        raw = fcntl.fcntl(descriptor, command, b"\0" * 1024)
+        return Path(raw.split(b"\0", 1)[0].decode()).resolve(strict=True)
+    except (AttributeError, OSError, UnicodeError) as exc:
+        raise WorktreeError(
+            "cannot resolve anchored managed worktree descriptor"
+        ) from exc
+
+
+def _filter_neutral_args(root: Path, raw_paths: list[bytes]) -> tuple[str, ...]:
+    """Return per-driver overrides for a checkout without repository commands."""
+
+    if not raw_paths:
+        return ()
+    attributes = _run_git_bytes(
+        root,
+        "check-attr",
+        "--cached",
+        "-z",
+        "--stdin",
+        "filter",
+        input_bytes=b"\0".join(raw_paths) + b"\0",
+    )
+    fields = attributes.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    if len(fields) % 3:
+        raise WorktreeError("git returned malformed content-filter attributes")
+    seen_paths: list[bytes] = []
+    drivers: set[str] = set()
+    for index in range(0, len(fields), 3):
+        raw_path, attribute, value = fields[index : index + 3]
+        if attribute != b"filter":
+            raise WorktreeError("git returned unexpected content-filter attributes")
+        seen_paths.append(raw_path)
+        if value in {b"unspecified", b"unset", b"set"}:
+            continue
+        if not _FILTER_DRIVER_RE.fullmatch(value):
+            raise WorktreeError("workspace uses an unsafe content-filter driver name")
+        drivers.add(value.decode("ascii"))
+    if seen_paths != raw_paths:
+        raise WorktreeError("git content-filter paths differ from the frozen tree")
+    args: list[str] = []
+    for driver in sorted(drivers):
+        args.extend(
+            (
+                "-c",
+                f"filter.{driver}.clean=",
+                "-c",
+                f"filter.{driver}.smudge=",
+                "-c",
+                f"filter.{driver}.process=",
+                "-c",
+                f"filter.{driver}.required=false",
+            )
+        )
+    return tuple(args)
 
 
 def _framed(digest: Any, value: bytes) -> None:
@@ -241,20 +653,27 @@ def _git_content_identities(root: Path, paths: list[bytes]) -> dict[bytes, bytes
         )
     stdin = b"".join(b"./" + path + b"\n" for path in paths)
     try:
-        result = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(root),
-                "hash-object",
-                "--no-filters",
-                "--stdin-paths",
-            ],
-            input=stdin,
-            check=True,
-            capture_output=True,
-            timeout=_CHECKPOINT_HASH_TIMEOUT_SECONDS,
-        )
+        with tempfile.TemporaryDirectory(prefix="ckit-empty-hooks-") as hooks:
+            result = subprocess.run(
+                [
+                    "git",
+                    "--no-pager",
+                    "-C",
+                    str(root),
+                    "-c",
+                    "core.fsmonitor=false",
+                    "-c",
+                    f"core.hooksPath={hooks}",
+                    "hash-object",
+                    "--no-filters",
+                    "--stdin-paths",
+                ],
+                input=stdin,
+                check=True,
+                capture_output=True,
+                timeout=_CHECKPOINT_HASH_TIMEOUT_SECONDS,
+                env=_git_environment(),
+            )
     except (OSError, subprocess.SubprocessError) as exc:
         raise WorktreeError(f"cannot hash managed workspace contents: {exc}") from exc
     identities = result.stdout.splitlines()
@@ -312,25 +731,30 @@ def _workspace_file_records(root: Path, raw_paths: list[bytes]) -> list[bytes]:
     return records
 
 
-def _workspace_checkpoint_once(
-    root: Path, *, git_marker_digest: str
-) -> WorkspaceCheckpoint:
-    head_commit = (
-        _run_git(root, "rev-parse", "--verify", "HEAD^{commit}").stdout.strip().lower()
-    )
+def _workspace_content_digests(root: Path) -> tuple[str, str]:
+    """Hash the exact index/worktree contents without invoking Git filters."""
+
     tracked_entries = _run_git_bytes(root, "ls-files", "--stage", "-z").split(b"\0")
     tracked_paths: list[bytes] = []
     index_metadata: dict[bytes, bytes] = {}
+    gitlink_identities: dict[bytes, bytes] = {}
     for entry in tracked_entries:
         if not entry:
             continue
         try:
             metadata, raw_path = entry.split(b"\t", 1)
-            _mode, _object_id, stage = metadata.split(b" ", 2)
+            mode, object_id, stage = metadata.split(b" ", 2)
         except ValueError as exc:
             raise WorktreeError("git returned malformed tracked-file metadata") from exc
         if stage != b"0":
             raise WorktreeError("managed workspace has unresolved index conflicts")
+        if mode == b"160000":
+            if not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", object_id):
+                raise WorktreeError("git returned a malformed gitlink identity")
+            # A gitlink binds the recorded commit, not the optional submodule
+            # checkout. Never open or descend into that repository while
+            # checkpointing its parent worktree.
+            gitlink_identities[raw_path] = object_id
         tracked_paths.append(raw_path)
         index_metadata[raw_path] = metadata
     if len(tracked_paths) != len(set(tracked_paths)):
@@ -338,10 +762,22 @@ def _workspace_checkpoint_once(
 
     tracked_paths.sort()
     tracked = hashlib.sha256()
-    tracked_records = _workspace_file_records(root, tracked_paths)
-    if len(tracked_records) != len(tracked_paths):
+    regular_tracked_paths = [
+        raw_path for raw_path in tracked_paths if raw_path not in gitlink_identities
+    ]
+    regular_tracked_records = _workspace_file_records(root, regular_tracked_paths)
+    if len(regular_tracked_records) != len(regular_tracked_paths):
         raise WorktreeError("managed workspace checkpoint record count mismatch")
-    for raw_path, record in zip(tracked_paths, tracked_records):
+    records_by_path = dict(zip(regular_tracked_paths, regular_tracked_records))
+    for raw_path in tracked_paths:
+        if raw_path in gitlink_identities:
+            gitlink_record = hashlib.sha256()
+            _framed(gitlink_record, raw_path)
+            _framed(gitlink_record, b"gitlink")
+            _framed(gitlink_record, gitlink_identities[raw_path])
+            record = gitlink_record.digest()
+        else:
+            record = records_by_path[raw_path]
         # A checkpoint binds both the worktree bytes and the exact index entry.
         # Without the stage/mode/object id, a worker could stage an out-of-boundary
         # payload and restore the visible file before the coordinator checks it.
@@ -353,7 +789,7 @@ def _workspace_checkpoint_once(
         for raw_path in _run_git_bytes(
             root, "ls-files", "--others", "--exclude-standard", "-z"
         ).split(b"\0")
-        if raw_path
+        if raw_path and raw_path != _MANAGED_EXECUTION_LOCK_PATH
     ]
     ignored_paths = [
         raw_path
@@ -365,7 +801,7 @@ def _workspace_checkpoint_once(
             "--exclude-standard",
             "-z",
         ).split(b"\0")
-        if raw_path
+        if raw_path and raw_path != _MANAGED_EXECUTION_LOCK_PATH
     ]
     untracked_paths.extend(ignored_paths)
     if len(tracked_paths) + len(untracked_paths) > _MAX_CHECKPOINT_PATHS:
@@ -380,8 +816,217 @@ def _workspace_checkpoint_once(
     for record in _workspace_file_records(root, untracked_paths):
         _framed(untracked, record)
 
-    tracked_digest = tracked.hexdigest()
-    untracked_digest = untracked.hexdigest()
+    return tracked.hexdigest(), untracked.hexdigest()
+
+
+def _head_tree_entries(root: Path) -> dict[bytes, tuple[bytes, bytes]]:
+    raw_entries = _run_git_bytes(
+        root, "ls-tree", "-r", "-z", "--full-tree", "HEAD"
+    ).split(b"\0")
+    entries: dict[bytes, tuple[bytes, bytes]] = {}
+    for entry in raw_entries:
+        if not entry:
+            continue
+        try:
+            metadata, raw_path = entry.split(b"\t", 1)
+            mode, kind, object_id = metadata.split(b" ", 2)
+        except ValueError as exc:
+            raise WorktreeError("git returned malformed HEAD tree metadata") from exc
+        if raw_path in entries:
+            raise WorktreeError("git returned duplicate HEAD tree paths")
+        if kind not in {b"blob", b"commit"} or not re.fullmatch(
+            rb"[0-9a-f]{40}|[0-9a-f]{64}", object_id
+        ):
+            raise WorktreeError("git returned unsupported HEAD tree metadata")
+        if (mode == b"160000") != (kind == b"commit"):
+            raise WorktreeError("git returned inconsistent gitlink metadata")
+        entries[raw_path] = (mode, object_id)
+    return entries
+
+
+def _assert_no_extra_workspace_paths(root: Path) -> None:
+    for args in (
+        ("ls-files", "--others", "--exclude-standard", "-z"),
+        ("ls-files", "--others", "--ignored", "--exclude-standard", "-z"),
+    ):
+        if _run_git_bytes(root, *args):
+            raise WorktreeError("creating worktree contains untracked or ignored paths")
+
+
+def _assert_clean_head_materialization(root: Path, expected_commit: str) -> None:
+    """Prove exact HEAD/index/worktree equality without filters or gitlink descent."""
+
+    current_head = _run_git(
+        root, "rev-parse", "--verify", "HEAD^{commit}"
+    ).stdout.strip()
+    if current_head != expected_commit:
+        raise WorktreeError("creating worktree HEAD differs from its frozen base")
+    head_entries = _assert_canonical_head_index(root, allow_empty=False)
+
+    regular_paths: list[bytes] = []
+    visible_ids: dict[bytes, bytes] = {}
+    total_bytes = 0
+    for raw_path, (mode, head_object_id) in head_entries.items():
+        if mode == b"160000":
+            # The index OID is the entire parent-repository binding. An optional
+            # initialized checkout is another repository and must not be opened.
+            visible_ids[raw_path] = head_object_id
+            continue
+        relative = Path(os.fsdecode(raw_path))
+        candidate = root / relative
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError as exc:
+            raise WorktreeError(
+                f"creating worktree path is missing: {relative}"
+            ) from exc
+        if mode == b"120000":
+            if not stat.S_ISLNK(info.st_mode):
+                raise WorktreeError(
+                    f"creating worktree symlink changed type: {relative}"
+                )
+            identity = _run_git_bytes(
+                root,
+                "hash-object",
+                "--stdin",
+                input_bytes=os.fsencode(os.readlink(candidate)),
+            ).strip()
+            visible_ids[raw_path] = identity
+            continue
+        if mode not in {b"100644", b"100755"}:
+            raise WorktreeError(f"unsupported HEAD mode {os.fsdecode(mode)}")
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise WorktreeError(
+                f"creating worktree path is not a regular file: {relative}"
+            )
+        if bool(info.st_mode & stat.S_IXUSR) != (mode == b"100755"):
+            raise WorktreeError(
+                f"creating worktree file mode differs from HEAD: {relative}"
+            )
+        total_bytes += info.st_size
+        if total_bytes > _MAX_CHECKPOINT_BYTES:
+            raise WorktreeError(
+                "managed workspace regular-file content exceeds the 2 GiB "
+                "checkpoint safety limit"
+            )
+        regular_paths.append(raw_path)
+    visible_ids.update(_git_content_identities(root, regular_paths))
+    changed = [
+        os.fsdecode(raw_path)
+        for raw_path, (_mode, head_object_id) in head_entries.items()
+        if visible_ids.get(raw_path) != head_object_id
+    ]
+    if changed:
+        raise WorktreeError(
+            "creating worktree content differs from its frozen HEAD: "
+            + ", ".join(sorted(changed))
+        )
+    _assert_no_extra_workspace_paths(root)
+
+
+def _assert_canonical_head_index(
+    root: Path, *, allow_empty: bool
+) -> dict[bytes, tuple[bytes, bytes]]:
+    """Return HEAD entries after proving an exact HEAD (or no-checkout) index."""
+
+    head_entries = _head_tree_entries(root)
+    expected_index = {
+        raw_path: (mode, object_id, b"0")
+        for raw_path, (mode, object_id) in head_entries.items()
+    }
+    observed_index: dict[bytes, tuple[bytes, bytes, bytes]] = {}
+    for entry in _run_git_bytes(root, "ls-files", "--stage", "-z").split(b"\0"):
+        if not entry:
+            continue
+        try:
+            metadata, raw_path = entry.split(b"\t", 1)
+            mode, object_id, stage = metadata.split(b" ", 2)
+        except ValueError as exc:
+            raise WorktreeError(
+                "git returned malformed creating index metadata"
+            ) from exc
+        if raw_path in observed_index:
+            raise WorktreeError("creating worktree index contains duplicate paths")
+        observed_index[raw_path] = (mode, object_id, stage)
+    empty_index = not observed_index
+    if observed_index != expected_index and not (allow_empty and empty_index):
+        raise WorktreeError("creating worktree index differs from its frozen HEAD")
+
+    flagged_paths: set[bytes] = set()
+    for record in _run_git_bytes(root, "ls-files", "-v", "-z").split(b"\0"):
+        if not record:
+            continue
+        if not record.startswith(b"H "):
+            raise WorktreeError(
+                "creating worktree index contains non-canonical visibility flags"
+            )
+        flagged_paths.add(record[2:])
+    expected_flagged = set() if empty_index else set(head_entries)
+    if flagged_paths != expected_flagged:
+        raise WorktreeError("creating worktree index visibility evidence is incomplete")
+    return {} if empty_index else head_entries
+
+
+def _materialize_head_without_repository_commands(root: Path) -> None:
+    """Populate an empty no-checkout worktree with every external filter disabled."""
+
+    _run_git(root, "read-tree", "HEAD")
+    raw_paths = [
+        raw_path
+        for raw_path in _run_git_bytes(root, "ls-files", "--cached", "-z").split(b"\0")
+        if raw_path
+    ]
+    neutral = _filter_neutral_args(root, raw_paths)
+    _run_git(root, *neutral, "checkout-index", "--all", "--force", "--")
+
+
+def _workspace_content_fingerprint_once(root: Path) -> str:
+    tracked_digest, untracked_digest = _workspace_content_digests(root)
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "tracked_digest": tracked_digest,
+                "untracked_digest": untracked_digest,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def workspace_content_fingerprint(root: str | Path) -> str:
+    """Return a stable filter-free identity for tracked, untracked, and ignored files.
+
+    File contents are hashed through ``git hash-object --no-filters``. Repository
+    clean filters therefore cannot execute while a passive worker's read-only
+    scope is captured. Two complete passes make concurrent mutation fail closed.
+    """
+
+    try:
+        workspace = Path(root).expanduser().resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        raise WorktreeError(
+            f"cannot resolve workspace for checkpointing: {exc}"
+        ) from exc
+    if not workspace.is_dir():
+        raise WorktreeError("workspace checkpoint root must be a directory")
+    first = _workspace_content_fingerprint_once(workspace)
+    second = _workspace_content_fingerprint_once(workspace)
+    if first != second:
+        raise WorktreeError(
+            "managed workspace changed while its filter-free fingerprint was captured"
+        )
+    return first
+
+
+def _workspace_checkpoint_once(
+    root: Path, *, git_marker_digest: str
+) -> WorkspaceCheckpoint:
+    head_commit = (
+        _run_git(root, "rev-parse", "--verify", "HEAD^{commit}").stdout.strip().lower()
+    )
+    tracked_digest, untracked_digest = _workspace_content_digests(root)
+
     content_document = {
         "head_commit": head_commit,
         "tracked_digest": tracked_digest,
@@ -498,6 +1143,90 @@ class WorktreeManager:
     def _portable_target(self, target: Path) -> str:
         return Path(os.path.relpath(target, self.root)).as_posix()
 
+    def _add_worktree(
+        self, intent: WorktreeRecord, target: Path, *, reuse_empty: bool = False
+    ) -> None:
+        """Create an exact worktree without a redirectable lexical add path."""
+
+        if os.name != "posix":  # pragma: no cover - Windows CI fallback
+            target.parent.mkdir(parents=True, exist_ok=True)
+            self._assert_target_boundary(target, allow_missing_target=True)
+            _run_git(
+                self.root,
+                "worktree",
+                "add",
+                "--no-checkout",
+                "--detach",
+                str(target),
+                intent.base_commit,
+            )
+            return
+
+        flags = os.O_RDONLY | os.O_DIRECTORY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        try:
+            ancestor_fd = os.open(self.root.parent, flags)
+        except OSError as exc:
+            raise WorktreeError("cannot anchor managed worktree container") from exc
+        opened: list[int] = [ancestor_fd]
+        try:
+            container_fd = _open_or_create_directory(ancestor_fd, self.container.name)
+            opened.append(container_fd)
+            run_fd = _open_or_create_directory(container_fd, intent.run_id)
+            opened.append(run_fd)
+            worker_fd = _open_or_create_directory(
+                run_fd,
+                intent.worker_id,
+                must_create=not reuse_empty,
+                creation_nonce=intent.creation_nonce,
+            )
+            opened.append(worker_fd)
+            if reuse_empty and os.listdir(worker_fd):
+                raise WorktreeError(
+                    "creating worktree directory contains unexpected content"
+                )
+            worker_identity = os.fstat(worker_fd)
+            _run_git_worktree_add_anchored(
+                self.root,
+                parent_fd=worker_fd,
+                common_git_dir=self._common_git_dir(),
+                base_commit=intent.base_commit,
+            )
+            anchored_target = _descriptor_directory_path(worker_fd)
+            try:
+                lexical_identity = target.lstat()
+                namespace_changed = (
+                    lexical_identity.st_dev != worker_identity.st_dev
+                    or lexical_identity.st_ino != worker_identity.st_ino
+                    or not stat.S_ISDIR(lexical_identity.st_mode)
+                )
+            except FileNotFoundError:
+                namespace_changed = True
+            if namespace_changed:
+                # Git touched only the descriptor-pinned directory created by
+                # this call. Remove that exact registration/artifact before
+                # reporting the hostile namespace race.
+                _run_git(
+                    self.root,
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(anchored_target),
+                )
+                raise WorktreeError(
+                    "managed worktree namespace changed during anchored creation"
+                )
+        except OSError as exc:
+            raise WorktreeError(
+                f"cannot create anchored managed worktree: {exc}"
+            ) from exc
+        finally:
+            for descriptor in reversed(opened):
+                os.close(descriptor)
+
     def _read_records(self) -> list[WorktreeRecord]:
         if not self.fs.is_file(self.registry_rel):
             return []
@@ -547,8 +1276,31 @@ class WorktreeManager:
         return tuple(records)
 
     def create(
-        self, run_id: str, worker_id: str, *, base_ref: str = "HEAD"
+        self,
+        run_id: str,
+        worker_id: str,
+        *,
+        base_ref: str = "HEAD",
+        _managed_lease_held: bool = False,
+        _project_lease_held: bool = False,
     ) -> WorktreeRecord:
+        if not _managed_lease_held:
+            from claude_kit.execution_lease import (
+                ManagedExecutionLeaseHeld,
+                managed_execution_lease,
+            )
+
+            try:
+                with managed_execution_lease(self.root):
+                    return self.create(
+                        run_id,
+                        worker_id,
+                        base_ref=base_ref,
+                        _managed_lease_held=True,
+                        _project_lease_held=False,
+                    )
+            except ManagedExecutionLeaseHeld as exc:
+                raise WorktreeError(str(exc)) from exc
         target = self._target(run_id, worker_id)
         if (
             not isinstance(base_ref, str)
@@ -556,13 +1308,27 @@ class WorktreeManager:
             or base_ref.startswith("-")
         ):
             raise WorktreeError("base_ref must be a non-option git revision")
-        with self.fs.mutation_lease(exclusive=True):
+        # Managed coordinators hold a shared ProjectFS lease for their entire
+        # lifecycle so runtime transactions cannot replace `.ckit` underneath
+        # them.  Their exclusive managed-execution lease serializes these
+        # writes; taking another exclusive ProjectFS lease here would be an
+        # illegal shared-to-exclusive upgrade.  Standalone lifecycle calls
+        # retain the stronger exclusive ProjectFS lease.
+        with self.fs.mutation_lease(exclusive=not _project_lease_held):
             self._assert_target_boundary(target, allow_missing_target=True)
             records = self._read_records()
-            if any(
-                record.run_id == run_id and record.worker_id == worker_id
+            matches = [
+                record
                 for record in records
-            ):
+                if record.run_id == run_id and record.worker_id == worker_id
+            ]
+            if len(matches) == 1 and matches[0].status is WorktreeStatus.CREATING:
+                if matches[0].base_ref != base_ref:
+                    raise WorktreeError(
+                        "creating worktree base_ref differs from its frozen intent"
+                    )
+                return self._finish_creating(matches[0])
+            if matches:
                 raise WorktreeError(
                     f"worktree owner already exists: {run_id}/{worker_id}"
                 )
@@ -571,36 +1337,87 @@ class WorktreeManager:
             base_commit = _run_git(
                 self.root, "rev-parse", "--verify", f"{base_ref}^{{commit}}"
             ).stdout.strip()
-            target.parent.mkdir(parents=True, exist_ok=True)
-            self._assert_target_boundary(target, allow_missing_target=True)
-            _run_git(self.root, "worktree", "add", "--detach", str(target), base_commit)
-            self._assert_target_boundary(target, allow_missing_target=False)
-            _, gitdir_path = self._bound_git_marker(target, None)
+            if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base_commit):
+                raise WorktreeError("git returned an invalid frozen base commit")
             now = _utc_now()
-            record = WorktreeRecord(
+            intent = WorktreeRecord(
                 run_id=run_id,
                 worker_id=worker_id,
                 target_path=self._portable_target(target),
                 base_ref=base_ref,
                 base_commit=base_commit,
-                gitdir_path=gitdir_path,
-                status=WorktreeStatus.ACTIVE,
+                gitdir_path="",
+                status=WorktreeStatus.CREATING,
                 created_at=now,
                 updated_at=now,
+                creation_nonce=secrets.token_hex(16),
             )
-            try:
-                self._write_records([*records, record])
-            except BaseException:
-                _run_git(
-                    self.root,
-                    "worktree",
-                    "remove",
-                    "--force",
-                    str(target),
-                    check=False,
+            # Persist ownership before the first Git/filesystem mutation. A killed
+            # process therefore leaves a recoverable intent instead of an orphan.
+            self._write_records([*records, intent])
+            return self._finish_creating(intent)
+
+    def _finish_creating(self, intent: WorktreeRecord) -> WorktreeRecord:
+        """Reconcile one durable create intent while its mutation lease is held."""
+
+        if intent.status is not WorktreeStatus.CREATING or intent.gitdir_path:
+            raise WorktreeError("worktree create intent is malformed")
+        target = self._target(intent.run_id, intent.worker_id)
+        self._assert_target_boundary(target, allow_missing_target=True)
+        registered = self._registered_paths()
+        target_key = target.resolve(strict=False)
+        target_present = target.exists() or target.is_symlink()
+        if target_present and target_key not in registered:
+            self._assert_target_boundary(target, allow_missing_target=False)
+            self._add_worktree(intent, target, reuse_empty=True)
+            registered = self._registered_paths()
+            target_key = target.resolve(strict=True)
+        if not target_present:
+            if target_key in registered:
+                raise WorktreeError(
+                    "creating worktree target is missing but remains registered"
                 )
-                raise
-            return record
+            self._add_worktree(intent, target)
+
+        self._assert_target_boundary(target, allow_missing_target=False)
+        if target.resolve(strict=True) not in self._registered_paths():
+            raise WorktreeError(
+                "creating worktree target exists but is not registered with git"
+            )
+        _, gitdir_path = self._bound_git_marker(target, None)
+        current_head = _run_git(
+            target, "rev-parse", "--verify", "HEAD^{commit}"
+        ).stdout.strip()
+        if current_head != intent.base_commit:
+            raise WorktreeError("creating worktree HEAD differs from its frozen base")
+        head_entries = _head_tree_entries(target)
+        canonical_index = _assert_canonical_head_index(target, allow_empty=True)
+        materialization_missing = bool(head_entries) and not canonical_index
+        if not materialization_missing:
+            try:
+                _assert_clean_head_materialization(target, intent.base_commit)
+            except WorktreeError:
+                # A crash can interrupt filter-neutral checkout-index after it
+                # writes only some tracked paths.  The exact HEAD index was
+                # already proven above; require that no untracked/ignored path
+                # exists, then safely replay the deterministic materialization.
+                _assert_no_extra_workspace_paths(target)
+                materialization_missing = True
+        if materialization_missing:
+            _assert_no_extra_workspace_paths(target)
+            _materialize_head_without_repository_commands(target)
+            _assert_clean_head_materialization(target, intent.base_commit)
+
+        active = WorktreeRecord(
+            **{
+                **intent.to_dict(),
+                "gitdir_path": gitdir_path,
+                "status": WorktreeStatus.ACTIVE,
+                "updated_at": _utc_now(),
+            }
+        )
+        self._replace(active)
+        return active
 
     def _replace(self, replacement: WorktreeRecord) -> None:
         records = self._read_records()
@@ -624,7 +1441,27 @@ class WorktreeManager:
         status: WorktreeStatus | str,
         *,
         failure_reason: str | None = None,
+        _managed_lease_held: bool = False,
+        _project_lease_held: bool = False,
     ) -> WorktreeRecord:
+        if not _managed_lease_held:
+            from claude_kit.execution_lease import (
+                ManagedExecutionLeaseHeld,
+                managed_execution_lease,
+            )
+
+            try:
+                with managed_execution_lease(self.root):
+                    return self.mark(
+                        run_id,
+                        worker_id,
+                        status,
+                        failure_reason=failure_reason,
+                        _managed_lease_held=True,
+                        _project_lease_held=False,
+                    )
+            except ManagedExecutionLeaseHeld as exc:
+                raise WorktreeError(str(exc)) from exc
         new_status = WorktreeStatus(status)
         if new_status not in {
             WorktreeStatus.SUCCEEDED,
@@ -632,7 +1469,7 @@ class WorktreeManager:
             WorktreeStatus.ABORTED,
         }:
             raise WorktreeError("mark status must be succeeded, failed, or aborted")
-        with self.fs.mutation_lease(exclusive=True):
+        with self.fs.mutation_lease(exclusive=not _project_lease_held):
             record = self._owned(run_id, worker_id)
             if record.status is not WorktreeStatus.ACTIVE:
                 raise WorktreeError(
@@ -674,7 +1511,13 @@ class WorktreeManager:
         }
 
     def verify(self, run_id: str, worker_id: str) -> WorktreeRecord:
+        """Purely verify one durable ownership record without reconciling it."""
+
         record = self._owned(run_id, worker_id)
+        if record.status is WorktreeStatus.CREATING:
+            raise WorktreeError(
+                "worktree creation is incomplete; resume it under the managed lease"
+            )
         if record.status is WorktreeStatus.REMOVED:
             return record
         target = self._target(run_id, worker_id)
@@ -714,8 +1557,28 @@ class WorktreeManager:
         *,
         discard_changes: bool = False,
         discard_failed: bool = False,
+        _managed_lease_held: bool = False,
+        _project_lease_held: bool = False,
     ) -> WorktreeRecord:
-        with self.fs.mutation_lease(exclusive=True):
+        if not _managed_lease_held:
+            from claude_kit.execution_lease import (
+                ManagedExecutionLeaseHeld,
+                managed_execution_lease,
+            )
+
+            try:
+                with managed_execution_lease(self.root):
+                    return self.cleanup(
+                        run_id,
+                        worker_id,
+                        discard_changes=discard_changes,
+                        discard_failed=discard_failed,
+                        _managed_lease_held=True,
+                        _project_lease_held=False,
+                    )
+            except ManagedExecutionLeaseHeld as exc:
+                raise WorktreeError(str(exc)) from exc
+        with self.fs.mutation_lease(exclusive=not _project_lease_held):
             record = self.verify(run_id, worker_id)
             if record.status is WorktreeStatus.REMOVED:
                 return record
@@ -724,19 +1587,15 @@ class WorktreeManager:
                     "failed worker artifacts are preserved; pass discard_failed explicitly"
                 )
             target = self._target(run_id, worker_id)
-            dirty = bool(
-                _run_git(
-                    target,
-                    "status",
-                    "--porcelain=v1",
-                    "--untracked-files=all",
-                    "--ignored=matching",
-                ).stdout.strip()
-            )
             current_head = _run_git(
                 target, "rev-parse", "--verify", "HEAD^{commit}"
             ).stdout.strip()
             committed_changes = current_head != record.base_commit
+            try:
+                _assert_clean_head_materialization(target, record.base_commit)
+                dirty = False
+            except WorktreeError:
+                dirty = True
             if (dirty or committed_changes) and not discard_changes:
                 kind = (
                     "committed or uncommitted" if committed_changes else "uncommitted"
@@ -748,7 +1607,14 @@ class WorktreeManager:
             if discard_changes:
                 args.append("--force")
             args.append(str(target))
-            _run_git(self.root, *args)
+            raw_paths = [
+                raw_path
+                for raw_path in _run_git_bytes(
+                    target, "ls-files", "--cached", "-z"
+                ).split(b"\0")
+                if raw_path
+            ]
+            _run_git(self.root, *_filter_neutral_args(target, raw_paths), *args)
             now = _utc_now()
             replacement = WorktreeRecord(
                 **{
@@ -761,11 +1627,52 @@ class WorktreeManager:
             self._replace(replacement)
             return replacement
 
-    def abort_run(self, run_id: str) -> tuple[WorktreeRecord, ...]:
+    def abort_run(
+        self,
+        run_id: str,
+        *,
+        _managed_lease_held: bool = False,
+        _project_lease_held: bool = False,
+    ) -> tuple[WorktreeRecord, ...]:
         """Mark active workers aborted while preserving every worktree for diagnosis/resume."""
 
+        if not _managed_lease_held:
+            from claude_kit.execution_lease import (
+                ManagedExecutionLeaseHeld,
+                managed_execution_lease,
+            )
+
+            try:
+                with managed_execution_lease(self.root):
+                    return self.abort_run(
+                        run_id,
+                        _managed_lease_held=True,
+                        _project_lease_held=False,
+                    )
+            except ManagedExecutionLeaseHeld as exc:
+                raise WorktreeError(str(exc)) from exc
         _validate_id(run_id, "run_id")
-        with self.fs.mutation_lease(exclusive=True):
+        with self.fs.mutation_lease(exclusive=not _project_lease_held):
+            records = self._read_records()
+            for record in tuple(records):
+                if record.run_id == run_id and record.status is WorktreeStatus.CREATING:
+                    target = self._target(record.run_id, record.worker_id)
+                    if target.exists() or target.is_symlink():
+                        self._finish_creating(record)
+                    else:
+                        if target.resolve(strict=False) in self._registered_paths():
+                            raise WorktreeError(
+                                "creating worktree target is missing but remains registered"
+                            )
+                        cancelled = WorktreeRecord(
+                            **{
+                                **record.to_dict(),
+                                "status": WorktreeStatus.REMOVED,
+                                "updated_at": _utc_now(),
+                                "removed_at": _utc_now(),
+                            }
+                        )
+                        self._replace(cancelled)
             records = self._read_records()
             now = _utc_now()
             updated: list[WorktreeRecord] = []
@@ -782,14 +1689,43 @@ class WorktreeManager:
             self._write_records(updated)
             return tuple(record for record in updated if record.run_id == run_id)
 
-    def resume_run(self, run_id: str) -> tuple[WorktreeRecord, ...]:
+    def resume_run(
+        self,
+        run_id: str,
+        *,
+        _managed_lease_held: bool = False,
+        _project_lease_held: bool = False,
+    ) -> tuple[WorktreeRecord, ...]:
         """Verify that every preserved non-removed worker still has exact ownership."""
 
+        if not _managed_lease_held:
+            from claude_kit.execution_lease import (
+                ManagedExecutionLeaseHeld,
+                managed_execution_lease,
+            )
+
+            try:
+                with managed_execution_lease(self.root):
+                    return self.resume_run(
+                        run_id,
+                        _managed_lease_held=True,
+                        _project_lease_held=False,
+                    )
+            except ManagedExecutionLeaseHeld as exc:
+                raise WorktreeError(str(exc)) from exc
         records = self.records(run_id)
         for record in records:
-            if record.status is not WorktreeStatus.REMOVED:
+            if record.status is WorktreeStatus.CREATING:
+                self.create(
+                    record.run_id,
+                    record.worker_id,
+                    base_ref=record.base_ref,
+                    _managed_lease_held=True,
+                    _project_lease_held=_project_lease_held,
+                )
+            elif record.status is not WorktreeStatus.REMOVED:
                 self.verify(record.run_id, record.worker_id)
-        return records
+        return self.records(run_id)
 
 
 __all__ = [
@@ -799,4 +1735,5 @@ __all__ = [
     "WorktreeRecord",
     "WorktreeStatus",
     "WorkspaceCheckpoint",
+    "workspace_content_fingerprint",
 ]

@@ -212,14 +212,35 @@ class ManagedWorktreeResolver:
         run_id: str,
         *,
         manager: Optional[WorktreeManager] = None,
+        _managed_lease_held: bool = False,
     ) -> None:
         self.project_root = Path(project_root).resolve(strict=True)
         self.run_id = run_id
         self.manager = manager or WorktreeManager(self.project_root)
+        self._managed_lease_held = _managed_lease_held
 
     @property
     def allowed_roots(self) -> tuple[Path, ...]:
         return (self.manager.container,)
+
+    def _with_managed_lease(self) -> ManagedWorktreeResolver:
+        """Return a resolver authorized by the caller's managed lease.
+
+        ``execute_bound_workflow`` accepts a caller-supplied resolver so one
+        provider can resume work created by another.  The public resolver must
+        remain safe to use outside that call, so do not mutate its lease flag in
+        place; share only its already-bound manager with an invocation-local
+        resolver.
+        """
+
+        if self._managed_lease_held:
+            return self
+        return ManagedWorktreeResolver(
+            self.project_root,
+            self.run_id,
+            manager=self.manager,
+            _managed_lease_held=True,
+        )
 
     def ensure_workspace(self) -> Path:
         """Create once, then verify and reuse across gate pauses and resumes."""
@@ -234,9 +255,22 @@ class ManagedWorktreeResolver:
                 raise WorkflowValidationError(
                     f"owned worktree {self.run_id}/{self.WORKER_ID} was already removed"
                 )
-            record = self.manager.verify(self.run_id, self.WORKER_ID)
+            record = (
+                self.manager.create(
+                    self.run_id,
+                    self.WORKER_ID,
+                    base_ref=record.base_ref,
+                    _managed_lease_held=self._managed_lease_held,
+                )
+                if record.status is WorktreeStatus.CREATING
+                else self.manager.verify(self.run_id, self.WORKER_ID)
+            )
         else:
-            record = self.manager.create(self.run_id, self.WORKER_ID)
+            record = self.manager.create(
+                self.run_id,
+                self.WORKER_ID,
+                _managed_lease_held=self._managed_lease_held,
+            )
         try:
             source_head = subprocess.run(
                 ["git", "-C", str(self.project_root), "rev-parse", "HEAD"],
@@ -2192,8 +2226,14 @@ def _execute_bound_workflow_under_lease(
         selected_resolver = ManagedWorktreeResolver(
             root,
             run_id,
+            _managed_lease_held=True,
         )
         selected_resolver.ensure_workspace()
+    elif isinstance(selected_resolver, ManagedWorktreeResolver):
+        # The public entry point owns the managed-execution lease for this
+        # entire call. Propagate that authority to caller-supplied resolvers
+        # without leaving them able to bypass the lease after this invocation.
+        selected_resolver = selected_resolver._with_managed_lease()
     if not isinstance(selected_resolver, ManagedWorktreeResolver):
         raise WorkflowValidationError(
             "managed execution requires the run-owned checkpointing worktree resolver"
@@ -2250,6 +2290,7 @@ def _execute_bound_workflow_under_lease(
                     selected_resolver.run_id,
                     selected_resolver.WORKER_ID,
                     WorktreeStatus.SUCCEEDED,
+                    _managed_lease_held=True,
                 )
             # A failed Mode E attempt remains retryable only after the frozen
             # pre-checkpoint is restored. Keep the worktree active so recovery
@@ -2358,6 +2399,7 @@ def _execute_bound_workflow_under_lease(
                     selected_resolver.run_id,
                     selected_resolver.WORKER_ID,
                     WorktreeStatus.SUCCEEDED,
+                    _managed_lease_held=True,
                 )
             elif result.status is WorkflowExecutionStatus.FAILED:
                 selected_resolver.manager.mark(
@@ -2365,6 +2407,7 @@ def _execute_bound_workflow_under_lease(
                     selected_resolver.WORKER_ID,
                     WorktreeStatus.FAILED,
                     failure_reason="; ".join(result.messages) or "workflow failed",
+                    _managed_lease_held=True,
                 )
     return result
 

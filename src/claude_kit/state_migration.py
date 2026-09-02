@@ -46,7 +46,12 @@ _TREE_MAPPINGS = (
     (_LEGACY.temporary, _NEUTRAL.temporary),
 )
 _FILE_MAPPINGS = ((_LEGACY.continuity, _NEUTRAL.continuity),)
-_TRANSIENT_SOURCES = frozenset({_LEGACY.journal})
+_TRANSIENT_SOURCES = frozenset(
+    {
+        _LEGACY.journal,
+        f"{_LEGACY.state}/managed-execution.lock",
+    }
+)
 
 # Protect only mutable Claude paths, not the potentially large native discovery
 # tree.  The neutral root contains the journal and every migration destination.

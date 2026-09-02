@@ -57,6 +57,7 @@ GITIGNORE_ENTRIES = (
     ".claude-kit.bak-*/",
     ".claude.bak-*/",
     ".claude-kit-txn-*/",
+    ".claude-kit-managed-execution.lock",
     "*.claude-kit",
     _LEGACY_STATE_LAYOUT.journal,
 )

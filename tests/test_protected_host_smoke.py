@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from claude_kit.models import INIT_OPTIONS_SCHEMA
 from scripts import protected_host_smoke as smoke
 
 ROOT = Path(__file__).parents[1]
@@ -68,7 +69,9 @@ if args == ["--version"]:
     print("codex-cli 0.147.0")
     raise SystemExit(0)
 if args[:2] == ["features", "list"]:
-    assert present == ["OPENAI_API_KEY"]
+    # Compatibility discovery is local and must remain credential-free. The
+    # provider credential belongs only to the later native execution process.
+    assert present == []
     disabled = [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--disable"]
     record({{
         "kind": "features",
@@ -320,6 +323,7 @@ def test_prepare_uses_exact_both_scaffold_and_real_native_components(
     project = prepared_root / "project"
     control = _control(prepared_root)
 
+    assert smoke.INIT_OPTIONS_SCHEMA_VERSION == INIT_OPTIONS_SCHEMA
     assert control["scaffold"]["runtimes"] == ["claude", "codex"]
     assert control["scaffold"]["state_root"] == ".ckit"
     inventory = control["scaffold"]["selected_native_inventory"]
