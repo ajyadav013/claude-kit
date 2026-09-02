@@ -60,8 +60,8 @@ def _frontmatter(path: Path) -> tuple[dict, str]:
 def test_complete_agent_surface_is_canonical(payload: Path) -> None:
     records = discover_canonical_agents(payload)
 
-    assert len(records) == 40
-    assert sum(record.kind is AgentSourceKind.CORE for record in records) == 29
+    assert len(records) == 42
+    assert sum(record.kind is AgentSourceKind.CORE for record in records) == 31
     assert sum(record.kind is AgentSourceKind.STACK for record in records) == 5
     assert sum(record.kind is AgentSourceKind.ORG for record in records) == 6
     assert {
@@ -72,6 +72,78 @@ def test_complete_agent_surface_is_canonical(payload: Path) -> None:
     ]
     assert {record.stack_dir for record in migrations} == {"db/mongodb", "db/postgres"}
     assert migrations[0].spec.instructions != migrations[1].spec.instructions
+
+
+def test_maker_checker_roles_are_passive_and_selected_in_every_profile(
+    payload: Path,
+) -> None:
+    role_ids = {"maker-checker-maker", "maker-checker-reviewer"}
+
+    for role_id in role_ids:
+        record = find_canonical_agent(payload, role_id, kind=AgentSourceKind.CORE)
+        assert record.spec.permission is PermissionClass.READ_ONLY
+        assert record.spec.capabilities == frozenset(
+            {Capability.FILE_READ, Capability.SEARCH}
+        )
+        assert record.spec.write_scope == ()
+        assert record.spec.nested_delegation.value == "forbidden"
+        assert record.spec.isolation.value == "none"
+
+    maker = find_canonical_agent(
+        payload, "maker-checker-maker", kind=AgentSourceKind.CORE
+    ).spec.instructions
+    assert '"kind": "document" | "unified-diff"' in maker
+    assert '"finding_dispositions"' in maker
+    reviewer = find_canonical_agent(
+        payload, "maker-checker-reviewer", kind=AgentSourceKind.CORE
+    ).spec.instructions
+    for required_field in (
+        '"verdict": "PASS" | "FAIL"',
+        '"contract_digest"',
+        '"artifact_digest"',
+        '"criteria"',
+        '"findings"',
+        '"residual_risks"',
+    ):
+        assert required_field in reviewer
+
+    for profile in ("lean", "standard", "enterprise"):
+        selection = make_selection(payload, profile=profile)
+        assert role_ids <= set(catalog.resolve(payload, selection).agents)
+
+
+def test_maker_checker_roles_project_to_native_read_only_hosts(payload: Path) -> None:
+    role_ids = {"maker-checker-maker", "maker-checker-reviewer"}
+
+    for role_id in role_ids:
+        metadata, body = _frontmatter(payload / "agents" / f"{role_id}.md")
+        assert metadata["permissionMode"] == "plan"
+        assert set(metadata["tools"].split(", ")) == {"Read", "Glob", "Grep"}
+        assert "## Semantic role contract" in body
+
+    selection = make_selection(payload, profile="lean")
+    plan = catalog.resolve(payload, selection)
+    files = tuple(
+        CodexRenderer(payload).render(
+            plan,
+            InstallRequest(selection=selection, runtime=Runtime.CODEX),
+        )
+    )
+    native = {
+        Path(item.path).stem: tomllib.loads(item.text_content)
+        for item in files
+        if item.path.startswith(".codex/agents/")
+        and Path(item.path).stem in role_ids
+    }
+
+    assert set(native) == role_ids
+    for document in native.values():
+        assert document["sandbox_mode"] == "read-only"
+        assert document["agents"]["enabled"] is False
+        assert document["features"]["multi_agent"] is False
+        assert "shell" not in document["developer_instructions"].split(
+            "## Semantic role contract", 1
+        )[1].split("\n\n", 1)[0]
 
 
 def test_every_canonical_agent_is_a_complete_leak_free_agent_spec(
