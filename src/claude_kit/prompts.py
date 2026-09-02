@@ -197,7 +197,12 @@ def _choose_many(title: str, options: list[dict[str, Any]]) -> list[str]:
     return deduped
 
 
-def _interactive_model_choice(title: str) -> ModelChoice:
+def _interactive_model_choice(
+    title: str, current: ModelChoice | None = None
+) -> ModelChoice:
+    default_kind = (
+        current.kind.value if current is not None else ModelChoiceKind.INHERIT.value
+    )
     kind = _choose_one(
         f"{title} model selection",
         [
@@ -205,11 +210,16 @@ def _interactive_model_choice(title: str) -> ModelChoice:
             {"id": "tier", "label": "Choose a semantic model tier"},
             {"id": "exact", "label": "Enter an exact provider model id"},
         ],
-        ModelChoiceKind.INHERIT.value,
+        default_kind,
     )
     if kind == ModelChoiceKind.INHERIT.value:
         return ModelChoice(ModelChoiceKind.INHERIT)
     if kind == ModelChoiceKind.TIER.value:
+        default_tier = (
+            str(current.value)
+            if current is not None and current.kind is ModelChoiceKind.TIER
+            else "balanced"
+        )
         tier = _choose_one(
             f"{title} model tier",
             [
@@ -217,13 +227,23 @@ def _interactive_model_choice(title: str) -> ModelChoice:
                 {"id": "balanced", "label": "Balanced"},
                 {"id": "deep", "label": "Deep"},
             ],
-            "balanced",
+            default_tier,
         )
         return ModelChoice(ModelChoiceKind.TIER, tier)
 
     while True:
         try:
-            value = input(f"{title} exact model id: ").strip()
+            current_exact = (
+                str(current.value)
+                if current is not None and current.kind is ModelChoiceKind.EXACT
+                else ""
+            )
+            prompt = f"{title} exact model id"
+            value = (
+                _ask(prompt, current_exact)
+                if current_exact
+                else input(f"{prompt}: ").strip()
+            )
         except EOFError:
             return ModelChoice(ModelChoiceKind.INHERIT)
         try:
@@ -232,9 +252,12 @@ def _interactive_model_choice(title: str) -> ModelChoice:
             print(f"  {exc}")
 
 
-def _interactive_max_revisions() -> int:
+def _interactive_max_revisions(current: int | None = None) -> int:
     while True:
-        raw = _ask("Maximum maker/reviewer revisions (0-3)", "2")
+        raw = _ask(
+            "Maximum maker/reviewer revisions (0-3)",
+            str(2 if current is None else current),
+        )
         try:
             value = int(raw)
         except ValueError:
@@ -245,7 +268,11 @@ def _interactive_max_revisions() -> int:
         print("  please enter an integer from 0 to 3")
 
 
-def interactive_execution(runtime: str | Runtime) -> ExecutionPolicy | None:
+def interactive_execution(
+    runtime: str | Runtime,
+    *,
+    current: ExecutionPolicy | None = None,
+) -> ExecutionPolicy | None:
     """Prompt separately for an optional maker/reviewer execution policy.
 
     EOF and an empty response retain the current single-host behavior. Provider
@@ -253,7 +280,9 @@ def interactive_execution(runtime: str | Runtime) -> ExecutionPolicy | None:
     """
 
     installed_runtime = Runtime.parse(runtime)
-    if not _ask_bool("Configure a maker + reviewer model pair?", False):
+    if current is not None:
+        current.validate_providers(installed_runtime.providers)
+    if not _ask_bool("Configure a maker + reviewer model pair?", current is not None):
         return None
 
     provider_options = [
@@ -263,22 +292,42 @@ def interactive_execution(runtime: str | Runtime) -> ExecutionPolicy | None:
         }
         for provider in installed_runtime.providers
     ]
-    maker_default = installed_runtime.providers[0]
-    reviewer_default = (
-        Runtime.CODEX.value
-        if Runtime.CODEX.value in installed_runtime.providers
+    maker_default = (
+        current.maker.provider.value
+        if current is not None
         else installed_runtime.providers[0]
     )
+    reviewer_default = (
+        current.reviewer.provider.value
+        if current is not None
+        else (
+            Runtime.CODEX.value
+            if Runtime.CODEX.value in installed_runtime.providers
+            else installed_runtime.providers[0]
+        )
+    )
     maker_provider = _choose_one("Maker provider", provider_options, maker_default)
-    maker_model = _interactive_model_choice("Maker")
+    maker_model = _interactive_model_choice(
+        "Maker",
+        current.maker.model
+        if current is not None and maker_provider == current.maker.provider.value
+        else None,
+    )
     reviewer_provider = _choose_one(
         "Reviewer provider", provider_options, reviewer_default
     )
-    reviewer_model = _interactive_model_choice("Reviewer")
+    reviewer_model = _interactive_model_choice(
+        "Reviewer",
+        current.reviewer.model
+        if current is not None and reviewer_provider == current.reviewer.provider.value
+        else None,
+    )
     policy = ExecutionPolicy(
         maker=WorkerBinding(Runtime.parse(maker_provider), maker_model),
         reviewer=WorkerBinding(Runtime.parse(reviewer_provider), reviewer_model),
-        max_revisions=_interactive_max_revisions(),
+        max_revisions=_interactive_max_revisions(
+            current.max_revisions if current is not None else None
+        ),
     )
     policy.validate_providers(installed_runtime.providers)
     return policy

@@ -7,7 +7,13 @@ import sys
 import pytest
 
 from claude_kit import catalog, prompts
-from claude_kit.models import ModelChoiceKind, Runtime
+from claude_kit.models import (
+    ExecutionPolicy,
+    ModelChoice,
+    ModelChoiceKind,
+    Runtime,
+    WorkerBinding,
+)
 
 
 def _write(tmp_path, body: str):
@@ -247,6 +253,25 @@ def test_interactive_execution_collects_distinct_model_choices(monkeypatch):
         "value": "gpt-5.6-codex",
     }
     assert policy.max_revisions == 3
+
+
+def test_interactive_execution_prefills_current_policy(monkeypatch):
+    current = ExecutionPolicy(
+        maker=WorkerBinding(
+            Runtime.CODEX,
+            ModelChoice(ModelChoiceKind.EXACT, "gpt-maker"),
+        ),
+        reviewer=WorkerBinding(
+            Runtime.CLAUDE,
+            ModelChoice(ModelChoiceKind.TIER, "deep"),
+        ),
+        max_revisions=1,
+    )
+    _feed(monkeypatch, ["", "", "", "", "", "", "", ""])
+
+    policy = prompts.interactive_execution(Runtime.BOTH, current=current)
+
+    assert policy == current
 
 
 def test_ask_strips_and_defaults(monkeypatch):
