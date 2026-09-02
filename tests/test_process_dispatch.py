@@ -770,6 +770,32 @@ def test_requested_model_is_an_exact_native_binding_and_handle_attestation(
         )
 
 
+def test_execution_slot_without_requested_model_inherits_claude_host_default(
+    tmp_path: Path,
+) -> None:
+    backend = FakeProcessBackend([_success()])
+    dispatcher = ClaudeProcessDispatcher(
+        tmp_path,
+        backend=backend,
+        role_loader=StaticRoleLoader(_role()),
+        supported_capabilities=(Capability.FILE_READ,),
+    )
+    request = DispatchRequest(
+        "reviewer",
+        "Review the bounded change.",
+        execution_slot=ExecutionSlot.REVIEWER,
+    )
+
+    handle = dispatcher.spawn(request)
+    dispatcher.wait((handle,), timeout_seconds=1)
+
+    argv = backend.started[0]["argv"]
+    assert isinstance(argv, tuple)
+    inline = json.loads(argv[argv.index("--agents") + 1])
+    assert "model" not in inline["reviewer"]
+    assert handle.requested_model is None
+
+
 def test_retry_preserves_execution_slot_and_requested_model(tmp_path: Path) -> None:
     backend = FakeProcessBackend([ProcessOutcome(2, stderr="transient"), _success()])
     dispatcher = ClaudeProcessDispatcher(

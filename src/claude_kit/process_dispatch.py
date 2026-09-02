@@ -3513,8 +3513,16 @@ class ProcessDispatcher:
         missing = required - attested
         if missing:
             raise UnsupportedCapabilityError(role.id, tuple(missing))
+        # A bound execution slot with no concrete requested model is an explicit
+        # host-default choice (``inherit`` or a provider tier mapped to null),
+        # not permission to fall back to the role's generated semantic model.
+        argv_role = (
+            replace(role, native_model=None)
+            if request.execution_slot is not None and request.requested_model is None
+            else role
+        )
         argv = self._argv_for_request(
-            role,
+            argv_role,
             workspace,
             request.requested_model,
         )
