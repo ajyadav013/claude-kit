@@ -80,6 +80,7 @@ profiles:
     skills:
       - sdlc
       - execute
+      - maker-checker
       - incremental-implementation
       - test-driven-development
       - debugging-and-error-recovery

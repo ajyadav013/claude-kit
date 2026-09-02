@@ -225,7 +225,8 @@ sibling fired either. When the request is theirs, invoke them by name: `sprint`,
 **Why these particular skills need naming.** Many of them — `api-integration`, `component-design`,
 `performance-optimization`, `manual-test`, `smoke-test`, `security-verification`, `sprint`,
 `unit-test`, `ui-ux-design`, `playwright-verification`, `refresh-docs`, `triage`, `scope`,
-`backlog`, `archive-sprint`, `decision` — carry `disable-model-invocation: true`, which means they
+`backlog`, `archive-sprint`, `decision`, `maker-checker` — carry
+`disable-model-invocation: true`, which means they
 never surface on their own the way an ordinary skill does. That is a deliberate design choice, not
 a bug, and it is **not** a prohibition: invoke one by name and it runs normally. It only means the
 picker will never volunteer it, so if this section does not name it, nothing will.

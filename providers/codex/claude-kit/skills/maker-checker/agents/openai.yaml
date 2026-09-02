@@ -1,0 +1,6 @@
+interface:
+  display_name: Maker Checker
+  short_description: Run an explicitly requested task through the configured maker
+    and...
+policy:
+  allow_implicit_invocation: false
