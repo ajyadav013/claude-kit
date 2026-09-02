@@ -23,7 +23,7 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import (
@@ -3357,6 +3357,19 @@ class ProcessDispatcher:
     ) -> tuple[str, ...]:  # pragma: no cover - abstract guard
         raise NotImplementedError
 
+    def _argv_for_request(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
+        """Bind an exact model without breaking legacy adapter subclasses."""
+        if requested_model is not None:
+            raise DispatchAdapterError(
+                "this process adapter cannot attest an exact requested_model"
+            )
+        return self._argv(role, workspace)
+
     def _enforceable_capabilities(
         self, role: NativeRoleDefinition
     ) -> frozenset[Capability]:  # pragma: no cover - abstract guard
@@ -3500,7 +3513,11 @@ class ProcessDispatcher:
         missing = required - attested
         if missing:
             raise UnsupportedCapabilityError(role.id, tuple(missing))
-        argv = self._argv(role, workspace)
+        argv = self._argv_for_request(
+            role,
+            workspace,
+            request.requested_model,
+        )
         handle = DispatchHandle(
             dispatch_id or str(uuid.uuid4()),
             role.id,
@@ -3508,6 +3525,8 @@ class ProcessDispatcher:
             provider=self.provider.value,
             required_capabilities=tuple(required),
             attested_capabilities=tuple(attested),
+            execution_slot=request.execution_slot,
+            requested_model=request.requested_model,
         )
         workspace_context = self._workspace_prompt_context(
             role,
@@ -3539,6 +3558,8 @@ class ProcessDispatcher:
                 ),
                 required_capabilities=request.required_capabilities,
                 workspace=request.workspace,
+                execution_slot=request.execution_slot,
+                requested_model=request.requested_model,
             )
         )
         prompt = self._prompt(prompt_request, role)
@@ -4058,6 +4079,19 @@ class ClaudeProcessDispatcher(ProcessDispatcher):
             )
         return tuple(argv)
 
+    def _argv_for_request(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
+        bound_role = (
+            role
+            if requested_model is None
+            else replace(role, native_model=requested_model)
+        )
+        return self._argv(bound_role, workspace)
+
     def _enforceable_capabilities(
         self, role: NativeRoleDefinition
     ) -> frozenset[Capability]:
@@ -4100,7 +4134,29 @@ class CodexProcessDispatcher(ProcessDispatcher):
         )
 
     def _argv(self, role: NativeRoleDefinition, workspace: Path) -> tuple[str, ...]:
+        return self._codex_argv(role, workspace, requested_model=None)
+
+    def _argv_for_request(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
+        return self._codex_argv(role, workspace, requested_model=requested_model)
+
+    def _codex_argv(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        *,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
         if isinstance(self.backend, CodexAppServerBackend):
+            if requested_model is not None:
+                raise DispatchAdapterError(
+                    "Codex app-server cannot attest an exact requested_model; "
+                    "use the one-shot exec backend"
+                )
             if not self._is_passive_lockdown_role(role):
                 raise DispatchAdapterError(
                     "Codex app-server is available only for passive read-only roles"
@@ -4114,28 +4170,34 @@ class CodexProcessDispatcher(ProcessDispatcher):
         argv: list[str] = [
             self.executable,
             "exec",
-            "--ephemeral",
-            "--ignore-user-config",
-            "--strict-config",
-            "--color",
-            "never",
-            "--sandbox",
-            sandbox,
-            "-c",
-            'approval_policy="never"',
-            "-c",
-            "sandbox_workspace_write.network_access=false",
-            "-c",
-            "sandbox_workspace_write.exclude_slash_tmp=true",
-            "-c",
-            "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-            "-c",
-            'shell_environment_policy.inherit="core"',
-            "-c",
-            "shell_environment_policy.ignore_default_excludes=false",
-            "-c",
-            "shell_environment_policy.experimental_use_profile=false",
         ]
+        if requested_model is not None:
+            argv.extend(("--model", requested_model))
+        argv.extend(
+            [
+                "--ephemeral",
+                "--ignore-user-config",
+                "--strict-config",
+                "--color",
+                "never",
+                "--sandbox",
+                sandbox,
+                "-c",
+                'approval_policy="never"',
+                "-c",
+                "sandbox_workspace_write.network_access=false",
+                "-c",
+                "sandbox_workspace_write.exclude_slash_tmp=true",
+                "-c",
+                "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+                "-c",
+                'shell_environment_policy.inherit="core"',
+                "-c",
+                "shell_environment_policy.ignore_default_excludes=false",
+                "-c",
+                "shell_environment_policy.experimental_use_profile=false",
+            ]
+        )
         if role.nested_delegation is NestedDelegationPolicy.FORBIDDEN:
             argv.extend(("--disable", "multi_agent", "-c", "agents.enabled=false"))
         else:

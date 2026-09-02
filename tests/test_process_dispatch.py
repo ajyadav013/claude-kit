@@ -31,6 +31,7 @@ from claude_kit.dispatch import (
     DispatchMessage,
     DispatchRequest,
     DispatchStatus,
+    ExecutionSlot,
     HumanStopReason,
     MessageKind,
 )
@@ -723,6 +724,101 @@ def test_native_dispatch_uses_stdin_safe_argv_and_exact_role(
         assert "feedback.enabled=false" in argv
         assert 'history.persistence="none"' in argv
         assert argv[-1] == "-"
+
+
+@pytest.mark.parametrize(
+    ("dispatcher_type", "provider"),
+    [
+        (ClaudeProcessDispatcher, Provider.CLAUDE),
+        (CodexProcessDispatcher, Provider.CODEX),
+    ],
+)
+def test_requested_model_is_an_exact_native_binding_and_handle_attestation(
+    tmp_path: Path, dispatcher_type, provider: Provider
+) -> None:
+    backend = FakeProcessBackend([_success()])
+    requested_model = "vendor/model:2026-preview"
+    dispatcher = dispatcher_type(
+        tmp_path,
+        backend=backend,
+        role_loader=StaticRoleLoader(_role()),
+        supported_capabilities=(Capability.FILE_READ,),
+    )
+    request = DispatchRequest(
+        "reviewer",
+        "Review the bounded change.",
+        execution_slot=ExecutionSlot.MAKER,
+        requested_model=requested_model,
+    )
+
+    handle = dispatcher.spawn(request)
+    dispatcher.wait((handle,), timeout_seconds=1)
+
+    argv = backend.started[0]["argv"]
+    assert isinstance(argv, tuple)
+    assert handle.provider == provider.value
+    assert handle.execution_slot is ExecutionSlot.MAKER
+    assert handle.requested_model == requested_model
+    if provider is Provider.CLAUDE:
+        inline = json.loads(argv[argv.index("--agents") + 1])
+        assert inline["reviewer"]["model"] == requested_model
+    else:
+        model_index = argv.index("--model")
+        assert argv[model_index : model_index + 2] == (
+            "--model",
+            requested_model,
+        )
+
+
+def test_retry_preserves_execution_slot_and_requested_model(tmp_path: Path) -> None:
+    backend = FakeProcessBackend([ProcessOutcome(2, stderr="transient"), _success()])
+    dispatcher = ClaudeProcessDispatcher(
+        tmp_path,
+        backend=backend,
+        role_loader=StaticRoleLoader(_role()),
+        supported_capabilities=(Capability.FILE_READ,),
+    )
+    request = DispatchRequest(
+        "reviewer",
+        "Review the bounded change.",
+        execution_slot=ExecutionSlot.REVIEWER,
+        requested_model="review-model",
+    )
+
+    first = dispatcher.spawn(request)
+    dispatcher.wait((first,), timeout_seconds=1)
+    retried = dispatcher.retry(first, "retry the transient host failure")
+    dispatcher.wait((retried,), timeout_seconds=1)
+
+    assert retried.execution_slot is ExecutionSlot.REVIEWER
+    assert retried.requested_model == "review-model"
+    for started in backend.started:
+        argv = started["argv"]
+        assert isinstance(argv, tuple)
+        inline = json.loads(argv[argv.index("--agents") + 1])
+        assert inline["reviewer"]["model"] == "review-model"
+
+
+def test_legacy_process_adapter_argv_override_remains_compatible(
+    tmp_path: Path,
+) -> None:
+    class LegacyArgvDispatcher(ClaudeProcessDispatcher):
+        def _argv(self, role: NativeRoleDefinition, workspace: Path) -> tuple[str, ...]:
+            del role, workspace
+            return ("legacy-host", "--bounded")
+
+    backend = FakeProcessBackend([_success()])
+    dispatcher = LegacyArgvDispatcher(
+        tmp_path,
+        backend=backend,
+        role_loader=StaticRoleLoader(_role()),
+        supported_capabilities=(Capability.FILE_READ,),
+    )
+
+    handle = dispatcher.spawn(DispatchRequest("reviewer", "Review."))
+    dispatcher.wait((handle,), timeout_seconds=1)
+
+    assert backend.started[0]["argv"] == ("legacy-host", "--bounded")
 
 
 @pytest.mark.parametrize(
@@ -1471,7 +1567,7 @@ def test_generated_claude_role_loader_preserves_every_core_semantic_contract(
         if record.kind is AgentSourceKind.CORE
     ]
 
-    assert len(core) == 29
+    assert len(core) == 31
     for record in core:
         role = loader.load(Provider.CLAUDE, record.spec.id)
         assert role.permission is record.spec.permission

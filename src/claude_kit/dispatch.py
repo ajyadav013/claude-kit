@@ -17,6 +17,7 @@ from claude_kit.components import Capability, SymbolicRef
 _ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 _MAX_PUBLIC_STOP_BYTES = 4_096
 _MAX_MESSAGE_BYTES = 65_536
+_REQUESTED_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)(\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API[_-]?KEY|PRIVATE[_-]?KEY)"
     r"[A-Z0-9_]*\b\s*[:=]\s*)([^\s,;]+)"
@@ -105,6 +106,13 @@ class WaitMode(str, Enum):
     FIRST_COMPLETED = "first-completed"
 
 
+class ExecutionSlot(str, Enum):
+    """Semantic participant selected by a provider-neutral coordinator."""
+
+    MAKER = "maker"
+    REVIEWER = "reviewer"
+
+
 class HumanStopReason(str, Enum):
     """Portable reasons a worker may require a human decision."""
 
@@ -156,6 +164,26 @@ def _capabilities(values: Sequence[Capability]) -> tuple[Capability, ...]:
     return tuple(sorted(normalized, key=lambda item: item.value))
 
 
+def _execution_slot(value: object) -> Optional[ExecutionSlot]:
+    if value is None:
+        return None
+    try:
+        return value if isinstance(value, ExecutionSlot) else ExecutionSlot(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("execution_slot must be maker or reviewer when set") from exc
+
+
+def _requested_model(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _REQUESTED_MODEL_RE.fullmatch(value):
+        raise ValueError(
+            "requested_model must be 1-128 ASCII letters, digits, or ._:/@+- "
+            "and must start with a letter or digit"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class DispatchRequest:
     """Portable request for one independently owned unit of work."""
@@ -169,6 +197,8 @@ class DispatchRequest:
     context: str = ""
     required_capabilities: tuple[Capability, ...] = ()
     workspace: Optional[str] = None
+    execution_slot: Optional[ExecutionSlot] = None
+    requested_model: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "route", _identifier(self.route, "route"))
@@ -198,6 +228,10 @@ class DispatchRequest:
             object.__setattr__(
                 self, "workspace", _required_text(self.workspace, "workspace")
             )
+        object.__setattr__(self, "execution_slot", _execution_slot(self.execution_slot))
+        object.__setattr__(
+            self, "requested_model", _requested_model(self.requested_model)
+        )
 
 
 @dataclass(frozen=True)
@@ -210,6 +244,8 @@ class DispatchHandle:
     provider: Optional[str] = None
     required_capabilities: tuple[Capability, ...] = ()
     attested_capabilities: tuple[Capability, ...] = ()
+    execution_slot: Optional[ExecutionSlot] = None
+    requested_model: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _identifier(self.id, "dispatch id"))
@@ -233,6 +269,10 @@ class DispatchHandle:
             )
         object.__setattr__(self, "required_capabilities", required)
         object.__setattr__(self, "attested_capabilities", attested)
+        object.__setattr__(self, "execution_slot", _execution_slot(self.execution_slot))
+        object.__setattr__(
+            self, "requested_model", _requested_model(self.requested_model)
+        )
 
 
 @dataclass(frozen=True)

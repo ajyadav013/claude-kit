@@ -15,6 +15,7 @@ from claude_kit.dispatch import (
     DispatchRequest,
     DispatchResult,
     DispatchStatus,
+    ExecutionSlot,
     MessageKind,
     WaitMode,
     WaitResult,
@@ -131,6 +132,63 @@ def test_wait_snapshot_requires_disjoint_handles() -> None:
 def test_dispatch_message_payload_is_bounded() -> None:
     with pytest.raises(ValueError, match="65536 UTF-8 bytes"):
         DispatchMessage(MessageKind.CONTEXT, "x" * 65_537)
+
+
+def test_dispatch_request_and_handle_preserve_exact_execution_binding() -> None:
+    request = DispatchRequest(
+        "implementation",
+        "Implement the bounded change.",
+        execution_slot="maker",  # type: ignore[arg-type]
+        requested_model="vendor/model:2026-preview",
+    )
+    handle = DispatchHandle(
+        "work-1",
+        request.route,
+        provider="claude",
+        execution_slot=request.execution_slot,
+        requested_model=request.requested_model,
+    )
+
+    assert request.execution_slot is ExecutionSlot.MAKER
+    assert handle.execution_slot is ExecutionSlot.MAKER
+    assert request.requested_model == "vendor/model:2026-preview"
+    assert handle.requested_model == request.requested_model
+
+
+@pytest.mark.parametrize(
+    "requested_model",
+    (
+        "",
+        " ",
+        " model",
+        "model ",
+        "model id",
+        "-model",
+        "mødel",
+        "model\n--dangerously-bypass-approvals-and-sandbox",
+        "model\x00suffix",
+        "x" * 129,
+    ),
+)
+def test_requested_model_is_nonempty_bounded_and_control_free(
+    requested_model: str,
+) -> None:
+    with pytest.raises(ValueError, match="requested_model"):
+        DispatchRequest(
+            "review",
+            "Review the bounded change.",
+            execution_slot=ExecutionSlot.REVIEWER,
+            requested_model=requested_model,
+        )
+
+
+def test_execution_slot_rejects_unknown_semantic_participant() -> None:
+    with pytest.raises(ValueError, match="execution_slot"):
+        DispatchRequest(
+            "review",
+            "Review the bounded change.",
+            execution_slot="critic",  # type: ignore[arg-type]
+        )
 
 
 def test_dispatch_contract_contains_no_provider_tool_identifiers() -> None:
