@@ -17,11 +17,14 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.9/3.10
 
 from claude_kit import catalog
 from claude_kit.models import (
+    ExecutionPolicy,
     FileRecord,
     InitOptions,
     InstallRequest,
+    ModelChoice,
     Runtime,
     StateLayout,
+    WorkerBinding,
 )
 from claude_kit.provider_renderers import CodexRenderer
 from claude_kit.runtime_scaffold import (
@@ -34,6 +37,13 @@ from claude_kit.runtime_scaffold import (
 )
 
 _LEGACY_TEMPLATE_PATH = ".ckit/artifacts/templates/adr.md"
+
+
+def _maker_checker_policy() -> ExecutionPolicy:
+    return ExecutionPolicy(
+        maker=WorkerBinding("claude", ModelChoice("tier", "deep")),
+        reviewer=WorkerBinding("codex", ModelChoice("exact", "gpt-reviewer")),
+    )
 
 
 def _add_legacy_template_record(
@@ -119,6 +129,27 @@ def test_fresh_native_runtime_install_has_one_neutral_control_plane(
     )
     assert snapshot["gate_definition_digest"] == plan.gate_definition_digest
     assert snapshot["gates"] == plan.gates
+
+
+def test_native_install_persists_one_shared_execution_policy(payload, tmp_path):
+    target = tmp_path / "maker-checker"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    policy = _maker_checker_policy()
+
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, Runtime.BOTH, policy),
+    )
+
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert options.execution_policy == policy
+    assert not (target / ".claude/config/maker-checker.yaml").exists()
+    assert not (target / ".codex/config/maker-checker.yaml").exists()
 
 
 def test_dual_runtime_has_no_redundant_shared_template_projection(payload, tmp_path):
@@ -743,6 +774,36 @@ def test_provider_removal_requires_confirmation(payload, tmp_path):
     assert (target / ".claude").is_dir()
     assert (target / ".codex").is_dir()
     assert not list(target.glob(".ckit.bak-*"))
+
+
+def test_runtime_transition_refuses_to_remove_a_configured_worker_provider(
+    payload, tmp_path
+):
+    target = tmp_path / "configured-both"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    policy = _maker_checker_policy()
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, Runtime.BOTH, policy),
+    )
+
+    with pytest.raises(ValueError, match="reviewer provider 'codex' is not installed"):
+        transition_runtime(
+            payload,
+            target,
+            plan,
+            InstallRequest(selection, Runtime.CLAUDE, policy),
+            confirm_removal=True,
+        )
+
+    options = InitOptions.from_dict(
+        json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+    assert options.runtime is Runtime.BOTH
+    assert options.execution_policy == policy
 
 
 def test_plain_install_cannot_bypass_explicit_runtime_transition(payload, tmp_path):

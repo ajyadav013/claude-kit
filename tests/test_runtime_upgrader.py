@@ -7,13 +7,27 @@ import json
 import pytest
 
 from claude_kit import catalog, upgrader
-from claude_kit.models import InitOptions, InstallRequest, StateLayout
+from claude_kit.models import (
+    ExecutionPolicy,
+    InitOptions,
+    InstallRequest,
+    ModelChoice,
+    StateLayout,
+    WorkerBinding,
+)
 from claude_kit.runtime_scaffold import install_runtime, transition_runtime
 
 
 def _options(target):
     return InitOptions.from_dict(
         json.loads((target / StateLayout.neutral().manifest).read_text())
+    )
+
+
+def _maker_checker_policy() -> ExecutionPolicy:
+    return ExecutionPolicy(
+        maker=WorkerBinding("claude", ModelChoice("exact", "claude-maker")),
+        reviewer=WorkerBinding("codex", ModelChoice("exact", "codex-reviewer")),
     )
 
 
@@ -36,6 +50,51 @@ def test_plain_native_upgrade_preserves_installed_runtime(payload, tmp_path):
     assert _options(target).runtimes == ["codex"]
     assert not (target / ".claude").exists()
     assert (target / ".codex/agents/orchestrator.toml").is_file()
+
+
+def test_native_upgrade_preserves_execution_policy(payload, tmp_path):
+    target = tmp_path / "configured"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    policy = _maker_checker_policy()
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, "both", policy),
+    )
+
+    diff_ok, diff_messages = upgrader.diff(target)
+    upgrade_ok, upgrade_messages = upgrader.upgrade(target)
+
+    assert diff_ok, diff_messages
+    assert upgrade_ok, upgrade_messages
+    assert _options(target).execution_policy == policy
+
+
+def test_native_upgrade_refuses_runtime_removal_referenced_by_execution_policy(
+    payload, tmp_path
+):
+    target = tmp_path / "configured-removal"
+    selection = catalog.defaults(payload)
+    plan = catalog.resolve(payload, selection)
+    policy = _maker_checker_policy()
+    install_runtime(
+        payload,
+        target,
+        plan,
+        InstallRequest(selection, "both", policy),
+    )
+
+    ok, messages = upgrader.upgrade(
+        target,
+        runtime="claude",
+        confirm_runtime_removal=True,
+    )
+
+    assert not ok
+    assert "reviewer provider 'codex' is not installed" in "\n".join(messages)
+    assert _options(target).runtime.value == "both"
 
 
 def test_native_upgrade_adds_a_runtime_without_a_second_state_root(payload, tmp_path):

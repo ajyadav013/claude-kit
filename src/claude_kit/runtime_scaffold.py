@@ -368,7 +368,9 @@ def render_runtime_artifacts(
 
     prepared = _prepared_plan(plan, target)
     prepared_request = InstallRequest(
-        selection=prepared.selection, runtime=request.runtime
+        selection=prepared.selection,
+        runtime=request.runtime,
+        execution_policy=request.execution_policy,
     )
     projection = compile_runtime_projection(source, prepared, prepared_request)
     artifacts = [RuntimeArtifact.from_projection(item) for item in projection.files]
@@ -730,6 +732,7 @@ def _manifest(
     projection: ProjectionPlan,
     installed: Iterable[tuple[RuntimeArtifact, str, bytes]],
     *,
+    request: InstallRequest,
     preserved_records: Iterable[FileRecord] = (),
 ) -> bytes:
     records = [
@@ -758,6 +761,7 @@ def _manifest(
         state_layout=StateLayout.neutral(),
         rendering_version=max(projection.rendering_versions.values()),
         compatibility_catalog_versions=projection.compatibility_catalog_versions,
+        execution_policy=request.execution_policy,
     )
     return (json.dumps(options.to_dict(), indent=2) + "\n").encode("utf-8")
 
@@ -874,6 +878,7 @@ def _apply_runtime_files(
     projection: ProjectionPlan,
     artifacts: Iterable[RuntimeArtifact],
     *,
+    request: InstallRequest,
     force: bool,
     old_records: dict[str, FileRecord] | None = None,
 ) -> list[str]:
@@ -943,6 +948,7 @@ def _apply_runtime_files(
         plan,
         projection,
         installed,
+        request=request,
         preserved_records=(
             record
             for record in previous.values()
@@ -1086,6 +1092,7 @@ def _install_runtime_transaction(
                 plan,
                 projection,
                 artifacts,
+                request=request,
                 force=force,
             )
         )
@@ -1225,6 +1232,7 @@ def transition_runtime(
                     plan,
                     projection,
                     artifacts,
+                    request=request,
                     force=force,
                     old_records=old_records,
                 )

@@ -313,7 +313,11 @@ def _native_diff(fs: ProjectFS) -> tuple[bool, list[str]]:
         with ExitStack() as stack:
             src = scaffold.payload_dir(stack)
             plan = catalog.resolve(src, options.selection)
-            request = InstallRequest(options.selection, options.runtime)
+            request = InstallRequest(
+                options.selection,
+                options.runtime,
+                options.execution_policy,
+            )
             projection, desired = preview_runtime_install(src, fs.root, plan, request)
     except (
         FileNotFoundError,
@@ -366,7 +370,11 @@ def _native_upgrade(
         with ExitStack() as stack:
             source = scaffold.payload_dir(stack)
             plan = catalog.resolve(source, options.selection)
-            request = InstallRequest(options.selection, selected)
+            request = InstallRequest(
+                options.selection,
+                selected,
+                options.execution_policy,
+            )
             if selected is options.runtime:
                 log = install_runtime(source, fs.root, plan, request, force=force)
             else:

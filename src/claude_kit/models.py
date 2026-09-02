@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import PurePosixPath
 from typing import Any
 
-from claude_kit.components import MCPServerSpec
+from claude_kit.components import MCPServerSpec, ModelTier
 
 #: Schema version of the persisted runtime-neutral ``init-options.json`` document.
-INIT_OPTIONS_SCHEMA = 2
+INIT_OPTIONS_SCHEMA = 3
 
 #: Filename (under ``.claude/config/``) of the transactional upgrade journal.
 UPGRADE_JOURNAL = "upgrade-in-progress.json"
@@ -78,6 +79,209 @@ class Runtime(str, Enum):
             return cls.BOTH
         raise ValueError(
             "runtimes must contain claude, codex, or both concrete providers exactly once"
+        )
+
+
+class ModelChoiceKind(str, Enum):
+    """How an execution worker's native model is selected."""
+
+    INHERIT = "inherit"
+    TIER = "tier"
+    EXACT = "exact"
+
+
+_NATIVE_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")
+
+
+@dataclass(frozen=True)
+class ModelChoice:
+    """Provider-bound model choice kept outside the canonical catalog.
+
+    Semantic tiers remain portable. Exact ids are user configuration consumed
+    only by the selected provider adapter, while ``inherit`` leaves selection
+    to that host.
+    """
+
+    kind: ModelChoiceKind
+    value: str | ModelTier | None = None
+
+    def __post_init__(self) -> None:
+        try:
+            kind = (
+                self.kind
+                if isinstance(self.kind, ModelChoiceKind)
+                else ModelChoiceKind(str(self.kind).strip().lower())
+            )
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in ModelChoiceKind)
+            raise ValueError(f"model choice kind must be one of: {allowed}") from exc
+
+        raw_value = self.value
+        if kind is ModelChoiceKind.INHERIT:
+            if raw_value is not None:
+                raise ValueError("inherit model choice must not define a value")
+            value: str | None = None
+        elif kind is ModelChoiceKind.TIER:
+            if raw_value is None:
+                raise ValueError("tier model choice requires a value")
+            try:
+                value = (
+                    raw_value.value
+                    if isinstance(raw_value, ModelTier)
+                    else ModelTier(str(raw_value).strip().lower()).value
+                )
+            except ValueError as exc:
+                allowed = ", ".join(item.value for item in ModelTier)
+                raise ValueError(f"model tier must be one of: {allowed}") from exc
+        else:
+            if not isinstance(raw_value, str):
+                raise ValueError(
+                    "exact model choice requires a safe non-empty model id"
+                )
+            value = raw_value.strip()
+            if not _NATIVE_MODEL_ID_RE.fullmatch(value):
+                raise ValueError(
+                    "exact model id must be 1-128 ASCII letters, digits, or ._:/@+- "
+                    "and must start with a letter or digit"
+                )
+
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "value", value)
+
+    def to_dict(self) -> dict[str, str]:
+        """Return the strict persisted representation."""
+        document = {"kind": self.kind.value}
+        if self.value is not None:
+            document["value"] = self.value
+        return document
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ModelChoice:
+        """Parse a model choice, rejecting unknown fields."""
+        if not isinstance(data, dict):
+            raise ValueError("model choice must be an object")
+        unknown = set(data) - {"kind", "value"}
+        if unknown:
+            raise ValueError(
+                "unknown model choice field(s): " + ", ".join(sorted(map(str, unknown)))
+            )
+        if "kind" not in data:
+            raise ValueError("model choice requires kind")
+        return cls(kind=data["kind"], value=data.get("value"))
+
+
+@dataclass(frozen=True)
+class WorkerBinding:
+    """Concrete native provider plus its model-selection policy."""
+
+    provider: Runtime
+    model: ModelChoice
+
+    def __post_init__(self) -> None:
+        try:
+            provider = Runtime.parse(self.provider)
+        except ValueError as exc:
+            raise ValueError(
+                "worker binding requires provider claude or codex"
+            ) from exc
+        if provider is Runtime.BOTH:
+            raise ValueError("worker binding requires a concrete provider, never both")
+        if not isinstance(self.model, ModelChoice):
+            raise ValueError("worker binding model must be a ModelChoice")
+        object.__setattr__(self, "provider", provider)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the strict persisted representation."""
+        return {"provider": self.provider.value, "model": self.model.to_dict()}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WorkerBinding:
+        """Parse a worker binding, rejecting unknown fields."""
+        if not isinstance(data, dict):
+            raise ValueError("worker binding must be an object")
+        unknown = set(data) - {"provider", "model"}
+        if unknown:
+            raise ValueError(
+                "unknown worker binding field(s): "
+                + ", ".join(sorted(map(str, unknown)))
+            )
+        if "provider" not in data or "model" not in data:
+            raise ValueError("worker binding requires provider and model")
+        if not isinstance(data["model"], dict):
+            raise ValueError("worker binding model must be an object")
+        return cls(
+            provider=data["provider"],
+            model=ModelChoice.from_dict(data["model"]),
+        )
+
+
+@dataclass(frozen=True)
+class ExecutionPolicy:
+    """Bounded maker/reviewer defaults for future managed executions."""
+
+    maker: WorkerBinding
+    reviewer: WorkerBinding
+    strategy: str = "maker-reviewer"
+    max_revisions: int = 2
+
+    def __post_init__(self) -> None:
+        if self.strategy != "maker-reviewer":
+            raise ValueError("execution strategy must be 'maker-reviewer'")
+        if not isinstance(self.maker, WorkerBinding) or not isinstance(
+            self.reviewer, WorkerBinding
+        ):
+            raise ValueError(
+                "execution policy maker and reviewer must be worker bindings"
+            )
+        if (
+            not isinstance(self.max_revisions, int)
+            or isinstance(self.max_revisions, bool)
+            or not 0 <= self.max_revisions <= 3
+        ):
+            raise ValueError("execution max_revisions must be an integer from 0 to 3")
+
+    def validate_providers(self, providers: tuple[str, ...] | list[str]) -> None:
+        """Require every worker to use one of the installed native providers."""
+        installed = set(Runtime.from_providers(providers).providers)
+        for role, binding in (("maker", self.maker), ("reviewer", self.reviewer)):
+            if binding.provider.value not in installed:
+                rendered = ", ".join(sorted(installed))
+                raise ValueError(
+                    f"{role} provider {binding.provider.value!r} is not installed "
+                    f"(installed: {rendered})"
+                )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the strict persisted representation."""
+        return {
+            "strategy": self.strategy,
+            "maker": self.maker.to_dict(),
+            "reviewer": self.reviewer.to_dict(),
+            "max_revisions": self.max_revisions,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ExecutionPolicy:
+        """Parse an execution policy, rejecting unknown or missing fields."""
+        if not isinstance(data, dict):
+            raise ValueError("execution policy must be an object")
+        known = {"strategy", "maker", "reviewer", "max_revisions"}
+        unknown = set(data) - known
+        if unknown:
+            raise ValueError(
+                "unknown execution policy field(s): "
+                + ", ".join(sorted(map(str, unknown)))
+            )
+        missing = {"strategy", "maker", "reviewer"} - set(data)
+        if missing:
+            raise ValueError(
+                "execution policy missing field(s): " + ", ".join(sorted(missing))
+            )
+        return cls(
+            strategy=data["strategy"],
+            maker=WorkerBinding.from_dict(data["maker"]),
+            reviewer=WorkerBinding.from_dict(data["reviewer"]),
+            max_revisions=data.get("max_revisions", 2),
         )
 
 
@@ -341,15 +545,21 @@ class InstallRequest:
 
     The resolver consumes :attr:`selection` exactly as it did before.  The
     projection compiler consumes :attr:`runtime`, preventing provider concerns
-    from leaking into the stack/profile catalog.
+    from leaking into the stack/profile catalog. Optional maker/reviewer defaults
+    cross the same post-resolution seam in :attr:`execution_policy`.
     """
 
     selection: Selection
     runtime: Runtime = Runtime.CLAUDE
+    execution_policy: ExecutionPolicy | None = None
 
     def __post_init__(self) -> None:
         """Normalize string construction while retaining a typed public API."""
         object.__setattr__(self, "runtime", Runtime.parse(self.runtime))
+        if self.execution_policy is not None:
+            if not isinstance(self.execution_policy, ExecutionPolicy):
+                raise ValueError("execution_policy must be an ExecutionPolicy when set")
+            self.execution_policy.validate_providers(self.runtime.providers)
 
     @property
     def runtimes(self) -> tuple[str, ...]:
@@ -680,6 +890,7 @@ class InitOptions:
         claude_kit_version: Kit version that produced the install.
         selection: The user's resolved choices.
         files: Per-file checksum + ownership records (drives ``diff``/``upgrade``).
+        execution_policy: Optional provider/model defaults for maker/reviewer execution.
         schema_version: Document schema version (:data:`INIT_OPTIONS_SCHEMA`).
     """
 
@@ -692,6 +903,7 @@ class InitOptions:
     compatibility_catalog_versions: dict[str, int] = field(
         default_factory=lambda: {Runtime.CLAUDE.value: 1}
     )
+    execution_policy: ExecutionPolicy | None = None
     schema_version: int = INIT_OPTIONS_SCHEMA
 
     def __post_init__(self) -> None:
@@ -716,6 +928,10 @@ class InitOptions:
             for version in self.compatibility_catalog_versions.values()
         ):
             raise ValueError("compatibility catalog versions must be positive integers")
+        if self.execution_policy is not None:
+            if not isinstance(self.execution_policy, ExecutionPolicy):
+                raise ValueError("execution_policy must be an ExecutionPolicy when set")
+            self.execution_policy.validate_providers(self.runtimes)
 
     @property
     def runtime(self) -> Runtime:
@@ -733,6 +949,11 @@ class InitOptions:
             "state_layout": self.state_layout.to_dict(),
             "rendering_version": self.rendering_version,
             "compatibility_catalog_versions": dict(self.compatibility_catalog_versions),
+            "execution": (
+                self.execution_policy.to_dict()
+                if self.execution_policy is not None
+                else None
+            ),
         }
 
     @classmethod
@@ -755,6 +976,7 @@ class InitOptions:
         state_layout: StateLayout
         rendering_version: int
         compatibility_versions: dict[str, int]
+        execution_policy: ExecutionPolicy | None = None
         if schema_version == 1:
             runtimes = [Runtime.CLAUDE.value]
             state_layout = StateLayout.legacy_claude()
@@ -789,6 +1011,14 @@ class InitOptions:
                 str(key): int(value)
                 for key, value in raw_compatibility_versions.items()
             }
+            if schema_version >= 3:
+                raw_execution = data.get("execution")
+                if raw_execution is not None:
+                    if not isinstance(raw_execution, dict):
+                        raise ValueError(
+                            "init-options execution must be an object or null"
+                        )
+                    execution_policy = ExecutionPolicy.from_dict(raw_execution)
         return cls(
             claude_kit_version=str(data.get("claude_kit_version", "")),
             selection=Selection.from_dict(selection),
@@ -797,6 +1027,7 @@ class InitOptions:
             state_layout=state_layout,
             rendering_version=rendering_version,
             compatibility_catalog_versions=compatibility_versions,
+            execution_policy=execution_policy,
             schema_version=INIT_OPTIONS_SCHEMA,
         )
 

@@ -7,6 +7,7 @@ import sys
 import pytest
 
 from claude_kit import catalog, prompts
+from claude_kit.models import ModelChoiceKind, Runtime
 
 
 def _write(tmp_path, body: str):
@@ -37,6 +38,70 @@ def test_unknown_config_key_is_rejected(tmp_path, payload):
     cfg = _write(tmp_path, "databse: postgres\n")
     with pytest.raises(ValueError, match="unknown config key"):
         prompts.from_config(cfg, payload)
+
+
+def test_execution_config_is_parsed_separately_from_selection(tmp_path, payload):
+    cfg = _write(
+        tmp_path,
+        """runtime: both
+execution:
+  strategy: maker-reviewer
+  maker:
+    provider: claude
+    model: {kind: tier, value: deep}
+  reviewer:
+    provider: codex
+    model: {kind: exact, value: gpt-5.6-codex}
+  max_revisions: 3
+""",
+    )
+
+    selection = prompts.from_config(cfg, payload)
+    policy = prompts.execution_from_config(cfg, Runtime.BOTH)
+
+    assert not hasattr(selection, "execution")
+    assert policy is not None
+    assert policy.maker.provider is Runtime.CLAUDE
+    assert policy.maker.model.kind is ModelChoiceKind.TIER
+    assert policy.reviewer.provider is Runtime.CODEX
+    assert policy.reviewer.model.value == "gpt-5.6-codex"
+    assert policy.max_revisions == 3
+
+
+def test_execution_config_is_optional(tmp_path):
+    cfg = _write(tmp_path, "runtime: claude\n")
+
+    assert prompts.execution_from_config(cfg, Runtime.CLAUDE) is None
+
+
+@pytest.mark.parametrize(
+    "body, message",
+    [
+        ("execution: []\n", "execution.*object"),
+        (
+            """execution:
+  strategy: maker-reviewer
+  maker: {provider: claude, model: {kind: inherit}}
+  reviewer: {provider: claude, model: {kind: inherit}}
+  surprise: true
+""",
+            "unknown execution policy",
+        ),
+        (
+            """execution:
+  strategy: maker-reviewer
+  maker: {provider: claude, model: {kind: inherit}}
+  reviewer: {provider: codex, model: {kind: inherit}}
+""",
+            "reviewer provider 'codex' is not installed",
+        ),
+    ],
+)
+def test_execution_config_fails_closed(body, message, tmp_path):
+    cfg = _write(tmp_path, body)
+
+    with pytest.raises(ValueError, match=message):
+        prompts.execution_from_config(cfg, Runtime.CLAUDE)
 
 
 def test_non_string_unknown_config_key_is_reported_cleanly(tmp_path, payload):
@@ -134,6 +199,54 @@ def _tty(monkeypatch, is_tty: bool) -> None:
     not consent) — tests that emulate a human at a terminal must say so explicitly.
     """
     monkeypatch.setattr(sys.stdin, "isatty", lambda: is_tty)
+
+
+def test_interactive_execution_is_opt_in_and_eof_safe(monkeypatch):
+    def eof(_prompt: str = "") -> str:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+
+    assert prompts.interactive_execution(Runtime.BOTH) is None
+
+
+def test_interactive_execution_only_offers_installed_providers(monkeypatch, capsys):
+    _feed(monkeypatch, ["y", "", "", "", "", ""])
+
+    policy = prompts.interactive_execution(Runtime.CLAUDE)
+
+    assert policy is not None
+    assert policy.maker.provider is Runtime.CLAUDE
+    assert policy.reviewer.provider is Runtime.CLAUDE
+    assert policy.maker.model.kind is ModelChoiceKind.INHERIT
+    assert policy.max_revisions == 2
+    assert "Codex" not in capsys.readouterr().out
+
+
+def test_interactive_execution_collects_distinct_model_choices(monkeypatch):
+    _feed(
+        monkeypatch,
+        [
+            "y",
+            "claude",
+            "tier",
+            "deep",
+            "codex",
+            "exact",
+            "gpt-5.6-codex",
+            "3",
+        ],
+    )
+
+    policy = prompts.interactive_execution(Runtime.BOTH)
+
+    assert policy is not None
+    assert policy.maker.model.to_dict() == {"kind": "tier", "value": "deep"}
+    assert policy.reviewer.model.to_dict() == {
+        "kind": "exact",
+        "value": "gpt-5.6-codex",
+    }
+    assert policy.max_revisions == 3
 
 
 def test_ask_strips_and_defaults(monkeypatch):
