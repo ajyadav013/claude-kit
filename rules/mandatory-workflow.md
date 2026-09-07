@@ -144,7 +144,8 @@ Phase 1 — Planning (Stages 0-3)   ║  Phase 2 — Development (4-5)   ║  Ph
 [0] Orchestrator receives request ║  [4] Developer writes code      ║  [6a] Unit Tester ─┐
 1a→1b→1c→1d→1e→1f ─────────────────╬──► 2a→2b→2c→2d ────────────────╬──► [6b] E2E Tester ─┤ (parallel)
 Understand→Clarify→Spec→Dev docs  ║  Read→Implement→Quality gate    ║  3a→3b→3c→3d
-→ EM review → Story breakdown      ║  → Code review                  ║  → Security → DevOps/Obs → PR → Human
+→ parallel review → EM decision   ║  → Code review                  ║  → Security → DevOps/Obs → PR → Human
+→ Story breakdown                 ║                                 ║
 ```
 
 **Pipeline rules:**
@@ -182,25 +183,34 @@ steps, error handling, edge-case mapping, non-functional requirements, and a spe
 table (each requirement → implementation approach → files).
 **Gate:** the spec file now covers all requirements with an implementation approach.
 
-## 1e — EM Review & Approval `[EM Reviewer]`
-A skeptical Engineering Manager reviews the dev docs for completeness, quality (simplest
-approach, no over/under-engineering), non-functional concerns, and architecture fit.
-Feedback loops with the Dev Doc Writer, **max 3 iterations**, then escalate.
-**Gate:** EM signals `APPROVED`. The story breakdown CANNOT start without it.
+## 1e — Blind Planning Review Panel `[Senior Reviewers + Architect + Devil's Advocate]`
 
-## 1e.5 — Plan Critique `[Devil's Advocate]` *(standard+)*
-Before EM approval is treated as final, the Orchestrator spawns the `devils-advocate` agent once on the
-spec + developer documentation. It argues the plan is wrong: the weakest or most-volatile requirement,
-an untestable acceptance criterion, a hidden dependency, a missing requirement, unjustified scope, the
-step most likely to fail. It also runs a **premortem** (assume this shipped and failed — likeliest
-cause, earliest signal) and returns a **merits-and-costs balance sheet**, so the plan can be weighed
-rather than merely attacked. An **UPHELD** verdict (any Critical/High/Medium) routes back to the Spec /
-Dev Doc Writer and the gate stays open; **CONFIRMED** lets planning proceed, as does
-**CONFIRMED-WITH-COSTS** — whose named trade-offs carry forward into the story breakdown. The **lean** fast track
-skips this pass (it does not install the agent); there, the Spec Writer's own self-critique in its RARV
-cycle is the safeguard.
-**Gate:** in standard+, EM `APPROVED` is not final until the plan critique returns CONFIRMED (or
-CONFIRMED-WITH-COSTS).
+Freeze the spec, developer documentation, and optional design spec as one content-addressed
+planning generation. Spawn every applicable **read-only** specialist at the same time against that
+exact generation:
+
+- Senior Frontend Reviewer — frontend feasibility, data/state flow, accessibility, and testability.
+- Senior Backend Reviewer — service/data feasibility, migrations, contracts, authorization, and testability.
+- Technical Architect — cross-system interfaces, boundaries, failure modes, and non-functional invariants.
+- Devil's Advocate *(standard+, when risk or uncertainty is present)* — one adversarial challenge,
+  premortem, and merits-and-costs balance sheet.
+
+They review independently and do not reply to one another. Every blocking finding must carry the
+stable finding schema from `.claude/rules/quality-gates.md` §3. Preferences, stylistic alternatives, and
+unrequested enhancements are advisory and cannot fail the panel.
+
+## 1e.5 — Consolidate + Decide `[EM Reviewer]`
+
+After all applicable panel members return, the Engineering Manager de-duplicates the findings,
+applies the decision-rights table in `.claude/rules/quality-gates.md`, and sends the writer **one** consolidated
+revision request. There is one initial panel and at most one consolidated revision/recheck. A
+targeted recheck covers only prior finding IDs whose owned clauses changed. Same/renamed/new
+blockers, disputes, severity escalation, or no strict progress checkpoint to the human immediately;
+agents do not continue debating.
+
+**Gate:** EM records `PASS` with zero evidenced Critical/High/Medium findings, or `FAIL` with the
+consolidated finding register. A valid `CONFIRMED-WITH-COSTS` trade-off is recorded with an owner and
+reopen trigger; it is not a blocker. Story breakdown cannot start until the gate resolves.
 
 ## 1f — Story Breakdown & Coverage Gate `[Story Planner]`
 With the EM-approved spec, the **Story Planner** decomposes it into the smallest set of
@@ -323,13 +333,14 @@ The reviewer is read-only — suggests changes, does NOT write code. It reads th
 relevant rules, then checks: correctness vs. spec & acceptance criteria; code quality
 (no suppressed errors, explicit types, null handling, no dead code, naming, function/file
 size); performance; security; linting; design-system/responsive/accessibility compliance;
-conventions. Feedback loops with the Developer, **max 5 iterations**, then escalate.
+conventions. Feedback loops with the Developer for at most **2 targeted revisions**, then escalate.
 **Gate:** Code Reviewer signals `APPROVED`. Testing CANNOT start without it.
 
 ## 2d — Breaking Changes + Impact Check `[Developer]`
 If you renamed an export, changed a signature, or modified a shared module/utility — find
-every consumer and verify it still works. Run the full test suite (not just your tests).
-Review the diff for changes outside your scope.
+every consumer and run the affected checks. Review the diff for changes outside your scope. The
+single authoritative full suite runs after the final integration join; do not run the same full
+suite once per persona or lane (`.claude/rules/quality-gates.md` §2.5).
 **Gate:** zero regressions verified across the codebase.
 
 > **Mechanical counterpart (standard+, API-exposing stacks):** the `merge-reviewer` runs the
@@ -383,7 +394,10 @@ noted reason otherwise — see `.claude/rules/devops-observability.md`):
 
 ## 3c — PR Creation `[PR Raiser]`
 Triggered only after BOTH test agents report success.
-1. **Final quality gate:** the project's lint → type-check → unit tests → E2E tests → build.
+1. **Final quality gate:** require the project's lint → type-check → unit tests → E2E tests → build
+   on the final merged tree. If the current run already captured that exact suite under an unchanged
+   reuse key (`.claude/rules/quality-gates.md` §2.5), cite it; otherwise run it now. Never rerun solely because
+   the stage name changed, and never reuse pre-merge or stale-environment evidence.
 2. **Commit hygiene:** follow the project's commit convention; stage files by name (never
    `git add -A`); never commit secrets; never `--no-verify`; never force-push to main.
 3. **Create the PR** with a structured description: summary, changes, spec traceability, test
@@ -409,9 +423,9 @@ B1 understand → B2 failing test → B3 root cause → B4 fix → B5 quality ga
 ## Feature flow — SDLC Agent Pipeline
 ```
 Phase 1: 1a Understand [Orchestrator] → 1b Clarify → 1c Spec [Spec Writer]
-  → 1d Dev docs [Dev Doc Writer] → 1e EM review [EM Reviewer, max 3]
-  → 1e.5 Plan critique [Devil's Advocate, standard+] → 1f Story breakdown + coverage gate [Story Planner]
-Phase 2: 2a Read code [Developer] → 2a.5 Reuse/YAGNI gate → 2b Implement → 2c Code review [Code Reviewer, max 5] → 2d Impact check
+  → 1d Dev docs [Dev Doc Writer] → 1e Blind planning panel [specialists in parallel]
+  → 1e.5 Consolidate + decide [EM; at most one revision] → 1f Story breakdown + coverage gate [Story Planner]
+Phase 2: 2a Read code [Developer] → 2a.5 Reuse/YAGNI gate → 2b Implement → 2c Code review [max 2 targeted revisions] → 2d Impact check
 Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
   → 3b.5 Test-coverage gate (blind review + Devil's Advocate)
   → 3b.6 Security (Security Clear) → 3b.7 DevOps + Observability (if applicable)
@@ -423,8 +437,8 @@ Phase 3: 3a Unit tests ─┐ 3b E2E tests ─┘ (parallel)
 |------|-----------------|
 | Requirements clarified (1b) | Spec Writer starts |
 | Spec approved by user (1c) | Dev Doc Writer starts |
-| EM `APPROVED` (1e) | Plan critique (standard+) / Story Planner starts |
-| Plan critique CONFIRMED (1e.5, standard+) | Story breakdown is final |
+| Frozen blind panel complete (1e) | EM consolidation starts |
+| EM consolidated `PASS` (1e.5) | Story Planner starts |
 | Story coverage complete — every criterion mapped, no scope creep (1f) | Developer starts coding |
 | Reuse & YAGNI gate cleared (2a.5) | Writing implementation code (2b) |
 | Code Reviewer `APPROVED` (2c) | Testing starts |

@@ -130,6 +130,11 @@ _ANCHORS: list[tuple[str, str, str]] = [
     ("agents", "README.md", r"the full (\d+)-agent roster"),
     ("agents", "docs/agents.md", r"(\d+) specialized roles"),
     ("agents", "docs/agentic-patterns.md", r"(\d+) agents; subagents"),
+    (
+        "agents",
+        "docs/architecture.md",
+        r"generated Claude-compatible (\d+)-agent surface",
+    ),
     ("rules", "README.md", r"\*\*(\d+)\*\* stack-agnostic core rules"),
     # The headline skill number is the FULL catalog (core + collection); the breakdown pins each part.
     ("skills", "README.md", r"\*\*(\d+)\*\* context-activated skills"),

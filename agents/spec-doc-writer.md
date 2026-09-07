@@ -347,4 +347,6 @@ Open Questions: {count} (if any)
 Ready for: EM Review (Agent 3)
 ```
 
-The **EM Reviewer** will review the Developer Documentation section and may send revision requests. Maximum 3 iterations. After 3 rounds without approval, escalate to human with unresolved concerns.
+The blind planning panel reviews one frozen generation and the **EM Reviewer** returns one
+consolidated decision. At most one revised generation may receive targeted rechecks; if it still
+does not pass, escalate to the human with the preserved finding and decision registers.

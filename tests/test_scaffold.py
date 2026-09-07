@@ -847,7 +847,7 @@ def test_testing_rule_carries_condition_based_waiting(tmp_path, payload):
 
 def test_brief3_disciplines_installed(tmp_path, payload):
     """Brief #3: the six adapted techniques land as extensions of existing rules/agents (always-on
-    ones present even in lean; the plan-critique gate is standard+)."""
+    ones present even in lean; the adversarial planning-panel seat is standard+)."""
 
     def rules(target):
         return target / ".claude" / "rules"
@@ -875,15 +875,17 @@ def test_brief3_disciplines_installed(tmp_path, payload):
         "P2-1 delete-vs-shim house style missing"
     )
 
-    # P1-3 plan critique is a standard+ gate: wired into the workflow + the devils-advocate agent,
-    # which is not installed in lean.
+    # P1-3 adversarial review is a standard+ planning-panel seat, followed by one EM decision;
+    # the devils-advocate agent is not installed in lean.
     assert not (lean / ".claude" / "agents" / "devils-advocate.md").exists()
     standard = tmp_path / "standard"
     install(payload, standard, profile="standard")
     workflow = (rules(standard) / "mandatory-workflow.md").read_text(encoding="utf-8")
-    assert "1e.5" in workflow and "Plan Critique" in workflow, (
-        "P1-3 plan-critique stage missing"
-    )
+    assert (
+        "Blind Planning Review Panel" in workflow
+        and "Devil's Advocate" in workflow
+        and "Consolidate + Decide" in workflow
+    ), "P1-3 parallel adversarial panel and sole EM decision are missing"
     da = (standard / ".claude" / "agents" / "devils-advocate.md").read_text(
         encoding="utf-8"
     )

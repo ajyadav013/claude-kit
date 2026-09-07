@@ -110,6 +110,8 @@ profiles:
       - ui-designer
       - technical-architect
       - em-reviewer
+      - senior-backend-reviewer
+      - senior-frontend-reviewer
       - senior-backend-dev
       - senior-frontend-dev
       - merge-reviewer

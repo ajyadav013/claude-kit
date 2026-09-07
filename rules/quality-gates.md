@@ -56,20 +56,20 @@ Phase completes -> Gate
 ```
 
 **Retry budgets** (already in `mandatory-workflow.md`; restated for one place):
-- Design review: 3 · Senior dev: 3 · Tech architect: 3 · EM: 3
-- Code review: 5 · Merge reviewer: 2 · Defect loop: 2 cycles
+- Planning review: **one initial blind panel + at most one consolidated revision/recheck**
+- Code review: **2 targeted revisions** · Merge reviewer: 2 · Defect loop: 2 cycles
 
 When a gate FAILs, the miss is recorded in `.claude/CONTINUITY.md` under **Mistakes & Learnings** so the
 same defect is not reintroduced on retry. Read-only gate agents don't write it themselves: they
 **return the miss in their handoff** and the Orchestrator records it (the scribe pattern — the
 same handoff that carries the evidence, §2.5).
 
-**Total planning-chain budget.** The retry budgets above are per reviewer; runs die by the tail, not
-the caps. Across the whole planning chain (stages 1c–1e.5 — spec, dev docs, EM review, plan
-critique), allow at most **2 full re-review generations**: after the second full pass over the
-chain's findings, do not start a third. Late rounds tend to close every earlier finding and mint new
-ones from their own new prose — the budget converts that tail into a human decision
-(`.claude/rules/human-in-the-loop.md`, exhausted budgets).
+**Total planning-chain budget.** A planning generation is one content digest of the spec, design,
+and developer documentation. Run one blind specialist panel on generation 1, make at most one
+consolidated revision, then target-recheck only the owners of findings affected in generation 2.
+Never start generation 3 automatically. The budget is shared by the panel; it is not multiplied by
+the number of reviewers. Exhaustion is a checkpoint-and-escalate human decision
+(`.claude/rules/human-in-the-loop.md`), never a weaker PASS.
 
 **At escalation, the human's options are explicit.** Route a fix (re-open the lane), or accept each
 residual **Medium** through a structured record:
@@ -138,6 +138,20 @@ snapshot. The absence of a valid ledger must remain noticeable.
 
 **Self-check before recording any verdict:** can I point to the captured command output or the `file:line` finding behind this PASS/FAIL? If not, it is a TODO, not a verdict — leave the gate closed.
 
+### Evidence reuse and invalidation
+
+Do not rerun an expensive deterministic check merely because another persona reached a later
+stage. Evidence from the current run may be cited again only when its reuse key matches exactly:
+command and arguments, working directory, relevant source/test/config/lockfile content digests,
+toolchain versions, and material environment identity. A changed key invalidates the evidence.
+External or E2E evidence additionally binds the target identity, seeded state, and a declared TTL.
+
+Focused checks stay focused. Run one authoritative full merged suite at the final integration or
+release boundary; pre-merge lane evidence cannot masquerade as that suite. After it passes, PR
+preparation cites the same content-addressed result when the key is unchanged instead of running it
+again. When reuse is uncertain or the capture is incomplete, rerun — never infer PASS. Record the
+key beside the command output so reuse is auditable rather than conversational.
+
 ---
 
 ## 3. Blind Review + Devil's Advocate
@@ -146,22 +160,82 @@ Applies wherever **multiple reviewers assess the same artifact in parallel** —
 - the **test-coverage merge gate** (multiple independent test lanes feeding the merge reviewer), and
 - any **multi-reviewer review phase** the Orchestrator runs in parallel.
 
+### Planning convergence contract
+
+The planning review is a **panel, not a negotiation**. Freeze one planning generation (artifact
+paths + content digest), then dispatch every applicable specialist against that exact generation in
+parallel: frontend feasibility, backend feasibility, cross-system architecture, and the conditional
+Devil's Advocate challenge. Reviewers do not see or respond to one another. The Engineering Manager
+receives the completed panel once, de-duplicates its findings, applies the authority table below,
+and returns one consolidated decision to the writer. Do not run role-to-role reply chains and do not
+wait for unanimity.
+
+Every planning finding has these fields; an omission makes the verdict incomplete rather than FAIL:
+
+```text
+finding-id | severity | authority-domain | criterion | evidence |
+requested-correction | owner | disposition
+```
+
+`authority-domain` is exactly one of `product`, `frontend`, `backend`, `architecture`, `delivery`,
+or `gate-evidence`; the stable vocabulary makes ownership machine-checkable across reviewers.
+
+IDs remain stable across generations. Before a revision is dispatched, duplicates are merged by
+violated criterion/invariant plus evidence location. A reviewer may block only on an evidenced
+Critical/High/Medium defect. A preference, stylistic alternative, speculative future improvement,
+or scope addition is non-blocking and is recorded as an ADR candidate or backlog item. Low,
+Cosmetic, and advisory notes never cause a new planning generation.
+
+**Decision rights — no votes:**
+
+| Question | Decider |
+|---|---|
+| Product intent, scope, or ambiguous acceptance behavior | Human/product owner; agents stop and ask |
+| Frontend or backend feasibility inside one stack | The corresponding senior planning reviewer |
+| Cross-system interfaces, boundaries, and non-functional invariants | Technical Architect |
+| Sequencing, ownership, staffing, and reversible delivery trade-offs | Engineering Manager |
+| Correctness, security, policy, or acceptance evidence | The owning deterministic gate; no persona may override it |
+| Adversarial challenge | Devil's Advocate may open an evidenced blocker, but has no stylistic veto and may not expand scope |
+
+When two valid approaches remain, the Engineering Manager selects the simplest reversible option
+that satisfies the frozen contract and records a stable decision ID, authority domain, selected
+option, rejected alternatives, rationale, strongest dissent, accountable decider, evidence, and
+concrete reopen trigger. An empty decision ledger is valid only when no alternative or disagreement
+was adjudicated.
+An accepted decision reopens only for new evidence, a violated invariant, a human scope change, or a
+changed artifact in the decider's owned domain. Rephrased preference is not new evidence.
+
+**Strict-progress rule.** After the single revision, every prior blocking ID must be exactly
+`fixed`, `disputed`, or `human-required`. Continue automatically only when the open blocking set is
+a strict subset of the previous set, with no renamed/new blocker, reopened blocker, or severity
+escalation. An unchanged artifact digest, unchanged normalized blocker set, dispute, new blocker,
+reopen, or escalation is a no-progress/conflict checkpoint: persist the artifact and finding
+register and ask the human once. Never spend another autonomous review cycle trying to manufacture
+agreement. A targeted recheck examines its assigned prior IDs only unless the artifact changed in
+that reviewer's authority domain.
+
 ### Blind review
-1. Reviewers assess **independently** — each gets the artifact + spec + rules, none sees another's findings until all have reported.
+1. Reviewers assess **independently** — each gets the same frozen artifact + spec + rules, none sees another's findings until all have reported.
 2. Each returns a structured verdict: `PASS | FAIL` + findings classified by the severity model above.
-3. The Orchestrator (or merge reviewer) aggregates. Any Critical/High/Medium from any reviewer → gate FAILs.
+3. The Orchestrator (or merge reviewer) aggregates and de-duplicates before routing. Any evidenced Critical/High/Medium from any reviewer → gate FAILs.
 
 ### Devil's Advocate (anti-sycophancy)
 A **unanimous PASS is suspicious**, not reassuring — independent AI reviewers tend to converge and rubber-stamp.
 
 > When all reviewers return PASS with no Critical/High/Medium findings, the Orchestrator MUST spawn the `devils-advocate` agent before the gate is allowed to pass — **in any profile that installs it** (standard and enterprise). The **lean** profile's fast track omits this adversarial pass and does not install the agent.
 
+**Planning exception:** the planning review panel already includes the Devil's Advocate once when
+its risk/uncertainty condition applies. Do not dispatch a second post-unanimity adversarial pass for
+that panel. The rule above applies to other eligible multi-reviewer gates, such as test coverage.
+
 The Devil's Advocate assumes the artifact is guilty and hunts for what everyone missed. Its verdict:
 - **UPHELD** — found a real Critical/High/Medium issue → gate FAILs, route to the fix lane.
 - **CONFIRMED-WITH-COSTS** — no blocking finding, but a durable cost worth recording → gate PASSes.
 - **CONFIRMED** — genuinely clean after adversarial effort → gate PASSes.
 
-Where the agent is installed, a gate reached by unanimous PASS is not PASS until the Devil's Advocate returns CONFIRMED or CONFIRMED-WITH-COSTS. See `.claude/agents/devils-advocate.md` (present in the standard and enterprise profiles).
+Outside the planning exception, where the agent is installed, a gate reached by unanimous PASS is
+not PASS until the Devil's Advocate returns CONFIRMED or CONFIRMED-WITH-COSTS. See
+`.claude/agents/devils-advocate.md` (present in the standard and enterprise profiles).
 
 Every verdict also carries a **premortem** (assume it shipped and failed — the likeliest cause and the earliest signal) and a **balance sheet** (what the approach gets right, and what it costs). A critique that only lists defects cannot be weighed against doing nothing, and leaves no record of *why* an accepted downside was accepted.
 
@@ -169,7 +243,16 @@ Every verdict also carries a **premortem** (assume it shipped and failed — the
 
 ### Devil's Advocate on the plan (standard+)
 
-The same adversarial pass also runs **once on the plan** — the spec + developer documentation — before EM approval is final, in any profile that installs the agent (standard and enterprise). It challenges the plan's assumptions: the weakest or most-volatile requirement, an untestable acceptance criterion, a hidden dependency, a missing requirement, and unjustified scope. Its premortem is the highest-value part of this pass — the cheapest moment to ask "assume we built this and it failed" is before anyone has built it. An **UPHELD** verdict routes back to the Spec / Dev Doc Writer and the spec gate stays open until **CONFIRMED** (or **CONFIRMED-WITH-COSTS**, whose recorded trade-offs carry into the story breakdown). The **lean** fast track omits this pass; the Spec Writer's own self-critique (its RARV cycle) is the safeguard there. This is the planning-phase counterpart of the gate critique above — catching a flawed plan on paper is far cheaper than catching it after implementation.
+The same adversarial pass also runs **once in the blind planning panel** — on the spec + developer
+documentation — before EM adjudication is final, in any profile that installs the agent (standard
+and enterprise) and when risk or uncertainty is present. It challenges the plan's assumptions: the
+weakest or most-volatile requirement, an untestable acceptance criterion, a hidden dependency, a
+missing requirement, and unjustified scope. Its premortem is the highest-value part of this pass —
+the cheapest moment to ask "assume we built this and it failed" is before anyone has built it. An
+**UPHELD** verdict contributes stable findings to the panel register; it does not start a private
+Devil's Advocate/writer loop. On generation 2 it rechecks only its assigned prior IDs unless its
+authority-domain input changed. The **lean** fast track omits this pass; the Spec Writer's own
+self-critique (its RARV cycle) is the safeguard there.
 
 ---
 
@@ -178,7 +261,7 @@ The same adversarial pass also runs **once on the plan** — the spec + develope
 | Gate | Phase | Pass criteria | Blind/Devil's? |
 |------|-------|---------------|----------------|
 | Spec/Dev-doc complete | 1–2 | Numbered reqs + acceptance criteria + dev-doc sections | No |
-| EM approved | 1e | EM `APPROVED`, all reqs have an approach; in standard+ not final until the plan critique CONFIRMS | **Yes (standard+)** — `devils-advocate` on the plan before approval |
+| EM approved | 1e–1e.5 | One EM `PASS` over the de-duplicated blind specialist panel; zero Critical/High/Medium | **Yes (conditional, standard+)** — `devils-advocate` joins the same frozen-plan panel |
 | Code review passed | 2c | Reviewer `APPROVED`, 0 Critical/High/Medium | No (single reviewer/lane) |
 | Build green | 2b/2d | linter + type checker + unit tests pass | No |
 | Test coverage verified | 3 | All acceptance criteria covered across lanes | **Yes** — senior testers blind, Devil's Advocate on unanimous PASS |

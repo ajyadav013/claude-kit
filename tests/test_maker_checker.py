@@ -187,6 +187,13 @@ class CrashOnThirdSpawnDispatcher(ScriptedDispatcher):
         return super().spawn(request)
 
 
+class CrashOnFifthSpawnDispatcher(ScriptedDispatcher):
+    def spawn(self, request: DispatchRequest) -> DispatchHandle:
+        if len(self.requests) == 4:
+            raise SimulatedCoordinatorCrash
+        return super().spawn(request)
+
+
 class CrashAtSlotDispatcher(ScriptedDispatcher):
     def __init__(
         self, slot: ExecutionSlot, responses: Sequence[ResponseFactory]
@@ -267,13 +274,32 @@ def _review(
     return response
 
 
-def _finding() -> dict[str, object]:
+def _finding(
+    finding_id: str = "F-001",
+    *,
+    severity: str = "medium",
+    message: str = "The error state is missing.",
+) -> dict[str, object]:
     return {
-        "finding_id": "F-001",
-        "severity": "medium",
-        "message": "The error state is missing.",
+        "finding_id": finding_id,
+        "severity": severity,
+        "message": message,
         "evidence": ["artifact://criterion-1"],
     }
+
+
+def _fixed_dispositions(
+    findings: Sequence[dict[str, object]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "finding_id": finding["finding_id"],
+            "disposition": "fixed",
+            "evidence": ["artifact://criterion-1"],
+            "note": "Revised the artifact for this finding.",
+        }
+        for finding in findings
+    ]
 
 
 def _assert_failed_attempt_preserves_output(
@@ -457,6 +483,332 @@ def test_reviewer_fail_creates_new_maker_and_fresh_reviewer_attempt(
     assert not dispatcher.retry_calls
     revision_context = json.loads(dispatcher.requests[2].context)
     assert revision_context["findings"][0]["finding_id"] == "F-001"
+
+
+def test_strict_blocking_subset_allows_another_revision_and_passes_prior_registry(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".ckit").mkdir()
+    prior_findings = [
+        _finding("F-001"),
+        _finding(
+            "F-002",
+            severity="high",
+            message="The recovery path is incomplete.",
+        ),
+    ]
+    current_findings = [prior_findings[0]]
+    dispatcher = ScriptedDispatcher(
+        [
+            _maker("first"),
+            _review("FAIL", findings=prior_findings),
+            _maker("second", dispositions=_fixed_dispositions(prior_findings)),
+            _review("FAIL", findings=current_findings),
+            _maker("third", dispositions=_fixed_dispositions(current_findings)),
+            _review("PASS"),
+        ]
+    )
+
+    result = run_maker_checker(
+        tmp_path,
+        task="Design a bounded recovery flow.",
+        kind="design",
+        policy=_policy(revisions=2),
+        dispatcher=dispatcher,
+        run_id="mc-strict-progress",
+    )
+
+    assert result.status is MakerCheckerStatus.PASSED
+    assert result.iterations == 3
+    assert len(dispatcher.requests) == 6
+    first_reviewer_context = json.loads(dispatcher.requests[1].context)
+    revised_reviewer_context = json.loads(dispatcher.requests[3].context)
+    assert "prior_finding_registry" not in first_reviewer_context
+    assert revised_reviewer_context["contract"]["convergence_policy"] == (
+        "strict-blocking-finding-subset"
+    )
+    assert revised_reviewer_context["prior_finding_registry"] == [
+        {
+            "finding_id": finding["finding_id"],
+            "severity": finding["severity"],
+            "message": finding["message"],
+        }
+        for finding in prior_findings
+    ]
+    snapshot = json.loads(
+        (tmp_path / ".ckit/state/pipeline-snapshot.json").read_text(encoding="utf-8")
+    )
+    state = snapshot["maker_checker"]
+    contract_path = tmp_path / state["contract_path"]
+    contract_bytes = contract_path.read_bytes()
+    contract_record = json.loads(contract_bytes)
+    frozen_contract = contract_record["contract"]
+    contract_core = dict(frozen_contract)
+    contract_digest = contract_core.pop("digest")
+    assert frozen_contract["convergence_policy"] == ("strict-blocking-finding-subset")
+    assert contract_digest == maker_checker_module._digest(contract_core)
+    assert state["contract_digest"] == contract_digest
+    assert state["contract_file_sha256"] == maker_checker_module._bytes_digest(
+        contract_bytes
+    )
+    assert validate_maker_checker_snapshot(tmp_path, snapshot)[0]
+
+
+def test_strict_contract_rejects_fail_without_a_blocking_finding(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".ckit").mkdir()
+    low_finding = _finding("F-LOW", severity="low")
+    dispatcher = ScriptedDispatcher(
+        [_maker("first"), _review("FAIL", findings=[low_finding])]
+    )
+
+    result = run_maker_checker(
+        tmp_path,
+        task="Design a bounded recovery flow.",
+        kind="design",
+        policy=_policy(revisions=2),
+        dispatcher=dispatcher,
+        run_id="mc-low-only-fail",
+    )
+
+    assert result.status is MakerCheckerStatus.HUMAN_STOP
+    assert result.human_stop is not None
+    assert result.human_stop.reason.value == "conflicting-evidence"
+    assert "requires a blocking finding" in result.human_stop.message
+    assert len(dispatcher.requests) == 2
+    snapshot = json.loads(
+        (tmp_path / ".ckit/state/pipeline-snapshot.json").read_text(encoding="utf-8")
+    )
+    reviewer_attempt = snapshot["maker_checker"]["attempts"][-1]
+    assert reviewer_attempt["execution_slot"] == "reviewer"
+    assert reviewer_attempt["status"] == "failed"
+    reviewer_response = json.loads(
+        (tmp_path / reviewer_attempt["output_path"]).read_text(encoding="utf-8")
+    )
+    assert reviewer_response["findings"] == [low_finding]
+    coherent, messages = validate_maker_checker_snapshot(tmp_path, snapshot)
+    assert coherent, "\n".join(messages)
+
+
+@pytest.mark.parametrize("case", ["same", "renamed", "superset", "escalated"])
+def test_revised_fail_without_strict_blocker_progress_stops_and_preserves_review(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    (tmp_path / ".ckit").mkdir()
+    prior_findings = [_finding("F-001"), _finding("F-002"), _finding("F-003")]
+    if case == "same":
+        current_findings = list(prior_findings)
+    elif case == "renamed":
+        current_findings = [prior_findings[0], _finding("F-RENAMED")]
+    elif case == "superset":
+        current_findings = [*prior_findings, _finding("F-004")]
+    else:
+        current_findings = [_finding("F-001", severity="high")]
+    dispatcher = ScriptedDispatcher(
+        [
+            _maker("first"),
+            _review("FAIL", findings=prior_findings),
+            _maker("second", dispositions=_fixed_dispositions(prior_findings)),
+            _review("FAIL", findings=current_findings),
+        ]
+    )
+
+    result = run_maker_checker(
+        tmp_path,
+        task="Design a bounded recovery flow.",
+        kind="design",
+        policy=_policy(revisions=2),
+        dispatcher=dispatcher,
+        run_id=f"mc-no-progress-{case}",
+    )
+
+    assert result.status is MakerCheckerStatus.HUMAN_STOP
+    assert result.human_stop is not None
+    assert result.human_stop.reason.value == "conflicting-evidence"
+    assert result.iterations == 2
+    assert len(dispatcher.requests) == 4
+    snapshot = json.loads(
+        (tmp_path / ".ckit/state/pipeline-snapshot.json").read_text(encoding="utf-8")
+    )
+    state = snapshot["maker_checker"]
+    assert state["findings"] == current_findings
+    assert state["iteration_records"][-1]["findings"] == current_findings
+    reviewer_attempt = state["attempts"][-1]
+    assert reviewer_attempt["execution_slot"] == "reviewer"
+    assert reviewer_attempt["status"] == "succeeded"
+    reviewer_response = json.loads(
+        (tmp_path / reviewer_attempt["output_path"]).read_text(encoding="utf-8")
+    )
+    assert reviewer_response["findings"] == current_findings
+    coherent, messages = validate_maker_checker_snapshot(tmp_path, snapshot)
+    assert coherent, "\n".join(messages)
+
+
+def test_snapshot_validation_rejects_continuation_past_no_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".ckit").mkdir()
+    finding = _finding()
+    original_progress_check = maker_checker_module._has_strict_blocking_finding_progress
+    monkeypatch.setattr(
+        maker_checker_module,
+        "_has_strict_blocking_finding_progress",
+        lambda _prior, _current: True,
+    )
+    with pytest.raises(SimulatedCoordinatorCrash):
+        run_maker_checker(
+            tmp_path,
+            task="Design a bounded recovery flow.",
+            kind="design",
+            policy=_policy(revisions=2),
+            dispatcher=CrashOnFifthSpawnDispatcher(
+                [
+                    _maker("first"),
+                    _review("FAIL", findings=[finding]),
+                    _maker("second", dispositions=_fixed_dispositions([finding])),
+                    _review("FAIL", findings=[finding]),
+                ]
+            ),
+            run_id="mc-invalid-continuation",
+        )
+    monkeypatch.setattr(
+        maker_checker_module,
+        "_has_strict_blocking_finding_progress",
+        original_progress_check,
+    )
+
+    snapshot = json.loads(
+        (tmp_path / ".ckit/state/pipeline-snapshot.json").read_text(encoding="utf-8")
+    )
+    assert snapshot["status"] == "active"
+    assert snapshot["stage"] == "maker"
+    assert snapshot["maker_checker"]["iteration"] == 3
+    coherent, messages = validate_maker_checker_snapshot(tmp_path, snapshot)
+
+    assert not coherent
+    assert any("continued after a no-progress" in message for message in messages)
+    with pytest.raises(MakerCheckerError, match="continued after a no-progress"):
+        run_maker_checker(
+            tmp_path,
+            resume_run_id="mc-invalid-continuation",
+            dispatcher=ScriptedDispatcher([]),
+        )
+
+
+def test_legacy_contract_without_convergence_marker_keeps_revision_behavior(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    (tmp_path / ".ckit").mkdir()
+    original_contract = maker_checker_module._contract
+
+    def legacy_contract(
+        task: str,
+        kind: DeliverableKind,
+        *,
+        artifact_location: str,
+    ) -> dict[str, object]:
+        current = original_contract(task, kind, artifact_location=artifact_location)
+        core = dict(current)
+        core.pop("digest")
+        core.pop("convergence_policy")
+        return {**core, "digest": maker_checker_module._digest(core)}
+
+    monkeypatch.setattr(maker_checker_module, "_contract", legacy_contract)
+    finding = _finding(severity="low")
+    with pytest.raises(SimulatedCoordinatorCrash):
+        run_maker_checker(
+            tmp_path,
+            task="Design a legacy recovery flow.",
+            kind="design",
+            policy=_policy(revisions=2),
+            dispatcher=CrashOnThirdSpawnDispatcher(
+                [_maker("first"), _review("FAIL", findings=[finding])]
+            ),
+            run_id="mc-legacy-convergence",
+        )
+    active = json.loads(
+        (tmp_path / ".ckit/state/pipeline-snapshot.json").read_text(encoding="utf-8")
+    )
+    assert active["status"] == "active"
+    assert validate_maker_checker_snapshot(tmp_path, active)[0]
+
+    dispatcher = ScriptedDispatcher(
+        [
+            _maker("second", dispositions=_fixed_dispositions([finding])),
+            _review("FAIL", findings=[finding]),
+            _maker("third", dispositions=_fixed_dispositions([finding])),
+            _review("PASS"),
+        ]
+    )
+    result = run_maker_checker(
+        tmp_path,
+        resume_run_id="mc-legacy-convergence",
+        dispatcher=dispatcher,
+    )
+
+    assert result.status is MakerCheckerStatus.PASSED
+    assert result.iterations == 3
+    revised_reviewer_context = json.loads(dispatcher.requests[1].context)
+    assert "convergence_policy" not in revised_reviewer_context["contract"]
+    assert "prior_finding_registry" not in revised_reviewer_context
+    snapshot = json.loads(
+        (tmp_path / ".ckit/state/pipeline-snapshot.json").read_text(encoding="utf-8")
+    )
+    assert validate_maker_checker_snapshot(tmp_path, snapshot)[0]
+
+
+def test_resume_rejects_unsupported_future_convergence_policy(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".ckit").mkdir()
+    with pytest.raises(SimulatedCoordinatorCrash):
+        run_maker_checker(
+            tmp_path,
+            task="Design a future-policy-bound recovery flow.",
+            kind="design",
+            policy=_policy(revisions=2),
+            dispatcher=CrashAtSlotDispatcher(ExecutionSlot.MAKER, []),
+            run_id="mc-future-convergence-policy",
+        )
+
+    snapshot_path = tmp_path / ".ckit/state/pipeline-snapshot.json"
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    state = snapshot["maker_checker"]
+    contract_path = tmp_path / state["contract_path"]
+    contract_record = json.loads(contract_path.read_text(encoding="utf-8"))
+    contract_core = dict(contract_record["contract"])
+    contract_core.pop("digest")
+    contract_core["convergence_policy"] = "future-policy-v2"
+    contract_digest = maker_checker_module._digest(contract_core)
+    contract_record["contract"] = {**contract_core, "digest": contract_digest}
+    contract_text = (
+        json.dumps(contract_record, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    )
+    contract_path.write_text(contract_text, encoding="utf-8")
+    state["contract_digest"] = contract_digest
+    state["contract_file_sha256"] = maker_checker_module._bytes_digest(
+        contract_text.encode("utf-8")
+    )
+    for attempt in state["attempts"]:
+        attempt["contract_digest"] = contract_digest
+    snapshot_path.write_text(
+        json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    coherent, messages = validate_maker_checker_snapshot(tmp_path, snapshot)
+    assert not coherent
+    assert any("convergence policy is unsupported" in message for message in messages)
+    with pytest.raises(MakerCheckerError, match="convergence policy is unsupported"):
+        run_maker_checker(
+            tmp_path,
+            resume_run_id="mc-future-convergence-policy",
+            dispatcher=ScriptedDispatcher([]),
+        )
 
 
 @pytest.mark.parametrize(

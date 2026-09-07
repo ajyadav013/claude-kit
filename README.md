@@ -147,7 +147,7 @@ custom-agent surfaces. For a project-native installation, use `ckit init`.
 |------|--------------|
 | 🔁 **Pipeline & quality gates** | Explicit start/adopt lifecycle and ordered progression: Critical/High always block; Medium requires a distinct, structured accepted-risk record; conditional gates need configured not-applicable evidence; plus a fast-track and `devils-advocate` pass. Preview `ckit pipeline run --provider …` freezes/resumes Modes A–D; Mode E additionally requires `--program-manifest` and records typed waves, units, evidence, budgets, gates, and checkpoints. Every mode fail-closes before capabilities the selected adapter cannot safely attest |
 | 🔎 **Configurable maker–checker** | A Preview managed coordinator exposed as explicit `/maker-checker` (Claude) or `$maker-checker` (Codex Preview), with project-scoped provider/model bindings, tool-denied roles over a bounded tracked-source projection, a fresh reviewer, typed digest-bound verdicts, exact-ID resume, shared evidence, and validated code patches in preserved worktrees |
-| 🤖 **Agent roster** | **31** tiered agents led by an Orchestrator that never writes code, including the passive maker/checker execution roles, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
+| 🤖 **Agent roster** | **33** tiered agents led by an Orchestrator that never writes code, including the passive maker/checker execution roles, plus per-database overlay agents and 6 org personas ([full roster](docs/agents.md)) |
 | 📐 **Rules & skills** | **25** stack-agnostic core rules + **127** context-activated skills (64 core + 63 stack-collection): 123 user-facing canonical skills plus 4 generated legacy-command adapters; pulled into context on demand |
 | 🧱 **Stacks & overlays** | A stack-agnostic core + **15** overlay rule files (React · FastAPI · Django · Go · Express · Postgres · Mongo) wired to your exact commands and path-scoped to load only when you touch matching files |
 | 🛠️ **Hooks & guards** | **20** event hooks — deterministic safety guards and advisory warnings — that no-op gracefully without `jq` |
@@ -194,16 +194,17 @@ capability:
 flowchart TD
     REQ(["sdlc request"]) --> CLS{"Classify"}
     CLS -->|"feature"| SPEC["Spec & Dev Docs"]
-    SPEC --> EM{{"Gate: EM approved"}}
+    SPEC --> PANEL["Frozen planning generation → blind parallel panel:<br/>Frontend · Backend · Architecture · Adversarial"]
+    PANEL --> EM{{"EM de-duplicates + decides once<br/>Gate: EM approved"}}
     EM -->|"pass"| STORY["Story breakdown + coverage gate<br/>story-planner"]
-    STORY --> LANES["Parallel lanes:<br/>Senior Dev → Architect → Developer → Code Review"]
+    STORY --> LANES["Parallel implementation lanes:<br/>Developer → Code Review → Unit Test"]
     LANES --> MR{{"Gate: Merge Reviewer"}}
     MR --> TEST["Unit · E2E · Integration + Senior verification"]
     TEST --> TCG{{"Gate: Test coverage<br/>+ Devil's Advocate"}}
     TCG --> SEC{{"Gate: Security Clear"}}
     SEC --> OPS{{"Gates: Pipeline Green ·<br/>Observability Ready · Acceptance"}}
     OPS --> PR["PR Raiser"] --> HUMAN(["Human review + deploy"])
-    CLS -->|"fast-track (<5 files)"| FT["Developer → Review → Test → PR"] --> HUMAN
+    CLS -->|"typed safe fast-track"| FT["Developer → Review → Test → PR"] --> HUMAN
 ```
 
 | Profile | Gates that run |
@@ -214,8 +215,12 @@ flowchart TD
 
 \* `contract-clear` (API breaking-change diff) is conditional: when the stack exposes no API
 surface, it may be marked `not-applicable` only with the configured condition and current evidence.
-A **fast-track** mode collapses small changes (< 5 files) to Developer → Code Reviewer → Tester → PR;
+A **fast-track** mode collapses a typed, reversible, unambiguous, single-boundary low-risk change
+with no sensitive or public-contract surface to Developer → Code Reviewer → Tester → PR;
 organization scope at `regulated` strictness adds `accessibility-clear` (WCAG-AA on changed UI).
+Managed Modes A--C require standard or enterprise so the panel has distinct read-only reviewers
+and one EM adjudicator. Lean is supported by the typed fast-track Mode D path and by Mode E's
+separately frozen program-manifest contract.
 
 The state layer does not infer that a run has begun. `ckit pipeline start` opens a fresh run at
 its first active gate; work already in flight must use `pipeline adopt` with a reason and adopting
@@ -309,8 +314,8 @@ surface. Measured on a React + FastAPI + PostgreSQL project, individual scope:
 | Profile | Agents | Skills | Rules |
 |---------|-------:|-------:|------:|
 | `lean` | 11 | 33 | 36 |
-| `standard` (default) | 30 | 66 | 36 |
-| `enterprise` | 34 | 114 | 36 |
+| `standard` (default) | 32 | 66 | 36 |
+| `enterprise` | 36 | 114 | 36 |
 
 - **Rules are profile-independent** — every profile installs the same 25 core rules + the selected
   stack's overlays (11 for this stack = 36); rigor changes the *agents and gates*, not the rule set.
@@ -337,7 +342,7 @@ matters most: **the host gives you agents; claude-kit gives you a repeatable gov
 | **[wshobson/agents](https://github.com/wshobson/agents)** & similar collections | Large libraries of individual subagent prompts you pick from | A smaller, opinionated set wired into a sequenced pipeline — agents are stages that hand off and block on each other, not a menu |
 | **[GitHub spec-kit](https://github.com/github/spec-kit)** | Spec-driven development as a platform: constitution → spec → tasks → analyze, plus label-driven CI stages | The same coverage-gate idea absorbed into a broader in-session lifecycle — review, security, build, test, release, and observability gates with enforced severity blocking. Complementary: their CI stages, this kit's gate depth ([details](docs/autonomous-operation.md)) |
 | **claude-flow / multi-agent runtimes** | Long-lived runtime orchestrators that execute swarms of agents | Portable configuration plus an optional bounded Preview CLI coordinator for one active workflow — no daemon, no app code, and the native hosts remain the worker runtimes |
-| **dotfiles / instruction-file starters** | A single rules file or settings snippet | A catalog-driven compiler: resolves your stack/profile/scope into the right subset of 25 rules, 31 agents, 127 skills, gates, and hooks — 123 are user-facing capabilities and 4 are generated legacy-command adapters; generated surfaces stay upgradeable while preserving user edits |
+| **dotfiles / instruction-file starters** | A single rules file or settings snippet | A catalog-driven compiler: resolves your stack/profile/scope into the right subset of 25 rules, 33 agents, 127 skills, gates, and hooks — 123 are user-facing capabilities and 4 are generated legacy-command adapters; generated surfaces stay upgradeable while preserving user edits |
 
 **Choose claude-kit when** you want a consistent, gate-enforced autonomous-SDLC setup that's the
 same across every repo and stack and installs in seconds. It is **not** an application runtime or a
@@ -430,7 +435,7 @@ Report vulnerabilities privately — see [`SECURITY.md`](SECURITY.md).
 | [`docs/runtime-migration.md`](docs/runtime-migration.md) | Non-destructive `.claude` → `.ckit` migration and every runtime transition |
 | [`docs/cli.md`](docs/cli.md) | Full CLI command reference, safe-upgrade mechanics, troubleshooting |
 | [`docs/maker-checker.md`](docs/maker-checker.md) | Configure and run the explicit Claude/Codex maker–checker pair, including its fail-closed safety boundary |
-| [`docs/agents.md`](docs/agents.md) | How to drive the agents + the full 31-agent roster and per-run cost |
+| [`docs/agents.md`](docs/agents.md) | How to drive the agents + the full 33-agent roster and per-run cost |
 | [`docs/architecture.md`](docs/architecture.md) | Diagrams: distribution, catalog resolution, the state machine — and how to extend via the catalog |
 | [`docs/influences.md`](docs/influences.md) | The reuse-first adoption history: what we learned, shipped, and deliberately skipped |
 | [`docs/autonomous-operation.md`](docs/autonomous-operation.md) | Unattended-run boundary: current fail-closed headless interface, permission/sandbox limits, and promotion requirements |

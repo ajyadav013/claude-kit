@@ -35,6 +35,21 @@ touched, never story size** (a "low-risk" story that edits a query, auth, or sec
 **high** — see the sensitive areas above); and code review itself is never skipped. This is not a
 lowered bar: the tier decides **which agents spawn for the story**, never what passes a gate.
 
+## Fastest-safe SDLC mode
+
+Classification also sets the **minimum** workflow shape. Select Mode D automatically when the work
+is low risk, reversible, confined to one local boundary, its behavior is already unambiguous, and it
+touches no sensitive area or public contract. File count is a planning hint, not the decision: a
+small migration is still high risk, while a localized rename may legitimately touch a source file,
+tests, and generated documentation. Mode D still requires Developer → Code Reviewer → focused
+verification → closeout.
+
+Any authentication/authorization, tenant isolation, secret, payment, schema/migration, dependency,
+infrastructure, security-policy, public API/event/data contract, cross-boundary, production-data, or
+irreversible surface floors the run at the applicable full SDLC mode (A/B/C/E). If classification is
+uncertain, choose the fuller mode. Once the predicates are recorded, do not add personas merely for
+comfort and do not downgrade the deterministic gate that owns the touched surface.
+
 ## High-risk protocol (high or restricted)
 
 1. **Plan** — write the change down before editing; list affected files and blast radius.

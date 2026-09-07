@@ -22,14 +22,22 @@ roles:
     primary: ui-designer
     fallbacks: [technical-architect, orchestrator]
     responsibility: Define user-facing interaction and accessibility intent when UI is in scope.
+  frontend-planning-review:
+    primary: senior-frontend-reviewer
+    fallbacks: [technical-architect, sdlc-code-reviewer, orchestrator]
+    responsibility: Independently verify frontend feasibility against one frozen planning generation.
+  backend-planning-review:
+    primary: senior-backend-reviewer
+    fallbacks: [technical-architect, sdlc-code-reviewer, orchestrator]
+    responsibility: Independently verify backend feasibility against one frozen planning generation.
   architecture:
     primary: technical-architect
     fallbacks: [senior-backend-dev, senior-frontend-dev, orchestrator]
-    responsibility: Define boundaries, interfaces, risks, and implementation sequencing.
+    responsibility: Independently verify cross-system boundaries, interfaces, and non-functional constraints.
   management-review:
     primary: em-reviewer
     fallbacks: [technical-architect, orchestrator]
-    responsibility: Approve scope, ownership, dependencies, and delivery risk.
+    responsibility: Adjudicate one consolidated planning review and own scope, sequencing, and delivery risk.
   story-planning:
     primary: story-planner
     fallbacks: [orchestrator]
@@ -123,7 +131,7 @@ retry_budgets:
     on_exhausted: checkpoint-and-escalate
   planning:
     max_transient_retries: 1
-    max_feedback_iterations: 3
+    max_feedback_iterations: 1
     max_defect_cycles: 0
     on_exhausted: checkpoint-and-escalate
   implementation:
@@ -133,7 +141,7 @@ retry_budgets:
     on_exhausted: checkpoint-and-escalate
   review:
     max_transient_retries: 1
-    max_feedback_iterations: 5
+    max_feedback_iterations: 2
     max_defect_cycles: 2
     on_exhausted: checkpoint-and-escalate
   verification:
@@ -158,6 +166,25 @@ evidence_requirements:
     description: Classified scope, affected surfaces, constraints, and selected mode.
     required_fields: [mode, surfaces, constraints, risks]
     project_contained: true
+  fast-track-scope-record:
+    kind: artifact
+    description: >-
+      Managed Mode D eligibility record for the requested work; external-effect excludes the
+      separately brokered pull-request closeout action.
+    required_fields:
+      - mode
+      - surfaces
+      - constraints
+      - risks
+      - risk-tier
+      - localized-single-boundary
+      - unambiguous
+      - reversible
+      - sensitive-surface
+      - public-contract-surface
+      - irreversible-action
+      - external-effect
+    project_contained: true
   specification:
     kind: artifact
     description: Approved specification with acceptance criteria and non-goals.
@@ -168,10 +195,25 @@ evidence_requirements:
     description: Implementation plan with boundaries, dependencies, and verification strategy.
     required_fields: [boundaries, dependencies, interfaces, verification]
     project_contained: true
+  story-breakdown:
+    kind: artifact
+    description: Dependency-ordered, traceable stories derived from the approved architecture plan.
+    required_fields: [stories, dependencies, parallelizable, sequencing, traceability]
+    project_contained: true
   review-verdict:
     kind: verdict
     description: Structured PASS or FAIL decision with cited findings.
     required_fields: [status, reviewer, findings, evidence]
+    project_contained: true
+  planning-review-verdict:
+    kind: verdict
+    description: Independent specialist verdict bound to one frozen planning generation and authority domain.
+    required_fields: [status, reviewer, planning-generation, authority-domain, findings, evidence]
+    project_contained: true
+  planning-decision:
+    kind: verdict
+    description: Sole EM decision over the complete de-duplicated planning review panel.
+    required_fields: [status, reviewer, planning-generation, panel-reviewers, findings, decisions, evidence]
     project_contained: true
   command-evidence:
     kind: command-output
@@ -250,7 +292,7 @@ gates:
     requirement: required
     skippable: false
     skip_conditions: []
-    evidence: [architecture-plan, review-verdict]
+    evidence: [architecture-plan, planning-decision]
   code-review:
     stage: implementation-join
     requirement: required
@@ -316,6 +358,15 @@ stages:
     gates: []
     retry_budget: orchestration
     evidence: [scope-record]
+  - id: fast-track-classify
+    phase: intake
+    route: classification
+    depends_on: []
+    parallel_group: null
+    condition: fast-track-selected
+    gates: []
+    retry_budget: orchestration
+    evidence: [fast-track-scope-record]
   - id: specification
     phase: planning
     route: specification
@@ -334,19 +385,10 @@ stages:
     gates: []
     retry_budget: planning
     evidence: [architecture-plan]
-  - id: plan-critique
-    phase: planning
-    route: adversarial-review
-    depends_on: [specification]
-    parallel_group: null
-    condition: risk-or-uncertainty-present
-    gates: []
-    retry_budget: planning
-    evidence: [review-verdict]
   - id: planning-gate
     phase: planning
     route: orchestration
-    depends_on: [specification]
+    depends_on: [specification, ui-design]
     parallel_group: null
     condition: full-sdlc-or-program
     gates: [spec-complete]
@@ -354,58 +396,40 @@ stages:
     evidence: [specification, architecture-plan, review-verdict]
   - id: frontend-review
     phase: planning
-    route: frontend-delivery
+    route: frontend-planning-review
     depends_on: [planning-gate]
-    parallel_group: planning-lanes
+    parallel_group: planning-review-panel
     condition: frontend-surface-present
     gates: []
     retry_budget: planning
-    evidence: [architecture-plan]
-  - id: frontend-architecture
-    phase: planning
-    route: architecture
-    depends_on: [frontend-review]
-    parallel_group: planning-lanes
-    condition: frontend-surface-present
-    gates: []
-    retry_budget: planning
-    evidence: [architecture-plan]
-  - id: frontend-management-review
-    phase: planning
-    route: management-review
-    depends_on: [frontend-architecture]
-    parallel_group: planning-lanes
-    condition: frontend-surface-present
-    gates: []
-    retry_budget: planning
-    evidence: [review-verdict]
+    evidence: [planning-review-verdict]
   - id: backend-review
     phase: planning
-    route: backend-delivery
+    route: backend-planning-review
     depends_on: [planning-gate]
-    parallel_group: planning-lanes
+    parallel_group: planning-review-panel
     condition: backend-surface-present
     gates: []
     retry_budget: planning
-    evidence: [architecture-plan]
-  - id: backend-architecture
+    evidence: [planning-review-verdict]
+  - id: architecture-review
     phase: planning
     route: architecture
-    depends_on: [backend-review]
-    parallel_group: planning-lanes
-    condition: backend-surface-present
+    depends_on: [planning-gate]
+    parallel_group: planning-review-panel
+    condition: full-sdlc-or-program
     gates: []
     retry_budget: planning
-    evidence: [architecture-plan]
-  - id: backend-management-review
+    evidence: [planning-review-verdict]
+  - id: plan-critique
     phase: planning
-    route: management-review
-    depends_on: [backend-architecture]
-    parallel_group: planning-lanes
-    condition: backend-surface-present
+    route: adversarial-review
+    depends_on: [planning-gate]
+    parallel_group: planning-review-panel
+    condition: risk-or-uncertainty-present
     gates: []
     retry_budget: planning
-    evidence: [review-verdict]
+    evidence: [planning-review-verdict]
   - id: planning-merge
     phase: planning
     route: management-review
@@ -414,7 +438,7 @@ stages:
     condition: full-sdlc-or-program
     gates: [em-approved]
     retry_budget: planning
-    evidence: [architecture-plan, review-verdict]
+    evidence: [architecture-plan, planning-decision]
   - id: story-planning
     phase: planning
     route: story-planning
@@ -423,7 +447,7 @@ stages:
     condition: full-sdlc-or-program
     gates: []
     retry_budget: planning
-    evidence: [architecture-plan]
+    evidence: [architecture-plan, story-breakdown]
   - id: frontend-implementation
     phase: implementation
     route: frontend-delivery
@@ -655,7 +679,7 @@ stages:
   - id: fast-implementation
     phase: implementation
     route: general-delivery
-    depends_on: [classify]
+    depends_on: [fast-track-classify]
     parallel_group: null
     condition: fast-track-selected
     gates: []
@@ -738,17 +762,23 @@ stages:
     evidence: [closeout-record]
 
 parallel_groups:
-  planning-lanes:
+  planning-review-panel:
     fork_after: planning-gate
     join_before: planning-merge
-    concurrency: disjoint-only
+    concurrency: read-only-fanout
     lanes:
-      - id: frontend-plan
-        stages: [frontend-review, frontend-architecture, frontend-management-review]
-        boundary: User-facing planning surface only.
-      - id: backend-plan
-        stages: [backend-review, backend-architecture, backend-management-review]
-        boundary: Service, data, and integration planning surface only.
+      - id: frontend-feasibility
+        stages: [frontend-review]
+        boundary: Read-only frontend feasibility review of the frozen planning generation.
+      - id: backend-feasibility
+        stages: [backend-review]
+        boundary: Read-only backend feasibility review of the frozen planning generation.
+      - id: system-architecture
+        stages: [architecture-review]
+        boundary: Read-only cross-system architecture review of the frozen planning generation.
+      - id: adversarial-challenge
+        stages: [plan-critique]
+        boundary: Read-only adversarial review of the frozen planning generation.
   implementation-lanes:
     fork_after: story-planning
     join_before: implementation-join
@@ -798,10 +828,10 @@ parallel_groups:
 modes:
   single-stack:
     code: A
-    description: Sequential full lifecycle for one implementation surface.
+    description: Full lifecycle for one implementation surface with parallel specialist planning review.
     triggers: [one-primary-implementation-surface]
     stages: all
-    parallel_groups: [testing-lanes, security-scanners]
+    parallel_groups: [planning-review-panel, testing-lanes, security-scanners]
     gate_policy: resolved-plan
     gates: []
   full-stack:
@@ -809,7 +839,7 @@ modes:
     description: Parallel frontend and backend planning and implementation with explicit joins.
     triggers: [frontend-and-backend-surfaces]
     stages: all
-    parallel_groups: [planning-lanes, implementation-lanes, testing-lanes, security-scanners]
+    parallel_groups: [planning-review-panel, implementation-lanes, testing-lanes, security-scanners]
     gate_policy: resolved-plan
     gates: []
   multi-feature:
@@ -817,14 +847,14 @@ modes:
     description: Multiple disjoint feature lanes join before shared verification and closeout.
     triggers: [multiple-independent-features]
     stages: all
-    parallel_groups: [implementation-lanes, testing-lanes, security-scanners]
+    parallel_groups: [planning-review-panel, implementation-lanes, testing-lanes, security-scanners]
     gate_policy: resolved-plan
     gates: []
   fast-track:
     code: D
-    description: Small low-risk change through implementation, review, verification, and closeout.
-    triggers: [estimated-files-at-most-five, low-risk, no-irreversible-action]
-    stages: [classify, fast-implementation, fast-review, fast-verify, fast-pull-request-prepare, fast-pull-request]
+    description: Localized low-risk reversible change with no sensitive or public-contract surface.
+    triggers: [localized-single-boundary, low-risk, reversible, no-sensitive-or-public-contract-surface]
+    stages: [fast-track-classify, fast-implementation, fast-review, fast-verify, fast-pull-request-prepare, fast-pull-request]
     parallel_groups: []
     gate_policy: subset
     gates: [code-review, build-green]
@@ -833,10 +863,10 @@ modes:
       build-green: fast-verify
   program:
     code: E
-    description: Wave-based execution for broad, multi-lane, or irreversible work.
+    description: Wave-based execution whose frozen program manifest defines its own units, reviews, and disjoint concurrency.
     triggers: [estimated-files-over-twenty, more-than-two-independent-lanes, irreversible-action]
     stages: all
-    parallel_groups: [planning-lanes, implementation-lanes, testing-lanes, security-scanners]
+    parallel_groups: []
     gate_policy: resolved-plan
     gates: []
     program:

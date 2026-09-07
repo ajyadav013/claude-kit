@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-code-kit"
-version = "0.83.0"
+version = "0.84.0"
 description = "Evidence-gated, stack-agnostic SDLC configuration for Claude Code (stable) and Codex (Preview), with native ckit init --runtime claude|codex|both projections and one shared gate ledger."
 readme = "README.md"
 requires-python = ">=3.9"

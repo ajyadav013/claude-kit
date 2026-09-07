@@ -215,6 +215,38 @@ def _provider_removal_guard(
         raise RuntimeInstallError(str(exc)) from exc
 
 
+def _active_managed_run_guard(fs: ProjectFS) -> None:
+    """Refuse projection changes while a persisted managed run is active."""
+
+    try:
+        from claude_kit import pipeline
+
+        snapshot_path = fs.path(StateLayout.neutral().pipeline_snapshot)
+        with pipeline._pipeline_write_lock(fs, snapshot_path):
+            snapshot, error = pipeline._load_snapshot(fs.root)
+            if error:
+                raise RuntimeInstallError(
+                    "runtime transition cannot verify the shared pipeline snapshot: "
+                    f"{error}"
+                )
+            if (
+                isinstance(snapshot, dict)
+                and snapshot.get("status") == "active"
+                and snapshot.get("snapshot_kind") != "maker-checker"
+                and (
+                    snapshot.get("managed_execution") is not None
+                    or snapshot.get("program_execution") is not None
+                )
+            ):
+                raise RuntimeInstallError(
+                    "runtime transition cannot change provider files while an active "
+                    "frozen managed workflow run exists; resume or abort that run with "
+                    "the kit version that started it first"
+                )
+    except TimeoutError as exc:
+        raise RuntimeInstallError(str(exc)) from exc
+
+
 @dataclass(frozen=True)
 class RuntimeArtifact:
     """A provider or shared file ready for validated installation."""
@@ -1396,6 +1428,15 @@ def _transition_runtime_locked(
         options.execution_policy,
     )
     current = options.runtime
+    removed: tuple[str, ...] = ()
+    if current is not request.runtime:
+        removed = _removed_surfaces(options, request.runtime)
+        if removed and not confirm_removal:
+            raise RuntimeInstallError(
+                "runtime transition removes native provider files; confirmation is required"
+            )
+
+    _active_managed_run_guard(fs)
     if current is request.runtime:
         log, _migration = _install_runtime_transaction(
             source,
@@ -1409,11 +1450,6 @@ def _transition_runtime_locked(
         )
         return log
 
-    removed = _removed_surfaces(options, request.runtime)
-    if removed and not confirm_removal:
-        raise RuntimeInstallError(
-            "runtime transition removes native provider files; confirmation is required"
-        )
     removed_providers = set(current.providers) - set(request.runtime.providers)
     guard = (
         _provider_removal_guard(fs, removed_providers)

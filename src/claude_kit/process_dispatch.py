@@ -44,6 +44,7 @@ try:  # pragma: no cover - exercised only on Python 3.9/3.10
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[no-redef]
 
+from claude_kit import __version__
 from claude_kit.components import (
     Capability,
     IsolationRequirement,
@@ -3055,7 +3056,7 @@ class CodexAppServerBackend:
                     "clientInfo": {
                         "name": "claude_kit",
                         "title": "claude-kit",
-                        "version": "0.83.0",
+                        "version": __version__,
                     }
                 },
             )

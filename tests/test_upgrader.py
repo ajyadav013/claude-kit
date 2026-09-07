@@ -7,7 +7,7 @@ import json
 
 import yaml
 
-from claude_kit import catalog, upgrader, validator
+from claude_kit import __version__, catalog, upgrader, validator
 from claude_kit.models import INIT_OPTIONS_SCHEMA
 from tests._helpers import install, make_selection
 
@@ -70,7 +70,7 @@ def test_upgrade_migrates_a_pre_083_stack_snapshot_and_validates_strictly(
     assert len(migrated["gate_definition_digest"]) == 64
     migrated_options = json.loads(options_path.read_text(encoding="utf-8"))
     assert migrated_options["schema_version"] == INIT_OPTIONS_SCHEMA
-    assert migrated_options["claude_kit_version"] == "0.83.0"
+    assert migrated_options["claude_kit_version"] == __version__
     strict_ok, strict_messages = validator.validate(tmp_path, strict=True)
     assert strict_ok, "\n".join(strict_messages)
 

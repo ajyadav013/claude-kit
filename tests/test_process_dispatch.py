@@ -17,7 +17,7 @@ from typing import Mapping, Optional, Sequence
 import pytest
 import yaml
 
-from claude_kit import process_dispatch
+from claude_kit import __version__, process_dispatch
 from claude_kit.canonical_agents import AgentSourceKind, discover_canonical_agents
 from claude_kit.components import (
     Capability,
@@ -224,6 +224,7 @@ def send(document):
 initialize = receive()
 assert initialize["id"] == 1 and initialize["method"] == "initialize"
 assert initialize["params"]["clientInfo"]["name"] == "claude_kit"
+assert initialize["params"]["clientInfo"]["version"] == {__version__!r}
 send({{"id": 1, "result": {{
     "userAgent": "fake",
     "codexHome": codex_home,
@@ -1679,7 +1680,7 @@ def test_generated_claude_role_loader_preserves_every_core_semantic_contract(
         if record.kind is AgentSourceKind.CORE
     ]
 
-    assert len(core) == 31
+    assert len(core) == 33
     for record in core:
         role = loader.load(Provider.CLAUDE, record.spec.id)
         assert role.permission is record.spec.permission

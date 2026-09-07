@@ -60,8 +60,8 @@ def _frontmatter(path: Path) -> tuple[dict, str]:
 def test_complete_agent_surface_is_canonical(payload: Path) -> None:
     records = discover_canonical_agents(payload)
 
-    assert len(records) == 42
-    assert sum(record.kind is AgentSourceKind.CORE for record in records) == 31
+    assert len(records) == 44
+    assert sum(record.kind is AgentSourceKind.CORE for record in records) == 33
     assert sum(record.kind is AgentSourceKind.STACK for record in records) == 5
     assert sum(record.kind is AgentSourceKind.ORG for record in records) == 6
     assert {
@@ -110,6 +110,25 @@ def test_maker_checker_roles_are_passive_and_selected_in_every_profile(
     for profile in ("lean", "standard", "enterprise"):
         selection = make_selection(payload, profile=profile)
         assert role_ids <= set(catalog.resolve(payload, selection).agents)
+
+
+def test_planning_panel_roles_are_read_only_and_cannot_message_each_other(
+    payload: Path,
+) -> None:
+    role_ids = {
+        "senior-frontend-reviewer",
+        "senior-backend-reviewer",
+        "technical-architect",
+        "em-reviewer",
+        "devils-advocate",
+    }
+
+    for role_id in role_ids:
+        spec = find_canonical_agent(payload, role_id, kind=AgentSourceKind.CORE).spec
+        assert spec.permission is PermissionClass.READ_ONLY
+        assert Capability.DELEGATE not in spec.capabilities
+        assert spec.write_scope == ()
+        assert spec.nested_delegation.value == "forbidden"
 
 
 def test_maker_checker_roles_project_to_native_read_only_hosts(payload: Path) -> None:

@@ -204,6 +204,14 @@ pair instead, use `ckit pipeline abort .`; the abort records a terminal `operato
 and preserves its bounded evidence and any run-owned worktree. Completed and human-stop runs are
 terminal and cannot be resumed; a later new run archives their valid predecessor snapshot.
 
+New runs also freeze `convergence_policy: strict-blocking-finding-subset` inside the digested
+artifact contract. That marker makes reviewer progress part of snapshot coherence, so resume cannot
+silently apply a different convergence rule. A present but unrecognized policy is treated as an
+unsupported future contract and fails validation and resume. Contracts created before this marker
+was introduced remain readable: marker absence selects the legacy bounded-revision behavior, does
+not add a prior-finding register to reviewer context, and does not retroactively impose the strict
+subset rule.
+
 If the coordinator cannot prove that a cancelled or partially started native worker terminated, it
 keeps an `unsafe_dispatch` marker and refuses resume, abort, provider removal, and replacement
 dispatch. This avoids running two makers or reviewers after losing process ownership. Inspect the
@@ -254,9 +262,10 @@ flowchart LR
     M --> V["Validate artifact + deterministic checks"]
     V --> R["Fresh read-only reviewer"]
     R -->|"PASS for current digest"| O["Return maker artifact"]
-    R -->|"FAIL + budget"| M2["New maker revision"]
+    R -->|"FAIL"| P{"Eligible revision?"}
+    P -->|"blocking FAIL + budget; first review or strict progress"| M2["New maker revision"]
     M2 --> V
-    R -->|"FAIL without budget"| H["Human stop"]
+    P -->|"no progress, invalid finding history, or no budget"| H["Human stop"]
 ```
 
 - Maker and reviewer are passive, nondelegating roles whose only semantic project capabilities are
@@ -276,10 +285,19 @@ flowchart LR
   coordinator-produced check evidence. It does not receive the maker's hidden rationale. `PASS`
   requires matching contract/artifact digests, criterion-by-criterion evidence, green supplied
   checks, and no blocking finding.
-- Reviewer `FAIL` is semantic feedback, not a transport retry. A new maker attempt must disposition
-  every stable finding as fixed, disputed with evidence, or human-required. Disputed or
-  human-required findings, an unchanged revision, stale evidence, malformed output, a timeout, or an
-  exhausted budget become an explicit human stop.
+- Under `strict-blocking-finding-subset`, a second or later reviewer receives a compact
+  `prior_finding_registry` copied from the immediately preceding review. It contains each prior
+  finding's stable ID, severity, and message; the current artifact, checks, and frozen contract are
+  still supplied independently. The first reviewer has no prior register.
+- Reviewer `FAIL` is semantic feedback, not a transport retry. The first strict-policy `FAIL` must
+  contain at least one blocking `medium`, `high`, or `critical` finding. A new maker attempt must
+  disposition every stable finding as fixed, disputed with evidence, or human-required.
+- After a maker revision, another `FAIL` counts as progress only when its blocking finding IDs are a
+  proper subset of the preceding review's blocking IDs and every surviving blocker has the same or
+  lower severity. An unchanged blocker set, a renamed blocker, a new or reopened blocker, or an
+  escalated surviving blocker stops with `conflicting-evidence`; none consumes another maker
+  revision. Disputed or human-required maker dispositions, an unchanged revision, stale evidence,
+  malformed output, a timeout, or an exhausted budget also become an explicit human stop.
 - Reviewer `PASS` authorizes only returning the current artifact. It never authorizes merge,
   publication, deployment, purchase, deletion, credential use, or another external effect.
 

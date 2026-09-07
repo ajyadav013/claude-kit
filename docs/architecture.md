@@ -153,15 +153,15 @@ flowchart TD
     REQ["sdlc request"] --> CLS{"Classify:<br/>bug · feature · fast-track"}
 
     CLS -->|"feature"| SPEC["1. Spec & Dev Docs<br/>spec-doc-writer (+ ui-designer if UI)"]
-    SPEC --> EM{{"Gate: EM approved<br/>em-reviewer"}}
-
-    EM -->|"pass"| PC{{"Gate: Plan critique<br/>standard+ · devils-advocate on the spec"}}
-    PC -->|"CONFIRMED"| STORY["2. Story breakdown + coverage gate<br/>story-planner: every acceptance criterion → a story"]
+    SPEC --> FREEZE["Freeze one planning generation"]
+    FREEZE --> PANEL["Blind read-only panel (parallel)<br/>senior FE · senior BE · architect · conditional DA"]
+    PANEL --> EM{{"Gate: one EM decision<br/>deduplicated findings · max one revision"}}
+    EM -->|"pass"| STORY["2. Story breakdown + coverage gate<br/>story-planner: every acceptance criterion → a story"]
     STORY --> FORK["Fork independent work streams"]
     subgraph LANES["Parallel lanes (canonical example: backend + frontend)"]
         direction LR
-        L1["Senior Dev → Tech Architect → Developer → Code Reviewer"]
-        L2["Senior Dev → Tech Architect → Developer → Code Reviewer"]
+        L1["Frontend Developer → Code Reviewer"]
+        L2["Backend Developer → Code Reviewer"]
     end
     FORK --> LANES
     LANES --> MR1{{"Gate: Merge Reviewer<br/>cross-lane consistency"}}
@@ -175,11 +175,10 @@ flowchart TD
     OPS -->|"pass"| PR["PR Raiser → Pull Request"]
     PR --> HUMAN(["Human review + deploy"])
 
-    CLS -->|"fast-track (< 5 files)"| FT["Developer → Code Reviewer → Tester → PR"]
+    CLS -->|"fast-track: localized + reversible + low-risk"| FT["Developer → Code Reviewer → Tester → PR"]
     FT --> HUMAN
 
-    EM -->|"fail"| SPEC
-    PC -->|"UPHELD"| SPEC
+    EM -->|"one consolidated revision"| SPEC
     TCG -->|"fail"| LANES
     SEC -->|"fail"| LANES
 ```
@@ -247,12 +246,12 @@ kind later claims the shared slot.
 
 ```mermaid
 flowchart TB
-    subgraph AGENTS["canonical/agents — 31 core roles + selected overlays"]
+    subgraph AGENTS["canonical/agents — 33 core roles + selected overlays"]
         direction TB
         ORC["orchestrator (controller)"]
         PLAN["spec-doc-writer · story-planner · ui-designer"]
-        REV["senior-backend-dev · senior-frontend-dev<br/>technical-architect · em-reviewer · merge-reviewer"]
-        BUILD["developer · sdlc-code-reviewer<br/>maker-checker-maker · maker-checker-reviewer"]
+        REV["senior-backend-reviewer · senior-frontend-reviewer<br/>technical-architect · em-reviewer · merge-reviewer"]
+        BUILD["developer · senior-backend-dev · senior-frontend-dev · sdlc-code-reviewer<br/>maker-checker-maker · maker-checker-reviewer"]
         TST["unit-tester · e2e-tester · tester · senior-tester · auditor"]
         SECG["security-reviewer · secret-scanner · dependency-scanner<br/>owasp-reviewer · policy-validator · risk-classifier"]
         SHIP["devops-engineer · observability-engineer · pr-raiser · incident-responder"]
@@ -325,7 +324,7 @@ claude-kit/
 │   ├── skills/                # 127 Codex-valid skills + manual-only policy sidecars
 │   └── hooks/                 # native hook JSON + adapted self-contained scripts
 ├── canonical/                 # provider-neutral agents · skills · commands · rules · templates
-├── agents/                    # generated Claude-compatible 31-agent surface
+├── agents/                    # generated Claude-compatible 33-agent surface
 ├── skills/                    # generated compatibility skills incl. sdlc
 ├── commands/                  # generated Claude /claude-kit:* wrappers
 ├── hooks/

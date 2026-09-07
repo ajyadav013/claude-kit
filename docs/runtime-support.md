@@ -143,17 +143,20 @@ find, command-substitution, or recursive reads are denied and make verification 
 
 Credentials are deliberately host-owned: Claude reads an out-of-workspace `apiKeyHelper`. The
 OpenAI key has exactly two protected channels: the exact-wheel coordinator passes it only to the
-pinned passive `CodexProcessDispatcher` host process used for the managed `classify` proof, and the
-separate native-behavior probe runs through the pinned official `openai/codex-action` key proxy
-under the built-in read-only permission profile. Neither channel exposes it to project tools or
-persists it in the fixture, and the isolated Codex home trusts only the canonical prepared project
-path.
+pinned passive `CodexProcessDispatcher` host process used for the managed
+`fast-track-classify` proof, and the separate native-behavior probe runs through the pinned official
+`openai/codex-action` key proxy under the built-in read-only permission profile. Neither channel
+exposes it to project tools or persists it in the fixture, and the isolated Codex home trusts only
+the canonical prepared project path.
 That same coordinator channel also runs a separate, explicitly fixture-seeded standard-profile
 Mode A project: coordinator-owned typed predecessor stages close `spec-complete` through public
-ledger APIs without a native-host claim, then the exact-wheel Codex adapter runs only the canonical
-passive `planning-merge`/`em-reviewer` owner. Its typed `architecture-plan` and PASS
-`review-verdict` must produce the root-owned owner-attempt bundle that closes `em-approved`; the
-harness verifies the exact gate-history digest and stops before the next broader stage.
+ledger APIs without a native-host claim, then the exact-wheel Codex adapter runs the canonical
+passive `architecture-review`/`technical-architect` panel member followed by the
+`planning-merge`/`em-reviewer` owner. The panel's PASS `planning-review-verdict` and the EM's PASS
+`planning-decision` must name the coordinator-bound planning generation and exact applicable panel;
+the typed `architecture-plan` and decision then produce the root-owned owner-attempt bundle that
+closes `em-approved`. The harness verifies those identities, the exact gate-history digest, and
+stops before the next broader stage.
 The pinned action rejects hook-trust bypasses under protected profiles. Before it drops sudo, the
 workflow therefore copies the exact prepared `.codex/hooks.json` byte-for-byte into Codex's
 root-owned `/etc/codex/hooks.json` system layer, which Codex treats as managed policy. It fails

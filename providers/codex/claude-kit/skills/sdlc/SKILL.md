@@ -64,11 +64,11 @@ enterprise thorough. Conversely, never skip a gate that *is* in the set.
 
 ## 3. Drive the pipeline
 
-### Managed execution path (Preview, Modes A–D)
+### Managed execution path (Preview, Modes A–E)
 
-Classify the request far enough to select Mode A, B, C, or D before creating the run. If the mode is
+Classify the request far enough to select Mode A, B, C, D, or E before creating the run. If the mode is
 ambiguous, stop and ask; do not let a shell command infer it from untrusted prose. Start a fresh
-ledger with `ckit pipeline start --task '<reviewed task>' --mode <A|B|C|D>`, or use the
+ledger with `ckit pipeline start --task '<reviewed task>' --mode <A|B|C|D|E>`, or use the
 validated active ledger when resuming.
 
 Before the first managed invocation, commit the selected provider's scaffolded instructions and
@@ -92,6 +92,10 @@ ckit pipeline run --provider codex \
   --condition deploy-surface-present=<true|false> \
   --condition observable-surface-present=<true|false>
 ```
+
+Mode E additionally requires `--program-manifest <project-contained-file>` on every managed
+invocation. The content-addressed manifest is its executable wave, unit, budget, evidence, gate,
+and checkpoint contract; do not replay the ordinary A--C planning DAG around it.
 
 Decide every value from the reviewed task and installed stack; never guess an unknown surface. The
 first invocation freezes the applicable decisions, complete workflow digest, mode-specific gates,
@@ -121,19 +125,21 @@ retry, resolve, or bypass a missing-capability stop; resolving a pause does not 
 boundary. Use an independently contained backend, or obtain explicit human acknowledgement before
 choosing the manual orchestration path.
 
-Mode E is not managed-executable yet because typed wave completion, restore points, and inventory
-approval are not modeled. It must stop at that boundary and use the manual Mode E contract below only
-with an explicit human acknowledgement of the degraded path. If `pipeline run` is unavailable or
-Preview execution was not opted into, report that fact and obtain the same acknowledgement before
-using manual delegation; never silently downgrade a managed run.
+Mode E is managed-executable only through its explicit frozen program manifest and the same shared
+pipeline ledger. It remains Degraded Preview: unsupported shell/write containment, irreversible
+units, and external approval requirements stop before dispatch. If `pipeline run` is unavailable or
+Preview execution was not opted into, report that fact and obtain explicit human acknowledgement
+before using manual delegation; never silently downgrade a managed run.
 
 ### Manual orchestration path
 
-For acknowledged Mode E/manual fallback, spawn the `orchestrator` agent via the delegation
+For an explicitly acknowledged manual fallback, including Mode E when managed execution is
+unavailable, spawn the `orchestrator` agent via the delegation
 tool with the task (the invocation request), active gate list, and stack selection. Instruct it to:
 
 1. **Classify** the work — bug fix vs. feature; single-stream vs. parallel lanes (backend/frontend);
-   fast-track (< 5 files) vs. full pipeline vs. **program-scale** (> ~20 files / multiple subsystems,
+   fast-track (localized + reversible + low-risk + no sensitive/public-contract surface) vs. full
+   pipeline vs. **program-scale** (> ~20 files / multiple subsystems,
    or any irreversible step: production data, schema migration, deletion sweep). Fast-track collapses
    to the lean gate set regardless of profile. Program-scale work runs **Mode E — wave
    orchestration** per `wave-orchestration`: parallel read-only audits → one frozen
@@ -169,8 +175,10 @@ tool with the task (the invocation request), active gate list, and stack selecti
    planned model tier with one trivial spawn and fall back per `model-tiers` →
    "Probe before fan-out".
 4. **Run each active phase with its gate**, in order, using only the profile's agents:
-   spec & dev-docs → story planning → **ticket creation + open the board** → (design, if UI) →
-   senior/architect/EM review → implementation (one worktree per lane) → code review →
+   spec & dev-docs → (design, if UI) → freeze one planning generation → **parallel read-only
+   specialist panel** (applicable senior frontend/backend reviewers + architect + conditional
+   Devil's Advocate) → one EM consolidation/decision → story planning → **ticket creation + open
+   the board** → implementation (one worktree per lane) → code review →
    unit + e2e tests → test-coverage merge → security clear → pipeline-green +
    observability-ready (enterprise) → acceptance (enterprise) → PR.
    At ticket creation the orchestrator runs `ckit tickets --open` **once** and reports the
@@ -178,12 +186,19 @@ tool with the task (the invocation request), active gate list, and stack selecti
    The `capture-ticket-telemetry` Stop hook keeps that page current for the rest of the run —
    creating the file is what switches the hook on.
 5. **Enforce gates** with the `quality-gates.md` severity model and a green RARV Verify before each
-   handoff. On a unanimous PASS, run the `devils-advocate` agent before the gate counts.
-6. **Run the defect loop** when a gate fails: document, re-run only the affected lane(s), re-merge,
-   re-test — never patch informally around the process.
+   handoff. On a unanimous PASS at an eligible gate, run the `devils-advocate` agent before the gate
+   counts. The planning panel's conditional Devil's Advocate is that gate's single adversarial pass;
+   never dispatch it again after the panel.
+6. **Run the defect loop** when a gate fails: document, re-run only the affected implementation and
+   verification stages, re-merge only for integration impact, and re-test only invalidated evidence.
+   Reopen the planning panel only when the frozen plan or an owned interface/invariant changed —
+   never patch informally around the process.
 
 If the `orchestrator` agent is unavailable in this session, act as the orchestrator yourself,
 following the same steps.
+
+Mode E uses its separately frozen program manifest as the executable review/concurrency contract;
+the ordinary A--C planning panel DAG is not replayed by the program executor.
 
 ### Story-group fan-out (optional, feature scale)
 

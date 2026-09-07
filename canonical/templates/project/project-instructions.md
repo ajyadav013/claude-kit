@@ -95,10 +95,10 @@ profile installs their agents.
 1. **Spec first** — no implementation code until a written spec exists; update the spec if the task
    changes. (Spec & Doc Writer; for UI work the UI Designer drafts a design spec first — screen states,
    interactions, empty/loading/error states, responsive behavior, accessibility.)
-2. **Review chain** — Senior Developer → Technical Architect → Engineering Manager review the spec
-   before any code. Independent work streams (the canonical example is a backend lane and a frontend
-   lane, but it applies to any split) run their review chains **in parallel**, joined by a Merge
-   Reviewer at shared-contract / integration points.
+2. **Planning review panel** — freeze one spec/design generation, then run the applicable read-only
+   Senior Frontend Reviewer, Senior Backend Reviewer, Technical Architect, and conditional Devil's
+   Advocate **in parallel**. The Engineering Manager de-duplicates their evidence and makes one
+   decision; there is at most one consolidated revision/recheck, not a role-to-role approval chain.
 3. **Implementation** — only after reviews pass; one isolated worktree per parallel stream, each with
    its own Code Reviewer.
 4. **Testing** — Tester → Senior Tester (parallel lanes for multi-stream work), then a test-coverage
@@ -108,21 +108,26 @@ profile installs their agents.
 6. **Delivery & operability** — for deployable/observable changes, `devops-engineer` (Pipeline Green)
    and `observability-engineer` (Observability Ready) run after testing and before the PR Raiser.
 
-**Defect loop:** on any failure / regression / spec-mismatch, document and classify it by work stream,
-update the spec if expected behavior is unclear, then re-run **only the affected stream(s)** through
-their chain → merge review → Tester → Senior Tester. Don't patch defects outside the process; don't
-re-run unaffected lanes.
+**Defect loop:** on any failure or regression, document and classify it by work stream. A code/test
+defect returns only to the affected Developer → Code Reviewer → affected tests; an integration
+defect additionally returns to the Merge Reviewer. Reopen planning reviewers only when the frozen
+spec/interface/invariant they own actually changes. Don't patch defects outside the process and
+don't re-run unchanged stages.
 
 **Roles** map to agents in `{{ provider.path.agents }}` **where your profile installs them** (the full
-enterprise roster: Spec & Doc Writer, UI Designer, Senior Developer, Technical Architect,
-Engineering Manager, Developer, Code Reviewer, Tester, Senior Tester, Unit/E2E Tester, Security
+enterprise roster: Spec & Doc Writer, UI Designer, Senior Frontend/Backend Planning Reviewers,
+Technical Architect, Engineering Manager, Developer, Code Reviewer, Tester, Senior Tester,
+Unit/E2E Tester, Security
 Reviewer + sub-scanners, Devil's Advocate, Merge Reviewer, DevOps Engineer, Observability Engineer,
 PR Raiser, Orchestrator). The Orchestrator coordinates and gates — it never writes code. State which
 role is being simulated at each stage when it helps clarity.
 
-**Fast-track:** for bug fixes, typos, single-component changes, or config updates (< 5 files), skip the
-spec/design/review chain and go straight to Developer → Code Reviewer → Tester → PR Raiser. If asked
-for speed on larger work, you may compress the process but must preserve the sequence and outputs.
+**Fast-track:** when a change is low-risk, reversible, unambiguous, confined to one local boundary,
+and touches no sensitive or public-contract surface, select Mode D and go straight to Developer →
+Code Reviewer → Tester → PR Raiser. File count is only a hint; auth, tenancy, migrations,
+dependencies, infrastructure, security policy, public contracts, cross-boundary behavior, and
+irreversible work always use the applicable full mode. Preserve the deterministic gates of the
+surface touched.
 
 ## Quality bar & documentation
 

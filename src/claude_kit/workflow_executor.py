@@ -17,7 +17,15 @@ from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Mapping, Optional, Protocol, Sequence, runtime_checkable
+from typing import (
+    Any,
+    Callable,
+    Mapping,
+    Optional,
+    Protocol,
+    Sequence,
+    runtime_checkable,
+)
 
 import yaml
 
@@ -69,6 +77,14 @@ _MAX_DEPENDENCY_HANDOFF_BYTES = 524_288
 _MAX_STAGE_ARTIFACT_BYTES = 8 * 1024 * 1024
 _MAX_MUTABLE_CONTEXT_BYTES = 131_072
 _MAX_MUTABLE_CONTEXT_FILES = 256
+_PLANNING_REVIEW_EVIDENCE = "planning-review-verdict"
+_PLANNING_DECISION_EVIDENCE = "planning-decision"
+_PLANNING_AUTHORITY_BY_ROUTE = {
+    "frontend-planning-review": "frontend",
+    "backend-planning-review": "backend",
+    "architecture": "architecture",
+    "adversarial-review": "architecture",
+}
 
 
 class WorkflowExecutionStatus(str, Enum):
@@ -122,6 +138,91 @@ class _AttemptDisposition:
 
     error: Optional[str]
     retryable: bool
+
+
+@dataclass(frozen=True)
+class _DependencyStageEvidence:
+    """Authenticated direct-dependency evidence used for coordinator bindings."""
+
+    stage: str
+    status: str
+    route: Optional[str]
+    output: Optional[str]
+    output_sha256: Optional[str]
+    evidence_sha256: tuple[tuple[str, str], ...] = ()
+    output_path: Optional[str] = None
+    artifact_sha256: Optional[str] = None
+    skip_condition: Optional[str] = None
+    skip_attestation_sha256: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _PlanningFinding:
+    """One panel finding projected into the EM's final disposition register."""
+
+    finding_id: str
+    severity: str
+    disposition: str
+    authority_domain: str
+    criterion: str
+    evidence: tuple[str, ...]
+    requested_correction: str
+    owner: str
+
+    @property
+    def semantic_key(self) -> tuple[str, str, tuple[str, ...]]:
+        return (self.authority_domain, self.criterion, self.evidence)
+
+
+@dataclass(frozen=True)
+class _PlanningBinding:
+    """Coordinator-owned values a planning worker must echo exactly."""
+
+    generation: str
+    reviewer: str
+    authority_domain: Optional[str] = None
+    architecture_plan_sha256: Optional[str] = None
+    panel_reviewers: tuple[str, ...] = ()
+    panel_findings: tuple[_PlanningFinding, ...] = ()
+
+
+def _planning_packet_generation(dependency: _DependencyStageEvidence) -> str:
+    """Digest the complete typed planning packet with stable evidence identities."""
+
+    by_id = dict(dependency.evidence_sha256)
+    if len(by_id) != len(dependency.evidence_sha256):
+        raise WorkflowValidationError(
+            "frozen planning packet has duplicate evidence ids"
+        )
+    required = {"specification", "architecture-plan"}
+    if not required.issubset(by_id):
+        raise WorkflowValidationError(
+            "frozen planning packet must contain specification and architecture-plan"
+        )
+    if any(
+        not evidence_id
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+        for evidence_id, digest in by_id.items()
+    ):
+        raise WorkflowValidationError(
+            "frozen planning packet evidence digest is malformed"
+        )
+    packet = {
+        "stage": dependency.stage,
+        "evidence": [
+            {"evidence-id": evidence_id, "sha256": by_id[evidence_id]}
+            for evidence_id in sorted(by_id)
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(
+            packet,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 @runtime_checkable
@@ -339,6 +440,17 @@ class PipelineStageLedger:
         if not ok:
             raise WorkflowValidationError("; ".join(messages))
 
+    @staticmethod
+    def _is_advisory_planning_record(
+        fs: ProjectFS,
+        document: Mapping[str, Any],
+        record: Mapping[str, Any],
+    ) -> bool:
+        """Recognize one authenticated, structurally valid panel FAIL observation."""
+        return pipeline._is_managed_advisory_planning_record(  # noqa: SLF001
+            fs, document, record
+        )
+
     def completed_stage_ids(self) -> frozenset[str]:
         completed, error = pipeline.completed_stage_ids(self.project_root)
         if error:
@@ -383,10 +495,13 @@ class PipelineStageLedger:
             )
         return frozen
 
-    def dependency_context(self, stage: WorkflowStageDefinition) -> str:
-        needs_closeout = "closeout-record" in stage.evidence
-        if not stage.depends_on and not needs_closeout:
-            return ""
+    def dependency_evidence(
+        self, stage: WorkflowStageDefinition
+    ) -> tuple[_DependencyStageEvidence, ...]:
+        """Return exact authenticated dependency outputs, including panel FAILs."""
+
+        if not stage.depends_on:
+            return ()
         document, error = pipeline.snapshot_document(self.project_root)
         if error or not isinstance(document, dict):
             raise WorkflowValidationError(
@@ -397,15 +512,17 @@ class PipelineStageLedger:
             raise WorkflowValidationError("dependency stage ledger is malformed")
         fs = ProjectFS(self.project_root)
         layout = detect_state_layout(self.project_root)
-        rendered: list[str] = []
-        total = 0
+        dependencies: list[_DependencyStageEvidence] = []
         for dependency in stage.depends_on:
             matches = [
                 record
                 for record in history
                 if isinstance(record, dict)
                 and record.get("stage") == dependency
-                and record.get("status") == "succeeded"
+                and (
+                    record.get("status") == "succeeded"
+                    or self._is_advisory_planning_record(fs, document, record)
+                )
             ]
             if not matches:
                 skipped, skipped_error = pipeline.skipped_stage_attestation(
@@ -418,21 +535,21 @@ class PipelineStageLedger:
                         f"dependency {dependency!r} is neither successful nor "
                         "durably skipped"
                     )
-                block = (
-                    f"Dependency stage {dependency!r} was durably skipped; "
-                    f"condition={skipped['condition']!r}; decision=false; "
-                    f"attestation_sha256={skipped['attestation_sha256']}."
-                )
-                total += len(block.encode("utf-8"))
-                if total > _MAX_DEPENDENCY_HANDOFF_BYTES:
-                    raise WorkflowValidationError(
-                        "dependency skip attestations exceed the 512 KiB prompt safety limit"
+                dependencies.append(
+                    _DependencyStageEvidence(
+                        dependency,
+                        "skipped",
+                        None,
+                        None,
+                        None,
+                        skip_condition=str(skipped["condition"]),
+                        skip_attestation_sha256=str(skipped["attestation_sha256"]),
                     )
-                rendered.append(block)
+                )
                 continue
             if len(matches) != 1:
                 raise WorkflowValidationError(
-                    f"dependency {dependency!r} has multiple successful stage artifacts"
+                    f"dependency {dependency!r} has multiple settled stage artifacts"
                 )
             record = matches[0]
             output_path = record.get("output_path")
@@ -467,11 +584,22 @@ class PipelineStageLedger:
                 raise WorkflowValidationError(
                     f"dependency {dependency!r} output artifact is malformed"
                 ) from exc
-            if not isinstance(artifact_document, dict) or (
-                artifact_document.get("stage") != dependency
+            managed = isinstance(document.get("managed_execution"), dict)
+            if (
+                not isinstance(artifact_document, dict)
+                or artifact_document.get("stage") != dependency
             ):
                 raise WorkflowValidationError(
                     f"dependency {dependency!r} output artifact identity mismatch"
+                )
+            if managed and (
+                artifact_document.get("route") != record.get("role")
+                or artifact_document.get("status") != record.get("status")
+                or artifact_document.get("evidence_records")
+                != record.get("evidence_records")
+            ):
+                raise WorkflowValidationError(
+                    f"dependency {dependency!r} managed artifact provenance mismatch"
                 )
             output = artifact_document.get("output")
             output_sha = record.get("output_sha256")
@@ -482,11 +610,85 @@ class PipelineStageLedger:
                 raise WorkflowValidationError(
                     f"dependency {dependency!r} output content hash mismatch"
                 )
-            header = (
-                f"Dependency stage {dependency!r}; root artifact {output_path}; "
-                f"artifact_sha256={artifact_sha}; output_sha256={output_sha}:\n"
+            raw_evidence_records = record.get("evidence_records", [])
+            evidence_sha256: list[tuple[str, str]] = []
+            if isinstance(raw_evidence_records, list):
+                for evidence_record in raw_evidence_records:
+                    if not isinstance(evidence_record, dict):
+                        raise WorkflowValidationError(
+                            f"dependency {dependency!r} evidence ledger is malformed"
+                        )
+                    evidence_id = evidence_record.get("evidence_id")
+                    evidence_sha = evidence_record.get("artifact_sha256")
+                    if not isinstance(evidence_id, str) or not isinstance(
+                        evidence_sha, str
+                    ):
+                        raise WorkflowValidationError(
+                            f"dependency {dependency!r} evidence identity is malformed"
+                        )
+                    evidence_sha256.append((evidence_id, evidence_sha))
+            route = record.get("role")
+            if route is not None and not isinstance(route, str):
+                raise WorkflowValidationError(
+                    f"dependency {dependency!r} reviewer identity is malformed"
+                )
+            dependencies.append(
+                _DependencyStageEvidence(
+                    dependency,
+                    (
+                        "advisory-fail"
+                        if record.get("status") == "failed"
+                        else "succeeded"
+                    ),
+                    route,
+                    output if isinstance(output, str) else None,
+                    output_sha if isinstance(output_sha, str) else None,
+                    tuple(evidence_sha256),
+                    output_path,
+                    artifact_sha,
+                )
             )
-            output_text = output if isinstance(output, str) else "(no textual output)"
+        return tuple(dependencies)
+
+    def dependency_context(self, stage: WorkflowStageDefinition) -> str:
+        needs_closeout = "closeout-record" in stage.evidence
+        if not stage.depends_on and not needs_closeout:
+            return ""
+        dependencies = self.dependency_evidence(stage)
+        document, error = pipeline.snapshot_document(self.project_root)
+        if error or not isinstance(document, dict):
+            raise WorkflowValidationError(
+                error or "dependency handoff requires an active pipeline snapshot"
+            )
+        fs = ProjectFS(self.project_root)
+        rendered: list[str] = []
+        total = 0
+        for dependency in dependencies:
+            if dependency.status == "skipped":
+                block = (
+                    f"Dependency stage {dependency.stage!r} was durably skipped; "
+                    f"condition={dependency.skip_condition!r}; decision=false; "
+                    "attestation_sha256="
+                    f"{dependency.skip_attestation_sha256}."
+                )
+                total += len(block.encode("utf-8"))
+                if total > _MAX_DEPENDENCY_HANDOFF_BYTES:
+                    raise WorkflowValidationError(
+                        "dependency skip attestations exceed the 512 KiB prompt safety limit"
+                    )
+                rendered.append(block)
+                continue
+            header = (
+                f"Dependency stage {dependency.stage!r}; "
+                f"status={dependency.status}; root artifact {dependency.output_path}; "
+                f"artifact_sha256={dependency.artifact_sha256}; "
+                f"output_sha256={dependency.output_sha256}:\n"
+            )
+            output_text = (
+                dependency.output
+                if dependency.output is not None
+                else "(no textual output)"
+            )
             remaining = (
                 _MAX_DEPENDENCY_HANDOFF_BYTES - total - len(header.encode("utf-8"))
             )
@@ -498,7 +700,7 @@ class PipelineStageLedger:
             if len(output_bytes) > remaining:
                 marker = (
                     "\n[dependency output prefix truncated; use the authenticated "
-                    f"root artifact {output_path} for the full record]"
+                    f"root artifact {dependency.output_path} for the full record]"
                 ).encode("utf-8")
                 prefix_limit = max(0, remaining - len(marker))
                 safe_prefix = output_bytes[:prefix_limit].decode(
@@ -755,6 +957,7 @@ class WorkflowExecutor:
         ledger: StageLedger,
         *,
         mode: str,
+        profile: Optional[str] = None,
         objective: str,
         context: str = "",
         runtime_context_provider: Optional[Callable[[], str]] = None,
@@ -774,6 +977,7 @@ class WorkflowExecutor:
         self.dispatcher = dispatcher
         self.ledger = ledger
         self.mode = self._mode(mode)
+        self.profile = profile.strip() if isinstance(profile, str) else None
         self.active_gate_ids = self.workflow.gate_ids_for_mode(self.mode.id)
         self.active_gate_digest = self.workflow.gate_definition_digest_for_mode(
             self.mode.id
@@ -800,6 +1004,9 @@ class WorkflowExecutor:
             )
             for stage in selected_stages
         )
+        self._stage_by_id = {stage.id: stage for stage in self.stages}
+        self._planning_bindings: dict[str, _PlanningBinding] = {}
+        self._architecture_passthrough_bindings: dict[str, str] = {}
         self.objective = objective.strip()
         self.context = context
         self.runtime_context_provider = runtime_context_provider
@@ -973,6 +1180,425 @@ class WorkflowExecutor:
             messages=(message,),
         )
 
+    def _dependency_evidence(
+        self, stage: WorkflowStageDefinition
+    ) -> tuple[_DependencyStageEvidence, ...]:
+        getter = getattr(self.ledger, "dependency_evidence", None)
+        if not callable(getter):
+            raise WorkflowValidationError(
+                "planning evidence binding requires authenticated dependency evidence"
+            )
+        evidence = getter(stage)
+        if not isinstance(evidence, tuple) or any(
+            not isinstance(item, _DependencyStageEvidence) for item in evidence
+        ):
+            raise WorkflowValidationError(
+                "planning dependency evidence has an unsupported shape"
+            )
+        if tuple(item.stage for item in evidence) != stage.depends_on:
+            raise WorkflowValidationError(
+                "planning dependency evidence differs from the frozen dependency set"
+            )
+        return evidence
+
+    def _planning_document(
+        self,
+        stage: WorkflowStageDefinition,
+        output: Optional[str],
+        evidence_id: str,
+    ) -> dict[str, Any]:
+        payloads = parse_evidence_envelope(
+            output,
+            expected_ids=stage.evidence,
+            requirements=self.workflow.definition.evidence_requirements,
+            findings_policy=self.workflow.definition.findings_policy,
+            mode=self.mode.code,
+            require_pass=False,
+        )
+        payload = payloads.get(evidence_id)
+        if payload is None:
+            raise WorkflowValidationError(
+                f"planning stage {stage.id!r} did not produce {evidence_id!r}"
+            )
+        document = json.loads(payload)
+        if not isinstance(document, dict):  # pragma: no cover - parser guarantees
+            raise WorkflowValidationError(
+                f"planning evidence {evidence_id!r} is not an object"
+            )
+        return document
+
+    @staticmethod
+    def _planning_findings(document: Mapping[str, Any]) -> tuple[_PlanningFinding, ...]:
+        raw_findings = document.get("findings")
+        if not isinstance(raw_findings, list):  # pragma: no cover - typed parser guards
+            raise WorkflowValidationError("planning findings are not an array")
+        findings: list[_PlanningFinding] = []
+        for raw in raw_findings:
+            if not isinstance(raw, dict):  # pragma: no cover - typed parser guards
+                raise WorkflowValidationError("planning finding is not an object")
+            finding_id = raw.get("id", raw.get("finding-id"))
+            evidence = raw.get("evidence")
+            if not isinstance(finding_id, str) or not isinstance(evidence, list):
+                raise WorkflowValidationError("planning finding identity is malformed")
+            severity = str(raw.get("severity", "")).strip().lower()
+            if severity == "cosmetic":
+                severity = "info"
+            findings.append(
+                _PlanningFinding(
+                    finding_id=finding_id,
+                    severity=severity,
+                    disposition=str(raw.get("disposition", "")).strip(),
+                    authority_domain=str(raw.get("authority-domain", "")).strip(),
+                    criterion=str(raw.get("criterion", "")).strip(),
+                    evidence=tuple(sorted(str(item).strip() for item in evidence)),
+                    requested_correction=str(
+                        raw.get("requested-correction", "")
+                    ).strip(),
+                    owner=str(raw.get("owner", "")).strip(),
+                )
+            )
+        return tuple(findings)
+
+    def _planning_binding(
+        self, stage: WorkflowStageDefinition, reviewer: str
+    ) -> Optional[_PlanningBinding]:
+        is_panel = stage.evidence == (_PLANNING_REVIEW_EVIDENCE,)
+        is_merge = _PLANNING_DECISION_EVIDENCE in stage.evidence
+        if not is_panel and not is_merge:
+            return None
+        dependencies = self._dependency_evidence(stage)
+        planning_sources: list[_DependencyStageEvidence] = []
+        for dependency in dependencies:
+            definition = self._stage_by_id.get(dependency.stage)
+            evidence_digests = dict(dependency.evidence_sha256)
+            if (
+                dependency.status != "skipped"
+                and definition is not None
+                and "architecture-plan" in definition.evidence
+                and _PLANNING_REVIEW_EVIDENCE not in definition.evidence
+                and {"specification", "architecture-plan"}.issubset(evidence_digests)
+            ):
+                planning_sources.append(dependency)
+        if len(planning_sources) != 1:
+            raise WorkflowValidationError(
+                f"planning stage {stage.id!r} requires exactly one frozen "
+                "architecture-plan generation"
+            )
+        planning_source = planning_sources[0]
+        source_evidence_digests = dict(planning_source.evidence_sha256)
+        generation = _planning_packet_generation(planning_source)
+        if is_panel:
+            authority_domain = _PLANNING_AUTHORITY_BY_ROUTE.get(stage.route)
+            if authority_domain is None:
+                raise WorkflowValidationError(
+                    f"planning review route {stage.route!r} has no frozen authority domain"
+                )
+            return _PlanningBinding(generation, reviewer, authority_domain)
+
+        panel_reviewers: list[str] = []
+        panel_findings: list[_PlanningFinding] = []
+        for dependency in dependencies:
+            definition = self._stage_by_id.get(dependency.stage)
+            if (
+                dependency.status == "skipped"
+                or definition is None
+                or definition.evidence != (_PLANNING_REVIEW_EVIDENCE,)
+            ):
+                continue
+            if dependency.output is None or dependency.route is None:
+                raise WorkflowValidationError(
+                    f"planning panel dependency {dependency.stage!r} has no "
+                    "authenticated output or reviewer"
+                )
+            expected_role = self.role_overrides.get(dependency.stage, dependency.route)
+            if dependency.route != expected_role:
+                raise WorkflowValidationError(
+                    f"planning panel dependency {dependency.stage!r} was produced by "
+                    "a reviewer other than its frozen assignment"
+                )
+            panel_document = self._planning_document(
+                definition, dependency.output, _PLANNING_REVIEW_EVIDENCE
+            )
+            expected_domain = _PLANNING_AUTHORITY_BY_ROUTE.get(definition.route)
+            if expected_domain is None:
+                raise WorkflowValidationError(
+                    f"planning review route {definition.route!r} has no frozen authority domain"
+                )
+            if panel_document.get("planning-generation") != generation:
+                raise WorkflowValidationError(
+                    f"planning panel dependency {dependency.stage!r} names a "
+                    "different planning generation"
+                )
+            if panel_document.get("reviewer") != expected_role:
+                raise WorkflowValidationError(
+                    f"planning panel dependency {dependency.stage!r} spoofs its reviewer"
+                )
+            if panel_document.get("authority-domain") != expected_domain:
+                raise WorkflowValidationError(
+                    f"planning panel dependency {dependency.stage!r} names an "
+                    "unexpected authority domain"
+                )
+            panel_reviewers.append(expected_role)
+            panel_findings.extend(self._planning_findings(panel_document))
+        if not panel_reviewers:
+            raise WorkflowValidationError(
+                "planning merge requires at least one applicable completed panel reviewer"
+            )
+        if len(panel_reviewers) != len(set(panel_reviewers)):
+            raise WorkflowValidationError(
+                "applicable planning panel reviewer identities must be unique"
+            )
+        return _PlanningBinding(
+            generation,
+            reviewer,
+            architecture_plan_sha256=source_evidence_digests["architecture-plan"],
+            panel_reviewers=tuple(panel_reviewers),
+            panel_findings=tuple(panel_findings),
+        )
+
+    def _architecture_passthrough_binding(
+        self, stage: WorkflowStageDefinition
+    ) -> Optional[str]:
+        if "story-breakdown" not in stage.evidence:
+            return None
+        if "architecture-plan" not in stage.evidence:
+            raise WorkflowValidationError(
+                "story decomposition must pass through the approved architecture-plan"
+            )
+        sources: list[str] = []
+        for dependency in self._dependency_evidence(stage):
+            definition = self._stage_by_id.get(dependency.stage)
+            evidence_digests = dict(dependency.evidence_sha256)
+            if (
+                dependency.status != "skipped"
+                and definition is not None
+                and _PLANNING_DECISION_EVIDENCE in definition.evidence
+                and "architecture-plan" in definition.evidence
+                and "architecture-plan" in evidence_digests
+            ):
+                sources.append(evidence_digests["architecture-plan"])
+        if len(sources) != 1:
+            raise WorkflowValidationError(
+                f"story stage {stage.id!r} requires exactly one EM-approved "
+                "architecture-plan"
+            )
+        return sources[0]
+
+    @staticmethod
+    def _planning_binding_context(binding: _PlanningBinding) -> str:
+        document: dict[str, object] = {
+            "planning-generation": binding.generation,
+            "reviewer": binding.reviewer,
+        }
+        if binding.authority_domain is not None:
+            document["authority-domain"] = binding.authority_domain
+        if binding.architecture_plan_sha256 is not None:
+            document["frozen-architecture-plan-sha256"] = (
+                binding.architecture_plan_sha256
+            )
+        if binding.panel_reviewers:
+            document["panel-reviewers"] = list(binding.panel_reviewers)
+            document["panel-finding-register"] = [
+                {
+                    "finding-id": finding.finding_id,
+                    "severity": finding.severity,
+                    "disposition": finding.disposition,
+                    "authority-domain": finding.authority_domain,
+                    "criterion": finding.criterion,
+                    "evidence": list(finding.evidence),
+                    "requested-correction": finding.requested_correction,
+                    "owner": finding.owner,
+                }
+                for finding in binding.panel_findings
+            ]
+        register_instruction = (
+            " For a planning decision, return exactly one final finding disposition "
+            "per unique panel semantic key; reuse one listed stable id for deduplicated "
+            "keys and introduce no new blocking semantic key. Because this decision is "
+            "bound to the same frozen generation, every inherited open, disputed, or "
+            "human-required finding must remain unresolved; only non-blocking advisory "
+            "preferences may be closed or downgraded. Re-emit architecture-plan exactly "
+            "as received from the frozen planning source; its digest above is a binding, "
+            "not an additional output field."
+            if binding.panel_reviewers
+            else ""
+        )
+        return (
+            "Coordinator-authenticated planning binding. Copy the bound identity "
+            "fields exactly; panel evidence above remains authoritative."
+            + register_instruction
+            + "\n"
+            + json.dumps(
+                document, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+            )
+        )
+
+    def _planning_result_problem(
+        self,
+        stage: WorkflowStageDefinition,
+        result: DispatchResult,
+        payloads: Mapping[str, bytes],
+    ) -> tuple[Optional[str], bool]:
+        approved_architecture_sha256 = self._architecture_passthrough_bindings.get(
+            stage.id
+        )
+        if approved_architecture_sha256 is not None:
+            architecture_payload = payloads.get("architecture-plan")
+            if architecture_payload is None or (
+                hashlib.sha256(architecture_payload).hexdigest()
+                != approved_architecture_sha256
+            ):
+                return (
+                    "story decomposition replaced the EM-approved architecture-plan",
+                    False,
+                )
+        binding = self._planning_bindings.get(stage.id)
+        if binding is None:
+            return None, False
+        evidence_id = (
+            _PLANNING_REVIEW_EVIDENCE
+            if stage.evidence == (_PLANNING_REVIEW_EVIDENCE,)
+            else _PLANNING_DECISION_EVIDENCE
+        )
+        payload = payloads.get(evidence_id)
+        if payload is None:  # pragma: no cover - exact envelope parser guards
+            return f"missing bound planning evidence {evidence_id!r}", False
+        document = json.loads(payload)
+        if not isinstance(document, dict):  # pragma: no cover - parser guarantees
+            return f"planning evidence {evidence_id!r} is not an object", False
+        if result.handle.route != binding.reviewer:
+            return "planning result route differs from its frozen reviewer", False
+        if document.get("planning-generation") != binding.generation:
+            return "planning evidence names a different frozen generation", False
+        if document.get("reviewer") != binding.reviewer:
+            return (
+                "planning evidence reviewer differs from its frozen assignment",
+                False,
+            )
+        if evidence_id == _PLANNING_REVIEW_EVIDENCE:
+            if document.get("authority-domain") != binding.authority_domain:
+                return (
+                    "planning evidence authority domain differs from its stage",
+                    False,
+                )
+            advisory_fail = (
+                result.status is DispatchStatus.SUCCEEDED
+                and str(document.get("status", "")).strip().lower() == "fail"
+            )
+            return None, advisory_fail
+
+        architecture_payload = payloads.get("architecture-plan")
+        if architecture_payload is None or binding.architecture_plan_sha256 is None:
+            return "planning decision has no frozen architecture-plan binding", False
+        if (
+            hashlib.sha256(architecture_payload).hexdigest()
+            != binding.architecture_plan_sha256
+        ):
+            return (
+                "planning decision architecture-plan differs from the frozen reviewed plan",
+                False,
+            )
+        raw_reviewers = document.get("panel-reviewers")
+        if raw_reviewers != list(binding.panel_reviewers):
+            return (
+                "planning decision reviewer panel differs from the complete "
+                "applicable panel",
+                False,
+            )
+        em_findings = self._planning_findings(document)
+        panel_by_key: dict[
+            tuple[str, str, tuple[str, ...]], list[_PlanningFinding]
+        ] = {}
+        for finding in binding.panel_findings:
+            panel_by_key.setdefault(finding.semantic_key, []).append(finding)
+        em_by_key: dict[tuple[str, str, tuple[str, ...]], _PlanningFinding] = {}
+        adjudication_required = False
+        for finding in em_findings:
+            key = finding.semantic_key
+            if key in em_by_key:
+                return (
+                    "planning decision duplicates a panel finding semantic key",
+                    False,
+                )
+            em_by_key[key] = finding
+            sources = panel_by_key.get(key)
+            is_blocking = finding.severity in {"critical", "high", "medium"} and (
+                finding.disposition in {"open", "disputed", "human-required"}
+            )
+            if sources is None:
+                if is_blocking:
+                    return (
+                        "planning decision introduces a new blocking semantic key "
+                        "outside the reviewed panel",
+                        False,
+                    )
+                continue
+            if finding.finding_id not in {item.finding_id for item in sources}:
+                return (
+                    "planning decision changed the stable id of a panel finding",
+                    False,
+                )
+            severity_order = {
+                severity: index
+                for index, severity in enumerate(
+                    self.workflow.definition.findings_policy.severity_order
+                )
+            }
+            expected_severity = min(
+                (item.severity for item in sources),
+                key=lambda severity: severity_order[severity],
+            )
+            if finding.severity != expected_severity:
+                return (
+                    "planning decision changed the severity of a panel finding",
+                    False,
+                )
+            source_positions = {
+                (
+                    item.severity,
+                    item.disposition,
+                    item.requested_correction,
+                    item.owner,
+                )
+                for item in sources
+            }
+            em_position = (
+                finding.severity,
+                finding.disposition,
+                finding.requested_correction,
+                finding.owner,
+            )
+            if len(source_positions) > 1 or em_position not in source_positions:
+                adjudication_required = True
+            inherited_unresolved = any(
+                item.disposition in {"open", "disputed", "human-required"}
+                for item in sources
+            )
+            if inherited_unresolved and finding.disposition not in {
+                "open",
+                "disputed",
+                "human-required",
+            }:
+                return (
+                    "same-generation planning decision cannot close or downgrade an "
+                    "inherited unresolved panel finding",
+                    False,
+                )
+        missing = set(panel_by_key) - set(em_by_key)
+        if missing:
+            return (
+                "planning decision does not disposition every unique panel finding "
+                "semantic key",
+                False,
+            )
+        if adjudication_required and not document.get("decisions"):
+            return (
+                "planning decision must record the selected and rejected alternatives "
+                "when reviewer positions require adjudication",
+                False,
+            )
+        return None, False
+
     def _request(self, stage: WorkflowStageDefinition, role: str) -> DispatchRequest:
         workspace = (
             self.workspace_resolver.resolve(stage, role)
@@ -981,6 +1607,25 @@ class WorkflowExecutor:
         )
         lane = stage.parallel_group or "control"
         dependency_context = self.ledger.dependency_context(stage)
+        planning_binding = self._planning_binding(stage, role)
+        planning_context = ""
+        if planning_binding is not None:
+            self._planning_bindings[stage.id] = planning_binding
+            planning_context = self._planning_binding_context(planning_binding)
+        architecture_context = ""
+        architecture_sha256 = self._architecture_passthrough_binding(stage)
+        if architecture_sha256 is not None:
+            self._architecture_passthrough_bindings[stage.id] = architecture_sha256
+            architecture_context = (
+                "Coordinator-authenticated approved architecture binding. Re-emit "
+                "architecture-plan exactly as received and add only the separate "
+                "story-breakdown decomposition.\n"
+                + json.dumps(
+                    {"frozen-architecture-plan-sha256": architecture_sha256},
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
         evidence_context = (
             f"Managed execution mode: {self.mode.code}.\n"
             + stage_instruction(
@@ -999,6 +1644,8 @@ class WorkflowExecutor:
                 self.context,
                 runtime_context,
                 dependency_context,
+                planning_context,
+                architecture_context,
                 evidence_context,
             )
             if part.strip()
@@ -1218,9 +1865,21 @@ class WorkflowExecutor:
         unexpected = returned - expected
         duplicates = len(returned) != len(result.evidence)
         effective = result
+        if (
+            result.status is DispatchStatus.FAILED
+            and result.error == pipeline.MANAGED_ADVISORY_PLANNING_FAILURE
+        ):
+            effective = DispatchResult(
+                result.handle,
+                DispatchStatus.FAILED,
+                output=result.output,
+                error="dispatcher supplied a reserved coordinator advisory marker",
+                evidence=result.evidence,
+            )
         evidence_error: str | None = None
         typed_observation = False
         pass_problem: str | None = None
+        planning_advisory = False
         try:
             payloads = parse_evidence_envelope(
                 result.output,
@@ -1232,6 +1891,13 @@ class WorkflowExecutor:
             )
             normalized_findings(payloads)
             typed_observation = True
+            planning_problem, planning_advisory = self._planning_result_problem(
+                stage, result, payloads
+            )
+            if result.status is DispatchStatus.SUCCEEDED and planning_problem:
+                evidence_error = (
+                    "invalid coordinator-bound planning evidence: " + planning_problem
+                )
             try:
                 parse_evidence_envelope(
                     result.output,
@@ -1269,7 +1935,11 @@ class WorkflowExecutor:
             evidence_error = "; ".join(
                 part for part in (evidence_error, reference_problem) if part
             )
-        if result.status is DispatchStatus.SUCCEEDED and pass_problem:
+        if (
+            result.status is DispatchStatus.SUCCEEDED
+            and pass_problem
+            and not planning_advisory
+        ):
             evidence_error = "; ".join(
                 part
                 for part in (
@@ -1284,6 +1954,14 @@ class WorkflowExecutor:
                 DispatchStatus.FAILED,
                 output=result.output,
                 error=evidence_error,
+                evidence=result.evidence,
+            )
+        elif result.status is DispatchStatus.SUCCEEDED and planning_advisory:
+            effective = DispatchResult(
+                result.handle,
+                DispatchStatus.FAILED,
+                output=result.output,
+                error=pipeline.MANAGED_ADVISORY_PLANNING_FAILURE,
                 evidence=result.evidence,
             )
         terminal_error = effective.error
@@ -1356,7 +2034,9 @@ class WorkflowExecutor:
                 artifact,
             )
         )
-        if effective.status is DispatchStatus.SUCCEEDED:
+        if effective.status is DispatchStatus.SUCCEEDED or (
+            planning_advisory and evidence_error is None
+        ):
             return _AttemptDisposition(None, False)
         if effective.status is DispatchStatus.CANCELLED:
             return _AttemptDisposition(terminal_error, False)
@@ -1367,6 +2047,17 @@ class WorkflowExecutor:
 
     def run(self) -> WorkflowExecutionResult:
         """Run until all stages finish, a gate is pending, or a human must decide."""
+        if self.profile == "lean" and self.mode.code in {"A", "B", "C"}:
+            return self._stop(
+                HumanStopReason.UNSUPPORTED_REQUIRED_CAPABILITY,
+                "lean profile supports managed fast-track Mode D only; Modes A-C "
+                "require distinct planning-panel reviewers and a sole EM reviewer",
+                "select Mode D or install the standard/enterprise profile before "
+                "managed execution",
+                completed=(),
+                skipped=(),
+                attempts=(),
+            )
         if self.mode.code == "E":
             return self._stop(
                 HumanStopReason.UNSUPPORTED_REQUIRED_CAPABILITY,
@@ -2215,6 +2906,11 @@ def _execute_bound_workflow_under_lease(
         for item in bound.definition.modes.values()
         if item.id == mode or item.code == mode
     )
+    if options.selection.profile == "lean" and matching_mode.code in {"A", "B", "C"}:
+        raise WorkflowValidationError(
+            "lean profile supports managed fast-track Mode D only; Modes A-C require "
+            "distinct planning-panel reviewers and a sole EM reviewer"
+        )
     selected_resolver = workspace_resolver
     role_loader: Optional[FilesystemNativeRoleLoader] = None
     if selected_resolver is None:
@@ -2378,6 +3074,7 @@ def _execute_bound_workflow_under_lease(
         selected_dispatcher,
         selected_ledger,
         mode=mode,
+        profile=options.selection.profile,
         objective=objective,
         context=context,
         runtime_context_provider=lambda: _mutable_runtime_context(root, options),

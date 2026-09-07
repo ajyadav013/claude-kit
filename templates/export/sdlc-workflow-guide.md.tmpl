@@ -16,10 +16,11 @@ open Critical/High/Medium issues** — if you find one, fix it and re-check befo
 - State your assumptions explicitly. If there are multiple valid interpretations, surface them instead
   of silently picking one.
 
-## 2. Self-review the plan (stand in for the review chain)
+## 2. Self-review the plan (stand in for the planning panel)
 
-Before implementing, challenge your own spec the way a Senior Developer → Architect → Engineering
-Manager chain would:
+Before implementing, challenge your own spec across frontend/backend feasibility, architecture,
+delivery, and adversarial concerns, then make one accountable decision rather than simulating a
+role-to-role approval chain:
 
 - Is this the **simplest** approach that solves the problem? Remove anything speculative.
 - Does it fit the existing architecture and conventions? Any scalability or integration risks?
@@ -72,6 +73,6 @@ phases above. Don't patch around the process.
 
 ## Fast-track
 
-For a bug fix, typo, single-component change, or config update (roughly < 5 files), you may skip the
-spec/plan phases and go straight to Implement → self-review → tests → ship. Preserve the sequence and
-the outputs for anything larger.
+For a reversible, unambiguous, single-boundary low-risk change with no sensitive or public-contract
+surface, select the fast track and go straight to Implement → self-review → tests → ship. File count
+is only a hint; sensitive, cross-boundary, contractual, or irreversible work uses the full flow.

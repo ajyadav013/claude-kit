@@ -78,6 +78,8 @@ _MAX_TEXT_FIELD_BYTES = 16_384
 _TRANSPORT_RETRIES = 1
 _PIPELINE_SCHEMA_VERSION = 2
 _SNAPSHOT_KIND = "maker-checker"
+_STRICT_BLOCKING_SUBSET_POLICY = "strict-blocking-finding-subset"
+_BLOCKING_SEVERITY_RANK = {"medium": 1, "high": 2, "critical": 3}
 _SNAPSHOT_STAGES = frozenset(
     {"setup", "maker", "apply", "reviewer", "completed", "human-stop"}
 )
@@ -596,6 +598,12 @@ def _snapshot_validation_problem(
             return "frozen maker-checker objective differs from its snapshot"
         if raw_contract.get("kind") != selected_kind.value:
             return "frozen maker-checker deliverable kind differs from its snapshot"
+        convergence_policy = raw_contract.get("convergence_policy")
+        if (
+            "convergence_policy" in raw_contract
+            and convergence_policy != _STRICT_BLOCKING_SUBSET_POLICY
+        ):
+            return "frozen maker-checker convergence policy is unsupported"
         frozen_contract = cast(dict[str, object], raw_contract)
 
     raw_attempts = state.get("attempts")
@@ -937,10 +945,41 @@ def _snapshot_validation_problem(
                 != record.get("review_response_sha256")
             ):
                 return "maker_checker reviewer attempt differs from iteration evidence"
+            prior_review = parsed_reviews[-1] if parsed_reviews else None
             parsed_reviews.append(parsed_review)
             previous_finding_ids = frozenset(
                 str(finding["finding_id"]) for finding in parsed_findings
             )
+            if (
+                verdict == "FAIL"
+                and expected_iteration > 1
+                and prior_review is not None
+                and _strict_blocking_subset_enabled(frozen_contract)
+                and not _has_strict_blocking_finding_progress(
+                    prior_review.findings, parsed_review.findings
+                )
+            ):
+                continued = (
+                    expected_iteration < len(raw_records)
+                    or iteration > expected_iteration
+                )
+                if continued:
+                    return (
+                        "maker_checker iteration ledger continued after a no-progress "
+                        "reviewer verdict"
+                    )
+                raw_stop = snapshot.get("human_stop")
+                if (
+                    status_value != "aborted"
+                    or stage != "human-stop"
+                    or not isinstance(raw_stop, dict)
+                    or raw_stop.get("reason")
+                    != HumanStopReason.CONFLICTING_EVIDENCE.value
+                ):
+                    return (
+                        "maker_checker no-progress reviewer verdict must terminate "
+                        "with conflicting-evidence"
+                    )
             if expected_iteration < len(raw_records) and verdict != "FAIL":
                 return "maker_checker only FAIL may precede another iteration"
             if verdict == "PASS" and (
@@ -1966,6 +2005,7 @@ def _contract(
             else [artifact_location]
         ),
         "artifact_location": artifact_location,
+        "convergence_policy": _STRICT_BLOCKING_SUBSET_POLICY,
         "deterministic_checks": (
             ["artifact-nonempty", "git-diff-check"]
             if kind is DeliverableKind.CODE
@@ -2125,6 +2165,50 @@ def _parse_findings(value: object) -> tuple[dict[str, object], ...]:
     return tuple(findings)
 
 
+def _strict_blocking_subset_enabled(contract: Mapping[str, object]) -> bool:
+    return contract.get("convergence_policy") == _STRICT_BLOCKING_SUBSET_POLICY
+
+
+def _blocking_findings_by_id(
+    findings: Sequence[Mapping[str, object]],
+) -> dict[str, str]:
+    return {
+        str(finding["finding_id"]): str(finding["severity"])
+        for finding in findings
+        if finding.get("severity") in _BLOCKING_SEVERITY_RANK
+    }
+
+
+def _has_strict_blocking_finding_progress(
+    prior_findings: Sequence[Mapping[str, object]],
+    current_findings: Sequence[Mapping[str, object]],
+) -> bool:
+    """Return whether one revised FAIL strictly reduced its frozen blockers."""
+
+    prior = _blocking_findings_by_id(prior_findings)
+    current = _blocking_findings_by_id(current_findings)
+    if not current.keys() < prior.keys():
+        return False
+    return all(
+        _BLOCKING_SEVERITY_RANK[current[finding_id]]
+        <= _BLOCKING_SEVERITY_RANK[prior[finding_id]]
+        for finding_id in current
+    )
+
+
+def _compact_finding_registry(
+    findings: Sequence[Mapping[str, object]],
+) -> list[dict[str, str]]:
+    return [
+        {
+            "finding_id": str(finding["finding_id"]),
+            "severity": str(finding["severity"]),
+            "message": str(finding["message"]),
+        }
+        for finding in findings
+    ]
+
+
 def _parse_review_output(
     output: Optional[str],
     *,
@@ -2201,6 +2285,10 @@ def _parse_review_output(
     if verdict == "FAIL" and (not findings or not failed_criteria):
         raise _ContractViolation(
             "reviewer FAIL requires cited findings and at least one failed criterion"
+        )
+    if verdict == "FAIL" and _strict_blocking_subset_enabled(contract) and not blocking:
+        raise _ContractViolation(
+            "reviewer FAIL under strict convergence requires a blocking finding"
         )
     raw_risks = _string_list(
         document["residual_risks"], "reviewer residual_risks", allow_empty=True
@@ -3191,42 +3279,45 @@ def _reviewer_context(
     contract: Mapping[str, object],
     artifact: _Artifact,
     checks: Sequence[Mapping[str, object]],
+    *,
+    prior_findings: Optional[Sequence[Mapping[str, object]]] = None,
 ) -> str:
-    return _canonical_json(
-        {
-            "schema_version": MAKER_CHECKER_SCHEMA_VERSION,
-            "contract": dict(contract),
-            "artifact": {
-                "kind": artifact.kind,
-                "content": artifact.content,
-                "digest": artifact.digest,
-                "path": artifact.path,
-            },
-            "deterministic_checks": list(checks),
-            "output_contract": {
-                "schema_version": 1,
-                "verdict": "PASS|FAIL",
-                "contract_digest": contract["digest"],
-                "artifact_digest": artifact.digest,
-                "criteria": [
-                    {
-                        "criterion_id": "string",
-                        "status": "PASS|FAIL",
-                        "evidence": ["string"],
-                    }
-                ],
-                "findings": [
-                    {
-                        "finding_id": "string",
-                        "severity": "critical|high|medium|low|info",
-                        "message": "string",
-                        "evidence": ["string"],
-                    }
-                ],
-                "residual_risks": ["string"],
-            },
-        }
-    )
+    context: dict[str, object] = {
+        "schema_version": MAKER_CHECKER_SCHEMA_VERSION,
+        "contract": dict(contract),
+        "artifact": {
+            "kind": artifact.kind,
+            "content": artifact.content,
+            "digest": artifact.digest,
+            "path": artifact.path,
+        },
+        "deterministic_checks": list(checks),
+        "output_contract": {
+            "schema_version": 1,
+            "verdict": "PASS|FAIL",
+            "contract_digest": contract["digest"],
+            "artifact_digest": artifact.digest,
+            "criteria": [
+                {
+                    "criterion_id": "string",
+                    "status": "PASS|FAIL",
+                    "evidence": ["string"],
+                }
+            ],
+            "findings": [
+                {
+                    "finding_id": "string",
+                    "severity": "critical|high|medium|low|info",
+                    "message": "string",
+                    "evidence": ["string"],
+                }
+            ],
+            "residual_risks": ["string"],
+        },
+    }
+    if prior_findings is not None:
+        context["prior_finding_registry"] = _compact_finding_registry(prior_findings)
+    return _canonical_json(context)
 
 
 def _dispatch_ownership_callbacks(
@@ -4721,6 +4812,26 @@ def run_maker_checker(
                         )
                     assert artifact is not None
                     checks = _checks_from_ledger(ledger)
+                    prior_findings_for_reviewer: Optional[
+                        Sequence[Mapping[str, object]]
+                    ] = None
+                    if iteration > 1 and _strict_blocking_subset_enabled(contract):
+                        raw_records_for_context = ledger.state.get("iteration_records")
+                        if (
+                            not isinstance(raw_records_for_context, list)
+                            or len(raw_records_for_context) < 2
+                            or not isinstance(raw_records_for_context[-2], dict)
+                            or not isinstance(
+                                raw_records_for_context[-2].get("findings"), list
+                            )
+                        ):
+                            raise MakerCheckerError(
+                                "revised reviewer has no prior finding registry"
+                            )
+                        prior_findings_for_reviewer = cast(
+                            list[dict[str, object]],
+                            raw_records_for_context[-2]["findings"],
+                        )
                     reviewer_binding = bindings[ExecutionSlot.REVIEWER]
                     attempt_id = ledger.begin_attempt(
                         slot=ExecutionSlot.REVIEWER,
@@ -4739,7 +4850,12 @@ def run_maker_checker(
                         ),
                         lane="maker-checker",
                         retry_budget="maker-checker-transport",
-                        context=_reviewer_context(contract, artifact, checks),
+                        context=_reviewer_context(
+                            contract,
+                            artifact,
+                            checks,
+                            prior_findings=prior_findings_for_reviewer,
+                        ),
                         required_capabilities=(Capability.FILE_READ, Capability.SEARCH),
                         workspace=str(workspace),
                         execution_slot=ExecutionSlot.REVIEWER,
@@ -4857,6 +4973,45 @@ def run_maker_checker(
                                 _project_lease_held=True,
                             )
                         return result
+
+                    if iteration > 1 and _strict_blocking_subset_enabled(contract):
+                        prior_record = records[-2]
+                        if not isinstance(prior_record, dict) or not isinstance(
+                            prior_record.get("findings"), list
+                        ):
+                            raise MakerCheckerError(
+                                "revised reviewer has no prior finding evidence"
+                            )
+                        prior_findings = cast(
+                            list[dict[str, object]], prior_record["findings"]
+                        )
+                        if not _has_strict_blocking_finding_progress(
+                            prior_findings, verdict.findings
+                        ):
+                            stop = HumanStopRequest(
+                                HumanStopReason.CONFLICTING_EVIDENCE,
+                                "revised artifact did not strictly reduce the blocking "
+                                "reviewer finding set",
+                                "inspect the preserved reviewer evidence and adjudicate "
+                                "the blockers before starting a new run",
+                            )
+                            ledger.state.update(
+                                {
+                                    "findings": list(verdict.findings),
+                                    "iteration_records": records,
+                                }
+                            )
+                            return _terminal_stop_with_ledger(
+                                ledger,
+                                kind=selected_kind,
+                                artifact=artifact,
+                                workspace=workspace,
+                                stop=stop,
+                                manager=manager,
+                                attempt_output_path=review_response_path,
+                                attempt_output_sha256=review_response_sha,
+                                attempt_status="succeeded",
+                            )
 
                     raw_max_revisions = ledger.state["max_revisions"]
                     if not isinstance(raw_max_revisions, int) or isinstance(

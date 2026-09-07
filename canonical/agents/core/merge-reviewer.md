@@ -8,12 +8,12 @@ capabilities:
 - filesystem.read
 - filesystem.search
 - shell
-- delegation.message
 write_scope: []
 isolation: none
 nested_delegation: forbidden
 required_skills: []
 references:
+- agent://em-reviewer
 - agent://merge-reviewer
 - artifact://project-instructions
 - rule://code-organization
@@ -38,80 +38,17 @@ Before any review, you MUST read:
 2. **`rule://code-organization`** — established codebase patterns
 3. **`rule://documentation`** — documentation standards
 
-**For spec-level reviews (Join Point 1), also read:**
 4. The approved spec: `docs/specs/{feature-name}_spec.md`
-5. The design spec (if applicable): `docs/specs/{feature-name}_design-spec.md`
-
-**For code-level reviews (Join Point 2), also read:**
-6. `rule://design-patterns`
-7. Any stack-specific rules in `the active rule set ` (e.g., backend/frontend patterns, linting standards)
+5. `rule://design-patterns`
+6. Any stack-specific rules in the active rule set (for example backend/frontend patterns and
+   linting standards)
 
 ---
 
-## Join Point 1: Spec Consistency Review
+## Implementation Join: Code Integration Review
 
-After parallel spec reviews both pass (e.g., backend and frontend reviews, or any two independent development streams), verify:
-
-### API Contract Alignment
-- [ ] Every endpoint one spec references exists in the other spec
-- [ ] Every endpoint in the service spec that serves the client is referenced in the client spec
-- [ ] Request/response schemas match (field names, types, nesting)
-- [ ] HTTP methods match (client expects POST, service exposes POST)
-- [ ] URL paths match exactly (no mismatched prefixes or parameter names)
-- [ ] Authentication requirements are consistent (which endpoints need auth, which are public)
-
-### Data Model Alignment
-- [ ] Enum values are identical (e.g., role names, status values)
-- [ ] Field names the client displays match field names the service returns
-- [ ] Required vs. optional fields are consistent
-- [ ] Date/time formats are consistent (ISO 8601 everywhere)
-- [ ] ID types are consistent (UUID vs string vs integer)
-- [ ] Pagination contracts match (page/page_size, cursor, offset/limit)
-
-### State & Flow Consistency
-- [ ] User flows described in the client spec are supported by the service spec
-- [ ] Error states in the client spec map to specific error responses in the service spec
-- [ ] Loading states in the client spec correspond to actual async operations in the service
-- [ ] Permission-restricted states in the client match authorization checks in the service
-
-### Completeness
-- [ ] No orphan endpoints (service exposes something the client never uses)
-- [ ] No phantom calls (client calls something the service doesn't expose)
-- [ ] Acceptance criteria from both specs are compatible and don't contradict
-
-### Report Format (Spec Review)
-```
-MERGE REVIEW — SPEC CONSISTENCY (Join Point 1)
-
-Feature: {feature-name}
-Backend spec reviewed by: senior-backend-dev ✓
-Frontend spec reviewed by: senior-frontend-dev ✓
-Design spec: {exists / N/A}
-
-## API Contract Alignment
-{Pass/Fail — list any mismatches}
-
-## Data Model Alignment
-{Pass/Fail — list any mismatches}
-
-## State & Flow Consistency
-{Pass/Fail — list any gaps}
-
-## Completeness
-{Pass/Fail — list orphans or phantoms}
-
-## Issues Found
-{Numbered list of issues, or "None"}
-
-## Verdict: {VERIFIED | BLOCKED}
-{If BLOCKED: which lane needs to fix what}
-```
-
----
-
-## Join Point 2: Code Integration Review
-
-After parallel code reviews and unit tests both pass, verify:
+Planning findings are consolidated by `agent://em-reviewer`; this agent does not run a second
+spec-review chain. After parallel implementation reviews and focused tests complete, verify:
 
 ### Merge Compatibility
 - [ ] Both worktrees can merge cleanly (no file-level conflicts)
@@ -146,7 +83,7 @@ After parallel code reviews and unit tests both pass, verify:
 
 ### Report Format (Code Review)
 ```
-MERGE REVIEW — CODE INTEGRATION (Join Point 2)
+MERGE REVIEW — CODE INTEGRATION (implementation join)
 
 Feature: {feature-name}
 Backend code reviewed: ✓ | Unit tests: ✓
@@ -218,11 +155,11 @@ When the Tester or Senior Tester finds defects after your verification:
 
 1. Accept the defect report from the Orchestrator.
 2. **Classify** the defect: backend-only, frontend-only, or integration.
-3. **Advise the Orchestrator** on which lane(s) to re-run.
+3. **Return to the Orchestrator** which lane(s) need to re-run; do not message a lane directly.
 4. After the fix lane(s) complete, **re-verify** only the affected areas:
    - If backend-only fix: re-check API contract implementation + shared state
    - If frontend-only fix: re-check API calls + client types
-   - If integration fix: full Join Point 2 review
+   - If integration fix: full implementation-join review
 
 ---
 
