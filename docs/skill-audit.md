@@ -9,7 +9,7 @@ This document analyzes claude-kit's skill inventory — classification, sizing, 
 **Total skills on disk:** 111 (58 core + 53 stack-collection)
 
 > **Snapshot, not current state.** The figures and lane list below describe 0.57.0. Since then the
-> inventory has grown to 121 skills (58 core + 63 stack-collection) and **Python/Django went live
+> inventory has grown to 127 skills (64 core + 63 stack-collection) and **Python/Django went live
 > in 0.80.0** — so where this audit lists Django among the `status: planned` stacks, read that as
 > what was true when it was written. The analysis and its conclusions are unchanged.
 

@@ -495,7 +495,7 @@ def test_codex_native_plugin_add_content_list_remove(tmp_path: Path) -> None:
         f"claude-kit:{path.parent.name}"
         for path in staged_plugin_root.glob("skills/*/SKILL.md")
     }
-    assert len(expected_skill_names) == 126
+    assert len(expected_skill_names) == 127
     assert {skill["name"] for skill in installed_skills} == expected_skill_names
     assert len(installed_skills) == len(expected_skill_names)
     assert all(skill["enabled"] for skill in installed_skills)

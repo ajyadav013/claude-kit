@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from claude_kit.models import INIT_OPTIONS_SCHEMA
 from scripts import protected_host_smoke as smoke
 
 ROOT = Path(__file__).parents[1]
@@ -41,13 +42,18 @@ def _ckit_wrapper(directory: Path) -> Path:
 def _fake_managed_codex(directory: Path) -> tuple[Path, Path]:
     executable = directory / "codex"
     invocation_log = directory / "managed-codex-invocations.jsonl"
+    frozen_architecture_plan = smoke._fixture_seed_evidence_document(
+        "architecture-plan"
+    )
     source = f"""#!{sys.executable}
+import hashlib
 import json
 import os
 import sys
 from pathlib import Path
 
 LOG = Path({json.dumps(str(invocation_log))})
+FROZEN_ARCHITECTURE_PLAN = json.loads({json.dumps(json.dumps(frozen_architecture_plan, sort_keys=True))})
 SECRET_NAMES = {{
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
@@ -61,6 +67,37 @@ def record(document):
     with LOG.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(document, sort_keys=True) + "\\n")
 
+def planning_binding(prompt):
+    marker = "Coordinator-authenticated planning binding."
+    assert marker in prompt
+    binding_text = prompt.split(marker, 1)[1]
+    binding_line = next(
+        line for line in binding_text.splitlines() if line.startswith("{{")
+    )
+    return json.loads(binding_line)
+
+def planning_architecture_plan(prompt):
+    marker = "Dependency stage 'planning-gate';"
+    assert marker in prompt
+    dependency_text = prompt.split(marker, 1)[1]
+    dependency_line = next(
+        line for line in dependency_text.splitlines() if line.startswith('{{"evidence":')
+    )
+    plan = json.loads(dependency_line)["evidence"]["architecture-plan"]
+    assert plan == FROZEN_ARCHITECTURE_PLAN
+    return plan
+
+def document_sha256(document):
+    encoded = json.dumps(
+        document,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    encoded = (encoded + "\\n").encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
 args = sys.argv[1:]
 present = sorted(name for name in SECRET_NAMES if os.environ.get(name))
 if args == ["--version"]:
@@ -68,7 +105,9 @@ if args == ["--version"]:
     print("codex-cli 0.147.0")
     raise SystemExit(0)
 if args[:2] == ["features", "list"]:
-    assert present == ["OPENAI_API_KEY"]
+    # Compatibility discovery is local and must remain credential-free. The
+    # provider credential belongs only to the later native execution process.
+    assert present == []
     disabled = [args[index + 1] for index, value in enumerate(args[:-1]) if value == "--disable"]
     record({{
         "kind": "features",
@@ -95,38 +134,73 @@ if args and args[0] == "exec":
     assert credential not in prompt
     assert "Declared role write scope (verified against the managed git worktree): none" in prompt
     if "Native role: risk-classifier" in prompt:
-        assert "Required evidence references: artifact://scope-record" in prompt
+        assert "Required evidence references: artifact://fast-track-scope-record" in prompt
         evidence = {{
-            "scope-record": {{
+            "fast-track-scope-record": {{
                 "mode": "D",
-                "surfaces": ["repository"],
+                "surfaces": ["one local implementation boundary"],
                 "constraints": ["passive read-only classification"],
                 "risks": [],
+                "risk-tier": "low",
+                "localized-single-boundary": True,
+                "unambiguous": True,
+                "reversible": True,
+                "sensitive-surface": False,
+                "public-contract-surface": False,
+                "irreversible-action": False,
+                "external-effect": False,
             }}
         }}
-        references = ["artifact://scope-record"]
+        references = ["artifact://fast-track-scope-record"]
+    elif "Native role: technical-architect" in prompt:
+        assert "Stage architecture-review:" in prompt
+        assert "artifact://planning-review-verdict" in prompt
+        assert "specs/protected_gate_owner_spec.md" in prompt
+        binding = planning_binding(prompt)
+        assert binding == {{
+            "authority-domain": "architecture",
+            "planning-generation": binding["planning-generation"],
+            "reviewer": "technical-architect",
+        }}
+        evidence = {{
+            "planning-review-verdict": {{
+                "status": "PASS",
+                "reviewer": binding["reviewer"],
+                "planning-generation": binding["planning-generation"],
+                "authority-domain": binding["authority-domain"],
+                "findings": [],
+                "evidence": ["specs/protected_gate_owner_spec.md"],
+            }}
+        }}
+        references = ["artifact://planning-review-verdict"]
     elif "Native role: em-reviewer" in prompt:
         assert "Stage planning-merge:" in prompt
         assert "artifact://architecture-plan" in prompt
-        assert "artifact://review-verdict" in prompt
+        assert "artifact://planning-decision" in prompt
         assert "specs/protected_gate_owner_spec.md" in prompt
+        binding = planning_binding(prompt)
+        assert binding["reviewer"] == "em-reviewer"
+        assert binding["panel-reviewers"] == ["technical-architect"]
+        assert binding["panel-finding-register"] == []
+        architecture_plan = planning_architecture_plan(prompt)
+        assert document_sha256(architecture_plan) == binding[
+            "frozen-architecture-plan-sha256"
+        ]
         evidence = {{
-            "architecture-plan": {{
-                "boundaries": ["committed documentation-only fixture"],
-                "dependencies": ["fixture-seeded spec-complete gate"],
-                "interfaces": ["public managed pipeline ledger"],
-                "verification": ["owner-bound em-approved gate bundle"],
-            }},
-            "review-verdict": {{
+            "architecture-plan": architecture_plan,
+            "planning-decision": {{
                 "status": "PASS",
-                "reviewer": "em-reviewer",
+                "reviewer": binding["reviewer"],
+                "planning-generation": binding["planning-generation"],
+                "panel-reviewers": binding["panel-reviewers"],
                 "findings": [],
+                "decisions": [],
                 "evidence": ["specs/protected_gate_owner_spec.md"],
             }},
         }}
         references = [
             "artifact://architecture-plan",
-            "artifact://review-verdict",
+            "artifact://planning-decision",
         ]
     else:
         raise AssertionError("unexpected native managed role")
@@ -320,6 +394,7 @@ def test_prepare_uses_exact_both_scaffold_and_real_native_components(
     project = prepared_root / "project"
     control = _control(prepared_root)
 
+    assert smoke.INIT_OPTIONS_SCHEMA_VERSION == INIT_OPTIONS_SCHEMA
     assert control["scaffold"]["runtimes"] == ["claude", "codex"]
     assert control["scaffold"]["state_root"] == ".ckit"
     inventory = control["scaffold"]["selected_native_inventory"]
@@ -1054,7 +1129,7 @@ def test_exact_wheel_managed_codex_runs_passive_stage_and_canonical_gate_owner(
     )
     assert set(gate_proof["evidence"]) == {
         "architecture-plan",
-        "review-verdict",
+        "planning-decision",
     }
     assert gate_proof["fixture_seed"]["native_host_claim"] is False
     assert gate_proof["fixture_seed"]["seeded_stages"] == list(
@@ -1085,18 +1160,42 @@ def test_exact_wheel_managed_codex_runs_passive_stage_and_canonical_gate_owner(
     assert gate_proof["gate_history_digest"] == smoke._gate_history_digest(
         gate_snapshot["gate_history"]
     )
+    planning_gate_attempt = next(
+        entry
+        for entry in gate_snapshot["stage_history"]
+        if entry["stage"] == "planning-gate"
+    )
+    frozen_plan_record = next(
+        record
+        for record in planning_gate_attempt["evidence_records"]
+        if record["evidence_id"] == "architecture-plan"
+    )
+    assert (
+        gate_proof["evidence"]["architecture-plan"]["sha256"]
+        == (frozen_plan_record["artifact_sha256"])
+    )
+    assert json.loads(
+        (gate_project / gate_proof["evidence"]["architecture-plan"]["path"]).read_text(
+            encoding="utf-8"
+        )
+    ) == json.loads(
+        (gate_project / frozen_plan_record["artifact_path"]).read_text(encoding="utf-8")
+    )
 
     invocations = [
         json.loads(line)
         for line in invocation_log.read_text(encoding="utf-8").splitlines()
     ]
     host_runs = [item for item in invocations if item["kind"] == "exec"]
-    assert len(host_runs) == 2
+    assert len(host_runs) == 3
     assert all(run["provider_secret_env"] == ["OPENAI_API_KEY"] for run in host_runs)
     assert "Native role: risk-classifier" in host_runs[0]["prompt"]
-    assert "Native role: em-reviewer" in host_runs[1]["prompt"]
-    assert "Stage planning-merge:" in host_runs[1]["prompt"]
-    assert "predecessor records are fixture-seeded" in host_runs[1]["prompt"]
+    assert "Native role: technical-architect" in host_runs[1]["prompt"]
+    assert "Stage architecture-review:" in host_runs[1]["prompt"]
+    assert "Native role: em-reviewer" in host_runs[2]["prompt"]
+    assert "Stage planning-merge:" in host_runs[2]["prompt"]
+    assert "earlier predecessor records are fixture-seeded" in host_runs[1]["prompt"]
+    assert "earlier predecessor records are fixture-seeded" in host_runs[2]["prompt"]
     assert all("Native role: developer" not in run["prompt"] for run in host_runs)
     assert all("Native role: story-planner" not in run["prompt"] for run in host_runs)
     assert all("Native role: orchestrator" not in run["prompt"] for run in host_runs)
@@ -1126,12 +1225,33 @@ def test_exact_wheel_managed_codex_runs_passive_stage_and_canonical_gate_owner(
     gate_bundle.write_bytes(original_gate_bundle)
     gate_bundle.chmod(0o600)
 
-    review_artifact = gate_project / gate_proof["evidence"]["review-verdict"]["path"]
-    original_review = review_artifact.read_bytes()
-    failed_review = json.loads(original_review)
-    failed_review["status"] = "FAIL"
-    review_artifact.write_text(json.dumps(failed_review), encoding="utf-8")
-    review_artifact.chmod(0o600)
+    panel_attempt = next(
+        entry
+        for entry in gate_snapshot["stage_history"]
+        if entry["stage"] == "architecture-review"
+    )
+    panel_record = panel_attempt["evidence_records"][0]
+    panel_document = json.loads(
+        (gate_project / panel_record["artifact_path"]).read_text(encoding="utf-8")
+    )
+    decision_artifact = (
+        gate_project / gate_proof["evidence"]["planning-decision"]["path"]
+    )
+    original_decision = decision_artifact.read_bytes()
+    planning_decision = json.loads(original_decision)
+    assert panel_document["reviewer"] == "technical-architect"
+    assert panel_document["authority-domain"] == "architecture"
+    assert planning_decision["reviewer"] == "em-reviewer"
+    assert planning_decision["panel-reviewers"] == ["technical-architect"]
+    assert (
+        planning_decision["planning-generation"]
+        == panel_document["planning-generation"]
+    )
+
+    wrong_generation = dict(planning_decision)
+    wrong_generation["planning-generation"] = "0" * 64
+    decision_artifact.write_text(json.dumps(wrong_generation), encoding="utf-8")
+    decision_artifact.chmod(0o600)
     with pytest.raises(smoke.SmokeError, match="evidence"):
         smoke._assert_managed_codex_gate_owner_state(
             gate_project,
@@ -1139,8 +1259,22 @@ def test_exact_wheel_managed_codex_runs_passive_stage_and_canonical_gate_owner(
             host_version="0.147.0",
             gate_closed=True,
         )
-    review_artifact.write_bytes(original_review)
-    review_artifact.chmod(0o600)
+    decision_artifact.write_bytes(original_decision)
+    decision_artifact.chmod(0o600)
+
+    wrong_panel = dict(planning_decision)
+    wrong_panel["panel-reviewers"] = ["devils-advocate"]
+    decision_artifact.write_text(json.dumps(wrong_panel), encoding="utf-8")
+    decision_artifact.chmod(0o600)
+    with pytest.raises(smoke.SmokeError, match="evidence"):
+        smoke._assert_managed_codex_gate_owner_state(
+            gate_project,
+            seed_proof=gate_proof["fixture_seed"],
+            host_version="0.147.0",
+            gate_closed=True,
+        )
+    decision_artifact.write_bytes(original_decision)
+    decision_artifact.chmod(0o600)
 
     monkeypatch.delenv("OPENAI_API_KEY")
     document = _control(scratch)

@@ -1,6 +1,6 @@
 {
   "name": "claude-kit",
-  "version": "0.83.0",
+  "version": "0.84.0",
   "description": "Evidence-gated SDLC workflows for Claude Code, with preview plugin support for Codex, delivered from one stack-agnostic payload.",
   "author": {
     "name": "Arjunsingh Yadav",

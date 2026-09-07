@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 import webbrowser
@@ -34,6 +35,12 @@ from claude_kit import (
 )
 from claude_kit import export as exporter
 from claude_kit import tickets as tickets_mod
+from claude_kit.execution_config import (
+    ExecutionConfigError,
+    configure_execution_policy,
+    disable_execution_policy,
+    load_execution_policy,
+)
 from claude_kit.hook_adapter import HookAdapterError, run_registered_hook
 from claude_kit.learning_capture import (
     DEFAULT_CHANGED_FILES,
@@ -41,12 +48,25 @@ from claude_kit.learning_capture import (
     LearningCaptureError,
     run_codex_learning_capture,
 )
+from claude_kit.maker_checker import (
+    DeliverableKind,
+    FrozenMakerCheckerRun,
+    MakerCheckerError,
+    MakerCheckerStatus,
+    ResolvedWorkerBinding,
+    confirm_maker_checker_dispatch_terminated,
+    run_maker_checker,
+)
 from claude_kit.models import (
+    ExecutionPolicy,
     InitOptions,
     InstallRequest,
+    ModelChoice,
+    ModelChoiceKind,
     ResolvedPlan,
     Runtime,
     StateLayout,
+    WorkerBinding,
 )
 from claude_kit.projection import Provider
 from claude_kit.runtime_scaffold import (
@@ -108,6 +128,11 @@ worktree_app = typer.Typer(
     help="Manage provider-neutral, run-owned fallback worktrees.",
 )
 app.add_typer(worktree_app, name="worktree")
+maker_checker_app = typer.Typer(
+    no_args_is_help=True,
+    help="Configure, inspect, and run the project maker/reviewer model pair.",
+)
+app.add_typer(maker_checker_app, name="maker-checker")
 
 # Typer's ``Annotated`` declarations are interpreted as positional arguments on
 # supported Python 3.9 environments.  Keep these mutable/required option objects
@@ -116,6 +141,11 @@ app.add_typer(worktree_app, name="worktree")
 _HOOK_PROVIDER_OPTION = typer.Option(..., "--provider")
 _HOOK_ID_OPTION = typer.Option(..., "--hook-id")
 _WORKTREE_STATUS_OPTION = typer.Option(..., "--status")
+_MAKER_CHECKER_TASK_OPTION = typer.Option(
+    None,
+    "--task",
+    help="exact objective; required for a new run and optional as a resume assertion",
+)
 _PIPELINE_PROVIDER_OPTION = typer.Option(
     ...,
     "--provider",
@@ -333,6 +363,474 @@ def worktree_resume_run(
     typer.echo(json.dumps([record.to_dict() for record in records], sort_keys=True))
 
 
+def _maker_checker_failure(exc: ExecutionConfigError) -> None:
+    """Render a project configuration failure without leaking a traceback."""
+
+    typer.echo(f"error: {exc}", err=True)
+    raise typer.Exit(1) from exc
+
+
+def _installed_maker_checker_runtime(path: str) -> Runtime:
+    """Read the installed providers from the one neutral control-plane manifest."""
+
+    try:
+        fs = ProjectFS(Path(path).expanduser())
+        manifest = StateLayout.neutral().manifest
+        if not fs.is_file(manifest):
+            raise ExecutionConfigError(
+                "maker-checker configuration requires a runtime-aware install with "
+                "neutral .ckit state"
+            )
+        document = json.loads(fs.read_text(manifest))
+        if not isinstance(document, dict):
+            raise ValueError("document root must be an object")
+        options = InitOptions.from_dict(document)
+        if options.state_layout != StateLayout.neutral():
+            raise ExecutionConfigError(
+                "maker-checker configuration requires a runtime-aware install with "
+                "neutral .ckit state"
+            )
+        return options.runtime
+    except ExecutionConfigError:
+        raise
+    except (json.JSONDecodeError, OSError, TypeError, UnicodeError, ValueError) as exc:
+        raise ExecutionConfigError(
+            f"cannot read maker-checker configuration: {exc}"
+        ) from exc
+
+
+def _model_choice_label(choice: ModelChoice) -> str:
+    """Return the concise CLI representation of a model choice."""
+
+    if choice.kind is ModelChoiceKind.INHERIT:
+        return choice.kind.value
+    return f"{choice.kind.value}:{choice.value}"
+
+
+def _model_choice_from_options(
+    role: str,
+    *,
+    tier: Optional[str],
+    model_id: Optional[str],
+    inherit: bool,
+) -> ModelChoice:
+    """Require exactly one approved model form for a non-interactive role."""
+
+    selected = sum((tier is not None, model_id is not None, inherit))
+    if selected != 1:
+        raise ValueError(
+            f"{role} requires exactly one of --{role}-model-tier, "
+            f"--{role}-model-id, or --{role}-inherit"
+        )
+    if tier is not None:
+        return ModelChoice(ModelChoiceKind.TIER, tier)
+    if model_id is not None:
+        return ModelChoice(ModelChoiceKind.EXACT, model_id)
+    return ModelChoice(ModelChoiceKind.INHERIT)
+
+
+def _binding_from_options(
+    role: str,
+    *,
+    provider: Optional[str],
+    tier: Optional[str],
+    model_id: Optional[str],
+    inherit: bool,
+) -> WorkerBinding:
+    """Build one complete, concrete CLI worker binding."""
+
+    if provider is None:
+        raise ValueError(f"{role} requires --{role}-provider")
+    return WorkerBinding(
+        Runtime.parse(provider),
+        _model_choice_from_options(
+            role,
+            tier=tier,
+            model_id=model_id,
+            inherit=inherit,
+        ),
+    )
+
+
+@maker_checker_app.command("show")
+def maker_checker_show(
+    path: str = typer.Argument(
+        ".", help="installed project whose pair should be shown"
+    ),
+) -> None:
+    """Show the configured project maker/reviewer pair."""
+
+    try:
+        policy = load_execution_policy(path)
+    except ExecutionConfigError as exc:
+        _maker_checker_failure(exc)
+    if policy is None:
+        typer.echo("Maker-checker: disabled")
+        return
+    typer.echo("Maker-checker: configured")
+    typer.echo(
+        f"  maker: {policy.maker.provider.value} / "
+        f"{_model_choice_label(policy.maker.model)}"
+    )
+    typer.echo(
+        f"  reviewer: {policy.reviewer.provider.value} / "
+        f"{_model_choice_label(policy.reviewer.model)}"
+    )
+    typer.echo(f"  maximum revisions: {policy.max_revisions}")
+
+
+@maker_checker_app.command("configure")
+def maker_checker_configure(
+    path: str = typer.Argument(
+        ".", help="runtime-aware installed project whose pair should be configured"
+    ),
+    maker_provider: Optional[str] = typer.Option(None, "--maker-provider"),
+    maker_model_tier: Optional[str] = typer.Option(None, "--maker-model-tier"),
+    maker_model_id: Optional[str] = typer.Option(None, "--maker-model-id"),
+    maker_inherit: bool = typer.Option(False, "--maker-inherit"),
+    reviewer_provider: Optional[str] = typer.Option(None, "--reviewer-provider"),
+    reviewer_model_tier: Optional[str] = typer.Option(None, "--reviewer-model-tier"),
+    reviewer_model_id: Optional[str] = typer.Option(None, "--reviewer-model-id"),
+    reviewer_inherit: bool = typer.Option(False, "--reviewer-inherit"),
+    max_revisions: Optional[int] = typer.Option(
+        None,
+        "--max-revisions",
+        help="maximum reviewer-requested maker revisions (0-3; default: 2)",
+    ),
+) -> None:
+    """Set the pair interactively, or from one complete set of role options."""
+
+    supplied = any(
+        (
+            maker_provider is not None,
+            maker_model_tier is not None,
+            maker_model_id is not None,
+            maker_inherit,
+            reviewer_provider is not None,
+            reviewer_model_tier is not None,
+            reviewer_model_id is not None,
+            reviewer_inherit,
+            max_revisions is not None,
+        )
+    )
+    policy: ExecutionPolicy | None
+    if supplied:
+        try:
+            policy = ExecutionPolicy(
+                maker=_binding_from_options(
+                    "maker",
+                    provider=maker_provider,
+                    tier=maker_model_tier,
+                    model_id=maker_model_id,
+                    inherit=maker_inherit,
+                ),
+                reviewer=_binding_from_options(
+                    "reviewer",
+                    provider=reviewer_provider,
+                    tier=reviewer_model_tier,
+                    model_id=reviewer_model_id,
+                    inherit=reviewer_inherit,
+                ),
+                max_revisions=2 if max_revisions is None else max_revisions,
+            )
+        except ValueError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+    else:
+        try:
+            installed_runtime = _installed_maker_checker_runtime(path)
+            current_policy = load_execution_policy(path)
+            policy = prompts.interactive_execution(
+                installed_runtime,
+                current=current_policy,
+            )
+        except ExecutionConfigError as exc:
+            _maker_checker_failure(exc)
+        except ValueError as exc:
+            typer.echo(f"error: {exc}", err=True)
+            raise typer.Exit(2) from exc
+
+    if policy is None:
+        typer.echo("Maker-checker configuration unchanged.")
+        return
+
+    try:
+        configure_execution_policy(path, policy)
+    except ExecutionConfigError as exc:
+        _maker_checker_failure(exc)
+    typer.echo("Maker-checker configured.")
+
+
+@maker_checker_app.command("disable")
+def maker_checker_disable(
+    path: str = typer.Argument(
+        ".", help="installed project whose pair should be disabled"
+    ),
+) -> None:
+    """Disable future maker-checker runs without removing shared state."""
+
+    try:
+        changed = disable_execution_policy(path)
+    except ExecutionConfigError as exc:
+        _maker_checker_failure(exc)
+    if changed:
+        typer.echo("Maker-checker disabled.")
+    else:
+        typer.echo("Maker-checker was already disabled.")
+
+
+def _probe_provider_version(provider: Runtime) -> tuple[bool, str]:
+    """Check one configured executable and compatibility floor via ``--version`` only."""
+
+    executable = shutil.which(provider.value)
+    if executable is None:
+        return False, f"FAIL  {provider.value} executable not found on PATH"
+    try:
+        result = subprocess.run(
+            [executable, "--version"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, f"FAIL  {provider.value} version probe failed: {exc}"
+    if result.returncode != 0:
+        return False, (
+            f"FAIL  {provider.value} version probe exited {result.returncode}"
+        )
+    match = re.search(
+        r"(?<!\d)(\d+\.\d+\.\d+)(?!\d)",
+        f"{result.stdout}\n{result.stderr}",
+    )
+    if match is None:
+        return False, f"FAIL  {provider.value} version is unreadable"
+    version = match.group(1)
+    compatibility = (
+        validator.CLAUDE_CODE_COMPATIBILITY
+        if provider is Runtime.CLAUDE
+        else validator.CODEX_COMPATIBILITY
+    )
+    minimum = str(compatibility["minimum"])
+    parsed = tuple(int(part) for part in version.split("."))
+    required = tuple(int(part) for part in minimum.split("."))
+    if parsed < required:
+        return False, (
+            f"FAIL  {provider.value} {version} is below supported minimum {minimum}"
+        )
+    return True, f"OK    {provider.value} {version} at {executable}"
+
+
+@maker_checker_app.command("probe")
+def maker_checker_probe(
+    path: str = typer.Argument(
+        ".", help="installed project whose pair should be checked"
+    ),
+) -> None:
+    """Check configuration and host CLI readiness without sending a model prompt."""
+
+    try:
+        policy = load_execution_policy(path)
+    except ExecutionConfigError as exc:
+        typer.echo(f"FAIL  configuration is unreadable: {exc}")
+        typer.echo(
+            "INFO  Probe used local configuration only; no inference call was made."
+        )
+        raise typer.Exit(1) from exc
+    if policy is None:
+        typer.echo("FAIL  maker-checker configuration is disabled")
+        typer.echo(
+            "INFO  Probe used local configuration only; no inference call was made."
+        )
+        raise typer.Exit(1)
+
+    typer.echo("OK    maker-checker configuration is enabled and valid")
+    providers: list[Runtime] = []
+    for binding in (policy.maker, policy.reviewer):
+        if binding.provider not in providers:
+            providers.append(binding.provider)
+        if binding.model.kind is ModelChoiceKind.EXACT:
+            typer.echo(
+                f"INFO  {binding.provider.value} exact model {binding.model.value!r} "
+                "is syntax-valid; model access was not probed"
+            )
+
+    ready = True
+    for provider in providers:
+        provider_ready, message = _probe_provider_version(provider)
+        typer.echo(message)
+        ready = ready and provider_ready
+    typer.echo(
+        "INFO  Probe used executable lookup and --version only; no inference call was made."
+    )
+    if not ready:
+        raise typer.Exit(1)
+
+
+@maker_checker_app.command("confirm-terminated")
+def maker_checker_confirm_terminated(
+    path: str = typer.Argument(
+        ".", help="runtime-aware project containing the uncertain dispatch"
+    ),
+    run_id: str = typer.Option(..., "--run-id", help="exact frozen run identifier"),
+    attempt_id: str = typer.Option(
+        ..., "--attempt-id", help="exact maker-checker attempt identifier"
+    ),
+    route: str = typer.Option(
+        ...,
+        "--route",
+        help="exact maker-checker-maker or maker-checker-reviewer route",
+    ),
+    dispatch_id: str = typer.Option(
+        ..., "--dispatch-id", help="exact native host dispatch identifier"
+    ),
+    dispatch_attempt: int = typer.Option(
+        ..., "--dispatch-attempt", min=1, help="exact native host attempt number"
+    ),
+    evidence: str = typer.Option(
+        ...,
+        "--evidence",
+        help="bounded operator evidence that the exact native worker is terminated",
+    ),
+) -> None:
+    """Reconcile an uncertain dispatch only after independently confirming termination."""
+
+    try:
+        proof_path = confirm_maker_checker_dispatch_terminated(
+            path,
+            run_id=run_id,
+            attempt_id=attempt_id,
+            route=route,
+            dispatch_id=dispatch_id,
+            dispatch_attempt=dispatch_attempt,
+            evidence=evidence,
+        )
+    except MakerCheckerError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    typer.echo("Maker-checker dispatch termination confirmed.")
+    typer.echo(f"  proof: {proof_path}")
+    typer.echo("  next: resume or abort the frozen run")
+
+
+@maker_checker_app.command("run")
+def maker_checker_run(
+    path: str = typer.Argument(
+        ".", help="runtime-aware installed project in which to run the pair"
+    ),
+    kind: str = typer.Option(
+        DeliverableKind.AUTO.value,
+        "--kind",
+        help="artifact contract: auto, code, design, or specification",
+    ),
+    task: Optional[str] = _MAKER_CHECKER_TASK_OPTION,
+    resume: Optional[str] = typer.Option(
+        None,
+        "--resume",
+        metavar="RUN_ID",
+        help="resume the active run using its frozen task, pair, and revision budget",
+    ),
+) -> None:
+    """Run one explicit maker→fresh-reviewer loop with bounded revisions."""
+
+    try:
+        selected_kind = DeliverableKind(kind)
+    except ValueError as exc:
+        typer.echo(
+            "error: --kind must be auto, code, design, or specification",
+            err=True,
+        )
+        raise typer.Exit(2) from exc
+    try:
+        root = ProjectFS(Path(path).expanduser()).root.resolve(strict=True)
+    except (OSError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if resume is None and (task is None or not task.strip()):
+        typer.echo(
+            "error: --task is required when starting a maker-checker run",
+            err=True,
+        )
+        raise typer.Exit(2)
+
+    def requested_model_label(value: Optional[str]) -> str:
+        return value if value is not None else "host default"
+
+    def configured_model_label(binding: ResolvedWorkerBinding) -> str:
+        return _model_choice_label(
+            ModelChoice.from_dict(dict(binding.configured_model))
+        )
+
+    def announce_frozen(frozen: FrozenMakerCheckerRun) -> None:
+        maker_binding = frozen.maker
+        reviewer_binding = frozen.reviewer
+        typer.echo("Maker-checker binding (frozen for this run):")
+        typer.echo(
+            f"  maker: {maker_binding.provider} / "
+            f"{configured_model_label(maker_binding)} "
+            f"(requested model: {requested_model_label(maker_binding.requested_model)})"
+        )
+        typer.echo(
+            f"  reviewer: {reviewer_binding.provider} / "
+            f"{configured_model_label(reviewer_binding)} "
+            f"(requested model: {requested_model_label(reviewer_binding.requested_model)})"
+        )
+        typer.echo(f"  maximum revisions: {frozen.max_revisions}")
+        if resume is not None:
+            typer.echo(
+                f"  resuming: {frozen.run_id} at {frozen.stage} "
+                f"iteration {frozen.iteration}"
+            )
+        if (
+            maker_binding.provider == reviewer_binding.provider
+            and maker_binding.requested_model == reviewer_binding.requested_model
+        ):
+            typer.echo(
+                "WARN  maker and reviewer use the same provider/model binding; "
+                "review independence is reduced"
+            )
+
+    try:
+        result = run_maker_checker(
+            str(root),
+            task=task,
+            kind=selected_kind,
+            policy=None,
+            resume_run_id=resume,
+            on_frozen=announce_frozen,
+        )
+    except MakerCheckerError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if result.status is MakerCheckerStatus.PASSED:
+        typer.echo(
+            f"PASS  maker-checker passed after {result.iterations} iteration(s) "
+            f"(run {result.run_id})"
+        )
+        if result.artifact_path is not None:
+            typer.echo(f"  artifact: {result.artifact_path}")
+        if result.artifact_digest is not None:
+            typer.echo(f"  sha256: {result.artifact_digest}")
+        if result.workspace is not None and result.kind is DeliverableKind.CODE:
+            typer.echo(f"  preserved worktree: {result.workspace}")
+        for risk in result.residual_risks:
+            typer.echo(f"  residual risk: {risk}")
+        return
+
+    if result.human_stop is not None:
+        stop = result.human_stop
+        typer.echo(f"HUMAN STOP [{stop.reason.value}] {stop.message}", err=True)
+        typer.echo(f"Required action: {stop.requested_action}", err=True)
+    else:
+        typer.echo("FAIL  maker-checker ended without a valid PASS", err=True)
+    if result.artifact_path is not None:
+        typer.echo(f"Preserved artifact: {result.artifact_path}", err=True)
+    raise typer.Exit(2)
+
+
 def _emit_report(ok: bool, messages: list[str], *, as_json: bool) -> None:
     """Print a check report as text (default) or a structured JSON object; exit code unchanged."""
     if as_json:
@@ -354,6 +852,25 @@ def _resolve_plan(src: Path, *, config: Optional[str], defaults: bool) -> Resolv
             selection = prompts.interactive(src)
         return catalog.resolve(src, selection)
     except (ValueError, OSError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(2) from exc
+
+
+def _resolve_execution_policy(
+    runtime: Runtime,
+    *,
+    config: Optional[str],
+    defaults: bool,
+) -> ExecutionPolicy | None:
+    """Resolve runtime-only maker/reviewer settings exactly once per init invocation."""
+
+    try:
+        if config is not None:
+            return prompts.execution_from_config(config, runtime)
+        if defaults:
+            return None
+        return prompts.interactive_execution(runtime)
+    except (OSError, ValueError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(2) from exc
 
@@ -381,6 +898,18 @@ def _print_dry_run(
     typer.echo(f"\nDRY RUN — previewing install into {target} (no files written)\n")
     typer.echo(f"  profile : {sel.profile}    scope: {sel.scope}")
     typer.echo(f"  runtime : {request.runtime.value if request else 'claude (legacy)'}")
+    if request is not None:
+        if request.execution_policy is None:
+            typer.echo("  execution: disabled")
+        else:
+            policy = request.execution_policy
+            typer.echo(
+                "  execution: "
+                f"maker {policy.maker.provider.value}/{_model_choice_label(policy.maker.model)} "
+                "-> reviewer "
+                f"{policy.reviewer.provider.value}/{_model_choice_label(policy.reviewer.model)}; "
+                f"maximum revisions {policy.max_revisions}"
+            )
     typer.echo(f"  stack   : {stack_str}")
     typer.echo(f"  MCP     : {', '.join(sorted(plan.mcp_servers)) or 'none'}")
     typer.echo(
@@ -417,7 +946,7 @@ def _dry_run_doc(
     else:
         _, paths = preview_runtime_install(src, target, plan, request, force=force)
     paths = sorted(set(paths).union(additional_paths))
-    return {
+    document = {
         "dry_run": True,
         "target": str(target),
         "runtime": request.runtime.value if request else "claude",
@@ -442,6 +971,13 @@ def _dry_run_doc(
         "would_write": [str(p) for p in paths],
         "existing_claude": (target / ".claude").exists(),
     }
+    if request is not None:
+        document["execution"] = (
+            request.execution_policy.to_dict()
+            if request.execution_policy is not None
+            else None
+        )
+    return document
 
 
 def _fs_failure(what: str, target: Path, exc: OSError) -> typer.Exit:
@@ -573,7 +1109,15 @@ def init(
                 if detect_commands is not None:
                     plan.selection.detect_commands = detect_commands
                 request = (
-                    InstallRequest(plan.selection, runtime_choice)
+                    InstallRequest(
+                        plan.selection,
+                        runtime_choice,
+                        _resolve_execution_policy(
+                            runtime_choice,
+                            config=config,
+                            defaults=defaults,
+                        ),
+                    )
                     if runtime_choice is not None
                     else None
                 )
@@ -674,7 +1218,15 @@ def init(
             plan.selection.detect_commands = detect_commands
 
         if runtime_choice is not None:
-            request = InstallRequest(plan.selection, runtime_choice)
+            request = InstallRequest(
+                plan.selection,
+                runtime_choice,
+                _resolve_execution_policy(
+                    runtime_choice,
+                    config=config,
+                    defaults=defaults,
+                ),
+            )
             try:
                 needs_migration = (
                     active_state_layout(project_fs) == StateLayout.legacy_claude()
@@ -953,7 +1505,7 @@ def validate(
         False, "--json", help="emit a machine-readable JSON report instead of text"
     ),
 ) -> None:
-    """Structurally validate a scaffolded .claude/ configuration."""
+    """Structurally validate a scaffolded native Claude/Codex configuration."""
     entered_target = Path(path).expanduser()
     try:
         result = validator.validate(entered_target, strict=strict)

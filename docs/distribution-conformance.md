@@ -10,7 +10,7 @@ source checkout, wheel, and sdist describe the same logical kit.
 counterpart. It also requires:
 
 - one `AGENTS.md` and one copy of each Claude/Codex plugin and marketplace manifest;
-- the complete generated `providers/codex/claude-kit` package root, including its 126 skills,
+- the complete generated `providers/codex/claude-kit` package root, including its 127 skills,
   native manifest, 16-handler hook document, and exact adapted script inventory;
 - byte-for-byte Python package and payload parity between the source snapshot, wheel, and sdist;
 - package, module, and provider-manifest version parity;
@@ -40,7 +40,7 @@ developer's real host configuration.
 | Host | Automated native coverage | Deliberate boundary |
 |---|---|---|
 | Claude Code | strict validation; marketplace add/list/remove; plugin install/list/uninstall | None for this non-credentialed local plugin lifecycle. |
-| Codex | official plugin-creator validation of source, staged, and installed roots; marketplace add/list/remove; plugin add/remove; app-server discovery of exactly 126 enabled skills and 16 native hook handlers with zero loader errors | The committed `ON_USE` policy defers provider/tool credentials until use; the smoke does not invoke a credentialed component or approve hook execution. |
+| Codex | official plugin-creator validation of source, staged, and installed roots; marketplace add/list/remove; plugin add/remove; app-server discovery of exactly 127 enabled skills and 16 native hook handlers with zero loader errors | The committed `ON_USE` policy defers provider/tool credentials until use; the smoke does not invoke a credentialed component or approve hook execution. |
 
 The pinned Claude Code and Codex compatibility matrices run these safe native checks in CI. If a
 host CLI is absent or predates the required plugin commands, the native test skips while the

@@ -113,6 +113,7 @@ and selected MCP servers change the files inside each component directory.
 .ckit/scripts/
 .ckit/state/
 .ckit/tmp/
+.claude-kit-managed-execution.lock
 .claude/agents/
 .claude/hooks/
 .claude/rules/
@@ -143,6 +144,7 @@ Selecting Claude MCP servers additionally emits `.mcp.json` and, when locked, `.
 .ckit/state/
 .ckit/templates/
 .ckit/tmp/
+.claude-kit-managed-execution.lock
 .codex/agents/
 .codex/config.toml
 .codex/hooks.json
@@ -167,6 +169,7 @@ AGENTS.md
 .ckit/state/
 .ckit/templates/
 .ckit/tmp/
+.claude-kit-managed-execution.lock
 .claude/agents/
 .claude/hooks/
 .claude/rules/
@@ -186,7 +189,8 @@ README.claude-sdlc.md
 
 Each directory line is a topology family, not a claim that every profile emits the same members.
 The lists are checked against a fresh default install in the repository test suite. The `both`
-list contains the union of native surfaces and only one `.ckit` family.
+list contains the union of native surfaces and only one `.ckit` family. The ignored root-level
+`.claude-kit-managed-execution.lock` is a persistent kernel-lock anchor, not a second state ledger.
 
 The installer also manages relevant `.gitignore` entries. Presence of `CLAUDE.md`, `AGENTS.md`,
 `.claude`, or `.codex` is not the runtime authority; `.ckit/config/init-options.json` is.
@@ -200,7 +204,8 @@ The installer also manages relevant `.gitignore` entries. Presence of `CLAUDE.md
 3. `lean`, `standard`, or `enterprise` profile;
 4. optional MCP integrations;
 5. opt-in learning capture mode;
-6. individual, team, or organization scope and any organization follow-ups.
+6. individual, team, or organization scope and any organization follow-ups; and
+7. an optional maker/reviewer provider and model policy for explicit maker–checker runs.
 
 Runtime is deployment metadata, not part of stack/profile catalog resolution. A non-interactive
 configuration can include it at the top level:
@@ -214,7 +219,19 @@ profile: standard                     # lean, standard, enterprise
 mcp: [github]                         # [] = none; ids from `ckit list-options`
 capture_mode: "off"                   # off, session-end, session-end-catchup, per-task
 scope: team                           # individual, team, organization
+execution:
+  strategy: maker-reviewer
+  maker:
+    provider: claude
+    model: {kind: tier, value: deep}  # inherit · tier (fast/balanced/deep) · exact
+  reviewer:
+    provider: codex
+    model: {kind: exact, value: YOUR_CODEX_MODEL_ID}
+  max_revisions: 2                    # 0-3; revisions after the initial iteration
 ```
+
+`YOUR_CODEX_MODEL_ID` is a placeholder. Replace it with an exact ID accepted by the installed Codex
+host; claude-kit does not invent or persist a provider-wide default ID.
 
 For Codex or `both`, the environment switch is still required even when `runtime` comes from the
 YAML file:
@@ -222,6 +239,13 @@ YAML file:
 ```bash
 CKIT_EXPERIMENTAL=1 ckit init . --config init.yaml
 ```
+
+`execution` is optional, and `--defaults` leaves it absent. Each role must use a concrete provider
+included in `runtime`; use `runtime: both` for a cross-provider pair. Exact model IDs are persisted,
+but credentials are not. Change or disable the pair after installation with
+`ckit maker-checker configure|show|probe|disable`; see the
+[maker–checker guide](maker-checker.md) for the three model-selection forms, `validate`/`doctor`
+diagnostics, and probe limits.
 
 Use `ckit list-options` for current catalog IDs. Secrets are never written into the configuration;
 MCP entries use environment placeholders.
@@ -252,6 +276,10 @@ Plugins expose static components that a host can discover. They do not run catal
 the projection compiler. A plugin cannot choose a stack/profile/scope, create or migrate `.ckit`,
 perform ownership-aware upgrades, or install project `CLAUDE.md`, `AGENTS.md`, and project custom
 agents. Use the CLI for those capabilities.
+
+This boundary also applies to `maker-checker`: the generated plugin exposes the explicit
+`/maker-checker` or `$maker-checker` skill, but the skill cannot run until the project scaffolder has
+created `.ckit` and the owner has configured a pair.
 
 ### Claude Code plugin
 
@@ -301,6 +329,9 @@ project instructions, custom agents, selected rules, `.ckit`, and lifecycle oper
   sidecar instead of being silently replaced.
 - A runtime transition that removes a native provider surface requires
   `--confirm-runtime-removal` and uses the existing backup/rollback machinery.
+- A provider named by an active frozen maker–checker run cannot be removed, even if the current pair
+  was reconfigured or disabled. Resume that exact run or use `ckit pipeline abort .`, then retry the
+  transition.
 
 ## Migrating an existing Claude install
 
@@ -356,5 +387,6 @@ catch-up and automatic Codex ticket telemetry are not claimed. See [Security](..
 
 - [CLI reference and troubleshooting](cli.md)
 - [Runtime support matrix](runtime-support.md)
+- [Configurable maker–checker](maker-checker.md)
 - [Migration between runtimes](runtime-migration.md)
 - [Autonomous operation](autonomous-operation.md)

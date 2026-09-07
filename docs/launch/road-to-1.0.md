@@ -109,7 +109,7 @@ Current status: export works; fidelity gap is documented. No expansion possible 
 
 - A documented **catalog schema stability guarantee**: the top-level structure (`stacks.yaml`, `profiles.yaml`, `mcp.yaml`, `org.yaml`) is frozen; new fields may be added (backward-compatible), but existing fields cannot be renamed or have their semantics changed without a major version bump.
 - An explicit **upgrade path policy**: `claude-kit upgrade` handles schema migrations within a major version; a major bump may require a manual migration (scripted where feasible).
-- The `init-options.json` manifest already carries `schema_version` (currently `2`); the documented policy states that a schema change bumps it and gates the upgrade logic, and that the catalog files gain the same treatment.
+- The `init-options.json` manifest already carries `schema_version` (currently `3`); the documented policy states that a schema change bumps it and gates the upgrade logic, and that the catalog files gain the same treatment.
 
 Current status: `upgrade` preserves edits and install/upgrade are rollback-journalled; init options,
 transaction journals, pipeline snapshots, MCP locks, stack snapshots, and compatibility data have

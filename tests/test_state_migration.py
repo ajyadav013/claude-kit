@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from claude_kit import state_migration
+from claude_kit.execution_lease import managed_execution_lease
 from claude_kit.models import InitOptions, StateLayout
 from claude_kit.secure_fs import UnsafePathError
 from claude_kit.state import detect_state_layout
@@ -189,6 +190,34 @@ def test_migration_preserves_mutable_bytes_and_leaves_claude_discovery(
     rerun = migrate_legacy_state(project)
     assert not rerun.migrated and rerun.already_neutral
     assert (project / ".ckit/CONTINUITY.md").read_bytes() == b"new neutral user edit\n"
+
+
+def test_migration_keeps_both_old_client_lock_paths_bound(tmp_path, payload):
+    import fcntl
+    import os
+
+    project = tmp_path / "project"
+    _legacy_project(project, payload)
+    legacy_lock = project / ".claude/state/managed-execution.lock"
+    neutral_lock = project / ".ckit/state/managed-execution.lock"
+
+    with managed_execution_lease(project):
+        neutral_before = neutral_lock.stat()
+        result = migrate_legacy_state(project)
+
+        assert result.migrated
+        assert ".ckit/state/managed-execution.lock" not in result.copied_paths
+        assert (neutral_lock.stat().st_dev, neutral_lock.stat().st_ino) == (
+            neutral_before.st_dev,
+            neutral_before.st_ino,
+        )
+        for lock in (legacy_lock, neutral_lock):
+            contender_fd = os.open(lock, os.O_RDWR)
+            try:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(contender_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(contender_fd)
 
 
 def test_conflicting_partial_destination_fails_without_mutation(tmp_path, payload):

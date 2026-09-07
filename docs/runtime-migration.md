@@ -64,6 +64,12 @@ Removal confirmation covers recoverable backup and removal of only the provider-
 The transaction keeps `.ckit` and the remaining provider projection intact. It reuses the installed
 provider-neutral selection; a transition does not silently re-resolve a different stack or profile.
 
+Before removing a provider, the upgrader locks and checks the shared pipeline snapshot. If an active
+maker–checker run froze that provider in either role, removal is refused even when the current pair
+has since been reconfigured or disabled. Resume the exact run to a terminal result or explicitly
+`ckit pipeline abort .`, then retry the transition. An unrelated provider or a valid terminal
+snapshot does not create this active-binding block.
+
 ## What remains shared
 
 All transition directions retain one:

@@ -16,6 +16,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import signal
 import stat
 import subprocess
@@ -23,7 +24,7 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import (
@@ -43,6 +44,7 @@ try:  # pragma: no cover - exercised only on Python 3.9/3.10
 except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[no-redef]
 
+from claude_kit import __version__
 from claude_kit.components import (
     Capability,
     IsolationRequirement,
@@ -62,10 +64,12 @@ from claude_kit.dispatch import (
     WaitMode,
     WaitResult,
     public_human_stop_text,
+    redact_sensitive_text,
 )
 from claude_kit.projection import Provider
 from claude_kit.secure_fs import ProjectFS
 from claude_kit.state import detect_state_layout
+from claude_kit.worktrees import WorktreeError, workspace_content_fingerprint
 
 _ROLE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 _PERMISSION_RE = re.compile(r"^- Permission class: `([^`]+)`$", re.MULTILINE)
@@ -86,11 +90,11 @@ _MAX_CODEX_AUTH_BYTES = 1_048_576
 _CODEX_APP_SERVER_REMOTE_CONTROL_DISABLED_ENV = (
     "CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED"
 )
-_MAX_CODEX_SNAPSHOT_BYTES = 524_288
-_MAX_CODEX_SNAPSHOT_FILE_BYTES = 131_072
-_MAX_CODEX_SNAPSHOT_FILES = 512
-_MAX_CODEX_SNAPSHOT_PATH_BYTES = 4_096
-_MAX_CODEX_SNAPSHOT_METADATA_BYTES = 1_048_576
+_MAX_WORKSPACE_SNAPSHOT_BYTES = 524_288
+_MAX_WORKSPACE_SNAPSHOT_FILE_BYTES = 131_072
+_MAX_WORKSPACE_SNAPSHOT_FILES = 512
+_MAX_WORKSPACE_SNAPSHOT_PATH_BYTES = 4_096
+_MAX_WORKSPACE_SNAPSHOT_METADATA_BYTES = 1_048_576
 _CODEX_LOCKDOWN_VERSIONS = frozenset({"0.147.0", "0.149.0"})
 _CODEX_LOCKDOWN_FEATURES = (
     "apps",
@@ -167,10 +171,10 @@ _CODEX_APP_SERVER_SCHEMA_HASHES = {
         "6dff382dae73d1dbc58406ed045605f647e7a49660e2540fbd2c6c24d60c5f2b"
     ),
 }
-_CODEX_SNAPSHOT_CONTROL_ROOTS = frozenset(
+_WORKSPACE_SNAPSHOT_CONTROL_ROOTS = frozenset(
     {".agents", ".ckit", ".claude", ".codex", ".git"}
 )
-_CODEX_SNAPSHOT_GENERATED_COMPONENTS = frozenset(
+_WORKSPACE_SNAPSHOT_GENERATED_COMPONENTS = frozenset(
     {
         ".cache",
         ".mypy_cache",
@@ -187,7 +191,7 @@ _CODEX_SNAPSHOT_GENERATED_COMPONENTS = frozenset(
         "venv",
     }
 )
-_CODEX_SNAPSHOT_SENSITIVE_COMPONENTS = frozenset(
+_WORKSPACE_SNAPSHOT_SENSITIVE_COMPONENTS = frozenset(
     {
         ".aws",
         ".azure",
@@ -203,14 +207,14 @@ _CODEX_SNAPSHOT_SENSITIVE_COMPONENTS = frozenset(
         "vault",
     }
 )
-_CODEX_SNAPSHOT_SENSITIVE_NAME_RE = re.compile(
+_WORKSPACE_SNAPSHOT_SENSITIVE_NAME_RE = re.compile(
     r"(?:^|[._-])(?:auth|credential|password|private[-_]?key|secret|token)s?"
     r"(?:$|[._-])|^\.env(?:$|\.)|^(?:id_rsa|id_ed25519)(?:\.|$)|"
     r"^(?:\.git-credentials|\.netrc|\.npmrc|\.pypirc)$|"
     r"\.(?:jks|key|kdbx|p12|pem|pfx)$",
     re.IGNORECASE,
 )
-_CODEX_SNAPSHOT_TEXT_SUFFIXES = frozenset(
+_WORKSPACE_SNAPSHOT_TEXT_SUFFIXES = frozenset(
     {
         ".astro",
         ".bash",
@@ -276,7 +280,7 @@ _CODEX_SNAPSHOT_TEXT_SUFFIXES = frozenset(
         ".zsh",
     }
 )
-_CODEX_SNAPSHOT_TEXT_NAMES = frozenset(
+_WORKSPACE_SNAPSHOT_TEXT_NAMES = frozenset(
     {
         ".dockerignore",
         ".editorconfig",
@@ -297,19 +301,268 @@ _CODEX_SNAPSHOT_TEXT_NAMES = frozenset(
         "workspace",
     }
 )
-_CODEX_SNAPSHOT_SECRET_VALUE_RE = re.compile(
+_WORKSPACE_SNAPSHOT_SECRET_VALUE_RE = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----|"
     r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|"
     r"\bsk_(?:live|test)_[0-9A-Za-z]{16,}\b|"
     r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b|"
-    r"\bgh[opsu]_[0-9A-Za-z]{30,}\b"
+    r"\bgh[opsu]_[0-9A-Za-z]{30,}\b|"
+    r"(?i:\bBearer\s+)[0-9A-Za-z._~+/=-]{12,}"
 )
-_CODEX_SNAPSHOT_SECRET_ASSIGNMENT_RE = re.compile(
+_WORKSPACE_SNAPSHOT_SECRET_ASSIGNMENT_RE = re.compile(
     r"(?im)(\b(?:[a-z0-9]+[_-])*(?:api[_-]?key|auth[_-]?token|"
     r"client[_-]?secret|credentials?|password|passwd|private[_-]?key|"
     r"secret|token)(?:[_-][a-z0-9]+)*\b\s*[:=]\s*[\"']?)"
     r"([^\s,;\"']{8,})"
 )
+_GIT_FILTER_DRIVER_RE = re.compile(rb"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_WORKSPACE_SNAPSHOT_URL_CREDENTIAL_RE = re.compile(r"(://[^\s/:@]+:)[^\s/@]+(@)")
+_MAX_PRIVATE_GIT_FILES = 100_000
+_MAX_PRIVATE_GIT_BYTES = 256 * 1024 * 1024
+
+
+def _run_hardened_git(
+    workspace: Path,
+    args: Sequence[str],
+    *,
+    environment: Optional[Mapping[str, str]] = None,
+    input_data: bytes | str | None = None,
+    text: bool = False,
+) -> subprocess.CompletedProcess[Any]:
+    """Run coordinator Git with repository execution surfaces disabled."""
+
+    source_environment = os.environ if environment is None else environment
+    run_environment = {
+        name: value
+        for name, value in source_environment.items()
+        if not name.upper().startswith("GIT_")
+    }
+    if environment is not None and "GIT_INDEX_FILE" in environment:
+        run_environment["GIT_INDEX_FILE"] = environment["GIT_INDEX_FILE"]
+    with tempfile.TemporaryDirectory(prefix="ckit-empty-hooks-") as hooks:
+        return subprocess.run(
+            (
+                "git",
+                "--no-pager",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                f"core.hooksPath={hooks}",
+                *args,
+            ),
+            cwd=workspace,
+            env=run_environment,
+            input=input_data,
+            check=False,
+            capture_output=True,
+            text=text,
+            timeout=30,
+        )
+
+
+def _private_git_security_fingerprint(workspace: Path) -> str:
+    """Hash bounded Git control state without exposing it to the provider."""
+
+    roots: list[tuple[str, Path]] = []
+    for label, argument in (("worktree", "--git-dir"), ("common", "--git-common-dir")):
+        result = _run_hardened_git(
+            workspace,
+            ("rev-parse", argument),
+            text=True,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            raise DispatchAdapterError("cannot resolve private Git control state")
+        raw = Path(result.stdout.strip())
+        candidate = raw if raw.is_absolute() else workspace / raw
+        try:
+            resolved = candidate.resolve(strict=True)
+            info = resolved.lstat()
+        except OSError as exc:
+            raise DispatchAdapterError(
+                "cannot resolve private Git control state"
+            ) from exc
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise DispatchAdapterError("private Git control state is redirected")
+        if all(existing != resolved for _existing_label, existing in roots):
+            roots.append((label, resolved))
+
+    marker = workspace / ".git"
+    records: list[tuple[str, Path]] = []
+    try:
+        marker_info = marker.lstat()
+    except OSError as exc:
+        raise DispatchAdapterError(
+            "managed workspace has no stable Git marker"
+        ) from exc
+    if stat.S_ISREG(marker_info.st_mode):
+        records.append(("marker/.git", marker))
+    elif not stat.S_ISDIR(marker_info.st_mode) or stat.S_ISLNK(marker_info.st_mode):
+        raise DispatchAdapterError("managed workspace Git marker is redirected")
+
+    direct_names = {
+        "HEAD",
+        "commondir",
+        "config",
+        "config.worktree",
+        "gitdir",
+        "index",
+        "packed-refs",
+    }
+    recursive_names = {"hooks", "info", "refs"}
+    for label, root in roots:
+        for name in sorted(direct_names):
+            candidate = root / name
+            if candidate.exists() or candidate.is_symlink():
+                records.append((f"{label}/{name}", candidate))
+        for directory_name in sorted(recursive_names):
+            directory = root / directory_name
+            if not directory.exists():
+                continue
+            directory_info = directory.lstat()
+            if stat.S_ISLNK(directory_info.st_mode) or not stat.S_ISDIR(
+                directory_info.st_mode
+            ):
+                raise DispatchAdapterError("private Git control state is redirected")
+            for current, directories, filenames in os.walk(
+                directory, followlinks=False
+            ):
+                current_path = Path(current)
+                for child_name in tuple(directories):
+                    child = current_path / child_name
+                    child_info = child.lstat()
+                    if stat.S_ISLNK(child_info.st_mode) or not stat.S_ISDIR(
+                        child_info.st_mode
+                    ):
+                        raise DispatchAdapterError(
+                            "private Git control state is redirected"
+                        )
+                for filename in filenames:
+                    child = current_path / filename
+                    relative = child.relative_to(root).as_posix()
+                    records.append((f"{label}/{relative}", child))
+
+    if len(records) > _MAX_PRIVATE_GIT_FILES:
+        raise DispatchAdapterError("private Git control state exceeds its file bound")
+    digest = hashlib.sha256()
+    total_bytes = 0
+    for label, path in sorted(records, key=lambda item: item[0]):
+        try:
+            before = path.lstat()
+        except OSError as exc:
+            raise DispatchAdapterError("private Git control state changed") from exc
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+            raise DispatchAdapterError("private Git control file is redirected")
+        total_bytes += before.st_size
+        if total_bytes > _MAX_PRIVATE_GIT_BYTES:
+            raise DispatchAdapterError(
+                "private Git control state exceeds its byte bound"
+            )
+        try:
+            payload = path.read_bytes()
+            after = path.lstat()
+        except OSError as exc:
+            raise DispatchAdapterError("private Git control state changed") from exc
+        if (
+            before.st_dev != after.st_dev
+            or before.st_ino != after.st_ino
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+            or len(payload) != before.st_size
+        ):
+            raise DispatchAdapterError("private Git control state changed")
+        encoded = label.encode("utf-8")
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
+        digest.update(stat.S_IMODE(before.st_mode).to_bytes(4, "big"))
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return digest.hexdigest()
+
+
+def _private_scope_fingerprint(workspace: Path) -> str:
+    """Return an internal-only workspace plus Git-control identity."""
+
+    payload = {
+        "workspace": workspace_content_fingerprint(workspace),
+        "git": _private_git_security_fingerprint(workspace),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _scope_filter_overrides(workspace: Path) -> tuple[str, ...]:
+    """Disable every effective repository filter before alternate-index staging."""
+
+    raw_paths: set[bytes] = set()
+    for args in (
+        ("ls-files", "--cached", "-z", "--"),
+        ("ls-files", "--others", "--exclude-standard", "-z", "--"),
+        (
+            "ls-files",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "-z",
+            "--",
+        ),
+    ):
+        result = _run_hardened_git(workspace, args)
+        if result.returncode != 0:
+            raise DispatchAdapterError(
+                "cannot enumerate managed role scope without repository execution"
+            )
+        raw_paths.update(raw for raw in result.stdout.split(b"\0") if raw)
+    ordered_paths = sorted(raw_paths)
+    if not ordered_paths:
+        return ()
+    attributes = _run_hardened_git(
+        workspace,
+        ("check-attr", "-z", "--stdin", "filter"),
+        input_data=b"\0".join(ordered_paths) + b"\0",
+    )
+    if attributes.returncode != 0:
+        raise DispatchAdapterError("cannot inspect managed role content filters")
+    fields = attributes.stdout.split(b"\0")
+    if fields and fields[-1] == b"":
+        fields.pop()
+    if len(fields) % 3:
+        raise DispatchAdapterError("git returned malformed content-filter attributes")
+    seen_paths: list[bytes] = []
+    drivers: set[str] = set()
+    for index in range(0, len(fields), 3):
+        raw_path, attribute, value = fields[index : index + 3]
+        if attribute != b"filter":
+            raise DispatchAdapterError(
+                "git returned unexpected content-filter attributes"
+            )
+        seen_paths.append(raw_path)
+        if value in {b"unspecified", b"unset", b"set"}:
+            continue
+        if not _GIT_FILTER_DRIVER_RE.fullmatch(value):
+            raise DispatchAdapterError(
+                "managed role scope uses an unsafe content-filter driver"
+            )
+        drivers.add(value.decode("ascii"))
+    if seen_paths != ordered_paths:
+        raise DispatchAdapterError("git content-filter scope paths changed")
+    overrides: list[str] = []
+    for driver in sorted(drivers):
+        overrides.extend(
+            (
+                "-c",
+                f"filter.{driver}.clean=",
+                "-c",
+                f"filter.{driver}.smudge=",
+                "-c",
+                f"filter.{driver}.process=",
+                "-c",
+                f"filter.{driver}.required=false",
+            )
+        )
+    return tuple(overrides)
+
+
 # A loop transition token authorizes only the directly invoked controlling
 # host process. Managed stage workers are nested children and must never
 # inherit that authority.
@@ -331,7 +584,13 @@ _MANAGED_CONTROL_PLANE_PATTERNS = (
     ".codex/**",
     ".ckit/**",
     ".mcp.json",
+    ".claude-kit-managed-execution.lock",
 )
+_MANAGED_EXECUTION_LOCK_NAME = ".claude-kit-managed-execution.lock"
+_MAKER_CHECKER_PASSIVE_ROLE_IDS = frozenset(
+    {"maker-checker-maker", "maker-checker-reviewer"}
+)
+_FILTER_FREE_SCOPE_PREFIX = "filter-free-sha256:"
 _COMMON_CHILD_ENV = frozenset(
     {
         "PATH",
@@ -370,6 +629,15 @@ _COMMON_CHILD_ENV = frozenset(
         "CURL_CA_BUNDLE",
     }
 )
+_SAFE_CKIT_CHILD_ENV = frozenset(
+    {
+        # Test/native-wrapper controls are non-secret; arbitrary CKIT_* values
+        # are not forwarded because they may contain cross-provider credentials.
+        "CKIT_EXPECT_AUTH",
+        "CKIT_FAKE_MODE",
+        "CKIT_ORIGINAL_CODEX_HOME",
+    }
+)
 
 
 def _nested_host_environment(source: Mapping[str, str]) -> dict[str, str]:
@@ -402,6 +670,147 @@ def _nested_host_environment(source: Mapping[str, str]) -> dict[str, str]:
 
 class DispatchAdapterError(RuntimeError):
     """Base class for process-backed dispatch failures."""
+
+
+def _codex_credential_isolation_path(dispatch_id: str, attempt: int) -> Path:
+    if (
+        not isinstance(dispatch_id, str)
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", dispatch_id)
+        or not isinstance(attempt, int)
+        or isinstance(attempt, bool)
+        or attempt < 1
+    ):
+        raise DispatchAdapterError("Codex credential isolation identity is invalid")
+    identity = hashlib.sha256(f"{dispatch_id}:{attempt}".encode("utf-8")).hexdigest()
+    return Path(tempfile.gettempdir()) / f"ckit-codex-auth-{identity[:32]}"
+
+
+def _codex_credential_isolation_marker(dispatch_id: str, attempt: int) -> bytes:
+    return (
+        hashlib.sha256(f"claude-kit-codex-auth:{dispatch_id}:{attempt}".encode("utf-8"))
+        .hexdigest()
+        .encode("ascii")
+        + b"\n"
+    )
+
+
+@dataclass
+class _ExactDirectoryCleanup:
+    """Crash-recoverable exact temporary directory owner."""
+
+    name: str
+    marker: bytes
+
+    def cleanup(self) -> None:
+        root = Path(self.name)
+        try:
+            info = root.lstat()
+        except FileNotFoundError:
+            return
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISDIR(info.st_mode)
+            or (hasattr(os, "geteuid") and info.st_uid != os.geteuid())
+            or stat.S_IMODE(info.st_mode) & 0o077
+        ):
+            raise DispatchAdapterError(
+                "Codex credential isolation directory ownership changed"
+            )
+        marker = root / ".ckit-owner"
+        try:
+            marker_info = marker.lstat()
+            payload = marker.read_bytes()
+        except OSError as exc:
+            raise DispatchAdapterError(
+                "Codex credential isolation marker is unavailable"
+            ) from exc
+        if (
+            stat.S_ISLNK(marker_info.st_mode)
+            or not stat.S_ISREG(marker_info.st_mode)
+            or marker_info.st_nlink != 1
+            or payload != self.marker
+        ):
+            raise DispatchAdapterError("Codex credential isolation marker changed")
+        shutil.rmtree(root)
+
+
+@dataclass
+class _IncompleteCodexCredentialDirectoryCleanup:
+    """Remove only a directory this process created before its marker completed."""
+
+    name: str
+    marker: bytes
+
+    def cleanup(self) -> None:
+        root = Path(self.name)
+        try:
+            info = root.lstat()
+        except FileNotFoundError:
+            return
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or not stat.S_ISDIR(info.st_mode)
+            or (hasattr(os, "geteuid") and info.st_uid != os.geteuid())
+            or stat.S_IMODE(info.st_mode) & 0o077
+        ):
+            raise DispatchAdapterError(
+                "incomplete Codex credential isolation ownership changed"
+            )
+        entries = os.listdir(root)
+        if any(entry != ".ckit-owner" for entry in entries):
+            raise DispatchAdapterError(
+                "incomplete Codex credential isolation gained unexpected content"
+            )
+        marker = root / ".ckit-owner"
+        if entries:
+            marker_info = marker.lstat()
+            payload = marker.read_bytes()
+            if (
+                stat.S_ISLNK(marker_info.st_mode)
+                or not stat.S_ISREG(marker_info.st_mode)
+                or marker_info.st_nlink != 1
+                or not self.marker.startswith(payload)
+            ):
+                raise DispatchAdapterError(
+                    "incomplete Codex credential isolation marker changed"
+                )
+            marker.unlink()
+        root.rmdir()
+
+
+def cleanup_codex_dispatch_credentials(dispatch_id: str, attempt: int) -> None:
+    """Remove an exact crash-recoverable Codex credential replica, if present."""
+
+    path = _codex_credential_isolation_path(dispatch_id, attempt)
+    _ExactDirectoryCleanup(
+        str(path), _codex_credential_isolation_marker(dispatch_id, attempt)
+    ).cleanup()
+
+
+class UnconfirmedProcessOwnershipError(DispatchAdapterError):
+    """A backend-created native resource still has unconfirmed ownership.
+
+    ``ProcessBackend.start`` implementations that may create a process or other
+    native resource before failing must raise this exception with the durable,
+    cancellable backend token.  An ordinary exception from ``start`` is an
+    attestation that no native resource escaped.
+    """
+
+    def __init__(self, message: str, process: object) -> None:
+        super().__init__(message)
+        self.process = process
+
+
+_OWNERSHIP_CLEANUP_CONFIRMED = "_ckit_ownership_cleanup_confirmed"
+
+
+def _mark_cleanup_confirmed(exc: BaseException) -> None:
+    """Annotate an interruption whose backend proved it retained no worker."""
+
+    try:
+        setattr(exc, _OWNERSHIP_CLEANUP_CONFIRMED, True)
+    except (AttributeError, TypeError):  # pragma: no cover - immutable custom errors
+        pass
 
 
 class RoleUnavailableError(DispatchAdapterError):
@@ -539,6 +948,30 @@ class NativeRoleDefinition:
         object.__setattr__(self, "native_tools", native_tools)
         object.__setattr__(self, "native_model", native_model)
         object.__setattr__(self, "mcp_server_ids", mcp_server_ids)
+
+
+def _is_passive_snapshot_role(role: NativeRoleDefinition) -> bool:
+    """Return whether a role is safe to serve only from a bounded snapshot."""
+    passive_capabilities = frozenset(
+        {
+            Capability.FILE_READ,
+            Capability.SEARCH,
+            Capability.MESSAGE,
+            Capability.TASK_LEDGER,
+        }
+    )
+    return (
+        role.permission is PermissionClass.READ_ONLY
+        and not role.write_scope
+        and role.nested_delegation is NestedDelegationPolicy.FORBIDDEN
+        and role.capabilities.issubset(passive_capabilities)
+    )
+
+
+def _is_maker_checker_passive_role(role: NativeRoleDefinition) -> bool:
+    return role.id in _MAKER_CHECKER_PASSIVE_ROLE_IDS and _is_passive_snapshot_role(
+        role
+    )
 
 
 class NativeRoleLoader(Protocol):
@@ -922,7 +1355,14 @@ class ProcessBackend(Protocol):
     def start(
         self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str]
     ) -> object:
-        """Start a process that is waiting for prompt input."""
+        """Start a process that is waiting for prompt input.
+
+        On failure, return only after positively cleaning every created native
+        resource.  If cleanup cannot be attested, raise
+        :class:`UnconfirmedProcessOwnershipError` with a token accepted by
+        ``poll`` and ``terminate``.  Therefore an ordinary exception attests
+        that no process, descendant, credential replica, or writer escaped.
+        """
         ...
 
     def submit(self, process: object, prompt: str) -> None:
@@ -995,16 +1435,14 @@ def _probe_codex_lockdown(
     keeps descendant containment mandatory.
     """
     try:
-        version_result = subprocess.run(
+        version_result = _run_owned_probe_command(
             (executable, "--version"),
             cwd=workspace,
-            env=dict(environment),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5.0,
+            environment=environment,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except UnconfirmedProcessOwnershipError:
+        raise
+    except (DispatchAdapterError, OSError):
         return False
     version_match = re.fullmatch(
         r"codex-cli\s+([0-9]+\.[0-9]+\.[0-9]+)\s*", version_result.stdout
@@ -1020,16 +1458,14 @@ def _probe_codex_lockdown(
     for feature in disabled_features:
         argv.extend(("--disable", feature))
     try:
-        features_result = subprocess.run(
+        features_result = _run_owned_probe_command(
             argv,
             cwd=workspace,
-            env=dict(environment),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5.0,
+            environment=environment,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except UnconfirmedProcessOwnershipError:
+        raise
+    except (DispatchAdapterError, OSError):
         return False
     if features_result.returncode != 0:
         return False
@@ -1059,16 +1495,14 @@ def _probe_codex_no_mcp(
         argv.extend(("--disable", feature))
     argv.extend(("-c", "mcp_servers={}", "mcp", "list", "--json"))
     try:
-        result = subprocess.run(
+        result = _run_owned_probe_command(
             argv,
             cwd=workspace,
-            env=dict(environment),
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=5.0,
+            environment=environment,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except UnconfirmedProcessOwnershipError:
+        raise
+    except (DispatchAdapterError, OSError):
         return False
     if result.returncode != 0:
         return False
@@ -1126,8 +1560,21 @@ class _BoundedCapture:
 
     def finish(self) -> tuple[str, bool, int]:
         if self._thread is None:
-            raise DispatchAdapterError("host output capture was not started")
-        self._thread.join(timeout=2.0)
+            try:
+                self.stream.close()
+            except (OSError, ValueError):
+                pass
+            return "", True, 0
+        try:
+            self._thread.join(timeout=2.0)
+        except RuntimeError:
+            # Thread.start() can fail or be interrupted before the native
+            # thread exists. The process is already terminal at this point.
+            try:
+                self.stream.close()
+            except (OSError, ValueError):
+                pass
+            return "", True, 0
         if self._thread.is_alive():
             # The owned process group should have closed every inherited pipe.
             # Do not block the coordinator indefinitely if a hostile child did
@@ -1247,13 +1694,12 @@ class SubprocessBackend:
             )
         except (OSError, ValueError) as exc:
             raise DispatchAdapterError(f"cannot start host process: {exc}") from exc
+        token: Optional[_SubprocessToken] = None
         try:
             if process.stdout is None or process.stderr is None:  # pragma: no cover
                 raise DispatchAdapterError("host process has no output pipes")
             stdout_capture = _BoundedCapture(process.stdout)
             stderr_capture = _BoundedCapture(process.stderr)
-            stdout_capture.start()
-            stderr_capture.start()
             process_group_id: Optional[int] = None
             if os.name == "posix":
                 try:
@@ -1264,19 +1710,40 @@ class SubprocessBackend:
                     raise DispatchAdapterError(
                         "host process did not receive a uniquely owned process group"
                     )
-            return _SubprocessToken(
+            token = _SubprocessToken(
                 process,
                 stdout_capture,
                 stderr_capture,
                 process_group_id=process_group_id,
             )
-        except RuntimeError as exc:  # pragma: no cover - thread start exhaustion
-            self._cleanup_failed_start(process)
-            raise DispatchAdapterError(
-                f"cannot start host output capture: {exc}"
-            ) from exc
-        except BaseException:
-            self._cleanup_failed_start(process)
+            stdout_capture.start()
+            stderr_capture.start()
+            return token
+        except BaseException as exc:
+            if token is None:
+                # PIPE creation is guaranteed by Popen. Preserve a cancellable
+                # token even if validation failed before capture threads began.
+                assert process.stdout is not None and process.stderr is not None
+                token = _SubprocessToken(
+                    process,
+                    _BoundedCapture(process.stdout),
+                    _BoundedCapture(process.stderr),
+                    process_group_id=(process.pid if os.name == "posix" else None),
+                )
+            try:
+                self.terminate(token)
+            except BaseException as cleanup_error:
+                raise UnconfirmedProcessOwnershipError(
+                    "host start failed and native process termination is unconfirmed",
+                    token,
+                ) from cleanup_error
+            if isinstance(exc, RuntimeError):
+                converted = DispatchAdapterError(
+                    f"cannot start host output capture: {exc}"
+                )
+                _mark_cleanup_confirmed(converted)
+                raise converted from exc
+            _mark_cleanup_confirmed(exc)
             raise
 
     @staticmethod
@@ -1293,6 +1760,18 @@ class SubprocessBackend:
             raise DispatchAdapterError("host process has no stdin")
 
         payload = prompt.encode("utf-8")
+        if not payload:
+            # Local compatibility probes have no prompt payload. Their command
+            # may legitimately exit before the coordinator closes stdin; that
+            # early exit is not a failed submission because there were no
+            # bytes to deliver. Close synchronously so the probe still receives
+            # EOF, while leaving non-empty host prompts on the bounded writer.
+            try:
+                token.process.stdin.close()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+            token.submitted = True
+            return
 
         def write_prompt() -> None:
             try:
@@ -1347,47 +1826,78 @@ class SubprocessBackend:
         """Terminate descendants even when the native host leader exited normally."""
         if token.process_group_drained:
             return
-        token.process_group_drained = True
         if os.name != "posix":  # pragma: no cover - Windows needs a Job Object
+            token.process_group_drained = True
             return
         pgid = token.process_group_id
         if pgid is None or pgid != token.process.pid or pgid == os.getpgrp():
             raise DispatchAdapterError(
                 "refusing to signal a process group not owned by this host process"
             )
+        token.process_group_error = None
+
+        def cleanup_failed() -> DispatchAdapterError:
+            token.process_group_error = (
+                "owned host process group termination is unconfirmed"
+            )
+            return DispatchAdapterError(token.process_group_error)
+
+        def group_is_gone() -> bool:
+            # Reap our direct child before probing its former process group.
+            # Darwin may report EPERM for a group containing only an unreaped
+            # dead leader, which is not evidence of a surviving descendant.
+            token.process.poll()
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                # Darwin can transiently report EPERM while the just-signalled
+                # group leader is exiting. This is UNKNOWN, never success:
+                # keep probing through the bounded grace period and require a
+                # later ESRCH (or fail closed after SIGKILL).
+                return False
+            # Reap the group leader as soon as it exits. A zombie leader can
+            # otherwise make an empty group appear live until a later wait().
+            token.process.poll()
+            return False
+
         try:
             os.killpg(pgid, signal.SIGTERM)
             token.termination_signal_sent = True
         except ProcessLookupError:
+            token.process_group_drained = True
             return
         except PermissionError:
-            token.process_group_error = "owned host process group could not be drained"
-            return
+            # Darwin may transiently deny signalling a group whose leader has
+            # already exited but has not yet disappeared from the process
+            # table. Treat this as UNKNOWN, not success: the bounded probes
+            # below must still observe ESRCH before ownership is released.
+            pass
         deadline = time.monotonic() + 0.5
         while time.monotonic() < deadline:
-            try:
-                os.killpg(pgid, 0)
-            except ProcessLookupError:
-                return
-            except PermissionError:
-                try:
-                    os.killpg(pgid, signal.SIGKILL)
-                    token.termination_signal_sent = True
-                except PermissionError:
-                    token.process_group_error = (
-                        "owned host process group could not be drained"
-                    )
-                except ProcessLookupError:
-                    pass
+            if group_is_gone():
+                token.process_group_drained = True
                 return
             time.sleep(0.01)
         try:
             os.killpg(pgid, signal.SIGKILL)
             token.termination_signal_sent = True
-        except PermissionError:
-            token.process_group_error = "owned host process group could not be drained"
         except ProcessLookupError:
+            token.process_group_drained = True
+            return
+        except PermissionError:
+            # As above, preserve UNKNOWN through the final grace period. A
+            # genuinely live, unsignalable group never reaches ESRCH and fails
+            # closed at the deadline.
             pass
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            if group_is_gone():
+                token.process_group_drained = True
+                return
+            time.sleep(0.01)
+        raise cleanup_failed()
 
     def poll(self, process: object) -> Optional[ProcessOutcome]:
         token = self._token(process)
@@ -1449,6 +1959,70 @@ class SubprocessBackend:
         if outcome is None:  # pragma: no cover - Popen.wait made this terminal
             raise DispatchAdapterError("terminated host process did not exit")
         return outcome
+
+
+@dataclass(frozen=True)
+class _BackendBoundResource:
+    """A cleanup token paired with the backend that understands it."""
+
+    backend: ProcessBackend
+    process: object
+    cleanups: tuple[Callable[[], None], ...] = ()
+
+    def with_cleanup(self, cleanup: Callable[[], None]) -> _BackendBoundResource:
+        return replace(self, cleanups=(*self.cleanups, cleanup))
+
+
+def _run_owned_probe_command(
+    argv: Sequence[str],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: float = 5.0,
+) -> subprocess.CompletedProcess[str]:
+    """Run a local Codex compatibility probe with owned group cleanup.
+
+    Callers invoke this only after the coordinator has durably claimed the
+    dispatch UUID.  The subprocess backend provides the same process-group and
+    bounded-output guarantees as the eventual host process.
+    """
+
+    backend = SubprocessBackend()
+    process: object | None = None
+    try:
+        try:
+            process = backend.start(argv, cwd=cwd, env=environment)
+        except UnconfirmedProcessOwnershipError as exc:
+            raise UnconfirmedProcessOwnershipError(
+                str(exc), _BackendBoundResource(backend, exc.process)
+            ) from exc
+        backend.submit(process, "")
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            outcome = backend.poll(process)
+            if outcome is not None:
+                return subprocess.CompletedProcess(
+                    tuple(argv), outcome.returncode, outcome.stdout, outcome.stderr
+                )
+            if time.monotonic() >= deadline:
+                outcome = backend.terminate(process)
+                return subprocess.CompletedProcess(
+                    tuple(argv), outcome.returncode, outcome.stdout, outcome.stderr
+                )
+            time.sleep(0.01)
+    except UnconfirmedProcessOwnershipError:
+        raise
+    except BaseException as exc:
+        if process is not None:
+            try:
+                backend.terminate(process)
+            except BaseException as cleanup_error:
+                raise UnconfirmedProcessOwnershipError(
+                    "Codex compatibility probe termination is unconfirmed",
+                    _BackendBoundResource(backend, process),
+                ) from cleanup_error
+        _mark_cleanup_confirmed(exc)
+        raise
 
 
 @dataclass
@@ -1576,19 +2150,37 @@ class ClaudeStreamJsonBackend:
     def start(
         self, argv: Sequence[str], *, cwd: Path, env: Mapping[str, str]
     ) -> object:
-        base = self._subprocess.start(argv, cwd=cwd, env=env)
+        try:
+            base = self._subprocess.start(argv, cwd=cwd, env=env)
+        except UnconfirmedProcessOwnershipError as exc:
+            if not isinstance(exc.process, _SubprocessToken):  # pragma: no cover
+                raise
+            raise UnconfirmedProcessOwnershipError(
+                str(exc), _ClaudeStreamToken(exc.process)
+            ) from exc
         if not isinstance(base, _SubprocessToken):  # pragma: no cover - internal seam
             raise DispatchAdapterError("Claude subprocess token has an invalid type")
         token = _ClaudeStreamToken(base)
         writer = threading.Thread(target=self._writer_loop, args=(token,), daemon=True)
+        token.writer = writer
         try:
             writer.start()
-        except RuntimeError as exc:  # pragma: no cover - thread start exhaustion
-            self._subprocess.terminate(base)
-            raise DispatchAdapterError(
-                f"cannot start Claude stream input writer: {exc}"
-            ) from exc
-        token.writer = writer
+        except BaseException as exc:
+            try:
+                self.terminate(token)
+            except BaseException as cleanup_error:
+                raise UnconfirmedProcessOwnershipError(
+                    "Claude stream start failed and termination is unconfirmed",
+                    token,
+                ) from cleanup_error
+            if isinstance(exc, RuntimeError):
+                converted = DispatchAdapterError(
+                    f"cannot start Claude stream input writer: {exc}"
+                )
+                _mark_cleanup_confirmed(converted)
+                raise converted from exc
+            _mark_cleanup_confirmed(exc)
+            raise
         return token
 
     def submit(self, process: object, prompt: str) -> None:
@@ -1760,7 +2352,10 @@ class ClaudeStreamJsonBackend:
         writer = token.writer
         if writer is None:
             return
-        writer.join(timeout=2.0)
+        try:
+            writer.join(timeout=2.0)
+        except RuntimeError:
+            return
         if writer.is_alive():
             stdin = token.subprocess.process.stdin
             if stdin is not None and not stdin.closed:
@@ -1934,6 +2529,14 @@ class _CodexAppServerToken:
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
+@dataclass
+class _CodexPrestartCleanupToken:
+    """Retryable ownership of copied Codex credentials before process start."""
+
+    isolation: _IsolatedCodexEnvironment
+    outcome: Optional[ProcessOutcome] = None
+
+
 class CodexAppServerBackend:
     """Optional isolated stable-v2 backend for passive Codex turns.
 
@@ -2063,9 +2666,70 @@ class CodexAppServerBackend:
         copy_auth: bool,
     ) -> _IsolatedCodexEnvironment:
         auth_payload = cls._safe_auth_bytes(environment) if copy_auth else None
-        temporary = tempfile.TemporaryDirectory(prefix="ckit-codex-app-")
-        try:
+        if copy_auth:
+            dispatch_id = environment.get("CKIT_NATIVE_DISPATCH_ID", "")
+            try:
+                dispatch_attempt = int(
+                    environment.get("CKIT_NATIVE_DISPATCH_ATTEMPT", "")
+                )
+            except ValueError as exc:
+                raise DispatchAdapterError(
+                    "Codex credential isolation requires a dispatch identity"
+                ) from exc
+            root = _codex_credential_isolation_path(dispatch_id, dispatch_attempt)
+            marker_payload = _codex_credential_isolation_marker(
+                dispatch_id, dispatch_attempt
+            )
+            created = False
+            try:
+                root.mkdir(mode=0o700)
+                created = True
+                marker = root / ".ckit-owner"
+                descriptor = os.open(
+                    marker,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                )
+                try:
+                    view = memoryview(marker_payload)
+                    while view:
+                        written = os.write(descriptor, view)
+                        if written <= 0:  # pragma: no cover - OS contract
+                            raise OSError(
+                                "short write while binding Codex credential isolation"
+                            )
+                        view = view[written:]
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+            except BaseException as exc:
+                if created:
+                    incomplete = _IsolatedCodexEnvironment(
+                        _IncompleteCodexCredentialDirectoryCleanup(
+                            str(root), marker_payload
+                        ),
+                        root,
+                        {},
+                    )
+                    try:
+                        incomplete.cleanup()
+                    except BaseException as cleanup_error:
+                        raise UnconfirmedProcessOwnershipError(
+                            "Codex credential isolation creation cleanup is unconfirmed",
+                            _CodexPrestartCleanupToken(incomplete),
+                        ) from cleanup_error
+                    _mark_cleanup_confirmed(exc)
+                if isinstance(exc, OSError):
+                    raise DispatchAdapterError(
+                        "cannot create crash-recoverable Codex credential isolation"
+                    ) from exc
+                raise
+            temporary: Any = _ExactDirectoryCleanup(str(root), marker_payload)
+        else:
+            temporary = tempfile.TemporaryDirectory(prefix="ckit-codex-app-")
             root = Path(temporary.name).resolve(strict=True)
+        try:
+            root = root.resolve(strict=True)
             root.chmod(0o700)
             home = root / "home"
             xdg_config = root / "xdg-config"
@@ -2082,10 +2746,14 @@ class CodexAppServerBackend:
                 directory.mkdir(mode=0o700)
 
             isolated = dict(environment)
-            retained_provider_secrets = {
-                "CODEX_ACCESS_TOKEN",
-                "OPENAI_API_KEY",
-            }
+            retained_provider_secrets = (
+                {
+                    "CODEX_ACCESS_TOKEN",
+                    "OPENAI_API_KEY",
+                }
+                if copy_auth
+                else set()
+            )
             for name in tuple(isolated):
                 upper = name.upper()
                 if upper.startswith(("CODEX_", "OPENAI_", "AZURE_OPENAI_")):
@@ -2119,8 +2787,16 @@ class CodexAppServerBackend:
                     os.close(descriptor)
                 auth_path.chmod(0o600)
             return _IsolatedCodexEnvironment(temporary, root, isolated)
-        except BaseException:
-            temporary.cleanup()
+        except BaseException as exc:
+            isolation = _IsolatedCodexEnvironment(temporary, root, {})
+            try:
+                isolation.cleanup()
+            except BaseException as cleanup_error:
+                raise UnconfirmedProcessOwnershipError(
+                    "Codex credential isolation setup cleanup is unconfirmed",
+                    _CodexPrestartCleanupToken(isolation),
+                ) from cleanup_error
+            _mark_cleanup_confirmed(exc)
             raise
 
     def lockdown_supported(
@@ -2137,7 +2813,7 @@ class CodexAppServerBackend:
         except (DispatchAdapterError, OSError):
             return False
         try:
-            return lockdown_probe(
+            supported = lockdown_probe(
                 executable,
                 workspace,
                 isolation.environment,
@@ -2148,10 +2824,24 @@ class CodexAppServerBackend:
                 isolation.environment,
                 disabled_features,
             )
+        except UnconfirmedProcessOwnershipError as exc:
+            try:
+                isolation.cleanup()
+            except BaseException as cleanup_error:
+                resource = exc.process
+                if isinstance(resource, _BackendBoundResource):
+                    resource = resource.with_cleanup(isolation.cleanup)
+                raise UnconfirmedProcessOwnershipError(
+                    "Codex lockdown probe and isolated-home cleanup are unconfirmed",
+                    resource,
+                ) from cleanup_error
+            raise
         except Exception:
-            return False
-        finally:
             isolation.cleanup()
+            return False
+        else:
+            isolation.cleanup()
+            return supported
 
     @staticmethod
     def _token(process: object) -> _CodexAppServerToken:
@@ -2244,8 +2934,19 @@ class CodexAppServerBackend:
             )
         isolation = self._isolated_environment(env, copy_auth=True)
         base: Optional[_SubprocessToken] = None
+        token: Optional[_CodexAppServerToken] = None
         try:
-            started = self._subprocess.start(argv, cwd=cwd, env=isolation.environment)
+            try:
+                started = self._subprocess.start(
+                    argv, cwd=cwd, env=isolation.environment
+                )
+            except UnconfirmedProcessOwnershipError as exc:
+                if not isinstance(exc.process, _SubprocessToken):  # pragma: no cover
+                    raise
+                token = _CodexAppServerToken(
+                    exc.process, isolation, cwd.resolve(strict=True)
+                )
+                raise UnconfirmedProcessOwnershipError(str(exc), token) from exc
             if not isinstance(started, _SubprocessToken):  # pragma: no cover
                 raise DispatchAdapterError("Codex subprocess token has an invalid type")
             base = started
@@ -2255,16 +2956,31 @@ class CodexAppServerBackend:
                 args=(token,),
                 daemon=True,
             )
-            writer.start()
             token.writer = writer
+            writer.start()
             return token
-        except BaseException:
-            if base is not None:
+        except UnconfirmedProcessOwnershipError:
+            raise
+        except BaseException as exc:
+            if token is not None:
                 try:
-                    self._subprocess.terminate(base)
-                except BaseException:
-                    pass
-            isolation.cleanup()
+                    self.terminate(token)
+                except BaseException as cleanup_error:
+                    raise UnconfirmedProcessOwnershipError(
+                        "Codex app-server start failed and termination is unconfirmed",
+                        token,
+                    ) from cleanup_error
+            else:
+                # An ordinary subprocess start error attests that no token was
+                # created; an interrupted clean start carries the same proof.
+                try:
+                    isolation.cleanup()
+                except BaseException as cleanup_error:
+                    raise UnconfirmedProcessOwnershipError(
+                        "Codex pre-start credential cleanup is unconfirmed",
+                        _CodexPrestartCleanupToken(isolation),
+                    ) from cleanup_error
+            _mark_cleanup_confirmed(exc)
             raise
 
     @staticmethod
@@ -2340,7 +3056,7 @@ class CodexAppServerBackend:
                     "clientInfo": {
                         "name": "claude_kit",
                         "title": "claude-kit",
-                        "version": "0.83.0",
+                        "version": __version__,
                     }
                 },
             )
@@ -2825,7 +3541,10 @@ class CodexAppServerBackend:
         writer = token.writer
         if writer is None:
             return
-        writer.join(timeout=2.0)
+        try:
+            writer.join(timeout=2.0)
+        except RuntimeError:
+            return
         if writer.is_alive():
             stdin = token.subprocess.process.stdin
             if stdin is not None and not stdin.closed:
@@ -2962,6 +3681,12 @@ class CodexAppServerBackend:
         return finalized
 
     def poll(self, process: object) -> Optional[ProcessOutcome]:
+        if isinstance(process, _CodexPrestartCleanupToken):
+            if process.outcome is not None:
+                return process.outcome
+            process.isolation.cleanup()
+            process.outcome = ProcessOutcome(-signal.SIGTERM)
+            return process.outcome
         token = self._token(process)
         if token.outcome is not None:
             return token.outcome
@@ -3005,6 +3730,11 @@ class CodexAppServerBackend:
         return self._finalize(token, polled_outcome)
 
     def terminate(self, process: object) -> ProcessOutcome:
+        if isinstance(process, _CodexPrestartCleanupToken):
+            if process.outcome is None:
+                process.isolation.cleanup()
+                process.outcome = ProcessOutcome(-signal.SIGTERM)
+            return process.outcome
         token = self._token(process)
         if token.outcome is not None:
             return token.outcome
@@ -3048,6 +3778,8 @@ class _AttemptState:
     prompt: str
     workspace: Path
     scope_base_tree: Optional[str] = None
+    private_scope_checkpoint: Optional[str] = None
+    starting: bool = False
     messages: list[DispatchMessage] = field(default_factory=list)
     status: DispatchStatus = DispatchStatus.QUEUED
     submitted_at: Optional[float] = None
@@ -3132,10 +3864,7 @@ class ProcessDispatcher:
             common = (
                 upper in _COMMON_CHILD_ENV
                 or upper.startswith("LC_")
-                or upper.startswith("CKIT_")
-                or upper.startswith("PIP_")
-                or upper.startswith("UV_")
-                or upper.startswith("NPM_CONFIG_")
+                or upper in _SAFE_CKIT_CHILD_ENV
             )
             if self.provider is Provider.CLAUDE:
                 provider = (
@@ -3190,28 +3919,27 @@ class ProcessDispatcher:
     @staticmethod
     def _workspace_tree(workspace: Path) -> str:
         """Snapshot tracked, untracked, and ignored paths in an alternate index."""
+        neutral_filters = _scope_filter_overrides(workspace)
         with tempfile.TemporaryDirectory(prefix="ckit-scope-index-") as temporary:
             environment = dict(os.environ)
             environment["GIT_INDEX_FILE"] = str(Path(temporary) / "index")
             tree = ""
             for command in (
-                ("git", "read-tree", "--empty"),
-                ("git", "add", "-A", "-f", "--", "."),
-                ("git", "write-tree"),
+                ("read-tree", "--empty"),
+                (*neutral_filters, "add", "-A", "-f", "--", "."),
+                ("write-tree",),
             ):
-                result = subprocess.run(
+                result = _run_hardened_git(
+                    workspace,
                     command,
-                    cwd=workspace,
-                    env=environment,
-                    check=False,
-                    capture_output=True,
+                    environment=environment,
                     text=True,
                 )
                 if result.returncode != 0:
                     raise DispatchAdapterError(
                         "cannot snapshot the managed role write scope with git"
                     )
-                if command[1] == "write-tree":
+                if command[0] == "write-tree":
                     tree = result.stdout.strip()
             if not re.fullmatch(r"[0-9a-f]{40,64}", tree):
                 raise DispatchAdapterError(
@@ -3223,20 +3951,19 @@ class ProcessDispatcher:
     def _workspace_changes(
         workspace: Path, base_tree: str, current_tree: str
     ) -> tuple[str, ...]:
-        result = subprocess.run(
+        result = _run_hardened_git(
+            workspace,
             (
-                "git",
                 "diff-tree",
                 "--no-commit-id",
                 "--name-only",
+                "--no-ext-diff",
+                "--no-textconv",
                 "-r",
                 "-z",
                 base_tree,
                 current_tree,
             ),
-            cwd=workspace,
-            check=False,
-            capture_output=True,
         )
         if result.returncode != 0:
             raise DispatchAdapterError(
@@ -3251,12 +3978,10 @@ class ProcessDispatcher:
         )
 
     @staticmethod
-    def _scope_base(workspace: Path) -> str:
-        result = subprocess.run(
-            ("git", "rev-parse", "--show-toplevel"),
-            cwd=workspace,
-            check=False,
-            capture_output=True,
+    def _scope_base(workspace: Path, *, filter_free: bool = False) -> str:
+        result = _run_hardened_git(
+            workspace,
+            ("rev-parse", "--show-toplevel"),
             text=True,
         )
         if result.returncode != 0 or not result.stdout.strip():
@@ -3273,12 +3998,67 @@ class ProcessDispatcher:
             raise DispatchAdapterError(
                 "managed dispatch workspace must be the exact git worktree root"
             )
+        if filter_free:
+            # Passive provider input is derived only from the bounded redacted
+            # projection below. Do not hash excluded, ignored, or sensitive
+            # workspace bytes merely to manufacture a provider-visible tree id.
+            return _FILTER_FREE_SCOPE_PREFIX + "projection-pending"
         return ProcessDispatcher._workspace_tree(workspace)
 
     @staticmethod
-    def _scope_problem(state: _AttemptState) -> Optional[str]:
+    def _passive_projection_digest(context: str) -> str:
+        try:
+            _description, payload = context.split("\n", 1)
+            document = json.loads(payload)
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise DispatchAdapterError(
+                "managed passive projection has no canonical digest"
+            ) from exc
+        digest = document.get("snapshot_sha256") if isinstance(document, dict) else None
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise DispatchAdapterError(
+                "managed passive projection has an invalid canonical digest"
+            )
+        return digest
+
+    def _scope_problem(self, state: _AttemptState) -> Optional[str]:
         if state.scope_base_tree is None:
             return None
+        if state.private_scope_checkpoint is not None:
+            try:
+                current_private = _private_scope_fingerprint(state.workspace)
+            except (OSError, ValueError, WorktreeError) as exc:
+                return f"cannot verify private managed role scope: {exc}"
+            if current_private != state.private_scope_checkpoint:
+                return (
+                    f"read-only role {state.role.id!r} changed the managed "
+                    "workspace during its passive dispatch"
+                )
+        if state.scope_base_tree.startswith(_FILTER_FREE_SCOPE_PREFIX):
+            try:
+                context = self._bounded_workspace_prompt_context(
+                    state.role,
+                    state.workspace,
+                    scope_base_tree=_FILTER_FREE_SCOPE_PREFIX + "projection-pending",
+                    native_lockdown_attested=True,
+                )
+                current = _FILTER_FREE_SCOPE_PREFIX + self._passive_projection_digest(
+                    context
+                )
+            except (DispatchAdapterError, UnsupportedCapabilityError):
+                # The exact projection was valid at launch. If it can no
+                # longer be captured under that same contract, the workspace
+                # changed or became ambiguous while the passive role ran.
+                return (
+                    f"read-only role {state.role.id!r} changed the managed "
+                    "workspace during its passive dispatch"
+                )
+            if current == state.scope_base_tree:
+                return None
+            return (
+                f"read-only role {state.role.id!r} changed the managed workspace "
+                "during its passive dispatch"
+            )
         try:
             current_tree = ProcessDispatcher._workspace_tree(state.workspace)
             changed = ProcessDispatcher._workspace_changes(
@@ -3318,11 +4098,10 @@ class ProcessDispatcher:
             + rendered
         )
 
-    @classmethod
     def _apply_scope_result(
-        cls, state: _AttemptState, result: DispatchResult
+        self, state: _AttemptState, result: DispatchResult
     ) -> DispatchResult:
-        return cls._apply_known_scope_problem(result, cls._scope_problem(state))
+        return self._apply_known_scope_problem(result, self._scope_problem(state))
 
     @staticmethod
     def _apply_known_scope_problem(
@@ -3356,6 +4135,19 @@ class ProcessDispatcher:
         self, role: NativeRoleDefinition, workspace: Path
     ) -> tuple[str, ...]:  # pragma: no cover - abstract guard
         raise NotImplementedError
+
+    def _argv_for_request(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
+        """Bind an exact model without breaking legacy adapter subclasses."""
+        if requested_model is not None:
+            raise DispatchAdapterError(
+                "this process adapter cannot attest an exact requested_model"
+            )
+        return self._argv(role, workspace)
 
     def _enforceable_capabilities(
         self, role: NativeRoleDefinition
@@ -3410,9 +4202,363 @@ class ProcessDispatcher:
         scope_base_tree: Optional[str],
         native_lockdown_attested: bool,
     ) -> str:
-        """Return provider-specific, coordinator-captured workspace context."""
-        del role, workspace, scope_base_tree, native_lockdown_attested
-        return ""
+        """Return coordinator-captured context for managed maker-checker roles."""
+        if role.id not in _MAKER_CHECKER_PASSIVE_ROLE_IDS:
+            return ""
+        if not _is_maker_checker_passive_role(role):
+            raise DispatchAdapterError(
+                f"maker-checker role {role.id!r} does not preserve its passive contract"
+            )
+        return self._bounded_workspace_prompt_context(
+            role,
+            workspace,
+            scope_base_tree=scope_base_tree,
+            native_lockdown_attested=native_lockdown_attested,
+        )
+
+    def _bounded_workspace_prompt_context(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        *,
+        scope_base_tree: Optional[str],
+        native_lockdown_attested: bool,
+    ) -> str:
+        """Capture a bounded, sensitive-path-filtered source projection.
+
+        Git supplies tracked path names before any candidate file is opened.
+        Control-plane, generated, instruction, sensitive-path, symlink, and
+        non-text entries are withheld. A non-ignored untracked text source or
+        any ambiguous/boundedness failure rejects the dispatch before the
+        provider process starts.
+        """
+        if (
+            scope_base_tree is None
+            or not native_lockdown_attested
+            or not (role.capabilities & {Capability.FILE_READ, Capability.SEARCH})
+        ):
+            return ""
+
+        entries: list[dict[str, str]] = []
+        withheld_path_count = 0
+        redaction_count = 0
+        opened_byte_count = 0
+        snapshot_capability = (
+            Capability.FILE_READ
+            if Capability.FILE_READ in role.capabilities
+            else Capability.SEARCH
+        )
+
+        def snapshot_error() -> UnsupportedCapabilityError:
+            return UnsupportedCapabilityError(role.id, (snapshot_capability,))
+
+        def safe_text_path(relative: str) -> bool:
+            nonlocal withheld_path_count
+            try:
+                encoded = relative.encode("utf-8")
+            except UnicodeEncodeError:
+                raise snapshot_error() from None
+            if (
+                not relative
+                or len(encoded) > _MAX_WORKSPACE_SNAPSHOT_PATH_BYTES
+                or relative.startswith("/")
+                or "\\" in relative
+            ):
+                raise snapshot_error()
+            parts = tuple(part for part in relative.split("/") if part)
+            if not parts or any(part in {".", ".."} for part in parts):
+                raise snapshot_error()
+            lowered = tuple(part.casefold() for part in parts)
+            basename = lowered[-1]
+            stem = basename.split(".", 1)[0]
+            if (
+                any(part in _WORKSPACE_SNAPSHOT_CONTROL_ROOTS for part in lowered)
+                or basename == _MANAGED_EXECUTION_LOCK_NAME
+                or (
+                    basename in {"agents.md", "claude.md"}
+                    and relative not in {"AGENTS.md", "CLAUDE.md"}
+                )
+                or basename == ".mcp.json"
+                or any(
+                    part in _WORKSPACE_SNAPSHOT_GENERATED_COMPONENTS for part in lowered
+                )
+                or any(
+                    part in _WORKSPACE_SNAPSHOT_SENSITIVE_COMPONENTS for part in lowered
+                )
+                or any(
+                    _WORKSPACE_SNAPSHOT_SENSITIVE_NAME_RE.search(part) is not None
+                    for part in lowered
+                )
+                or _WORKSPACE_SNAPSHOT_SECRET_VALUE_RE.search(relative) is not None
+                or _WORKSPACE_SNAPSHOT_SECRET_ASSIGNMENT_RE.search(relative) is not None
+            ):
+                withheld_path_count += 1
+                return False
+            suffix = Path(basename).suffix
+            textual_name = (
+                basename in _WORKSPACE_SNAPSHOT_TEXT_NAMES
+                or stem in _WORKSPACE_SNAPSHOT_TEXT_NAMES
+                or suffix in _WORKSPACE_SNAPSHOT_TEXT_SUFFIXES
+            )
+            if not textual_name:
+                withheld_path_count += 1
+                return False
+            return True
+
+        def redact(content: str) -> str:
+            nonlocal redaction_count
+            projected, shared_count = redact_sensitive_text(content)
+            projected, direct_count = _WORKSPACE_SNAPSHOT_SECRET_VALUE_RE.subn(
+                "[REDACTED]", projected
+            )
+            projected, assignment_count = _WORKSPACE_SNAPSHOT_SECRET_ASSIGNMENT_RE.subn(
+                r"\1[REDACTED]", projected
+            )
+            projected, url_count = _WORKSPACE_SNAPSHOT_URL_CREDENTIAL_RE.subn(
+                r"\1[REDACTED]\2", projected
+            )
+            redaction_count += (
+                shared_count + direct_count + assignment_count + url_count
+            )
+            return projected
+
+        def open_snapshot_file(relative: str) -> tuple[int, os.stat_result]:
+            """Open one leaf through non-link directory descriptors."""
+
+            parts = Path(relative).parts
+            current = workspace
+            for part in parts[:-1]:
+                current = current / part
+                ancestor = current.lstat()
+                attributes = getattr(ancestor, "st_file_attributes", 0)
+                reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                if (
+                    stat.S_ISLNK(ancestor.st_mode)
+                    or bool(attributes & reparse)
+                    or not stat.S_ISDIR(ancestor.st_mode)
+                ):
+                    raise snapshot_error()
+            candidate = workspace / relative
+            leaf = candidate.lstat()
+            attributes = getattr(leaf, "st_file_attributes", 0)
+            reparse = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            if (
+                stat.S_ISLNK(leaf.st_mode)
+                or bool(attributes & reparse)
+                or not stat.S_ISREG(leaf.st_mode)
+                or leaf.st_nlink != 1
+            ):
+                raise snapshot_error()
+
+            common_flags = os.O_RDONLY
+            if hasattr(os, "O_CLOEXEC"):
+                common_flags |= os.O_CLOEXEC
+            if hasattr(os, "O_NOFOLLOW"):
+                common_flags |= os.O_NOFOLLOW
+            if os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):
+                directory_flags = common_flags | os.O_DIRECTORY
+                parent_fd = os.open(workspace, directory_flags)
+                try:
+                    for part in parts[:-1]:
+                        child_fd = os.open(part, directory_flags, dir_fd=parent_fd)
+                        os.close(parent_fd)
+                        parent_fd = child_fd
+                    descriptor = os.open(parts[-1], common_flags, dir_fd=parent_fd)
+                finally:
+                    os.close(parent_fd)
+            else:  # pragma: no cover - platforms without descriptor-relative open
+                resolved = candidate.resolve(strict=True)
+                try:
+                    resolved.relative_to(workspace)
+                except ValueError as exc:
+                    raise snapshot_error() from exc
+                descriptor = os.open(candidate, common_flags)
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_dev != leaf.st_dev
+                or opened.st_ino != leaf.st_ino
+                or opened.st_size != leaf.st_size
+                or opened.st_nlink != 1
+            ):
+                os.close(descriptor)
+                raise snapshot_error()
+            return descriptor, opened
+
+        try:
+            tracked_result = _run_hardened_git(
+                workspace,
+                ("ls-files", "--stage", "-z", "--"),
+            )
+            untracked_result = _run_hardened_git(
+                workspace,
+                (
+                    "ls-files",
+                    "-z",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                ),
+            )
+            if (
+                tracked_result.returncode != 0
+                or untracked_result.returncode != 0
+                or len(tracked_result.stdout) + len(untracked_result.stdout)
+                > _MAX_WORKSPACE_SNAPSHOT_METADATA_BYTES
+            ):
+                raise snapshot_error()
+            tracked_paths: list[bytes] = []
+            for entry in tracked_result.stdout.split(b"\0"):
+                if not entry:
+                    continue
+                try:
+                    metadata, raw_path = entry.split(b"\t", 1)
+                    mode, object_id, stage = metadata.split(b" ", 2)
+                except ValueError as exc:
+                    raise snapshot_error() from exc
+                if (
+                    stage != b"0"
+                    or not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", object_id)
+                    or mode not in {b"100644", b"100755", b"120000", b"160000"}
+                ):
+                    raise snapshot_error()
+                if mode in {b"120000", b"160000"}:
+                    withheld_path_count += 1
+                    continue
+                tracked_paths.append(raw_path)
+            raw_paths = tuple(tracked_paths)
+            raw_untracked = tuple(
+                raw for raw in untracked_result.stdout.split(b"\0") if raw
+            )
+            if len(raw_paths) + len(raw_untracked) > _MAX_WORKSPACE_SNAPSHOT_FILES * 8:
+                raise snapshot_error()
+            for raw_path in sorted(raw_untracked):
+                try:
+                    relative = raw_path.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise snapshot_error() from exc
+                if safe_text_path(relative):
+                    raise snapshot_error()
+            for raw_path in sorted(raw_paths):
+                try:
+                    relative = raw_path.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise snapshot_error() from exc
+                if not safe_text_path(relative):
+                    continue
+                if len(entries) >= _MAX_WORKSPACE_SNAPSHOT_FILES:
+                    raise snapshot_error()
+                descriptor, opened_info = open_snapshot_file(relative)
+                if opened_info.st_size > _MAX_WORKSPACE_SNAPSHOT_FILE_BYTES:
+                    os.close(descriptor)
+                    raise snapshot_error()
+                if (
+                    opened_byte_count + opened_info.st_size
+                    > _MAX_WORKSPACE_SNAPSHOT_BYTES
+                ):
+                    os.close(descriptor)
+                    raise snapshot_error()
+                try:
+                    opened_byte_count += opened_info.st_size
+                    with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                        content_bytes = stream.read(
+                            _MAX_WORKSPACE_SNAPSHOT_FILE_BYTES + 1
+                        )
+                    after_open = os.fstat(descriptor)
+                    after_leaf = (workspace / relative).lstat()
+                    stable_fields = (
+                        "st_dev",
+                        "st_ino",
+                        "st_mode",
+                        "st_size",
+                        "st_nlink",
+                        "st_mtime_ns",
+                        "st_ctime_ns",
+                    )
+                    if any(
+                        getattr(after_open, field) != getattr(opened_info, field)
+                        or getattr(after_leaf, field) != getattr(opened_info, field)
+                        for field in stable_fields
+                    ):
+                        raise snapshot_error()
+                finally:
+                    os.close(descriptor)
+                if len(content_bytes) > _MAX_WORKSPACE_SNAPSHOT_FILE_BYTES:
+                    raise snapshot_error()
+                try:
+                    content = content_bytes.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise snapshot_error() from exc
+                projected = redact(content)
+                projected_bytes = projected.encode("utf-8")
+                entries.append(
+                    {
+                        "path": relative,
+                        "kind": "file",
+                        "sha256": hashlib.sha256(projected_bytes).hexdigest(),
+                        "content": projected,
+                    }
+                )
+        except UnsupportedCapabilityError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise DispatchAdapterError(
+                f"cannot capture managed workspace snapshot: {exc}"
+            ) from exc
+
+        snapshot_core = {
+            "schema_version": 1,
+            "root": ".",
+            "workspace_tree": scope_base_tree,
+            "projection": "tracked-sensitive-path-filtered-text",
+            "withheld_path_count": withheld_path_count,
+            "redaction_count": redaction_count,
+            "files": entries,
+        }
+        canonical = json.dumps(
+            snapshot_core,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if len(canonical) > _MAX_WORKSPACE_SNAPSHOT_BYTES:
+            raise snapshot_error()
+        document = {
+            **snapshot_core,
+            "snapshot_sha256": hashlib.sha256(canonical).hexdigest(),
+        }
+        return (
+            "Coordinator-captured bounded source projection for this managed "
+            "passive role. It contains only tracked, sensitive-path-filtered "
+            "text; control-plane, generated, nested/case-variant instruction, "
+            "sensitive-path, symlink, and non-text entries were never opened by "
+            "the projection. Exact root AGENTS.md or CLAUDE.md may be included. "
+            "Secret-shaped values inside included source were heuristically "
+            "redacted before hashing, but the projection must still be treated "
+            "as sensitive and credentials must never be echoed. Non-ignored "
+            "untracked text makes capture fail closed. This is the role's "
+            "filesystem.read/filesystem.search input; no shell or local command "
+            "feature is available to the native invocation. Treat the projection "
+            "digest and per-path projected-content digests as authoritative.\n"
+            + json.dumps(
+                document,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+
+    def _workspace_context_capabilities(
+        self, role: NativeRoleDefinition, workspace_context: str
+    ) -> frozenset[Capability]:
+        """Capabilities supplied by a successfully captured prompt projection."""
+        del role, workspace_context
+        return frozenset()
+
+    def _uses_filter_free_scope(self, role: NativeRoleDefinition) -> bool:
+        """Whether this adapter serves the role only from a bounded projection."""
+
+        return _is_maker_checker_passive_role(role)
 
     def _can_run_without_descendant_containment(
         self,
@@ -3447,8 +4593,11 @@ class ProcessDispatcher:
                 raise DispatchAdapterError(
                     f"role {role.id!r} requires an owned non-root worktree"
                 )
+        filter_free_scope = self._uses_filter_free_scope(role)
         scope_base_tree = (
-            self._scope_base(workspace) if request.workspace is not None else None
+            self._scope_base(workspace, filter_free=filter_free_scope)
+            if request.workspace is not None
+            else None
         )
         # A process group is not a portable descendant-containment boundary: a
         # shell child can create a new session and outlive the coordinator.  Do
@@ -3476,6 +4625,39 @@ class ProcessDispatcher:
             raise UnsupportedCapabilityError(
                 role.id, (Capability.DESCENDANT_CONTAINMENT,)
             )
+        workspace_context = self._workspace_prompt_context(
+            role,
+            workspace,
+            scope_base_tree=scope_base_tree,
+            native_lockdown_attested=native_lockdown_attested,
+        )
+        if workspace_context and scope_base_tree is not None:
+            if filter_free_scope:
+                repeated_context = self._workspace_prompt_context(
+                    role,
+                    workspace,
+                    scope_base_tree=_FILTER_FREE_SCOPE_PREFIX + "projection-pending",
+                    native_lockdown_attested=native_lockdown_attested,
+                )
+                if repeated_context != workspace_context:
+                    raise DispatchAdapterError(
+                        "managed workspace changed while its bounded prompt snapshot "
+                        "was being captured"
+                    )
+                scope_base_tree = (
+                    _FILTER_FREE_SCOPE_PREFIX
+                    + self._passive_projection_digest(workspace_context)
+                )
+            else:
+                after_snapshot_tree = self._scope_base(
+                    workspace,
+                    filter_free=False,
+                )
+                if after_snapshot_tree != scope_base_tree:
+                    raise DispatchAdapterError(
+                        "managed workspace changed while its bounded prompt snapshot "
+                        "was being captured"
+                    )
         # The durable task ledger is supplied by the provider-neutral Python
         # coordinator, not by a host-specific Task tool.  The child prompt is
         # explicitly read-only with respect to that ledger, while the adapter
@@ -3486,7 +4668,11 @@ class ProcessDispatcher:
         attested = (
             role.capabilities
             & self.supported_capabilities
-            & (self._enforceable_capabilities(role) | coordinator_capabilities)
+            & (
+                self._enforceable_capabilities(role)
+                | coordinator_capabilities
+                | self._workspace_context_capabilities(role, workspace_context)
+            )
         )
         # Managed shell stages freeze this semantic safety capability into the
         # stage contract.  For Codex roles without semantic shell access it is
@@ -3500,7 +4686,19 @@ class ProcessDispatcher:
         missing = required - attested
         if missing:
             raise UnsupportedCapabilityError(role.id, tuple(missing))
-        argv = self._argv(role, workspace)
+        # A bound execution slot with no concrete requested model is an explicit
+        # host-default choice (``inherit`` or a provider tier mapped to null),
+        # not permission to fall back to the role's generated semantic model.
+        argv_role = (
+            replace(role, native_model=None)
+            if request.execution_slot is not None and request.requested_model is None
+            else role
+        )
+        argv = self._argv_for_request(
+            argv_role,
+            workspace,
+            request.requested_model,
+        )
         handle = DispatchHandle(
             dispatch_id or str(uuid.uuid4()),
             role.id,
@@ -3508,20 +4706,9 @@ class ProcessDispatcher:
             provider=self.provider.value,
             required_capabilities=tuple(required),
             attested_capabilities=tuple(attested),
+            execution_slot=request.execution_slot,
+            requested_model=request.requested_model,
         )
-        workspace_context = self._workspace_prompt_context(
-            role,
-            workspace,
-            scope_base_tree=scope_base_tree,
-            native_lockdown_attested=native_lockdown_attested,
-        )
-        if workspace_context and scope_base_tree is not None:
-            after_snapshot_tree = self._workspace_tree(workspace)
-            if after_snapshot_tree != scope_base_tree:
-                raise DispatchAdapterError(
-                    "managed workspace changed while its Codex prompt snapshot "
-                    "was being captured"
-                )
         prompt_request = (
             request
             if not workspace_context
@@ -3539,6 +4726,8 @@ class ProcessDispatcher:
                 ),
                 required_capabilities=request.required_capabilities,
                 workspace=request.workspace,
+                execution_slot=request.execution_slot,
+                requested_model=request.requested_model,
             )
         )
         prompt = self._prompt(prompt_request, role)
@@ -3626,23 +4815,103 @@ class ProcessDispatcher:
             )
         return prompt
 
+    def _seal_passive_scope(self, state: _AttemptState) -> None:
+        """Freeze private scope after durable queue ownership, before start."""
+
+        if state.scope_base_tree is None or not state.scope_base_tree.startswith(
+            _FILTER_FREE_SCOPE_PREFIX
+        ):
+            return
+        try:
+            current_context = self._bounded_workspace_prompt_context(
+                state.role,
+                state.workspace,
+                scope_base_tree=_FILTER_FREE_SCOPE_PREFIX + "projection-pending",
+                native_lockdown_attested=True,
+            )
+            current_projection = (
+                _FILTER_FREE_SCOPE_PREFIX
+                + self._passive_projection_digest(current_context)
+            )
+            if current_projection != state.scope_base_tree:
+                raise DispatchAdapterError(
+                    "managed workspace changed before its passive dispatch started"
+                )
+            # This all-path checkpoint is coordinator-private. It covers
+            # ignored, sensitive, control-plane, redaction-hidden, and non-text
+            # mutations but is never embedded in provider or public evidence.
+            state.private_scope_checkpoint = _private_scope_fingerprint(state.workspace)
+        except (OSError, ValueError, WorktreeError) as exc:
+            raise DispatchAdapterError(
+                f"cannot capture private managed role scope: {exc}"
+            ) from exc
+
+    def _preflight_native_start(
+        self,
+        handle: DispatchHandle,
+        state: _AttemptState,
+        environment: Mapping[str, str],
+    ) -> None:
+        """Perform any native compatibility checks after durable queue claim."""
+
+        del handle, state, environment
+
     def _submit(self, handle: DispatchHandle, state: _AttemptState) -> None:
         if state.status is not DispatchStatus.QUEUED:
             return
         outcome: Optional[ProcessOutcome] = None
         try:
-            state.process = self.backend.start(
-                state.argv,
-                cwd=state.workspace,
-                env=self._role_environment(),
+            self._seal_passive_scope(state)
+            state.starting = True
+            child_environment = self._role_environment()
+            # Expose the durable UUID to the native process so an operator can
+            # correlate an uncertain host worker with its persisted marker.
+            child_environment["CKIT_NATIVE_DISPATCH_ID"] = handle.id
+            child_environment["CKIT_NATIVE_DISPATCH_ATTEMPT"] = str(handle.attempt)
+            child_environment["CKIT_NATIVE_DISPATCH_ROUTE"] = handle.route
+            child_environment["CKIT_NATIVE_DISPATCH_PROVIDER"] = self.provider.value
+            child_environment["CKIT_NATIVE_EXECUTION_SLOT"] = (
+                handle.execution_slot.value
+                if handle.execution_slot is not None
+                else "unbound"
             )
+            try:
+                self._preflight_native_start(handle, state, child_environment)
+                started = self.backend.start(
+                    state.argv,
+                    cwd=state.workspace,
+                    env=child_environment,
+                )
+            except UnconfirmedProcessOwnershipError as exc:
+                state.process = exc.process
+                state.starting = False
+                raise
+            except Exception:
+                # Ordinary backend errors attest that no native token escaped.
+                # Built-in backends use the token-bearing error above when
+                # cleanup cannot be positively confirmed.
+                state.starting = False
+                raise
+            except BaseException as exc:
+                if getattr(exc, _OWNERSHIP_CLEANUP_CONFIRMED, False) is True:
+                    state.starting = False
+                raise
+            state.process = started
+            state.starting = False
             self.backend.submit(state.process, self._with_messages(state))
+        except UnconfirmedProcessOwnershipError as exc:
+            raise DispatchAdapterError(
+                "native host start failed and process termination is unconfirmed"
+            ) from exc
         except Exception:
             if state.process is not None:
                 try:
                     outcome = self.backend.terminate(state.process)
-                except Exception:
-                    pass
+                except Exception as termination_error:
+                    raise DispatchAdapterError(
+                        "host prompt submission failed and process termination "
+                        "could not be confirmed"
+                    ) from termination_error
             scope_problem = self._scope_problem(state)
             state.status = DispatchStatus.FAILED
             state.submitted_at = None
@@ -3939,13 +5208,19 @@ class ProcessDispatcher:
             # Host processes own detached groups so they survive coordinator signals unless
             # explicitly terminated. Best-effort terminalize every process before preserving
             # the original KeyboardInterrupt/SystemExit for the caller.
+            cancellation_failures: list[BaseException] = []
             for handle, state in states:
                 if state.status.terminal:
                     continue
                 try:
                     self.cancel(handle, "coordinator interrupted")
-                except BaseException:
-                    pass
+                except BaseException as exc:
+                    cancellation_failures.append(exc)
+            if cancellation_failures:
+                raise DispatchAdapterError(
+                    "coordinator interruption left native process termination "
+                    "unconfirmed"
+                ) from cancellation_failures[0]
             raise
 
     def collect(self, handles: Sequence[DispatchHandle]) -> tuple[DispatchResult, ...]:
@@ -3979,11 +5254,28 @@ class ProcessDispatcher:
         if not reason.strip():
             raise ValueError("cancel reason must be non-empty")
         public_reason = public_human_stop_text(reason, fallback="dispatch cancelled")
+        if (
+            state.status is DispatchStatus.CANCELLED
+            and state.result is not None
+            and state.result.status is DispatchStatus.CANCELLED
+        ):
+            # Layered coordinators may each close the same handle while
+            # unwinding one interruption. A previously attested cancellation is
+            # safe and idempotent; other terminal outcomes remain non-cancellable.
+            return
         if state.status.terminal:
             raise DispatchAdapterError("terminal dispatches cannot be cancelled")
-        outcome = (
-            None if state.process is None else self.backend.terminate(state.process)
-        )
+        if state.process is None and state.starting:
+            raise DispatchAdapterError("native process start ownership is unconfirmed")
+        outcome: Optional[ProcessOutcome]
+        if isinstance(state.process, _BackendBoundResource):
+            outcome = state.process.backend.terminate(state.process.process)
+            for cleanup in state.process.cleanups:
+                cleanup()
+        else:
+            outcome = (
+                None if state.process is None else self.backend.terminate(state.process)
+            )
         scope_problem = self._scope_problem(state)
         state.status = DispatchStatus.CANCELLED
         state.result = self._apply_known_scope_problem(
@@ -4014,6 +5306,40 @@ class ClaudeProcessDispatcher(ProcessDispatcher):
         super().__init__(project_root, executable=executable, **kwargs)
 
     def _argv(self, role: NativeRoleDefinition, workspace: Path) -> tuple[str, ...]:
+        if role.id in _MAKER_CHECKER_PASSIVE_ROLE_IDS:
+            if not _is_maker_checker_passive_role(role):
+                raise DispatchAdapterError(
+                    f"maker-checker role {role.id!r} does not preserve its passive "
+                    "contract"
+                )
+            argv = [
+                self.executable,
+                "--print",
+                "--output-format",
+                (
+                    "stream-json"
+                    if isinstance(self.backend, ClaudeStreamJsonBackend)
+                    else "text"
+                ),
+                "--no-session-persistence",
+                "--permission-mode",
+                "plan",
+                # Safe mode disables discovered CLAUDE.md files, skills,
+                # plugins, hooks, MCP servers, commands, and custom agents.
+                # The empty built-in tool set independently removes local read,
+                # search, command, mutation, and delegation surfaces; the
+                # coordinator supplies the bounded source projection in stdin.
+                "--safe-mode",
+                "--disable-slash-commands",
+                "--tools",
+                "",
+                "--no-chrome",
+            ]
+            if role.native_model is not None:
+                argv.extend(("--model", role.native_model))
+            if isinstance(self.backend, ClaudeStreamJsonBackend):
+                argv.extend(("--input-format", "stream-json", "--verbose"))
+            return tuple(argv)
         permission_mode = (
             "plan" if role.permission is PermissionClass.READ_ONLY else "acceptEdits"
         )
@@ -4058,13 +5384,41 @@ class ClaudeProcessDispatcher(ProcessDispatcher):
             )
         return tuple(argv)
 
+    def _argv_for_request(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
+        bound_role = (
+            role
+            if requested_model is None
+            else replace(role, native_model=requested_model)
+        )
+        return self._argv(bound_role, workspace)
+
     def _enforceable_capabilities(
         self, role: NativeRoleDefinition
     ) -> frozenset[Capability]:
+        if role.id in _MAKER_CHECKER_PASSIVE_ROLE_IDS:
+            if not _is_maker_checker_passive_role(role):
+                return frozenset()
+            # The hardened invocation has no tools. Read/search are attested
+            # only after the coordinator's bounded projection succeeds.
+            return role.capabilities & frozenset(
+                {Capability.MESSAGE, Capability.TASK_LEDGER}
+            )
         # Dynamic --agents definitions receive an exact native tool allowlist.
         # External mutation is never attested by unattended managed execution;
         # it is represented as a portable human stop instead.
         return _claude_capabilities(role.native_tools) - {Capability.EXTERNAL_MUTATION}
+
+    def _workspace_context_capabilities(
+        self, role: NativeRoleDefinition, workspace_context: str
+    ) -> frozenset[Capability]:
+        if not workspace_context or not _is_maker_checker_passive_role(role):
+            return frozenset()
+        return role.capabilities & frozenset({Capability.FILE_READ, Capability.SEARCH})
 
 
 class CodexProcessDispatcher(ProcessDispatcher):
@@ -4085,22 +5439,35 @@ class CodexProcessDispatcher(ProcessDispatcher):
 
     @staticmethod
     def _is_passive_lockdown_role(role: NativeRoleDefinition) -> bool:
-        passive_capabilities = frozenset(
-            {
-                Capability.FILE_READ,
-                Capability.SEARCH,
-                Capability.MESSAGE,
-                Capability.TASK_LEDGER,
-            }
-        )
-        return (
-            role.permission is PermissionClass.READ_ONLY
-            and role.nested_delegation is NestedDelegationPolicy.FORBIDDEN
-            and role.capabilities.issubset(passive_capabilities)
-        )
+        return _is_passive_snapshot_role(role)
+
+    def _uses_filter_free_scope(self, role: NativeRoleDefinition) -> bool:
+        return self._is_passive_lockdown_role(role)
 
     def _argv(self, role: NativeRoleDefinition, workspace: Path) -> tuple[str, ...]:
+        return self._codex_argv(role, workspace, requested_model=None)
+
+    def _argv_for_request(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
+        return self._codex_argv(role, workspace, requested_model=requested_model)
+
+    def _codex_argv(
+        self,
+        role: NativeRoleDefinition,
+        workspace: Path,
+        *,
+        requested_model: Optional[str],
+    ) -> tuple[str, ...]:
         if isinstance(self.backend, CodexAppServerBackend):
+            if requested_model is not None:
+                raise DispatchAdapterError(
+                    "Codex app-server cannot attest an exact requested_model; "
+                    "use the one-shot exec backend"
+                )
             if not self._is_passive_lockdown_role(role):
                 raise DispatchAdapterError(
                     "Codex app-server is available only for passive read-only roles"
@@ -4114,28 +5481,34 @@ class CodexProcessDispatcher(ProcessDispatcher):
         argv: list[str] = [
             self.executable,
             "exec",
-            "--ephemeral",
-            "--ignore-user-config",
-            "--strict-config",
-            "--color",
-            "never",
-            "--sandbox",
-            sandbox,
-            "-c",
-            'approval_policy="never"',
-            "-c",
-            "sandbox_workspace_write.network_access=false",
-            "-c",
-            "sandbox_workspace_write.exclude_slash_tmp=true",
-            "-c",
-            "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-            "-c",
-            'shell_environment_policy.inherit="core"',
-            "-c",
-            "shell_environment_policy.ignore_default_excludes=false",
-            "-c",
-            "shell_environment_policy.experimental_use_profile=false",
         ]
+        if requested_model is not None:
+            argv.extend(("--model", requested_model))
+        argv.extend(
+            [
+                "--ephemeral",
+                "--ignore-user-config",
+                "--strict-config",
+                "--color",
+                "never",
+                "--sandbox",
+                sandbox,
+                "-c",
+                'approval_policy="never"',
+                "-c",
+                "sandbox_workspace_write.network_access=false",
+                "-c",
+                "sandbox_workspace_write.exclude_slash_tmp=true",
+                "-c",
+                "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+                "-c",
+                'shell_environment_policy.inherit="core"',
+                "-c",
+                "shell_environment_policy.ignore_default_excludes=false",
+                "-c",
+                "shell_environment_policy.experimental_use_profile=false",
+            ]
+        )
         if role.nested_delegation is NestedDelegationPolicy.FORBIDDEN:
             argv.extend(("--disable", "multi_agent", "-c", "agents.enabled=false"))
         else:
@@ -4225,29 +5598,68 @@ class CodexProcessDispatcher(ProcessDispatcher):
         workspace: Path,
         scope_base_tree: Optional[str],
     ) -> bool:
-        """Admit only the fully tool-denied managed read-only Codex lane."""
+        """Identify the lane whose native lockdown is deferred until ``wait``.
+
+        ``spawn`` must remain a pure queued reservation.  The actual native
+        version/feature/MCP attestation runs from ``_preflight_native_start``
+        after the coordinator has persisted the dispatch identity.
+        """
+
+        del workspace
+        return scope_base_tree is not None and self._is_passive_lockdown_role(role)
+
+    def _preflight_native_start(
+        self,
+        handle: DispatchHandle,
+        state: _AttemptState,
+        environment: Mapping[str, str],
+    ) -> None:
+        """Attest Codex lockdown under the dispatch's durable ownership marker."""
+
+        del handle
+        if (
+            state.scope_base_tree is None
+            or not state.scope_base_tree.startswith(_FILTER_FREE_SCOPE_PREFIX)
+            or not self._is_passive_lockdown_role(state.role)
+        ):
+            return
         if isinstance(self.backend, CodexAppServerBackend):
-            return (
-                scope_base_tree is not None
-                and self._is_passive_lockdown_role(role)
-                and self.backend.lockdown_supported(
-                    self.executable,
-                    workspace,
-                    self._role_environment(),
-                    _CODEX_LOCKDOWN_FEATURES,
-                    self.lockdown_probe,
-                )
-            )
-        return (
-            scope_base_tree is not None
-            and self._is_passive_lockdown_role(role)
-            and self.lockdown_probe(
+            supported = self.backend.lockdown_supported(
                 self.executable,
-                workspace,
-                self._role_environment(),
+                state.workspace,
+                environment,
                 _CODEX_LOCKDOWN_FEATURES,
+                self.lockdown_probe,
             )
-        )
+        else:
+            isolation = CodexAppServerBackend._isolated_environment(
+                environment, copy_auth=False
+            )
+            try:
+                supported = self.lockdown_probe(
+                    self.executable,
+                    state.workspace,
+                    isolation.environment,
+                    _CODEX_LOCKDOWN_FEATURES,
+                )
+            except UnconfirmedProcessOwnershipError as exc:
+                try:
+                    isolation.cleanup()
+                except BaseException as cleanup_error:
+                    resource = exc.process
+                    if isinstance(resource, _BackendBoundResource):
+                        resource = resource.with_cleanup(isolation.cleanup)
+                    raise UnconfirmedProcessOwnershipError(
+                        "Codex lockdown probe and isolated-home cleanup are unconfirmed",
+                        resource,
+                    ) from cleanup_error
+                raise
+            else:
+                isolation.cleanup()
+        if not supported:
+            raise UnsupportedCapabilityError(
+                state.role.id, (Capability.DESCENDANT_CONTAINMENT,)
+            )
 
     def _workspace_prompt_context(
         self,
@@ -4266,247 +5678,25 @@ class CodexProcessDispatcher(ProcessDispatcher):
         provider input. Any ambiguity or bound violation fails before the host
         starts.
         """
-        if (
-            scope_base_tree is None
-            or not native_lockdown_attested
-            or not self._is_passive_lockdown_role(role)
-            or not (role.capabilities & {Capability.FILE_READ, Capability.SEARCH})
-        ):
+        if not self._is_passive_lockdown_role(role):
             return ""
-
-        entries: list[dict[str, str]] = []
-        withheld_path_count = 0
-        redaction_count = 0
-        opened_byte_count = 0
-        snapshot_capability = (
-            Capability.FILE_READ
-            if Capability.FILE_READ in role.capabilities
-            else Capability.SEARCH
-        )
-
-        def snapshot_error() -> UnsupportedCapabilityError:
-            return UnsupportedCapabilityError(role.id, (snapshot_capability,))
-
-        def safe_text_path(relative: str) -> bool:
-            nonlocal withheld_path_count
-            try:
-                encoded = relative.encode("utf-8")
-            except UnicodeEncodeError:
-                raise snapshot_error() from None
-            if (
-                not relative
-                or len(encoded) > _MAX_CODEX_SNAPSHOT_PATH_BYTES
-                or relative.startswith("/")
-                or "\\" in relative
-            ):
-                raise snapshot_error()
-            parts = tuple(part for part in relative.split("/") if part)
-            if not parts or any(part in {".", ".."} for part in parts):
-                raise snapshot_error()
-            lowered = tuple(part.casefold() for part in parts)
-            basename = lowered[-1]
-            stem = basename.split(".", 1)[0]
-            if (
-                lowered[0] in _CODEX_SNAPSHOT_CONTROL_ROOTS
-                or relative in {"AGENTS.md", "CLAUDE.md", ".mcp.json"}
-                or any(part in _CODEX_SNAPSHOT_GENERATED_COMPONENTS for part in lowered)
-                or any(part in _CODEX_SNAPSHOT_SENSITIVE_COMPONENTS for part in lowered)
-                or _CODEX_SNAPSHOT_SENSITIVE_NAME_RE.search(basename) is not None
-                or _CODEX_SNAPSHOT_SECRET_VALUE_RE.search(relative) is not None
-                or _CODEX_SNAPSHOT_SECRET_ASSIGNMENT_RE.search(relative) is not None
-            ):
-                withheld_path_count += 1
-                return False
-            suffix = Path(basename).suffix
-            textual_name = (
-                basename in _CODEX_SNAPSHOT_TEXT_NAMES
-                or stem in _CODEX_SNAPSHOT_TEXT_NAMES
-                or suffix in _CODEX_SNAPSHOT_TEXT_SUFFIXES
-            )
-            if not textual_name:
-                withheld_path_count += 1
-                return False
-            return True
-
-        def redact(content: str) -> str:
-            nonlocal redaction_count
-            projected, direct_count = _CODEX_SNAPSHOT_SECRET_VALUE_RE.subn(
-                "[REDACTED]", content
-            )
-            projected, assignment_count = _CODEX_SNAPSHOT_SECRET_ASSIGNMENT_RE.subn(
-                r"\1[REDACTED]", projected
-            )
-            redaction_count += direct_count + assignment_count
-            return projected
-
-        try:
-            tracked_result = subprocess.run(
-                (
-                    "git",
-                    "ls-files",
-                    "-z",
-                    "--cached",
-                    "--",
-                ),
-                cwd=workspace,
-                check=False,
-                capture_output=True,
-            )
-            untracked_result = subprocess.run(
-                (
-                    "git",
-                    "ls-files",
-                    "-z",
-                    "--others",
-                    "--exclude-standard",
-                    "--",
-                ),
-                cwd=workspace,
-                check=False,
-                capture_output=True,
-            )
-            if (
-                tracked_result.returncode != 0
-                or untracked_result.returncode != 0
-                or len(tracked_result.stdout) + len(untracked_result.stdout)
-                > _MAX_CODEX_SNAPSHOT_METADATA_BYTES
-            ):
-                raise snapshot_error()
-            raw_paths = tuple(raw for raw in tracked_result.stdout.split(b"\0") if raw)
-            raw_untracked = tuple(
-                raw for raw in untracked_result.stdout.split(b"\0") if raw
-            )
-            if len(raw_paths) + len(raw_untracked) > _MAX_CODEX_SNAPSHOT_FILES * 8:
-                raise snapshot_error()
-            for raw_path in sorted(raw_untracked):
-                try:
-                    relative = raw_path.decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise snapshot_error() from exc
-                if safe_text_path(relative):
-                    raise snapshot_error()
-            for raw_path in sorted(raw_paths):
-                try:
-                    relative = raw_path.decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise snapshot_error() from exc
-                if not safe_text_path(relative):
-                    continue
-                candidate = workspace / relative
-                info = candidate.lstat()
-                if stat.S_ISLNK(info.st_mode):
-                    withheld_path_count += 1
-                    continue
-                if (
-                    not stat.S_ISREG(info.st_mode)
-                    or info.st_size > _MAX_CODEX_SNAPSHOT_FILE_BYTES
-                ):
-                    raise snapshot_error()
-                if (
-                    len(entries) >= _MAX_CODEX_SNAPSHOT_FILES
-                    or opened_byte_count + info.st_size > _MAX_CODEX_SNAPSHOT_BYTES
-                ):
-                    raise snapshot_error()
-                resolved = candidate.resolve(strict=True)
-                try:
-                    resolved.relative_to(workspace)
-                except ValueError as exc:
-                    raise snapshot_error() from exc
-                flags = os.O_RDONLY
-                if hasattr(os, "O_CLOEXEC"):
-                    flags |= os.O_CLOEXEC
-                if hasattr(os, "O_NOFOLLOW"):
-                    flags |= os.O_NOFOLLOW
-                descriptor = os.open(candidate, flags)
-                try:
-                    opened_info = os.fstat(descriptor)
-                    if (
-                        not stat.S_ISREG(opened_info.st_mode)
-                        or opened_info.st_dev != info.st_dev
-                        or opened_info.st_ino != info.st_ino
-                        or opened_info.st_size != info.st_size
-                        or opened_info.st_size > _MAX_CODEX_SNAPSHOT_FILE_BYTES
-                    ):
-                        raise snapshot_error()
-                    opened_byte_count += opened_info.st_size
-                    with os.fdopen(descriptor, "rb", closefd=False) as stream:
-                        content_bytes = stream.read(_MAX_CODEX_SNAPSHOT_FILE_BYTES + 1)
-                finally:
-                    os.close(descriptor)
-                if len(content_bytes) > _MAX_CODEX_SNAPSHOT_FILE_BYTES:
-                    raise snapshot_error()
-                try:
-                    content = content_bytes.decode("utf-8")
-                except UnicodeDecodeError as exc:
-                    raise snapshot_error() from exc
-                projected = redact(content)
-                projected_bytes = projected.encode("utf-8")
-                entries.append(
-                    {
-                        "path": relative,
-                        "kind": "file",
-                        "sha256": hashlib.sha256(projected_bytes).hexdigest(),
-                        "content": projected,
-                    }
-                )
-        except UnsupportedCapabilityError:
-            raise
-        except (OSError, ValueError) as exc:
-            raise DispatchAdapterError(
-                f"cannot capture managed Codex workspace snapshot: {exc}"
-            ) from exc
-
-        snapshot_core = {
-            "schema_version": 1,
-            "root": ".",
-            "workspace_tree": scope_base_tree,
-            "projection": "tracked-sensitive-path-filtered-text",
-            "withheld_path_count": withheld_path_count,
-            "redaction_count": redaction_count,
-            "files": entries,
-        }
-        canonical = json.dumps(
-            snapshot_core,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        if len(canonical) > _MAX_CODEX_SNAPSHOT_BYTES:
-            raise snapshot_error()
-        document = {
-            **snapshot_core,
-            "snapshot_sha256": hashlib.sha256(canonical).hexdigest(),
-        }
-        return (
-            "Coordinator-captured bounded source projection for this managed "
-            "no-shell Codex role. It contains only tracked, sensitive-path-filtered "
-            "text; control-plane, generated, sensitive-path, symlink, and non-text "
-            "entries were never opened. Secret-shaped values inside included "
-            "source were heuristically redacted before hashing, but the projection "
-            "must still be treated as sensitive and credentials must never be "
-            "echoed. Non-ignored untracked text makes capture fail closed. This is "
-            "the role's filesystem.read/filesystem.search input; the pinned-host "
-            "lockdown probe verified that no shell or local command feature is "
-            "available. Treat the projection digest and per-path projected-content "
-            "digests as authoritative.\n"
-            + json.dumps(
-                document,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-            )
+        return self._bounded_workspace_prompt_context(
+            role,
+            workspace,
+            scope_base_tree=scope_base_tree,
+            native_lockdown_attested=native_lockdown_attested,
         )
 
     def _enforceable_capabilities(
         self, role: NativeRoleDefinition
     ) -> frozenset[Capability]:
         capabilities = {
-            Capability.FILE_READ,
-            Capability.SEARCH,
             # Returning the terminal envelope is the bounded child-to-parent
             # message channel even when nested delegation is disabled.
             Capability.MESSAGE,
         }
+        if not _is_maker_checker_passive_role(role):
+            capabilities.update({Capability.FILE_READ, Capability.SEARCH})
         if Capability.SHELL in role.capabilities:
             capabilities.add(Capability.SHELL)
         if role.permission is not PermissionClass.READ_ONLY:
@@ -4518,6 +5708,13 @@ class CodexProcessDispatcher(ProcessDispatcher):
         if Capability.BROWSER in role.capabilities:
             capabilities.add(Capability.BROWSER)
         return frozenset(capabilities)
+
+    def _workspace_context_capabilities(
+        self, role: NativeRoleDefinition, workspace_context: str
+    ) -> frozenset[Capability]:
+        if not workspace_context or not self._is_passive_lockdown_role(role):
+            return frozenset()
+        return role.capabilities & frozenset({Capability.FILE_READ, Capability.SEARCH})
 
 
 __all__ = [
@@ -4536,5 +5733,7 @@ __all__ = [
     "ProcessOutcome",
     "RoleUnavailableError",
     "SubprocessBackend",
+    "UnconfirmedProcessOwnershipError",
     "UnsupportedCapabilityError",
+    "cleanup_codex_dispatch_credentials",
 ]

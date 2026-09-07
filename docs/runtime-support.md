@@ -30,6 +30,7 @@ claude-kit until its renderer and behavioral tests pass.
 | Codex scaffold | Preview | Native artifacts parse and install from source, wheel, and sdist; remaining live-host behavior gaps are listed below. |
 | `both` scaffold | Preview | Emits both native discovery surfaces and one shared `.ckit`; promotion still requires protected cross-host behavior smokes. |
 | Codex plugin | Preview | Isolated 0.147 and 0.149 marketplace add, native skill/hook discovery, plugin add/content/list/remove, and marketplace removal are exercised with credentials unset and `ON_USE` auth policy. Project projection is still scaffold-only. |
+| Maker–checker coordinator | Preview | Configuration, exact-model argv routing, bounded iterations, typed evidence, passive role boundaries, patch validation, and injected-adapter resume/failure paths are deterministic-test surfaces. Protected credentialed native invocation and model-routing evidence remains a promotion gate, especially for Codex. |
 
 ## Normative scaffold matrix
 
@@ -38,11 +39,12 @@ claude-kit until its renderer and behavioral tests pass.
 | Project instructions | **Native**: `CLAUDE.md` | **Native**: managed `AGENTS.md` | **Native** | Preserve user text outside managed sections. Codex layers `AGENTS.md` by directory. |
 | Engineering rules | **Native**: Claude rule files and path metadata | **Adapted**: bounded managed `AGENTS.md` layer plus complete `.ckit/rules/*.md` projections | **Adapted** | `.codex/rules` is an execution-policy surface, not a home for prose engineering rules. The renderer reports size-budget omissions explicitly. |
 | Repository skills | **Native**: `.claude/skills` | **Adapted**: `.agents/skills` plus optional `agents/openai.yaml` | **Adapted** | Map manual-only behavior to `policy.allow_implicit_invocation: false`; do not copy Claude-only invocation variables unchanged. |
+| Maker–checker skill and coordinator | **Degraded**: native `/maker-checker` discovery calls the bounded managed coordinator, but protected credentialed execution evidence and project test-command execution remain incomplete | **Degraded**: native explicit-only `$maker-checker` discovery uses the same coordinator and the exact-pinned passive Codex lane; protected credentialed routing and revision/resume behavior are not yet proven | **Degraded** | The project-scoped pair is stored once under `.ckit`; each role names one installed concrete provider and an inherited, tier, or exact model policy. Both built-in native paths are tool-denied and receive the same bounded, filtered, heuristically redacted projection of tracked UTF-8 text for semantic read/search. A `snapshot_kind: maker-checker` variant in the one shared pipeline snapshot freezes requested bindings and supports exact-ID resume without substituting later configuration. The coordinator uses a fresh passive reviewer, applies code only through a validated patch into a preserved worktree, and never treats PASS as merge/external-action authority. Current deterministic checks are artifact non-emptiness and, for code, `git diff --check`; project tests/lint/build are not run. |
 | Slash commands | **Native** | **Adapted** as explicit skills | **Adapted** | Codex has no exact project slash-command analogue for the shipped Claude command files. |
 | Custom agents | **Native**: Claude agent Markdown | **Degraded**: `.codex/agents/*.toml` is native syntax, but protected named-role behavior has not yet produced recorded green evidence | **Degraded** | Codex requires `name`, `description`, and `developer_instructions`; renderer maps model, effort, sandbox, MCP, and skill settings only when semantics are known. File generation and parsing alone are not a behavior proof. |
 | Lifecycle hooks | **Native** | **Degraded**: native command handlers are projected, but protected host allow/block/advisory/Stop behavior has not yet produced recorded green evidence | **Degraded** | Event names overlap, but trust, matcher coverage, input/output fields, and blocking behavior must be tested per host. Only command handlers currently execute in Codex. |
 | MCP configuration | **Native**: `.mcp.json` | **Adapted**: semantic merge into `.codex/config.toml` | **Adapted** | Codex uses native `env_vars`, `http_headers`, and `env_http_headers`; unsupported `${ENV}` argument/URL interpolation and environment renaming fail closed. `postgres`, `mongodb`, `azure_devops`, and `repowise` are therefore Claude-only until they have a safe native Codex launch contract. Each selected server retains declared runtime support, authentication mode, and health-check intent in the shared snapshot. A selected server is required: projection fails closed if any requested host is unsupported, while `doctor --mcp` reports the declaration without launching third-party servers. Preserve unknown user tables and keys. |
-| Model tiers | **Adapted**: semantic fast/balanced/deep tiers map to Claude model aliases | **Degraded**: tier intent is preserved, but generated agent TOML deliberately inherits the user's Codex model | **Degraded** | No provider model name appears in canonical sources. Codex does not receive a hard-coded model merely to imitate Claude aliases. |
+| Model tiers | **Adapted**: semantic fast/balanced/deep tiers map to Claude model aliases | **Degraded**: tier intent is preserved, but generated agent TOML and maker–checker tier bindings deliberately inherit the user's Codex model | **Degraded** | No provider model name appears in canonical sources. A maker–checker owner may configure an exact model ID, which is passed as a safe native argv element; `probe` validates only its shape and does not prove access. Codex does not receive a hard-coded model merely to imitate Claude aliases. |
 | Per-agent permissions | **Degraded**: exact tools and `permissionMode` are projected, deployment credentials are withheld, and managed path deltas are verified; Claude has no portable OS-enforced shell-network boundary | **Adapted**: native per-role sandbox, feature/MCP clamps, command-network denial, secret-filtered shell environment, and managed path-delta verification | **Degraded** | Host controls are intentionally not described as interchangeable. Neither unattended adapter attests external mutation. |
 | Orchestration and role routing | **Degraded**: Preview managed execution can run exact-tool no-shell roles; Claude stream-JSON carries bounded active corrections, while shell roles stop without descendant containment | **Degraded**: the bundled adapter admits only passive read-only, nondelegating roles on exact compatibility-pinned hosts after fail-closed feature and MCP probes; the optional app-server backend has deterministic, credential-free protocol evidence only | **Degraded** | `ckit pipeline run --provider …` freezes the workflow, gates, owners, conditions, retries, history, and attestations. Mode E requires an explicit frozen program manifest and adds typed waves, units, budgets, evidence, program gates, attempts, and checkpoints. The default isolated one-shot Codex `exec` path accepts queued messages before start. An explicitly selected app-server backend uses an ephemeral read-only thread for bounded `turn/steer` and `turn/interrupt`; it is not the default and has no credentialed inference evidence. The bundled adapters stop before Mode E shell/write units and every irreversible unit; those require independently proven physical containment or an external approval broker. |
 | Worktree isolation | **Adapted**: managed execution defaults to one run-owned integration worktree | **Degraded**: the same exact-path fallback is adapter-tested, but protected live-host behavior is not yet proven | **Degraded** | Dirty application state fails closed. All managed stages share the run worktree so dependent review sees prior changes; the worktree is preserved and never auto-merged into the main checkout. |
@@ -59,7 +61,7 @@ claude-kit until its renderer and behavioral tests pass.
 
 | Component | Claude plugin | Codex plugin | Limit |
 |---|---|---|---|
-| Skills | **Native** | **Native** | Plugin-root `skills/` is documented by both host ecosystems. Host-specific metadata may still need adaptation. |
+| Skills | **Native** | **Native** | Plugin-root `skills/` is documented by both host ecosystems. Host-specific metadata may still need adaptation. The static maker–checker skill remains unusable until a project scaffold creates `.ckit` and its owner configures the pair. |
 | Hooks | **Native** | **Degraded** until parity smokes pass | Codex loads plugin `hooks/hooks.json`, requires trust for non-managed hooks, and has host-specific output semantics. Its self-contained static `protect-secrets` compatibility guard covers native `Read`/`read_file` envelopes only; shell/unified-exec read enforcement requires the exact-wheel project scaffold and normalized `ckit hook-run` adapter. `PermissionRequest` and `PostCompact` are not projected. |
 | MCP declarations | **Native** | **Native** | Static plugin MCP declarations are supported; project-specific catalog selection is not. |
 | Project instructions and scoped rules | **Unsupported** | **Unsupported** | Plugin installation does not run the compiler or manage project instruction files. |
@@ -93,7 +95,9 @@ Codex and `both` remain Preview until all of the following are release-blocking 
 2. Every generated Codex skill is discoverable, every custom-agent TOML parses, and generated
    instructions load from the intended directory scope.
 3. Native host smokes exercise skill arguments, manual-only routing, subagent personas,
-   `SessionStart`, blocking `PreToolUse`, advisory/post-tool behavior, and `Stop`.
+   `SessionStart`, blocking `PreToolUse`, advisory/post-tool behavior, and `Stop`. Maker–checker
+   smokes additionally exercise exact maker/reviewer model routing, fresh-reviewer isolation,
+   feedback revisions, resume, and fail-closed paths on protected credentialed hosts.
 4. Codex-only output contains no operational dependency on `.claude`, `CLAUDE.md`, the `claude`
    executable, or Claude-only invocation variables.
 5. A `both` smoke proves that the two hosts read and update the same gate-history digest and
@@ -139,17 +143,20 @@ find, command-substitution, or recursive reads are denied and make verification 
 
 Credentials are deliberately host-owned: Claude reads an out-of-workspace `apiKeyHelper`. The
 OpenAI key has exactly two protected channels: the exact-wheel coordinator passes it only to the
-pinned passive `CodexProcessDispatcher` host process used for the managed `classify` proof, and the
-separate native-behavior probe runs through the pinned official `openai/codex-action` key proxy
-under the built-in read-only permission profile. Neither channel exposes it to project tools or
-persists it in the fixture, and the isolated Codex home trusts only the canonical prepared project
-path.
+pinned passive `CodexProcessDispatcher` host process used for the managed
+`fast-track-classify` proof, and the separate native-behavior probe runs through the pinned official
+`openai/codex-action` key proxy under the built-in read-only permission profile. Neither channel
+exposes it to project tools or persists it in the fixture, and the isolated Codex home trusts only
+the canonical prepared project path.
 That same coordinator channel also runs a separate, explicitly fixture-seeded standard-profile
 Mode A project: coordinator-owned typed predecessor stages close `spec-complete` through public
-ledger APIs without a native-host claim, then the exact-wheel Codex adapter runs only the canonical
-passive `planning-merge`/`em-reviewer` owner. Its typed `architecture-plan` and PASS
-`review-verdict` must produce the root-owned owner-attempt bundle that closes `em-approved`; the
-harness verifies the exact gate-history digest and stops before the next broader stage.
+ledger APIs without a native-host claim, then the exact-wheel Codex adapter runs the canonical
+passive `architecture-review`/`technical-architect` panel member followed by the
+`planning-merge`/`em-reviewer` owner. The panel's PASS `planning-review-verdict` and the EM's PASS
+`planning-decision` must name the coordinator-bound planning generation and exact applicable panel;
+the typed `architecture-plan` and decision then produce the root-owned owner-attempt bundle that
+closes `em-approved`. The harness verifies those identities, the exact gate-history digest, and
+stops before the next broader stage.
 The pinned action rejects hook-trust bypasses under protected profiles. Before it drops sudo, the
 workflow therefore copies the exact prepared `.codex/hooks.json` byte-for-byte into Codex's
 root-owned `/etc/codex/hooks.json` system layer, which Codex treats as managed policy. It fails
@@ -213,6 +220,10 @@ The Preview label is not a claim that the renderer is untested. The current suit
   refusal, built-in-adapter refusal of uncontained Claude shell routes, and Codex's exact-pinned
   passive read-only lockdown lane plus refusal of every shell, write, delegation, browser, MCP, or
   external-effect route;
+- maker–checker policy validation and migration, same-provider and cross-provider dispatch routing,
+  strict maker/reviewer envelopes, first-pass and revised PASS, unchanged/stale/exhausted failure,
+  constrained code-patch application, cancellation, and injected-adapter resume without model
+  substitution;
 - Mode E manifest/run binding, audit and verification ordering, unit/gate no-replay, budgets,
   content-addressed typed evidence, Git-index-aware workspace checkpoints, cross-provider resume,
   and fail-closed physical-containment/irreversible-operation boundaries;

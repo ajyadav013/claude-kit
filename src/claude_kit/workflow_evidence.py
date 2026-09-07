@@ -29,12 +29,75 @@ MAX_EVIDENCE_ENVELOPE_BYTES = 4 * 1024 * 1024
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _FINDING_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+_PLANNING_AUTHORITY_DOMAINS = frozenset(
+    {
+        "product",
+        "frontend",
+        "backend",
+        "architecture",
+        "delivery",
+        "gate-evidence",
+    }
+)
+_PLANNING_FINDING_DISPOSITIONS = frozenset(
+    {"open", "fixed", "advisory", "disputed", "human-required"}
+)
+_PLANNING_FAIL_SEVERITIES = frozenset({"critical", "high", "medium"})
+_PLANNING_DECISION_FIELDS = frozenset(
+    {
+        "decision-id",
+        "authority-domain",
+        "selected-option",
+        "rejected-alternatives",
+        "rationale",
+        "dissent",
+        "reopen-trigger",
+        "decider",
+        "evidence",
+    }
+)
+_FAST_TRACK_BOOLEAN_FIELDS = (
+    "localized-single-boundary",
+    "unambiguous",
+    "reversible",
+    "sensitive-surface",
+    "public-contract-surface",
+    "irreversible-action",
+    "external-effect",
+)
+_FAST_TRACK_PASS_VALUES: tuple[tuple[str, object], ...] = (
+    ("risk-tier", "low"),
+    ("localized-single-boundary", True),
+    ("unambiguous", True),
+    ("reversible", True),
+    ("sensitive-surface", False),
+    ("public-contract-surface", False),
+    ("irreversible-action", False),
+    ("external-effect", False),
+)
 _SYMBOLIC_RE = re.compile(
     r"(?:artifact|agent|skill|rule|state|stage|lane|gate|program)://[^\s]+",
     re.IGNORECASE,
 )
 _CANONICAL_PROFILE_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
     "scope-record": ("artifact", ("mode", "surfaces", "constraints", "risks")),
+    "fast-track-scope-record": (
+        "artifact",
+        (
+            "mode",
+            "surfaces",
+            "constraints",
+            "risks",
+            "risk-tier",
+            "localized-single-boundary",
+            "unambiguous",
+            "reversible",
+            "sensitive-surface",
+            "public-contract-surface",
+            "irreversible-action",
+            "external-effect",
+        ),
+    ),
     "specification": (
         "artifact",
         ("outcome", "acceptance-criteria", "non-goals", "risks"),
@@ -43,9 +106,36 @@ _CANONICAL_PROFILE_FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
         "artifact",
         ("boundaries", "dependencies", "interfaces", "verification"),
     ),
+    "story-breakdown": (
+        "artifact",
+        ("stories", "dependencies", "parallelizable", "sequencing", "traceability"),
+    ),
     "review-verdict": (
         "verdict",
         ("status", "reviewer", "findings", "evidence"),
+    ),
+    "planning-review-verdict": (
+        "verdict",
+        (
+            "status",
+            "reviewer",
+            "planning-generation",
+            "authority-domain",
+            "findings",
+            "evidence",
+        ),
+    ),
+    "planning-decision": (
+        "verdict",
+        (
+            "status",
+            "reviewer",
+            "planning-generation",
+            "panel-reviewers",
+            "findings",
+            "decisions",
+            "evidence",
+        ),
     ),
     "command-evidence": ("command-output", ("command", "exit-status", "output")),
     "test-report": (
@@ -333,6 +423,359 @@ def _findings_problem(
     return None
 
 
+def _planning_findings_problem(
+    value: Any, *, label: str, findings_policy: Mapping[str, Any]
+) -> str | None:
+    problem = _findings_problem(value, label=label, findings_policy=findings_policy)
+    if problem:
+        return problem
+    assert isinstance(value, list)
+    for index, finding in enumerate(value):
+        assert isinstance(finding, dict)
+        finding_label = f"{label}[{index}]"
+        identity_fields = {"id", "finding-id"} & set(finding)
+        if len(identity_fields) != 1:
+            return f"{finding_label} must contain exactly one stable identity field"
+        required = {
+            "authority-domain",
+            "criterion",
+            "requested-correction",
+            "owner",
+        }
+        if not required.issubset(finding):
+            return (
+                f"{finding_label} must contain authority-domain, criterion, "
+                "requested-correction, and owner"
+            )
+        allowed = {
+            "severity",
+            "disposition",
+            "evidence",
+            *required,
+            *identity_fields,
+        }
+        if set(finding) != allowed:
+            return f"{finding_label} must contain exactly the planning finding fields"
+        authority_domain = finding.get("authority-domain")
+        if (
+            not isinstance(authority_domain, str)
+            or authority_domain not in _PLANNING_AUTHORITY_DOMAINS
+        ):
+            return f"{finding_label} has an invalid authority-domain"
+        disposition = finding.get("disposition")
+        if disposition not in _PLANNING_FINDING_DISPOSITIONS:
+            return f"{finding_label} has an invalid planning disposition"
+        for field in ("criterion", "requested-correction", "owner"):
+            if not isinstance(finding.get(field), str):
+                return f"{finding_label}.{field} must be a string"
+            problem = _content_problem(finding[field], label=f"{finding_label}.{field}")
+            if problem:
+                return problem
+    return None
+
+
+def _planning_decisions_problem(value: Any, *, label: str) -> str | None:
+    if not isinstance(value, list):
+        return f"{label} must be an array"
+    seen: set[str] = set()
+    for index, decision in enumerate(value):
+        decision_label = f"{label}[{index}]"
+        if not isinstance(decision, dict):
+            return f"{decision_label} must be a structured object"
+        if set(decision) != _PLANNING_DECISION_FIELDS:
+            return (
+                f"{decision_label} must contain decision-id, authority-domain, "
+                "selected-option, rejected-alternatives, rationale, dissent, "
+                "reopen-trigger, decider, and evidence, with no other fields"
+            )
+        decision_id = decision.get("decision-id")
+        if not isinstance(decision_id, str) or not _FINDING_ID_RE.fullmatch(
+            decision_id
+        ):
+            return f"{decision_label} has an invalid decision-id"
+        if decision_id in seen:
+            return f"{label} contains duplicate decision id {decision_id!r}"
+        seen.add(decision_id)
+        authority_domain = decision.get("authority-domain")
+        if (
+            not isinstance(authority_domain, str)
+            or authority_domain not in _PLANNING_AUTHORITY_DOMAINS
+        ):
+            return f"{decision_label} has an invalid authority-domain"
+        for field in ("selected-option", "rationale", "reopen-trigger", "decider"):
+            if not isinstance(decision.get(field), str):
+                return f"{decision_label}.{field} must be a string"
+            problem = _content_problem(
+                decision[field], label=f"{decision_label}.{field}"
+            )
+            if problem:
+                return problem
+        for field in ("rejected-alternatives", "dissent"):
+            problem = _text_array_problem(
+                decision.get(field),
+                label=f"{decision_label}.{field}",
+                allow_empty=True,
+            )
+            if problem:
+                return problem
+        problem = _citations_problem(
+            decision.get("evidence"), label=f"{decision_label}.evidence"
+        )
+        if problem:
+            return problem
+    return None
+
+
+def _story_breakdown_problem(document: Mapping[str, Any]) -> str | None:
+    exact_fields = {
+        "stories",
+        "dependencies",
+        "parallelizable",
+        "sequencing",
+        "traceability",
+    }
+    if set(document) != exact_fields:
+        return "story-breakdown must contain exactly its closed contract fields"
+
+    raw_stories = document.get("stories")
+    if not isinstance(raw_stories, list) or not raw_stories:
+        return "story-breakdown stories must be a non-empty array"
+    story_ids: set[str] = set()
+    criteria_by_story: dict[str, set[str]] = {}
+    for index, story in enumerate(raw_stories):
+        label = f"story-breakdown stories[{index}]"
+        if not isinstance(story, dict) or set(story) != {
+            "story-id",
+            "goal",
+            "acceptance-criteria",
+            "surfaces",
+            "risk",
+            "batchable",
+            "verification",
+        }:
+            return f"{label} must contain exactly the typed story fields"
+        story_id = story.get("story-id")
+        if not isinstance(story_id, str) or not _FINDING_ID_RE.fullmatch(story_id):
+            return f"{label} has an invalid story-id"
+        if story_id in story_ids:
+            return f"story-breakdown contains duplicate story id {story_id!r}"
+        story_ids.add(story_id)
+        goal = story.get("goal")
+        if not isinstance(goal, str):
+            return f"{label}.goal must be a string"
+        problem = _content_problem(goal, label=f"{label}.goal")
+        if problem:
+            return problem
+        for field in ("acceptance-criteria", "surfaces", "verification"):
+            problem = _text_array_problem(
+                story.get(field), label=f"{label}.{field}", allow_empty=False
+            )
+            if problem:
+                return problem
+        risk = story.get("risk")
+        if risk not in {"low", "standard"}:
+            return f"{label}.risk must be low or standard"
+        batchable = story.get("batchable")
+        if not isinstance(batchable, bool):
+            return f"{label}.batchable must be a boolean"
+        if batchable and risk != "low":
+            return f"{label} may be batchable only when risk is low"
+        criteria_by_story[story_id] = set(story["acceptance-criteria"])
+
+    raw_dependencies = document.get("dependencies")
+    if not isinstance(raw_dependencies, list):
+        return "story-breakdown dependencies must be an array"
+    blockers_by_story: dict[str, tuple[str, ...]] = {}
+    for index, dependency in enumerate(raw_dependencies):
+        label = f"story-breakdown dependencies[{index}]"
+        if not isinstance(dependency, dict) or set(dependency) != {
+            "story-id",
+            "blocked-by",
+        }:
+            return f"{label} must contain exactly story-id and blocked-by"
+        story_id = dependency.get("story-id")
+        if not isinstance(story_id, str) or story_id not in story_ids:
+            return f"{label} names an unknown story-id"
+        if story_id in blockers_by_story:
+            return f"story-breakdown repeats dependencies for {story_id!r}"
+        problem = _text_array_problem(
+            dependency.get("blocked-by"),
+            label=f"{label}.blocked-by",
+            allow_empty=True,
+        )
+        if problem:
+            return problem
+        blocked_by = tuple(dependency["blocked-by"])
+        if len(blocked_by) != len(set(blocked_by)):
+            return f"{label}.blocked-by contains duplicates"
+        if story_id in blocked_by or not set(blocked_by).issubset(story_ids):
+            return f"{label}.blocked-by contains a self or unknown dependency"
+        blockers_by_story[story_id] = blocked_by
+    if set(blockers_by_story) != story_ids:
+        return "story-breakdown dependencies must cover every story exactly once"
+
+    ready = {
+        story_id for story_id, blockers in blockers_by_story.items() if not blockers
+    }
+    parallelizable = document.get("parallelizable")
+    problem = _text_array_problem(
+        parallelizable,
+        label="story-breakdown parallelizable",
+        allow_empty=True,
+    )
+    if problem:
+        return problem
+    assert isinstance(parallelizable, list)
+    if len(parallelizable) != len(set(parallelizable)) or set(parallelizable) != ready:
+        return "story-breakdown parallelizable must exactly name the unblocked stories"
+
+    sequencing = document.get("sequencing")
+    problem = _text_array_problem(
+        sequencing, label="story-breakdown sequencing", allow_empty=False
+    )
+    if problem:
+        return problem
+    assert isinstance(sequencing, list)
+    if len(sequencing) != len(set(sequencing)) or set(sequencing) != story_ids:
+        return "story-breakdown sequencing must contain every story exactly once"
+    position = {story_id: index for index, story_id in enumerate(sequencing)}
+    if any(
+        position[blocker] >= position[story_id]
+        for story_id, blockers in blockers_by_story.items()
+        for blocker in blockers
+    ):
+        return "story-breakdown sequencing must be a topological order"
+
+    traceability = document.get("traceability")
+    if not isinstance(traceability, list) or not traceability:
+        return "story-breakdown traceability must be a non-empty array"
+    traced: dict[str, set[str]] = {}
+    for index, trace in enumerate(traceability):
+        label = f"story-breakdown traceability[{index}]"
+        if not isinstance(trace, dict) or set(trace) != {"criterion", "story-ids"}:
+            return f"{label} must contain exactly criterion and story-ids"
+        criterion = trace.get("criterion")
+        if not isinstance(criterion, str):
+            return f"{label}.criterion must be a string"
+        problem = _content_problem(criterion, label=f"{label}.criterion")
+        if problem:
+            return problem
+        if criterion in traced:
+            return f"story-breakdown repeats traceability for {criterion!r}"
+        problem = _text_array_problem(
+            trace.get("story-ids"), label=f"{label}.story-ids", allow_empty=False
+        )
+        if problem:
+            return problem
+        linked = set(trace["story-ids"])
+        if len(linked) != len(trace["story-ids"]) or not linked.issubset(story_ids):
+            return f"{label}.story-ids contains duplicate or unknown stories"
+        if any(criterion not in criteria_by_story[story_id] for story_id in linked):
+            return f"{label} cites a story that does not carry the criterion"
+        traced[criterion] = linked
+    expected_criteria = set().union(*criteria_by_story.values())
+    if set(traced) != expected_criteria:
+        return (
+            "story-breakdown traceability must cover every story criterion exactly once"
+        )
+    return None
+
+
+def _planning_verdict_problem(
+    document: Mapping[str, Any],
+    *,
+    profile: str,
+    findings_policy: Mapping[str, Any],
+) -> str | None:
+    exact_fields = (
+        {
+            "status",
+            "reviewer",
+            "planning-generation",
+            "authority-domain",
+            "findings",
+            "evidence",
+        }
+        if profile == "planning-review-verdict"
+        else {
+            "status",
+            "reviewer",
+            "planning-generation",
+            "panel-reviewers",
+            "findings",
+            "decisions",
+            "evidence",
+        }
+    )
+    if set(document) != exact_fields:
+        return f"{profile} must contain exactly its closed contract fields"
+    status = document.get("status")
+    if not isinstance(status, str) or status.strip().lower() not in {
+        "pass",
+        "fail",
+    }:
+        return f"{profile} status must be PASS or FAIL"
+    reviewer = document.get("reviewer")
+    if not isinstance(reviewer, str):
+        return f"{profile} reviewer must be a string"
+    problem = _content_problem(reviewer, label=f"{profile} reviewer")
+    if problem:
+        return problem
+    planning_generation = document.get("planning-generation")
+    if not isinstance(planning_generation, str) or not _DIGEST_RE.fullmatch(
+        planning_generation
+    ):
+        return f"{profile} planning-generation must be a lowercase sha256 digest"
+    if profile == "planning-review-verdict":
+        authority_domain = document.get("authority-domain")
+        if (
+            not isinstance(authority_domain, str)
+            or authority_domain not in _PLANNING_AUTHORITY_DOMAINS
+        ):
+            return "planning-review-verdict has an invalid authority-domain"
+    else:
+        panel_problem = _text_array_problem(
+            document.get("panel-reviewers"),
+            label="planning-decision panel-reviewers",
+            allow_empty=False,
+        )
+        if panel_problem:
+            return panel_problem
+        panel_reviewers = document["panel-reviewers"]
+        assert isinstance(panel_reviewers, list)
+        if len(panel_reviewers) != len(set(panel_reviewers)):
+            return "planning-decision panel-reviewers must be unique"
+        decisions_problem = _planning_decisions_problem(
+            document.get("decisions"),
+            label="planning-decision decisions",
+        )
+        if decisions_problem:
+            return decisions_problem
+    findings = document.get("findings")
+    problem = _planning_findings_problem(
+        findings,
+        label=f"{profile} findings",
+        findings_policy=findings_policy,
+    )
+    if problem:
+        return problem
+    assert isinstance(findings, list)
+    open_blockers = [
+        finding
+        for finding in findings
+        if str(finding.get("severity", "")).strip().lower() in _PLANNING_FAIL_SEVERITIES
+        and finding.get("disposition") in {"open", "disputed", "human-required"}
+    ]
+    if status.strip().lower() == "fail" and not open_blockers:
+        return (
+            f"{profile} FAIL must contain an open, disputed, or human-required "
+            "critical, high, or medium finding"
+        )
+    if status.strip().lower() == "pass" and open_blockers:
+        return f"{profile} PASS cannot contain an open blocking finding"
+    return _citations_problem(document.get("evidence"), label=f"{profile} evidence")
+
+
 def _profile_problem(
     document: Mapping[str, Any],
     profile: str,
@@ -366,9 +809,13 @@ def _profile_problem(
             if problem:
                 return problem
         return None
-    if profile == "scope-record":
+    if profile == "story-breakdown":
+        return _story_breakdown_problem(document)
+    if profile in {"scope-record", "fast-track-scope-record"}:
         if mode is not None and document.get("mode") != mode:
             return f"scope evidence must bind managed Mode {mode}"
+        if profile == "fast-track-scope-record" and document.get("mode") != "D":
+            return "fast-track scope evidence must bind managed Mode D"
         for field in ("surfaces", "constraints", "risks"):
             problem = _text_array_problem(
                 document.get(field),
@@ -377,6 +824,18 @@ def _profile_problem(
             )
             if problem:
                 return problem
+        if profile == "fast-track-scope-record":
+            risk_tier = document.get("risk-tier")
+            if not isinstance(risk_tier, str) or risk_tier not in {
+                "low",
+                "medium",
+                "high",
+                "restricted",
+            }:
+                return "fast-track scope evidence risk-tier is invalid"
+            for field in _FAST_TRACK_BOOLEAN_FIELDS:
+                if not isinstance(document.get(field), bool):
+                    return f"fast-track scope evidence {field} must be boolean"
         return None
     if profile == "review-verdict":
         status = document.get("status")
@@ -401,6 +860,12 @@ def _profile_problem(
             return problem
         return _citations_problem(
             document.get("evidence"), label="review verdict evidence"
+        )
+    if profile in {"planning-review-verdict", "planning-decision"}:
+        return _planning_verdict_problem(
+            document,
+            profile=profile,
+            findings_policy=findings_policy,
         )
     if profile == "command-evidence":
         command = document.get("command")
@@ -655,7 +1120,9 @@ def validate_evidence_document(
             "evidence profile differs from its canonical kind or required fields"
         )
     for field in requirement_doc["required_fields"]:
-        if profile == "command-evidence" and field == "output":
+        if profile == "story-breakdown" or (
+            profile == "command-evidence" and field == "output"
+        ):
             continue
         allow_empty = field in {
             "constraints",
@@ -666,6 +1133,7 @@ def validate_evidence_document(
             "learnings",
             "findings",
             "dispositions",
+            "decisions",
             "dependencies",
             "interfaces",
         }
@@ -681,6 +1149,16 @@ def validate_evidence_document(
         raise EvidenceValidationError(problem)
     if not require_pass:
         return
+    if profile == "fast-track-scope-record":
+        violations = [
+            f"{field}={document.get(field)!r}"
+            for field, expected in _FAST_TRACK_PASS_VALUES
+            if document.get(field) != expected
+        ]
+        if violations:
+            raise EvidenceValidationError(
+                "managed Mode D safety floor is not satisfied: " + ", ".join(violations)
+            )
     kind = requirement_doc["kind"]
     if kind == "command-output" and document.get("exit-status") != 0:
         raise EvidenceValidationError("command evidence has a non-zero exit status")
@@ -703,6 +1181,7 @@ def validate_evidence_document(
         raise EvidenceValidationError("delivery report status is not passing")
     findings = document.get("findings", [])
     forbidden = set(policy_doc["pass_requires_zero"])
+    disposition_aware = profile in {"planning-review-verdict", "planning-decision"}
     present = (
         sorted(
             {
@@ -710,6 +1189,10 @@ def validate_evidence_document(
                 for item in findings
                 if isinstance(item, dict)
                 and str(item.get("severity", "")).strip().lower() in forbidden
+                and (
+                    not disposition_aware
+                    or item.get("disposition") in {"open", "disputed", "human-required"}
+                )
             }
         )
         if isinstance(findings, list)
@@ -847,7 +1330,16 @@ def stage_instruction(
             f"- {evidence_id}: kind={requirement['kind']}; required fields="
             + ", ".join(requirement["required_fields"])
         )
-    lines.append(
-        "Use PASS/zero-failure semantics. Every finding needs a stable id, severity, disposition, and concrete evidence citation."
-    )
+    if "planning-review-verdict" in expected_ids:
+        lines.append(
+            "For planning-review-verdict, FAIL is a completed advisory assessment "
+            "handed to the accountable EM for adjudication; do not force the assessment "
+            "to PASS. Every finding needs a stable id, severity, disposition, and "
+            "concrete evidence citation."
+        )
+    else:
+        lines.append(
+            "Use PASS/zero-failure semantics. Every finding needs a stable id, severity, "
+            "disposition, and concrete evidence citation."
+        )
     return "\n".join(lines)

@@ -373,6 +373,12 @@ def test_every_profile_includes_sdlc_entrypoint(payload):
         assert "orchestrator" in plan.agents
 
 
+def test_every_profile_includes_explicit_maker_checker_entrypoint(payload):
+    for profile in ("lean", "standard", "enterprise"):
+        plan = catalog.resolve(payload, make_selection(payload, profile=profile))
+        assert "maker-checker" in plan.skills
+
+
 def test_planned_stack_is_rejected(payload):
     with pytest.raises(ValueError):
         catalog.resolve(payload, make_selection(payload, frontend_framework="vue"))

@@ -45,6 +45,11 @@ security issues go through [SECURITY.md](SECURITY.md) rather than a public issue
    retries, evidence requirements, and ordered/conditional gates live in `catalog/workflows/` and the
    profile gate registry. Do not reproduce provider tool names or policy in CLI branches or prose.
    Run installs persist the definition digest so state cannot silently inherit changed policy.
+8. **Maker/reviewer bindings are installation policy, not selection data.** Keep them on
+   `InstallRequest` / `InitOptions` and in the single `.ckit` control plane; never add runtime or
+   model fields to `Selection` or branch inside `catalog.resolve()`. Canonical maker/checker roles
+   remain provider-neutral and passive. Exact model IDs belong only in project configuration and
+   provider adapters.
 
 ## Adding components
 
@@ -92,6 +97,10 @@ CKIT_EXPERIMENTAL=1 ckit init ./ck-demo-codex --defaults --runtime codex
 CKIT_EXPERIMENTAL=1 ckit init ./ck-demo-both --defaults --runtime both
 ckit validate ./ck-demo --strict
 ckit diff ./ck-demo
+ckit maker-checker configure ./ck-demo \
+  --maker-provider claude --maker-model-tier deep \
+  --reviewer-provider claude --reviewer-model-tier balanced
+ckit maker-checker probe ./ck-demo
 
 # Tests:
 pytest
@@ -114,7 +123,8 @@ claude plugin validate . --strict
 # Focused provider/runtime conformance:
 pytest -q tests/test_codex_renderer.py tests/test_claude_renderer.py \
   tests/test_runtime_scaffold.py tests/test_runtime_upgrader.py \
-  tests/test_cross_runtime_pipeline.py tests/test_hook_adapter.py
+  tests/test_cross_runtime_pipeline.py tests/test_hook_adapter.py \
+  tests/test_maker_checker.py tests/test_maker_checker_cli.py
 
 # Build + validate the package:
 python3 -m build

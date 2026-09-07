@@ -105,6 +105,20 @@ def _managed_evidence_document(evidence_id: str) -> dict[str, Any]:
             "constraints": [],
             "risks": [],
         },
+        "fast-track-scope-record": {
+            "mode": "D",
+            "surfaces": ["one local implementation boundary"],
+            "constraints": [],
+            "risks": [],
+            "risk-tier": "low",
+            "localized-single-boundary": True,
+            "unambiguous": True,
+            "reversible": True,
+            "sensitive-surface": False,
+            "public-contract-surface": False,
+            "irreversible-action": False,
+            "external-effect": False,
+        },
         "command-evidence": {
             "command": "pytest -q",
             "exit-status": 0,
@@ -310,11 +324,19 @@ def test_managed_executor_resumes_across_providers_without_replaying_stages(
     assert first.status is WorkflowExecutionStatus.WAITING_GATE
     assert first.pending_gates == ("code-review",)
     assert {attempt.stage for attempt in first.attempts} == {
-        "classify",
+        "fast-track-classify",
         "fast-implementation",
         "fast-review",
     }
     assert {attempt.handle.provider for attempt in first.attempts} == {initial_provider}
+    classify_request = next(
+        request
+        for request in first_dispatcher.requests.values()
+        if request.objective.startswith("Stage fast-track-classify:")
+    )
+    assert tuple(reference.uri for reference in classify_request.evidence) == (
+        "artifact://fast-track-scope-record",
+    )
     _record_clean_findings(target)
     _close_managed_gate(target, "code-review", initial_provider)
 
@@ -360,7 +382,7 @@ def test_managed_executor_resumes_across_providers_without_replaying_stages(
     assert error is None and snapshot is not None
     stage_history = snapshot["stage_history"]
     assert [record["stage"] for record in stage_history] == [
-        "classify",
+        "fast-track-classify",
         "fast-implementation",
         "fast-review",
         "fast-verify",

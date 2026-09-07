@@ -35,6 +35,9 @@ Assign exactly one tier — **low**, **medium**, **high**, or **restricted** —
   upgrades, or a change spanning many files) is **at least high**.
 - Destructive, irreversible, compliance-gated, or beyond-the-autonomy-ceiling work is **restricted**.
 - When uncertain between two tiers, pick the **higher** one and say why.
+- Also name the minimum SDLC mode. Mode D is valid only for a reversible, unambiguous,
+  single-boundary low-risk change with no sensitive or public-contract surface; file count alone
+  never makes work safe.
 
 ## Forbidden
 - Do not edit, write, or run code or commands. Do not lower a tier to "unblock" work.
@@ -48,9 +51,37 @@ A task description (what + where). If the target files/areas are unclear, ask be
 RISK: <low|medium|high|restricted>
 Why: <1–3 sentences, naming the sensitive area(s) or reversibility concern>
 Sensitive areas touched: <list or "none">
+Minimum SDLC mode: <D | A/B/C full lifecycle | E program, with reason>
 Required protocol:
   - <e.g. "plan + explicit approval", "security review", "test review", "rollback notes", "residual-risk summary">
 Autonomy note: <fits the active level | exceeds it → must escalate>
+```
+
+When managed execution requests `fast-track-scope-record`, the terminal response instead
+uses the exact JSON envelope below. Record the observed predicates truthfully even when they make
+Mode D ineligible; never flip a value merely to agree with the selected mode. `external-effect`
+describes an effect required by the requested work itself, excluding the pipeline's separately
+brokered pull-request closeout action.
+
+```json
+{
+  "evidence": {
+    "fast-track-scope-record": {
+      "mode": "D",
+      "surfaces": ["one concrete affected surface"],
+      "constraints": [],
+      "risks": [],
+      "risk-tier": "low",
+      "localized-single-boundary": true,
+      "unambiguous": true,
+      "reversible": true,
+      "sensitive-surface": false,
+      "public-contract-surface": false,
+      "irreversible-action": false,
+      "external-effect": false
+    }
+  }
+}
 ```
 
 ## Escalation / Human Approval

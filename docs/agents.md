@@ -14,7 +14,7 @@ provider-neutral; the compiler emits Claude project-agent Markdown or Codex proj
 > live-host proof of equivalent per-agent confinement is still a Preview gap. Static plugins are
 > narrower than project scaffolds and should not be used as evidence of that confinement.
 
-## Two ways to invoke
+## Three ways to invoke
 
 ### 1. Run the whole pipeline (recommended)
 
@@ -65,7 +65,24 @@ attested physical-boundary backend, and irreversible units stop before claim bec
 approval broker is integrated. Managed approval cannot resume either stop; only rejection for
 replan/abort is recorded.
 
-### 2. Invoke a single agent
+### 2. Run the configured maker–checker pair
+
+Use the explicit pair when one maker should produce a bounded code, design, or specification
+artifact and a separately configured model should review it:
+
+```text
+Claude Code: /maker-checker --kind design <task>
+Codex:       $maker-checker --kind design <task>
+```
+
+The two passive roles cannot talk directly, write files, run commands, use local tools, or delegate.
+A trusted coordinator mediates artifacts and typed findings, supplies a bounded filtered/redacted
+projection of tracked text for their semantic read/search input, creates a new reviewer context each
+iteration, and applies code only as a validated patch in a preserved worktree. Configure
+providers/models with `ckit maker-checker configure`; see the
+[maker–checker guide](maker-checker.md) for limitations.
+
+### 3. Invoke a single agent
 
 For a focused task, ask the host to use one agent by name — no full pipeline:
 
@@ -78,8 +95,9 @@ Use the security-reviewer on the auth changes.
 ## The pipeline at a glance
 
 ```
-Request ─▶ classify ─▶ Spec & Dev Docs ─▶ [Gate: EM approved]
-        ─▶ Review (Senior Dev → Architect → EM, per lane) ─▶ [Gate: Merge Reviewer]
+Request ─▶ classify ─▶ Spec & Dev Docs ─▶ freeze one planning generation
+        ─▶ Review (Senior FE · Senior BE · Architect · conditional DA, in parallel)
+        ─▶ [Gate: one EM decision over de-duplicated findings]
         ─▶ Implement (Developer + Code Reviewer, per lane)
         ─▶ Test (unit · e2e · integration → Senior Tester) ─▶ [Gate: coverage + Devil's Advocate]
         ─▶ Security (4 sub-scanners) ─▶ [Gate: Security Clear]
@@ -89,12 +107,15 @@ Request ─▶ classify ─▶ Spec & Dev Docs ─▶ [Gate: EM approved]
 Which gates actually run depends on the profile: **lean** = code-review · build-green; **standard**
 adds spec/EM/coverage/security · contract-clear; **enterprise** adds pipeline-green ·
 observability-ready · acceptance (contract-clear uses evidenced `not-applicable` on stacks with no API contract surface, so
-it is inert for non-API projects). A **fast-track** path (bug fixes / < 5 files) skips planning:
-Developer → Code Reviewer → Tester → PR.
+it is inert for non-API projects). A **fast-track** path for a reversible, unambiguous,
+single-boundary low-risk change with no sensitive/public-contract surface skips planning:
+Developer → Code Reviewer → Tester → PR. File count alone never selects it.
 
 Every gate uses the same severity model — a gate passes only with **zero Critical/High/Medium**
 findings open — and a *unanimous* PASS triggers the `devils-advocate` agent before the gate counts
-(anti-sycophancy). Read `.claude/rules/quality-gates.md` in a Claude scaffold or the complete Codex
+(anti-sycophancy). The planning panel is the exception: when its conditional Devil's Advocate is
+active, that is the plan gate's one adversarial pass and it is never spawned again after unanimity.
+Read `.claude/rules/quality-gates.md` in a Claude scaffold or the complete Codex
 projection at `.ckit/rules/quality-gates.md`. The Python ledger under `.ckit/state/` is the
 enforcement authority; instructions and hooks are guardrails.
 
@@ -107,20 +128,21 @@ metadata; Claude still auto-selects by description.
 |-------|--------|
 | **Coordinate** | `orchestrator` (delegates and gates; never writes code) |
 | **Plan** | `spec-doc-writer`, `story-planner`, `ui-designer` |
-| **Review** | `senior-backend-dev`, `senior-frontend-dev`, `technical-architect`, `em-reviewer`, `merge-reviewer` |
-| **Build** | `developer`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`, and `db-performance-reviewer` for PostgreSQL) |
+| **Review** | `senior-backend-reviewer`, `senior-frontend-reviewer`, `technical-architect`, `em-reviewer`, `merge-reviewer` |
+| **Build** | `developer`, `senior-backend-dev`, `senior-frontend-dev`, `sdlc-code-reviewer` (+ DB overlays: `postgres-specialist` / `mongodb-specialist`, `migration-specialist`, and `db-performance-reviewer` for PostgreSQL) |
+| **Explicit pair** | `maker-checker-maker`, `maker-checker-reviewer` (passive roles used only by the managed maker–checker coordinator) |
 | **Test** | `unit-tester`, `e2e-tester`, `tester`, `senior-tester`, `auditor` |
 | **Rigor** | `risk-classifier` (all profiles), `devils-advocate`, `acceptance-reviewer` |
 | **Secure** | `security-reviewer` + `secret-scanner`, `dependency-scanner`, `owasp-reviewer`, `policy-validator` (static) + `pentest-scanner` (optional dynamic pentest — Strix / Shannon / PentesterFlow / ZAP) |
 | **Ship** | `devops-engineer`, `observability-engineer`, `pr-raiser`, `incident-responder` (enterprise) |
 | **Org personas** | `pm-copilot`, `founder-prototype-agent`, `support-ticket-engineer`, `data-workflow-agent`, `internal-tools-builder` (organization scope only) |
 
-In a scaffolded project with both a frontend and a backend stack, the two review/build lanes are
-concrete: **backend** (`senior-backend-dev`, following the selected backend overlay rule) and
-**frontend** (`senior-frontend-dev`, following the selected frontend overlay rule). Claude keeps
-those rules under `.claude/rules/`; Codex keeps their complete projections under `.ckit/rules/` and
-loads a bounded managed layer through `AGENTS.md`. The lanes run in parallel and reconcile at the
-API contract; the DB specialist + migration specialist support the backend lane.
+In a scaffolded project with both a frontend and backend stack, the planning reviewers
+(`senior-backend-reviewer`, `senior-frontend-reviewer`, `technical-architect`, and conditional
+`devils-advocate`) read one frozen generation in parallel; `em-reviewer` adjudicates once. Build
+then uses the concrete **backend** (`senior-backend-dev`) and **frontend**
+(`senior-frontend-dev`) lanes. Claude keeps stack rules under `.claude/rules/`; Codex keeps their
+complete projections under `.ckit/rules/` and loads a bounded managed layer through `AGENTS.md`.
 
 In **organization scope**, persona agents let non-engineers drive work safely: each plans and
 clarifies in `plan` mode, then routes the actual implementation to the engineering agents — they never
@@ -131,7 +153,7 @@ write code themselves and require human approval before any change. They pair wi
 
 ## The full roster
 
-**29 specialized roles**, each tagged with a `tier` and installed per profile — plus per-database
+**33 specialized roles**, each tagged with a `tier` and installed per profile — plus per-database
 **overlay agents** and, in organization scope, **persona agents**:
 
 | Agent | Role |
@@ -140,16 +162,18 @@ write code themselves and require human approval before any change. They pair wi
 | `spec-doc-writer` | Turns requirements into a spec + developer documentation in one pass |
 | `story-planner` | Decomposes an approved spec into ordered, parallelizable stories; verifies every acceptance criterion maps to a story (workflow gate 1f) |
 | `ui-designer` | Drafts and self-reviews UI/UX design specs |
-| `senior-backend-dev` · `senior-frontend-dev` | Senior review of a work stream's spec (the two-lane example) |
-| `technical-architect` | Cross-system architecture, scalability, integration review |
-| `em-reviewer` | Engineering-manager strategic & completeness review |
+| `senior-backend-reviewer` · `senior-frontend-reviewer` | Read-only feasibility reviews of one frozen planning generation |
+| `technical-architect` | Parallel cross-system architecture, scalability, and integration review |
+| `em-reviewer` | Sole planning adjudicator over the de-duplicated specialist finding register |
 | `merge-reviewer` | Verifies consistency between parallel lanes at join points |
-| `developer` | Writes production code from an approved spec, in an isolated worktree |
+| `developer` · `senior-backend-dev` · `senior-frontend-dev` | Write production code from an approved plan within an owned implementation lane |
+| `maker-checker-maker` | Passive, nondelegating maker role for the explicit managed maker–checker loop; returns a document or unified diff through the response channel and cannot mutate the workspace or run commands |
+| `maker-checker-reviewer` | Fresh-context, read-only reviewer for the managed maker–checker loop; returns a typed, digest-bound PASS/FAIL and never repairs the artifact |
 | `sdlc-code-reviewer` | Reviews code for bugs, security, performance, spec compliance |
 | `unit-tester` · `e2e-tester` | Author unit and end-to-end test suites |
 | `tester` · `senior-tester` | Integration testing and independent verification of coverage |
 | `auditor` | Read-only audit for accessibility, performance, responsiveness, console errors |
-| `devils-advocate` | Anti-sycophancy adversarial reviewer (runs on a unanimous PASS) |
+| `devils-advocate` | Conditional blind plan challenge and anti-sycophancy review of a unanimous gate PASS |
 | `acceptance-reviewer` | Verifies delivery against acceptance criteria before the human gate |
 | `risk-classifier` | Read-only — classifies work low/medium/high/restricted and names the required gates (all profiles) |
 | `security-reviewer` | Security stage coordinator — owns the Security Clear gate |
@@ -165,13 +189,20 @@ write code themselves and require human approval before any change. They pair wi
 ## Model tiers and cost
 
 Canonical agents declare a semantic tier — `fast`, `balanced`, or `deep` — rather than a provider
-model name. The current roster assigns four deep roles (`orchestrator`, `developer`,
-`devils-advocate`, and `owasp-reviewer`), balanced to the remaining roles, and no fast role.
+model name. The current roster assigns five deep roles (`orchestrator`, `developer`,
+`maker-checker-maker`, `devils-advocate`, and `owasp-reviewer`), balanced to the remaining roles,
+and no fast role.
 
 | Projection | Mapping |
 |---|---|
 | Claude Code | The renderer maps semantic tiers to the native `haiku` / `sonnet` / `opus` aliases. |
 | Codex Preview | Generated agent TOML deliberately contains no hard-coded model. The active Codex runtime selects the model; tier intent remains in the role instructions. |
+
+The maker–checker policy is an installation-time execution binding rather than canonical agent
+metadata. It may select `inherit`, a semantic tier, or an exact provider model ID separately for
+each slot. Claude tiers resolve through the aliases above; Codex tiers currently resolve to the host
+default, so use an exact ID when a specific Codex model is required. The CLI announces and freezes
+the requested pair before sending task content.
 
 Therefore the profile and fan-out are the reliable cross-provider cost controls; a provider-to-
 provider price comparison is not. The orchestrator announces lane/agent counts and tier intent before

@@ -5,11 +5,11 @@ import json
 import subprocess
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Mapping, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 import pytest
 
-from claude_kit import catalog
+from claude_kit import catalog, pipeline
 from claude_kit.canonical_agents import AgentSourceKind, find_canonical_agent
 from claude_kit.components import Capability
 from claude_kit.dispatch import (
@@ -41,7 +41,9 @@ from claude_kit.workflow_executor import (
     WorkflowExecutionStatus,
     WorkflowExecutor,
     _assert_clean_application_state,
+    _DependencyStageEvidence,
     _mutable_runtime_context,
+    _planning_packet_generation,
     _selection_digest,
     _verify_execution_binding,
 )
@@ -202,12 +204,26 @@ def _bound_workflow() -> BoundWorkflow:
 
 
 def _evidence_document(evidence_id: str, *, mode: str) -> dict:
-    documents = {
+    documents: dict[str, dict] = {
         "scope-record": {
             "mode": mode,
             "surfaces": ["repository"],
             "constraints": [],
             "risks": [],
+        },
+        "fast-track-scope-record": {
+            "mode": "D",
+            "surfaces": ["one local implementation boundary"],
+            "constraints": [],
+            "risks": [],
+            "risk-tier": "low",
+            "localized-single-boundary": True,
+            "unambiguous": True,
+            "reversible": True,
+            "sensitive-surface": False,
+            "public-contract-surface": False,
+            "irreversible-action": False,
+            "external-effect": False,
         },
         "specification": {
             "outcome": "Requested behavior is implemented.",
@@ -221,10 +237,49 @@ def _evidence_document(evidence_id: str, *, mode: str) -> dict:
             "interfaces": [],
             "verification": ["focused tests"],
         },
+        "story-breakdown": {
+            "stories": [
+                {
+                    "story-id": "STORY-1",
+                    "goal": "Deliver the requested behavior.",
+                    "acceptance-criteria": ["The requested behavior is verified."],
+                    "surfaces": ["project workspace"],
+                    "risk": "standard",
+                    "batchable": False,
+                    "verification": ["Run focused tests."],
+                }
+            ],
+            "dependencies": [{"story-id": "STORY-1", "blocked-by": []}],
+            "parallelizable": ["STORY-1"],
+            "sequencing": ["STORY-1"],
+            "traceability": [
+                {
+                    "criterion": "The requested behavior is verified.",
+                    "story-ids": ["STORY-1"],
+                }
+            ],
+        },
         "review-verdict": {
             "status": "PASS",
             "reviewer": "test-reviewer",
             "findings": [],
+            "evidence": ["tests/test_workflow_executor.py"],
+        },
+        "planning-review-verdict": {
+            "status": "PASS",
+            "reviewer": "test-planning-reviewer",
+            "planning-generation": "b" * 64,
+            "authority-domain": "architecture",
+            "findings": [],
+            "evidence": ["tests/test_workflow_executor.py"],
+        },
+        "planning-decision": {
+            "status": "PASS",
+            "reviewer": "em-reviewer",
+            "planning-generation": "b" * 64,
+            "panel-reviewers": ["test-planning-reviewer"],
+            "findings": [],
+            "decisions": [],
             "evidence": ["tests/test_workflow_executor.py"],
         },
         "command-evidence": {
@@ -370,6 +425,47 @@ class FakeDispatcher:
                 for reference in request.evidence:
                     evidence_id = reference.uri.removeprefix("artifact://")
                     documents[evidence_id] = _evidence_document(evidence_id, mode=mode)
+                marker = "Coordinator-authenticated planning binding."
+                if marker in request.context:
+                    binding_text = request.context.split(marker, 1)[1]
+                    binding_line = next(
+                        line
+                        for line in binding_text.splitlines()
+                        if line.startswith("{")
+                    )
+                    binding = json.loads(binding_line)
+                    if "planning-review-verdict" in documents:
+                        verdict = documents["planning-review-verdict"]
+                        verdict["reviewer"] = binding["reviewer"]
+                        verdict["planning-generation"] = binding["planning-generation"]
+                        verdict["authority-domain"] = binding["authority-domain"]
+                    if "planning-decision" in documents:
+                        decision = documents["planning-decision"]
+                        decision["reviewer"] = binding["reviewer"]
+                        decision["planning-generation"] = binding["planning-generation"]
+                        decision["panel-reviewers"] = binding["panel-reviewers"]
+                        final_findings = []
+                        seen_semantic_keys = set()
+                        for finding in binding.get("panel-finding-register", []):
+                            semantic_key = (
+                                finding["authority-domain"],
+                                finding["criterion"],
+                                tuple(finding["evidence"]),
+                            )
+                            if semantic_key in seen_semantic_keys:
+                                continue
+                            seen_semantic_keys.add(semantic_key)
+                            final_finding = dict(finding)
+                            final_findings.append(final_finding)
+                        decision["findings"] = final_findings
+                        if any(
+                            finding["severity"].strip().lower()
+                            in {"critical", "high", "medium"}
+                            and finding["disposition"]
+                            in {"open", "disputed", "human-required"}
+                            for finding in final_findings
+                        ):
+                            decision["status"] = "FAIL"
                 results.append(
                     DispatchResult(
                         handle,
@@ -400,6 +496,45 @@ class FakeDispatcher:
         self.cancelled.add(handle)
 
 
+class PlanningMutationDispatcher(FakeDispatcher):
+    def __init__(
+        self, mutations: Mapping[str, Callable[[dict[str, object]], None]]
+    ) -> None:
+        super().__init__()
+        self.mutations = dict(mutations)
+
+    def collect(self, handles: Sequence[DispatchHandle]) -> tuple[DispatchResult, ...]:
+        results = list(super().collect(handles))
+        for index, result in enumerate(results):
+            request = self.requests[result.handle]
+            stage_id = request.objective.removeprefix("Stage ").split(":", 1)[0]
+            mutation = self.mutations.get(stage_id)
+            if mutation is None or result.status is not DispatchStatus.SUCCEEDED:
+                continue
+            envelope = json.loads(result.output or "{}")
+            mutation(envelope)
+            results[index] = DispatchResult(
+                result.handle,
+                result.status,
+                output=json.dumps(envelope, sort_keys=True),
+                evidence=result.evidence,
+            )
+        return tuple(results)
+
+
+def _planning_blocker() -> dict[str, object]:
+    return {
+        "finding-id": "BACKEND-PLAN-001",
+        "severity": "High",
+        "disposition": "open",
+        "authority-domain": "backend",
+        "criterion": "The transaction boundary must be explicit.",
+        "evidence": ["specs/plan.md:12"],
+        "requested-correction": "Define the transaction boundary.",
+        "owner": "technical-architect",
+    }
+
+
 @dataclass
 class MemoryLedger:
     completed: set[str]
@@ -407,6 +542,7 @@ class MemoryLedger:
 
     def __init__(self) -> None:
         self.completed = set()
+        self.advisory_completed: set[str] = set()
         self.skipped: set[str] = set()
         self.resolved = set()
         self.claimed: list[tuple[str, DispatchHandle]] = []
@@ -417,9 +553,10 @@ class MemoryLedger:
         self.conditions_bound = False
         self.dependency_contexts: list[tuple[str, tuple[str, ...]]] = []
         self.completions: list[tuple[str, ...]] = []
+        self.stage_results: dict[str, DispatchResult] = {}
 
     def completed_stage_ids(self) -> frozenset[str]:
-        return frozenset(self.completed)
+        return frozenset(self.completed | self.advisory_completed)
 
     def skipped_stage_ids(self) -> frozenset[str]:
         return frozenset(self.skipped)
@@ -441,7 +578,77 @@ class MemoryLedger:
 
     def dependency_context(self, stage: WorkflowStageDefinition) -> str:
         self.dependency_contexts.append((stage.id, stage.depends_on))
-        return ""
+        rendered = []
+        for dependency in stage.depends_on:
+            if dependency in self.skipped:
+                rendered.append(f"Dependency stage {dependency!r} was skipped.")
+                continue
+            result = self.stage_results.get(dependency)
+            if result is None:
+                rendered.append(f"Dependency stage {dependency!r} is inactive.")
+                continue
+            rendered.append(
+                f"Dependency stage {dependency!r}; status={result.status.value}:\n"
+                + (result.output or "(no textual output)")
+            )
+        return "\n".join(rendered)
+
+    def dependency_evidence(
+        self, stage: WorkflowStageDefinition
+    ) -> tuple[_DependencyStageEvidence, ...]:
+        evidence: list[_DependencyStageEvidence] = []
+        for dependency in stage.depends_on:
+            if dependency in self.skipped:
+                evidence.append(
+                    _DependencyStageEvidence(
+                        dependency,
+                        "skipped",
+                        None,
+                        None,
+                        None,
+                        skip_condition="test-condition",
+                        skip_attestation_sha256="a" * 64,
+                    )
+                )
+                continue
+            result = self.stage_results.get(dependency)
+            if result is None:
+                raise AssertionError(f"missing dependency result for {dependency}")
+            envelope = json.loads(result.output or "{}")
+            documents = envelope.get("evidence", {})
+            digests = tuple(
+                (
+                    evidence_id,
+                    hashlib.sha256(
+                        (
+                            json.dumps(
+                                document,
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                                sort_keys=True,
+                            )
+                            + "\n"
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                )
+                for evidence_id, document in sorted(documents.items())
+            )
+            evidence.append(
+                _DependencyStageEvidence(
+                    dependency,
+                    (
+                        "advisory-fail"
+                        if dependency in self.advisory_completed
+                        else "succeeded"
+                    ),
+                    result.handle.route,
+                    result.output,
+                    hashlib.sha256((result.output or "").encode("utf-8")).hexdigest(),
+                    digests,
+                )
+            )
+        return tuple(evidence)
 
     def attest_skip(
         self,
@@ -462,8 +669,11 @@ class MemoryLedger:
     def finish(self, stage: WorkflowStageDefinition, result: DispatchResult) -> None:
         self.finished.append((stage.id, result.status))
         self.running.discard(stage.id)
+        self.stage_results[stage.id] = result
         if result.status is DispatchStatus.SUCCEEDED:
             self.completed.add(stage.id)
+        elif result.error == pipeline.MANAGED_ADVISORY_PLANNING_FAILURE:
+            self.advisory_completed.add(stage.id)
 
     def attest_completion(self, active_stages: Sequence[str]) -> None:
         self.completions.append(tuple(active_stages))
@@ -498,7 +708,8 @@ class _NoContainmentBackend:
         return len(self.started) - 1
 
     def submit(self, process: object, prompt: str) -> None:
-        self.started[int(process)]["prompt"] = prompt
+        assert isinstance(process, int)
+        self.started[process]["prompt"] = prompt
 
     def poll(self, process: object) -> ProcessOutcome:
         del process
@@ -975,6 +1186,665 @@ def test_executor_never_completes_a_succeeded_dispatch_with_failing_typed_eviden
     assert all("not PASS" in (attempt.error or "") for attempt in review_attempts)
     assert result.human_stop is not None
     assert result.human_stop.reason.value == "conflicting-evidence"
+
+
+def _planning_test_context(payload: Path):
+    from claude_kit.workflows import bind_workflow, load_workflow
+
+    selection = catalog.defaults(payload)
+    selection.profile = "standard"
+    plan = catalog.resolve(payload, selection)
+    bound = bind_workflow(load_workflow(payload), plan)
+    derived = {
+        "always",
+        "full-sdlc-or-program",
+        "fast-track-selected",
+        "program-mode-selected",
+        "security-gate-active",
+        "acceptance-gate-active",
+        "all-active-gates-closed",
+        "fast-track-gates-closed",
+        "all-waves-and-gates-closed",
+    }
+    included_panel_conditions = {
+        "frontend-surface-present",
+        "backend-surface-present",
+        "risk-or-uncertainty-present",
+    }
+    conditions = {
+        stage.condition: stage.condition in included_panel_conditions
+        for stage in bound.stages_for_mode("B")
+        if stage.condition not in derived
+    }
+    return plan, bound, conditions
+
+
+def _run_through_spec_gate(
+    payload: Path,
+    dispatcher: FakeDispatcher,
+    ledger: MemoryLedger,
+):
+    plan, bound, conditions = _planning_test_context(payload)
+    dispatcher.available_roles = set(plan.agents) | set(plan.overlay_agents)
+    first = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+        conditions=conditions,
+    ).run()
+    assert first.status is WorkflowExecutionStatus.WAITING_GATE
+    assert first.pending_gates == ("spec-complete",)
+    ledger.resolved.add("spec-complete")
+    second = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+    ).run()
+    return second, bound
+
+
+def test_planning_panel_blocker_settles_once_and_stops_at_em(payload: Path):
+    def fail_backend(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        verdict = evidence["planning-review-verdict"]
+        assert isinstance(verdict, dict)
+        verdict["status"] = "FAIL"
+        verdict["findings"] = [_planning_blocker()]
+
+    dispatcher = PlanningMutationDispatcher({"backend-review": fail_backend})
+    ledger = MemoryLedger()
+
+    result, _bound = _run_through_spec_gate(payload, dispatcher, ledger)
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert result.human_stop is not None
+    assert result.human_stop.reason.value == "conflicting-evidence"
+    assert "backend-review" in result.completed_stages
+    assert "backend-review" in ledger.advisory_completed
+    assert ledger.finished.count(("backend-review", DispatchStatus.FAILED)) == 1
+    assert "planning-merge" not in ledger.completed
+    merge_handle = next(
+        handle
+        for handle, request in dispatcher.requests.items()
+        if request.objective.startswith("Stage planning-merge:")
+    )
+    merge_request = dispatcher.requests[merge_handle]
+    for stage_id in (
+        "frontend-review",
+        "backend-review",
+        "architecture-review",
+        "plan-critique",
+    ):
+        panel_output = ledger.stage_results[stage_id].output
+        assert panel_output is not None
+        assert merge_request.context.count(panel_output) == 1
+    merge_output = ledger.stage_results["planning-merge"].output
+    merge_envelope = json.loads(merge_output or "{}")
+    decision = merge_envelope["evidence"]["planning-decision"]
+    assert decision["panel-reviewers"] == [
+        "senior-frontend-reviewer",
+        "senior-backend-reviewer",
+        "technical-architect",
+        "devils-advocate",
+    ]
+    assert decision["findings"] == [
+        {**_planning_blocker(), "severity": "high", "disposition": "open"}
+    ]
+    assert decision["status"] == "FAIL"
+    planning_output = ledger.stage_results["planning-gate"].output
+    planning_envelope = json.loads(planning_output or "{}")
+    packet_digests = tuple(
+        (
+            evidence_id,
+            hashlib.sha256(
+                (
+                    json.dumps(
+                        document,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                    + "\n"
+                ).encode("utf-8")
+            ).hexdigest(),
+        )
+        for evidence_id, document in sorted(planning_envelope["evidence"].items())
+    )
+    expected_generation = _planning_packet_generation(
+        _DependencyStageEvidence(
+            "planning-gate",
+            "succeeded",
+            "orchestrator",
+            planning_output,
+            hashlib.sha256((planning_output or "").encode("utf-8")).hexdigest(),
+            packet_digests,
+        )
+    )
+    for stage_id in (
+        "frontend-review",
+        "backend-review",
+        "architecture-review",
+        "plan-critique",
+    ):
+        panel_envelope = json.loads(ledger.stage_results[stage_id].output or "{}")
+        assert (
+            panel_envelope["evidence"]["planning-review-verdict"]["planning-generation"]
+            == expected_generation
+        )
+    assert decision["planning-generation"] == expected_generation
+
+
+@pytest.mark.parametrize(
+    "inherited_disposition", ["open", "disputed", "human-required"]
+)
+def test_same_generation_em_cannot_launder_inherited_unresolved_finding(
+    payload: Path, inherited_disposition: str
+):
+    def panel_blocker(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        verdict = evidence["planning-review-verdict"]
+        assert isinstance(verdict, dict)
+        finding = _planning_blocker()
+        finding["disposition"] = inherited_disposition
+        verdict["status"] = "FAIL"
+        verdict["findings"] = [finding]
+
+    def launder_at_merge(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        decision = evidence["planning-decision"]
+        assert isinstance(decision, dict)
+        findings = decision["findings"]
+        assert isinstance(findings, list) and len(findings) == 1
+        finding = findings[0]
+        assert isinstance(finding, dict)
+        finding["disposition"] = "fixed"
+        decision["status"] = "PASS"
+
+    dispatcher = PlanningMutationDispatcher(
+        {"backend-review": panel_blocker, "planning-merge": launder_at_merge}
+    )
+
+    result, _bound = _run_through_spec_gate(payload, dispatcher, MemoryLedger())
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    merge_attempt = next(
+        attempt for attempt in result.attempts if attempt.stage == "planning-merge"
+    )
+    assert (
+        "same-generation planning decision cannot close or downgrade an inherited "
+        "unresolved panel finding"
+    ) in (merge_attempt.error or "")
+
+
+def test_planning_generation_hashes_complete_typed_packet_and_each_component():
+    base = _DependencyStageEvidence(
+        "planning-gate",
+        "succeeded",
+        "orchestrator",
+        "{}",
+        "f" * 64,
+        (
+            ("architecture-plan", "a" * 64),
+            ("review-verdict", "b" * 64),
+            ("specification", "c" * 64),
+        ),
+    )
+    changed_specification = replace(
+        base,
+        evidence_sha256=(
+            ("architecture-plan", "a" * 64),
+            ("review-verdict", "b" * 64),
+            ("specification", "d" * 64),
+        ),
+    )
+    changed_architecture = replace(
+        base,
+        evidence_sha256=(
+            ("architecture-plan", "e" * 64),
+            ("review-verdict", "b" * 64),
+            ("specification", "c" * 64),
+        ),
+    )
+
+    generations = {
+        _planning_packet_generation(base),
+        _planning_packet_generation(changed_specification),
+        _planning_packet_generation(changed_architecture),
+    }
+
+    assert len(generations) == 3
+
+
+@pytest.mark.parametrize(
+    ("stage_id", "field", "spoofed", "message"),
+    [
+        (
+            "backend-review",
+            "planning-generation",
+            "0" * 64,
+            "different frozen generation",
+        ),
+        (
+            "backend-review",
+            "reviewer",
+            "invented-reviewer",
+            "reviewer differs from its frozen assignment",
+        ),
+        (
+            "backend-review",
+            "authority-domain",
+            "product",
+            "authority domain differs from its stage",
+        ),
+        (
+            "planning-merge",
+            "panel-reviewers",
+            ["invented-reviewer"],
+            "reviewer panel differs from the complete applicable panel",
+        ),
+    ],
+)
+def test_planning_bindings_reject_spoofed_digest_reviewer_and_panel(
+    payload: Path,
+    stage_id: str,
+    field: str,
+    spoofed: object,
+    message: str,
+):
+    evidence_id = (
+        "planning-decision"
+        if stage_id == "planning-merge"
+        else "planning-review-verdict"
+    )
+
+    def spoof(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        document = evidence[evidence_id]
+        assert isinstance(document, dict)
+        document[field] = spoofed
+
+    dispatcher = PlanningMutationDispatcher({stage_id: spoof})
+    ledger = MemoryLedger()
+
+    result, _bound = _run_through_spec_gate(payload, dispatcher, ledger)
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert result.human_stop is not None
+    assert result.human_stop.reason.value == "conflicting-evidence"
+    matching = [attempt for attempt in result.attempts if attempt.stage == stage_id]
+    assert len(matching) == 1
+    assert message in (matching[0].error or "")
+    if stage_id != "planning-merge":
+        assert "planning-merge" not in ledger.stage_results
+
+
+def test_planning_decision_cannot_replace_frozen_architecture_plan(payload: Path):
+    def replace_architecture_plan(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        architecture = evidence["architecture-plan"]
+        assert isinstance(architecture, dict)
+        architecture["boundaries"] = ["unreviewed replacement boundary"]
+
+    dispatcher = PlanningMutationDispatcher(
+        {"planning-merge": replace_architecture_plan}
+    )
+    ledger = MemoryLedger()
+
+    result, _bound = _run_through_spec_gate(payload, dispatcher, ledger)
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert result.human_stop is not None
+    assert result.human_stop.reason.value == "conflicting-evidence"
+    merge_attempt = next(
+        attempt for attempt in result.attempts if attempt.stage == "planning-merge"
+    )
+    assert "architecture-plan differs from the frozen reviewed plan" in (
+        merge_attempt.error or ""
+    )
+    assert "planning-merge" not in ledger.completed
+
+
+def test_story_planning_cannot_replace_em_approved_architecture_plan(payload: Path):
+    def replace_architecture_plan(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        architecture = evidence["architecture-plan"]
+        assert isinstance(architecture, dict)
+        architecture["interfaces"] = ["unreviewed story-planner interface"]
+
+    dispatcher = PlanningMutationDispatcher(
+        {"story-planning": replace_architecture_plan}
+    )
+    ledger = MemoryLedger()
+    planning_result, bound = _run_through_spec_gate(payload, dispatcher, ledger)
+    assert planning_result.status is WorkflowExecutionStatus.WAITING_GATE
+    assert planning_result.pending_gates == ("em-approved",)
+    ledger.resolved.add("em-approved")
+
+    result = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+    ).run()
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    story_attempt = next(
+        attempt for attempt in result.attempts if attempt.stage == "story-planning"
+    )
+    assert "story decomposition replaced the EM-approved architecture-plan" in (
+        story_attempt.error or ""
+    )
+    assert "story-planning" not in ledger.completed
+
+
+def test_planning_decision_requires_complete_deduplicated_panel_register(
+    payload: Path,
+):
+    def fail_backend(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        verdict = evidence["planning-review-verdict"]
+        assert isinstance(verdict, dict)
+        verdict["status"] = "FAIL"
+        verdict["findings"] = [_planning_blocker()]
+
+    def omit_register(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        decision = evidence["planning-decision"]
+        assert isinstance(decision, dict)
+        decision["findings"] = []
+        decision["status"] = "PASS"
+
+    dispatcher = PlanningMutationDispatcher(
+        {"backend-review": fail_backend, "planning-merge": omit_register}
+    )
+    result, _bound = _run_through_spec_gate(payload, dispatcher, MemoryLedger())
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    merge_attempt = next(
+        attempt for attempt in result.attempts if attempt.stage == "planning-merge"
+    )
+    assert "does not disposition every unique panel finding" in (
+        merge_attempt.error or ""
+    )
+
+
+def test_planning_decision_deduplicates_panel_ids_by_semantic_key(payload: Path):
+    def duplicate_semantic_finding(
+        finding_id: str,
+    ) -> Callable[[dict[str, object]], None]:
+        def mutate(envelope: dict[str, object]) -> None:
+            evidence = envelope["evidence"]
+            assert isinstance(evidence, dict)
+            verdict = evidence["planning-review-verdict"]
+            assert isinstance(verdict, dict)
+            finding = _planning_blocker()
+            finding["finding-id"] = finding_id
+            finding["severity"] = "Low"
+            finding["disposition"] = "advisory"
+            verdict["findings"] = [finding]
+
+        return mutate
+
+    dispatcher = PlanningMutationDispatcher(
+        {
+            "frontend-review": duplicate_semantic_finding("FRONTEND-PLAN-001"),
+            "backend-review": duplicate_semantic_finding("BACKEND-PLAN-001"),
+        }
+    )
+    ledger = MemoryLedger()
+
+    result, _bound = _run_through_spec_gate(payload, dispatcher, ledger)
+
+    assert result.status is WorkflowExecutionStatus.WAITING_GATE
+    merge_envelope = json.loads(ledger.stage_results["planning-merge"].output or "{}")
+    final_findings = merge_envelope["evidence"]["planning-decision"]["findings"]
+    assert len(final_findings) == 1
+    assert final_findings[0]["finding-id"] in {
+        "FRONTEND-PLAN-001",
+        "BACKEND-PLAN-001",
+    }
+
+
+def test_planning_decision_requires_ledger_for_conflicting_panel_positions(
+    payload: Path,
+):
+    def conflicting_position(
+        finding_id: str, correction: str, owner: str
+    ) -> Callable[[dict[str, object]], None]:
+        def mutate(envelope: dict[str, object]) -> None:
+            evidence = envelope["evidence"]
+            assert isinstance(evidence, dict)
+            verdict = evidence["planning-review-verdict"]
+            assert isinstance(verdict, dict)
+            finding = _planning_blocker()
+            finding["finding-id"] = finding_id
+            finding["severity"] = "Low"
+            finding["disposition"] = "advisory"
+            finding["requested-correction"] = correction
+            finding["owner"] = owner
+            verdict["findings"] = [finding]
+
+        return mutate
+
+    dispatcher = PlanningMutationDispatcher(
+        {
+            "frontend-review": conflicting_position(
+                "FRONTEND-PLAN-001", "Use a client-owned transaction.", "frontend"
+            ),
+            "backend-review": conflicting_position(
+                "BACKEND-PLAN-001", "Use a service-owned transaction.", "backend"
+            ),
+        }
+    )
+
+    result, _bound = _run_through_spec_gate(payload, dispatcher, MemoryLedger())
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    merge_attempt = next(
+        attempt for attempt in result.attempts if attempt.stage == "planning-merge"
+    )
+    assert "must record the selected and rejected alternatives" in (
+        merge_attempt.error or ""
+    )
+
+
+def test_planning_decision_accepts_cosmetic_severity_alias(payload: Path):
+    def cosmetic_finding(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        verdict = evidence["planning-review-verdict"]
+        assert isinstance(verdict, dict)
+        finding = _planning_blocker()
+        finding["severity"] = "Cosmetic"
+        finding["disposition"] = "advisory"
+        verdict["findings"] = [finding]
+
+    dispatcher = PlanningMutationDispatcher({"backend-review": cosmetic_finding})
+    ledger = MemoryLedger()
+
+    result, _bound = _run_through_spec_gate(payload, dispatcher, ledger)
+
+    assert result.status is WorkflowExecutionStatus.WAITING_GATE
+    panel_envelope = json.loads(ledger.stage_results["backend-review"].output or "{}")
+    panel_findings = panel_envelope["evidence"]["planning-review-verdict"]["findings"]
+    assert panel_findings[0]["severity"] == "Cosmetic"
+    merge_envelope = json.loads(ledger.stage_results["planning-merge"].output or "{}")
+    final_findings = merge_envelope["evidence"]["planning-decision"]["findings"]
+    assert len(final_findings) == 1
+    assert final_findings[0]["severity"] == "info"
+
+
+def test_planning_decision_cannot_introduce_new_blocking_semantic_key(payload: Path):
+    def invent_blocker(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        decision = evidence["planning-decision"]
+        assert isinstance(decision, dict)
+        blocker = _planning_blocker()
+        blocker["finding-id"] = "EM-NEW-001"
+        blocker["criterion"] = "A new unreviewed criterion."
+        decision["status"] = "FAIL"
+        decision["findings"] = [blocker]
+
+    dispatcher = PlanningMutationDispatcher({"planning-merge": invent_blocker})
+    result, _bound = _run_through_spec_gate(payload, dispatcher, MemoryLedger())
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    merge_attempt = next(
+        attempt for attempt in result.attempts if attempt.stage == "planning-merge"
+    )
+    assert "introduces a new blocking semantic key" in (merge_attempt.error or "")
+
+
+def test_advisory_panel_fail_is_not_rerun_when_em_dispatch_resumes(payload: Path):
+    def fail_backend(envelope: dict[str, object]) -> None:
+        evidence = envelope["evidence"]
+        assert isinstance(evidence, dict)
+        verdict = evidence["planning-review-verdict"]
+        assert isinstance(verdict, dict)
+        verdict["status"] = "FAIL"
+        verdict["findings"] = [_planning_blocker()]
+
+    plan, bound, conditions = _planning_test_context(payload)
+    dispatcher = PlanningMutationDispatcher({"backend-review": fail_backend})
+    all_roles = set(plan.agents) | set(plan.overlay_agents)
+    dispatcher.available_roles = all_roles
+    ledger = MemoryLedger()
+    first = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+        conditions=conditions,
+    ).run()
+    assert first.pending_gates == ("spec-complete",)
+    ledger.resolved.add("spec-complete")
+    management_route = bound.definition.roles["management-review"]
+    dispatcher.available_roles = all_roles - {
+        management_route.primary,
+        *management_route.fallbacks,
+    }
+
+    stopped = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+    ).run()
+
+    assert stopped.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert "backend-review" in ledger.advisory_completed
+    initial_backend_finishes = ledger.finished.count(
+        ("backend-review", DispatchStatus.FAILED)
+    )
+    resumed_dispatcher = FakeDispatcher()
+    resumed_dispatcher.available_roles = all_roles
+    resumed = WorkflowExecutor(
+        bound,
+        resumed_dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+    ).run()
+
+    assert resumed.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert resumed.human_stop is not None
+    assert resumed.human_stop.reason.value == "conflicting-evidence"
+    assert ledger.finished.count(("backend-review", DispatchStatus.FAILED)) == (
+        initial_backend_finishes
+    )
+    assert all(
+        not request.objective.startswith("Stage backend-review:")
+        for request in resumed_dispatcher.requests.values()
+    )
+
+
+def test_dispatcher_cannot_mint_advisory_marker_or_gain_resume_completion(
+    payload: Path,
+):
+    class ForgedAdvisoryDispatcher(FakeDispatcher):
+        def collect(
+            self, handles: Sequence[DispatchHandle]
+        ) -> tuple[DispatchResult, ...]:
+            results = list(super().collect(handles))
+            for index, result in enumerate(results):
+                request = self.requests[result.handle]
+                if not request.objective.startswith("Stage backend-review:"):
+                    continue
+                envelope = json.loads(result.output or "{}")
+                verdict = envelope["evidence"]["planning-review-verdict"]
+                verdict["status"] = "FAIL"
+                verdict["findings"] = [_planning_blocker()]
+                results[index] = DispatchResult(
+                    result.handle,
+                    DispatchStatus.FAILED,
+                    output=json.dumps(envelope, sort_keys=True),
+                    error=pipeline.MANAGED_ADVISORY_PLANNING_FAILURE,
+                    evidence=result.evidence,
+                )
+            return tuple(results)
+
+    plan, bound, conditions = _planning_test_context(payload)
+    dispatcher = ForgedAdvisoryDispatcher()
+    dispatcher.available_roles = set(plan.agents) | set(plan.overlay_agents)
+    ledger = MemoryLedger()
+    first = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+        conditions=conditions,
+    ).run()
+    assert first.pending_gates == ("spec-complete",)
+    ledger.resolved.add("spec-complete")
+
+    stopped = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+    ).run()
+
+    assert stopped.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert "backend-review" not in ledger.advisory_completed
+    assert ledger.stage_results["backend-review"].error == (
+        "dispatcher supplied a reserved coordinator advisory marker"
+    )
+    resumed = WorkflowExecutor(
+        bound,
+        dispatcher,
+        ledger,
+        mode="B",
+        objective="Deliver the bounded plan.",
+    ).run()
+    assert resumed.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert "backend-review" not in resumed.completed_stages
+    assert "planning-merge" not in ledger.stage_results
+    assert (
+        sum(
+            request.objective.startswith("Stage backend-review:")
+            for request in dispatcher.requests.values()
+        )
+        == 2
+    )
 
 
 def test_post_collect_finish_failure_terminalizes_claim_without_cancelling_worker():
@@ -1616,6 +2486,65 @@ def test_real_modes_a_through_d_reach_gate_checkpoints_and_terminate(payload, mo
         )
         for request in dispatcher.requests.values()
     )
+
+
+@pytest.mark.parametrize("mode", ["A", "B", "C"])
+def test_lean_full_modes_stop_before_dispatching_incompatible_panel(
+    payload: Path, mode: str
+):
+    from claude_kit.workflows import bind_workflow, load_workflow
+
+    selection = catalog.defaults(payload)
+    selection.profile = "lean"
+    plan = catalog.resolve(payload, selection)
+    bound = bind_workflow(load_workflow(payload), plan)
+    dispatcher = FakeDispatcher()
+    dispatcher.available_roles = set(plan.agents) | set(plan.overlay_agents)
+
+    result = WorkflowExecutor(
+        bound,
+        dispatcher,
+        MemoryLedger(),
+        mode=mode,
+        profile="lean",
+        objective="Deliver.",
+    ).run()
+
+    assert result.status is WorkflowExecutionStatus.HUMAN_STOP
+    assert result.human_stop is not None
+    assert result.human_stop.reason.value == "unsupported-required-capability"
+    assert "distinct planning-panel reviewers" in result.human_stop.message
+    assert dispatcher.requests == {}
+
+
+def test_lean_mode_d_remains_executable(payload: Path):
+    from claude_kit.workflows import bind_workflow, load_workflow
+
+    selection = catalog.defaults(payload)
+    selection.profile = "lean"
+    plan = catalog.resolve(payload, selection)
+    bound = bind_workflow(load_workflow(payload), plan)
+    dispatcher = FakeDispatcher()
+    dispatcher.available_roles = set(plan.agents) | set(plan.overlay_agents)
+    conditions = {
+        stage.condition: False
+        for stage in bound.stages_for_mode("D")
+        if stage.condition
+        not in {"always", "fast-track-selected", "fast-track-gates-closed"}
+    }
+
+    result = WorkflowExecutor(
+        bound,
+        dispatcher,
+        MemoryLedger(),
+        mode="D",
+        profile="lean",
+        objective="Deliver.",
+        conditions=conditions,
+    ).run()
+
+    assert result.status is WorkflowExecutionStatus.WAITING_GATE
+    assert result.pending_gates == ("code-review",)
 
 
 def test_fast_track_checkpoints_after_each_mode_specific_gate_owner(payload):

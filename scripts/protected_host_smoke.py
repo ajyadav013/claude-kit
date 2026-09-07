@@ -35,14 +35,19 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+# The protected harness control document and the installed init-options manifest
+# evolve independently. Keep both explicit so a control-format change cannot
+# accidentally weaken the exact-wheel manifest assertion.
 SCHEMA_VERSION = 2
+INIT_OPTIONS_SCHEMA_VERSION = 3
 CONTROL_FILE = "control.json"
 EVENT_LOG = Path(".ckit/artifacts/protected-host-events.jsonl")
 PIPELINE_SNAPSHOT = Path(".ckit/state/pipeline-snapshot.json")
 PIPELINE_EVIDENCE_DIR = Path(".ckit/artifacts/protected-host")
 MANAGED_PROJECT_DIR = "managed-project"
-MANAGED_PASSIVE_STAGE = "classify"
+MANAGED_PASSIVE_STAGE = "fast-track-classify"
 MANAGED_PASSIVE_ROLE = "risk-classifier"
+MANAGED_PASSIVE_EVIDENCE = "fast-track-scope-record"
 MANAGED_PASSIVE_CAPABILITIES = (
     "delegation.message",
     "filesystem.read",
@@ -57,7 +62,14 @@ MANAGED_GATE_OWNER_STAGE = "planning-merge"
 MANAGED_GATE_OWNER_ROLE = "em-reviewer"
 MANAGED_GATE_OWNER_GATE = "em-approved"
 MANAGED_GATE_OWNER_CAPABILITIES = (
-    "delegation.message",
+    "filesystem.read",
+    "filesystem.search",
+)
+MANAGED_PLANNING_REVIEW_STAGE = "architecture-review"
+MANAGED_PLANNING_REVIEW_ROUTE = "architecture"
+MANAGED_PLANNING_REVIEW_ROLE = "technical-architect"
+MANAGED_PLANNING_REVIEW_AUTHORITY = "architecture"
+MANAGED_PLANNING_REVIEW_CAPABILITIES = (
     "filesystem.read",
     "filesystem.search",
 )
@@ -819,10 +831,9 @@ def _scaffold_inventory(project: Path) -> dict[str, Any]:
         raise SmokeError(
             f"built-wheel scaffold manifest is missing or invalid: {exc}"
         ) from exc
-    if document.get("schema_version") != 2 or document.get("runtimes") != [
-        "claude",
-        "codex",
-    ]:
+    if document.get("schema_version") != INIT_OPTIONS_SCHEMA_VERSION or document.get(
+        "runtimes"
+    ) != ["claude", "codex"]:
         raise SmokeError(
             "built-wheel scaffold did not install the exact both-runtime contract"
         )
@@ -1376,7 +1387,7 @@ def _load_control(root: Path) -> tuple[Path, Path, Path, dict[str, Any]]:
             or seed.get("run_id") != gate_owner_proof.get("run_id")
             or seed.get("seeded_stages") != list(MANAGED_GATE_SEED_STAGES)
             or not isinstance(evidence, dict)
-            or set(evidence) != {"architecture-plan", "review-verdict"}
+            or set(evidence) != {"architecture-plan", "planning-decision"}
             or any(
                 not isinstance(value, dict)
                 or set(value) != {"path", "sha256"}
@@ -2179,7 +2190,7 @@ def _seed_managed_gate_owner(project: Path) -> None:
             "workflow_digest": managed.get("workflow_digest"),
             "gate_definition_digest": seeded.get("gate_definition_digest"),
             "seeded_stages": seed_records,
-            "next_native_stage": MANAGED_GATE_OWNER_STAGE,
+            "next_native_stage": MANAGED_PLANNING_REVIEW_STAGE,
         },
     )
     _pipeline_api_ok(
@@ -2452,8 +2463,8 @@ def _prepare_managed_gate_owner_project(
         project / "specs/protected_gate_owner_spec.md",
         "# Protected gate-owner fixture\n\n"
         "Review one committed, documentation-only plan through the canonical "
-        "planning-merge gate owner. No source mutation, shell, MCP, hooks, network, "
-        "or nested delegation is in scope.\n",
+        "planning review panel and planning-merge gate owner. No source mutation, "
+        "shell, MCP, hooks, network, or nested delegation is in scope.\n",
     )
     git = shutil.which("git", path=environment["PATH"])
     if git is None:
@@ -2701,7 +2712,7 @@ def _assert_managed_codex_state(
         or route.get("nested_delegation") != "forbidden"
         or requirements != list(MANAGED_PASSIVE_CAPABILITIES)
         or route.get("required_capabilities") != list(MANAGED_PASSIVE_CAPABILITIES)
-        or stage_evidence != ["scope-record"]
+        or stage_evidence != [MANAGED_PASSIVE_EVIDENCE]
     ):
         raise SmokeError(
             "managed Codex passive route is broader than its frozen contract"
@@ -2731,7 +2742,7 @@ def _assert_managed_codex_state(
         or attempt.get("dispatch_attempt") != 1
         or attempt.get("required_capabilities") != list(MANAGED_PASSIVE_CAPABILITIES)
         or attempt.get("attested_capabilities") != list(MANAGED_PASSIVE_CAPABILITIES)
-        or attempt.get("evidence") != ["artifact://scope-record"]
+        or attempt.get("evidence") != [f"artifact://{MANAGED_PASSIVE_EVIDENCE}"]
         or attempt.get("findings") != []
         or not isinstance(evidence_records, list)
         or len(evidence_records) != 1
@@ -2762,14 +2773,14 @@ def _assert_managed_codex_state(
         or evidence_record.get("stage") != MANAGED_PASSIVE_STAGE
         or evidence_record.get("dispatch_id") != dispatch_id
         or evidence_record.get("dispatch_attempt") != 1
-        or evidence_record.get("evidence_id") != "scope-record"
-        or evidence_record.get("validation_profile") != "scope-record"
+        or evidence_record.get("evidence_id") != MANAGED_PASSIVE_EVIDENCE
+        or evidence_record.get("validation_profile") != MANAGED_PASSIVE_EVIDENCE
         or not isinstance(evidence_relative, str)
         or not _is_sha256(evidence_sha)
         or evidence_relative
         != (
             f".ckit/artifacts/evidence/runs/{run_id}/{MANAGED_PASSIVE_STAGE}/1/"
-            f"scope-record-{evidence_sha}.json"
+            f"{MANAGED_PASSIVE_EVIDENCE}-{evidence_sha}.json"
         )
     ):
         raise SmokeError("managed Codex typed evidence provenance is invalid")
@@ -2788,6 +2799,14 @@ def _assert_managed_codex_state(
         )
         or not isinstance(evidence_document.get("constraints"), list)
         or not isinstance(evidence_document.get("risks"), list)
+        or evidence_document.get("risk-tier") != "low"
+        or evidence_document.get("localized-single-boundary") is not True
+        or evidence_document.get("unambiguous") is not True
+        or evidence_document.get("reversible") is not True
+        or evidence_document.get("sensitive-surface") is not False
+        or evidence_document.get("public-contract-surface") is not False
+        or evidence_document.get("irreversible-action") is not False
+        or evidence_document.get("external-effect") is not False
     ):
         raise SmokeError("managed Codex scope evidence is not content-bearing")
 
@@ -2818,7 +2837,8 @@ def _assert_managed_codex_state(
         or terminal_document.get("dispatch_id") != dispatch_id
         or terminal_document.get("dispatch_attempt") != 1
         or terminal_document.get("status") != "succeeded"
-        or terminal_document.get("evidence") != ["artifact://scope-record"]
+        or terminal_document.get("evidence")
+        != [f"artifact://{MANAGED_PASSIVE_EVIDENCE}"]
         or terminal_document.get("evidence_records") != evidence_records
     ):
         raise SmokeError("managed Codex terminal artifact has inconsistent provenance")
@@ -2880,13 +2900,17 @@ def _assert_managed_codex_gate_owner_state(
     result_document: Mapping[str, Any] | None = None,
     gate_closed: bool,
 ) -> dict[str, Any]:
-    """Verify the native em-reviewer attempt and its authoritative gate bundle."""
+    """Verify the native planning panel, EM decision, and gate bundle."""
 
     pipeline = _pipeline_document(project)
     managed = pipeline.get("managed_execution")
     history = pipeline.get("stage_history")
     gate_history = pipeline.get("gate_history")
-    expected_stages = [*MANAGED_GATE_SEED_STAGES, MANAGED_GATE_OWNER_STAGE]
+    expected_stages = [
+        *MANAGED_GATE_SEED_STAGES,
+        MANAGED_PLANNING_REVIEW_STAGE,
+        MANAGED_GATE_OWNER_STAGE,
+    ]
     expected_gates = [MANAGED_GATE_SEED_GATE]
     expected_stage = MANAGED_GATE_OWNER_GATE
     if gate_closed:
@@ -2970,6 +2994,67 @@ def _assert_managed_codex_gate_owner_state(
                     "seeded predecessor evidence overstates native provenance"
                 )
 
+    planning_gate_attempt = history[len(MANAGED_GATE_SEED_STAGES) - 1]
+    planning_gate_records = planning_gate_attempt.get("evidence_records")
+    if not isinstance(planning_gate_records, list):
+        raise SmokeError("fixture planning packet has no typed evidence records")
+    planning_packet_evidence: dict[str, str] = {}
+    for record in planning_gate_records:
+        if not isinstance(record, Mapping):
+            raise SmokeError("fixture planning packet evidence is malformed")
+        evidence_id = record.get("evidence_id")
+        digest = record.get("artifact_sha256")
+        if (
+            not isinstance(evidence_id, str)
+            or evidence_id in planning_packet_evidence
+            or not _is_sha256(digest)
+        ):
+            raise SmokeError("fixture planning packet identity is malformed")
+        planning_packet_evidence[evidence_id] = digest
+    if not {"specification", "architecture-plan"}.issubset(planning_packet_evidence):
+        raise SmokeError("fixture planning packet is incomplete")
+    expected_planning_generation = hashlib.sha256(
+        json.dumps(
+            {
+                "stage": "planning-gate",
+                "evidence": [
+                    {
+                        "evidence-id": evidence_id,
+                        "sha256": planning_packet_evidence[evidence_id],
+                    }
+                    for evidence_id in sorted(planning_packet_evidence)
+                ],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+    panel_route = managed.get("active_stage_routes", {}).get(
+        MANAGED_PLANNING_REVIEW_STAGE
+    )
+    panel_requirements = managed.get("active_stage_requirements", {}).get(
+        MANAGED_PLANNING_REVIEW_STAGE
+    )
+    panel_declared_evidence = managed.get("active_stage_evidence", {}).get(
+        MANAGED_PLANNING_REVIEW_STAGE
+    )
+    if (
+        not isinstance(panel_route, Mapping)
+        or panel_route.get("execution_kind") != "native-role"
+        or panel_route.get("route") != MANAGED_PLANNING_REVIEW_ROUTE
+        or panel_route.get("role") != MANAGED_PLANNING_REVIEW_ROLE
+        or panel_route.get("permission") != "read_only"
+        or panel_route.get("write_scope") != []
+        or panel_route.get("nested_delegation") != "forbidden"
+        or panel_route.get("required_capabilities")
+        != list(MANAGED_PLANNING_REVIEW_CAPABILITIES)
+        or panel_requirements != list(MANAGED_PLANNING_REVIEW_CAPABILITIES)
+        or panel_declared_evidence != ["planning-review-verdict"]
+    ):
+        raise SmokeError("native planning-review route is broader than its contract")
+
     route = managed.get("active_stage_routes", {}).get(MANAGED_GATE_OWNER_STAGE)
     requirements = managed.get("active_stage_requirements", {}).get(
         MANAGED_GATE_OWNER_STAGE
@@ -2989,7 +3074,7 @@ def _assert_managed_codex_gate_owner_state(
         or route.get("nested_delegation") != "forbidden"
         or route.get("required_capabilities") != list(MANAGED_GATE_OWNER_CAPABILITIES)
         or requirements != list(MANAGED_GATE_OWNER_CAPABILITIES)
-        or declared_evidence != ["architecture-plan", "review-verdict"]
+        or declared_evidence != ["architecture-plan", "planning-decision"]
     ):
         raise SmokeError("native gate-owner route is broader than its frozen contract")
     forbidden = {
@@ -3001,8 +3086,105 @@ def _assert_managed_codex_gate_owner_state(
         "shell",
         "workflow.ledger",
     }
-    if forbidden.intersection(requirements):
+    if forbidden.intersection(requirements) or forbidden.intersection(
+        panel_requirements
+    ):
         raise SmokeError("native gate-owner route exposes a forbidden capability")
+
+    panel_attempt = history[-2]
+    panel_records = panel_attempt.get("evidence_records")
+    panel_dispatch_id = panel_attempt.get("dispatch_id")
+    if (
+        panel_attempt.get("stage") != MANAGED_PLANNING_REVIEW_STAGE
+        or panel_attempt.get("route") != MANAGED_PLANNING_REVIEW_ROUTE
+        or panel_attempt.get("role") != MANAGED_PLANNING_REVIEW_ROLE
+        or panel_attempt.get("provider") != "codex"
+        or panel_attempt.get("status") != "succeeded"
+        or panel_attempt.get("attempt") != 1
+        or panel_attempt.get("dispatch_attempt") != 1
+        or panel_attempt.get("required_capabilities")
+        != list(MANAGED_PLANNING_REVIEW_CAPABILITIES)
+        or panel_attempt.get("attested_capabilities")
+        != list(MANAGED_PLANNING_REVIEW_CAPABILITIES)
+        or panel_attempt.get("workspace_checkpoint_before")
+        != panel_attempt.get("workspace_checkpoint")
+        or panel_attempt.get("evidence") != ["artifact://planning-review-verdict"]
+        or panel_attempt.get("findings") != []
+        or panel_attempt.get("finding_counts")
+        != {"critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0}
+        or not isinstance(panel_dispatch_id, str)
+        or panel_dispatch_id in seed_dispatch_ids
+        or not isinstance(panel_records, list)
+        or len(panel_records) != 1
+    ):
+        raise SmokeError("native planning reviewer is not exactly ledger-bound")
+    panel_record = panel_records[0]
+    if not isinstance(panel_record, Mapping):
+        raise SmokeError("native planning-review evidence record is malformed")
+    panel_relative = panel_record.get("artifact_path")
+    panel_digest = panel_record.get("artifact_sha256")
+    if (
+        panel_record.get("kind") != "managed-workflow-evidence"
+        or panel_record.get("run_id") != run_id
+        or panel_record.get("stage") != MANAGED_PLANNING_REVIEW_STAGE
+        or panel_record.get("dispatch_id") != panel_dispatch_id
+        or panel_record.get("dispatch_attempt") != 1
+        or panel_record.get("evidence_id") != "planning-review-verdict"
+        or panel_record.get("validation_profile") != "planning-review-verdict"
+        or not isinstance(panel_relative, str)
+        or not _is_sha256(panel_digest)
+        or panel_relative
+        != (
+            f".ckit/artifacts/evidence/runs/{run_id}/"
+            f"{MANAGED_PLANNING_REVIEW_STAGE}/1/"
+            f"planning-review-verdict-{panel_digest}.json"
+        )
+    ):
+        raise SmokeError("native planning-review evidence provenance is invalid")
+    panel_document, actual_panel_digest = _private_managed_artifact(
+        project, panel_relative, label="native planning-review evidence"
+    )
+    planning_generation = panel_document.get("planning-generation")
+    if (
+        actual_panel_digest != panel_digest
+        or "fixture_provenance" in panel_document
+        or panel_document.get("status") != "PASS"
+        or panel_document.get("reviewer") != MANAGED_PLANNING_REVIEW_ROLE
+        or planning_generation != expected_planning_generation
+        or panel_document.get("authority-domain") != MANAGED_PLANNING_REVIEW_AUTHORITY
+        or panel_document.get("findings") != []
+        or panel_document.get("evidence") != ["specs/protected_gate_owner_spec.md"]
+    ):
+        raise SmokeError("native planning-review verdict has an invalid identity")
+    panel_terminal_path = panel_attempt.get("output_path")
+    panel_terminal_sha = panel_attempt.get("output_artifact_sha256")
+    if (
+        not isinstance(panel_terminal_path, str)
+        or not _is_sha256(panel_terminal_sha)
+        or panel_terminal_path
+        != (
+            f".ckit/artifacts/dispatch/runs/{run_id}/"
+            f"{MANAGED_PLANNING_REVIEW_STAGE}/1/"
+            f"terminal-{panel_terminal_sha}.json"
+        )
+    ):
+        raise SmokeError("native planning-review terminal identity is invalid")
+    panel_terminal, actual_panel_terminal_sha = _private_managed_artifact(
+        project, panel_terminal_path, label="native planning-review terminal result"
+    )
+    if (
+        actual_panel_terminal_sha != panel_terminal_sha
+        or panel_terminal.get("run_id") != run_id
+        or panel_terminal.get("stage") != MANAGED_PLANNING_REVIEW_STAGE
+        or panel_terminal.get("provider") != "codex"
+        or panel_terminal.get("route") != MANAGED_PLANNING_REVIEW_ROLE
+        or panel_terminal.get("dispatch_id") != panel_dispatch_id
+        or panel_terminal.get("dispatch_attempt") != 1
+        or panel_terminal.get("status") != "succeeded"
+        or panel_terminal.get("evidence") != ["artifact://planning-review-verdict"]
+        or panel_terminal.get("evidence_records") != panel_records
+    ):
+        raise SmokeError("native planning-review terminal provenance is invalid")
 
     attempt = history[-1]
     evidence_records = attempt.get("evidence_records")
@@ -3020,19 +3202,20 @@ def _assert_managed_codex_gate_owner_state(
         or attempt.get("workspace_checkpoint_before")
         != attempt.get("workspace_checkpoint")
         or attempt.get("evidence")
-        != ["artifact://architecture-plan", "artifact://review-verdict"]
+        != ["artifact://architecture-plan", "artifact://planning-decision"]
         or attempt.get("findings") != []
         or attempt.get("finding_counts")
         != {"critical": 0, "high": 0, "medium": 0, "low": 0, "cosmetic": 0}
         or not isinstance(dispatch_id, str)
         or dispatch_id in seed_dispatch_ids
+        or dispatch_id == panel_dispatch_id
         or not isinstance(evidence_records, list)
         or len(evidence_records) != 2
     ):
         raise SmokeError("native em-reviewer attempt is not exactly ledger-bound")
     evidence_proof: dict[str, dict[str, str]] = {}
     for record, evidence_id in zip(
-        evidence_records, ("architecture-plan", "review-verdict")
+        evidence_records, ("architecture-plan", "planning-decision")
     ):
         if not isinstance(record, Mapping):
             raise SmokeError("native gate-owner evidence record is malformed")
@@ -3058,10 +3241,10 @@ def _assert_managed_codex_gate_owner_state(
         evidence_document, actual_digest = _private_managed_artifact(
             project, relative, label=f"native {evidence_id} evidence"
         )
-        if actual_digest != digest or "fixture_provenance" in evidence_document:
-            raise SmokeError("native gate-owner evidence is stale or fixture-tagged")
+        if actual_digest != digest:
+            raise SmokeError("native gate-owner evidence is stale")
         if evidence_id == "architecture-plan":
-            if any(
+            if digest != planning_packet_evidence["architecture-plan"] or any(
                 not isinstance(evidence_document.get(field), list)
                 or not evidence_document[field]
                 or not all(
@@ -3075,15 +3258,22 @@ def _assert_managed_codex_gate_owner_state(
                     "verification",
                 )
             ):
-                raise SmokeError("native architecture plan is not content-bearing")
+                raise SmokeError(
+                    "native gate owner did not pass through the frozen architecture plan"
+                )
         elif (
-            evidence_document.get("status") != "PASS"
+            "fixture_provenance" in evidence_document
+            or evidence_document.get("status") != "PASS"
             or evidence_document.get("reviewer") != MANAGED_GATE_OWNER_ROLE
+            or evidence_document.get("planning-generation") != planning_generation
+            or evidence_document.get("panel-reviewers")
+            != [MANAGED_PLANNING_REVIEW_ROLE]
             or evidence_document.get("findings") != []
+            or evidence_document.get("decisions") != []
             or evidence_document.get("evidence")
             != ["specs/protected_gate_owner_spec.md"]
         ):
-            raise SmokeError("native review verdict is not an exact PASS")
+            raise SmokeError("native planning decision is not an exact bound PASS")
         evidence_proof[evidence_id] = {"path": relative, "sha256": digest}
 
     terminal_path = attempt.get("output_path")
@@ -3120,11 +3310,14 @@ def _assert_managed_codex_gate_owner_state(
             or result_document.get("pending_gates") != [MANAGED_GATE_OWNER_GATE]
             or result_document.get("human_stop") is not None
             or not isinstance(attempts, list)
-            or len(attempts) != 1
-            or attempts[0].get("stage") != MANAGED_GATE_OWNER_STAGE
-            or attempts[0].get("role") != MANAGED_GATE_OWNER_ROLE
-            or attempts[0].get("provider") != "codex"
-            or attempts[0].get("status") != "succeeded"
+            or len(attempts) != 2
+            or any(not isinstance(item, Mapping) for item in attempts)
+            or [item.get("stage") for item in attempts]
+            != [MANAGED_PLANNING_REVIEW_STAGE, MANAGED_GATE_OWNER_STAGE]
+            or [item.get("role") for item in attempts]
+            != [MANAGED_PLANNING_REVIEW_ROLE, MANAGED_GATE_OWNER_ROLE]
+            or any(item.get("provider") != "codex" for item in attempts)
+            or any(item.get("status") != "succeeded" for item in attempts)
         ):
             raise SmokeError("native gate-owner CLI result differs from its ledger")
 
@@ -3157,7 +3350,7 @@ def _assert_managed_codex_gate_owner_state(
             or bundle_document.get("owner_output_sha256")
             != attempt.get("output_sha256")
             or bundle_document.get("evidence_ids")
-            != ["architecture-plan", "review-verdict"]
+            != ["architecture-plan", "planning-decision"]
             or bundle_document.get("evidence_records") != evidence_records
             or bundle_document.get("evidence_set_digest")
             != transition.get("evidence_set_digest")
@@ -3325,7 +3518,8 @@ def _run_managed_codex(root: Path, *, expected_version: str, executable: str) ->
             str(gate_project),
             "--json",
             "--context",
-            "Only planning-merge is native; predecessor records are fixture-seeded.",
+            "Architecture review and planning-merge are native; earlier predecessor "
+            "records are fixture-seeded.",
             "--wait-timeout-seconds",
             "300",
         ],

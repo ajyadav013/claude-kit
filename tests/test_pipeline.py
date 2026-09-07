@@ -142,6 +142,20 @@ def _managed_evidence_document(evidence_id: str, *, mode: str = "B") -> dict:
             "constraints": [],
             "risks": [],
         },
+        "fast-track-scope-record": {
+            "mode": "D",
+            "surfaces": ["one local implementation boundary"],
+            "constraints": [],
+            "risks": [],
+            "risk-tier": "low",
+            "localized-single-boundary": True,
+            "unambiguous": True,
+            "reversible": True,
+            "sensitive-surface": False,
+            "public-contract-surface": False,
+            "irreversible-action": False,
+            "external-effect": False,
+        },
         "specification": {
             "outcome": "Requested behavior is implemented.",
             "acceptance-criteria": ["The requested behavior is verified."],
@@ -154,10 +168,49 @@ def _managed_evidence_document(evidence_id: str, *, mode: str = "B") -> dict:
             "interfaces": [],
             "verification": ["focused tests"],
         },
+        "story-breakdown": {
+            "stories": [
+                {
+                    "story-id": "STORY-1",
+                    "goal": "Deliver the requested behavior.",
+                    "acceptance-criteria": ["The requested behavior is verified."],
+                    "surfaces": ["project workspace"],
+                    "risk": "standard",
+                    "batchable": False,
+                    "verification": ["Run focused tests."],
+                }
+            ],
+            "dependencies": [{"story-id": "STORY-1", "blocked-by": []}],
+            "parallelizable": ["STORY-1"],
+            "sequencing": ["STORY-1"],
+            "traceability": [
+                {
+                    "criterion": "The requested behavior is verified.",
+                    "story-ids": ["STORY-1"],
+                }
+            ],
+        },
         "review-verdict": {
             "status": "PASS",
             "reviewer": "test-reviewer",
             "findings": [],
+            "evidence": ["tests/test_pipeline.py"],
+        },
+        "planning-review-verdict": {
+            "status": "PASS",
+            "reviewer": "senior-backend-reviewer",
+            "planning-generation": "b" * 64,
+            "authority-domain": "backend",
+            "findings": [],
+            "evidence": ["tests/test_pipeline.py"],
+        },
+        "planning-decision": {
+            "status": "PASS",
+            "reviewer": "em-reviewer",
+            "planning-generation": "b" * 64,
+            "panel-reviewers": ["senior-backend-reviewer"],
+            "findings": [],
+            "decisions": [],
             "evidence": ["tests/test_pipeline.py"],
         },
         "command-evidence": {
@@ -2579,6 +2632,275 @@ def test_managed_gate_findings_cover_exact_transitive_dependency_observations(
     )
     assert conflict_owner is None
     assert conflict is not None and "conflicting evidence identities" in conflict
+
+
+def test_managed_planning_gate_uses_em_decision_as_authoritative_projection(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path, record_clean=False)
+    _managed, manager = _bind_managed_run(tmp_path)
+    snapshot = _read_snap(tmp_path)
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+
+    panel_finding = {
+        "finding-id": "PLAN-BACKEND-1",
+        "severity": "high",
+        "disposition": "open",
+        "authority-domain": "backend",
+        "criterion": "AC-1 needs an explicit failure contract.",
+        "requested-correction": "Specify and test the failure response.",
+        "owner": "senior-backend-reviewer",
+        "evidence": ["tests/test_pipeline.py"],
+    }
+    panel_document = _managed_evidence_document("planning-review-verdict")
+    panel_document.update(
+        {
+            "status": " fAiL ",
+            "findings": [panel_finding],
+        }
+    )
+    decision_document = _managed_evidence_document("planning-decision")
+    decision_document["findings"] = [
+        {
+            **panel_finding,
+            "disposition": "fixed",
+            "requested-correction": "The failure response is specified and tested.",
+            "owner": "em-reviewer",
+        }
+    ]
+
+    def observation(
+        stage: str,
+        *,
+        documents: dict[str, dict],
+        status: str,
+        artifact_sha: str,
+    ) -> dict:
+        dispatch_id = f"claude-{stage}"
+        output, _references, records = _managed_stage_result(
+            tmp_path,
+            snapshot,
+            stage=stage,
+            dispatch_id=dispatch_id,
+            attempt=1,
+            evidence_documents=documents,
+            require_pass=status == "succeeded",
+        )
+        return {
+            "stage": stage,
+            "role": "test-role",
+            "provider": "claude",
+            "dispatch_id": dispatch_id,
+            "dispatch_attempt": 1,
+            "attempt": 1,
+            "status": status,
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "finished_at": "2026-01-01T00:00:01+00:00",
+            "output_sha256": hashlib.sha256(output.encode()).hexdigest(),
+            "output_artifact_sha256": artifact_sha,
+            "workspace_checkpoint": checkpoint.to_dict(),
+            "evidence_records": list(records),
+        }
+
+    synthetic = json.loads(json.dumps(snapshot))
+    synthetic["stage_history"] = [
+        observation(
+            "backend-review",
+            documents={"planning-review-verdict": panel_document},
+            status="failed",
+            artifact_sha="a" * 64,
+        ),
+        observation(
+            "planning-merge",
+            documents={
+                "architecture-plan": _managed_evidence_document("architecture-plan"),
+                "planning-decision": decision_document,
+            },
+            status="succeeded",
+            artifact_sha="b" * 64,
+        ),
+    ]
+
+    owner, findings, counts, contributors, projection_digest = (
+        pipeline._managed_gate_finding_projection(
+            ProjectFS(tmp_path), synthetic, "em-approved"
+        )
+    )
+
+    assert owner is not None and owner["stage"] == "planning-merge"
+    assert findings == []
+    assert counts == _findings()
+    assert {item["stage"] for item in contributors} == {
+        "backend-review",
+        "planning-merge",
+    }
+    assert any(item["status"] == "failed" for item in contributors)
+    assert isinstance(projection_digest, str) and len(projection_digest) == 64
+
+
+def test_managed_planning_advisory_reaches_merge_validation_and_completion_projection(
+    tmp_path, payload
+):
+    _start_v2(payload, tmp_path, record_clean=False)
+    managed, manager = _bind_managed_run(tmp_path)
+    _finish_managed_stage(tmp_path, manager, stage="planning-gate")
+
+    advisory_stage = "architecture-review"
+    snapshot = _read_snap(tmp_path)
+    route = managed["active_stage_routes"][advisory_stage]["role"]
+    capabilities = tuple(managed["active_stage_requirements"][advisory_stage])
+    dispatch_id = "claude-architecture-advisory"
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage=advisory_stage,
+        role=route,
+        provider="claude",
+        dispatch_id=dispatch_id,
+        attempt=1,
+        required_capabilities=capabilities,
+        attested_capabilities=capabilities,
+    )
+    assert claimed, "\n".join(messages)
+
+    finding = {
+        "finding-id": "PLAN-ARCH-1",
+        "severity": "high",
+        "disposition": "open",
+        "authority-domain": "architecture",
+        "criterion": "The cross-boundary failure mode must be explicit.",
+        "requested-correction": "Specify and verify the failure boundary.",
+        "owner": "technical-architect",
+        "evidence": ["tests/test_pipeline.py"],
+    }
+    verdict = _managed_evidence_document("planning-review-verdict")
+    verdict.update(
+        {
+            "status": " fAiL ",
+            "reviewer": route,
+            "authority-domain": "architecture",
+            "findings": [finding],
+        }
+    )
+    output, references, records = _managed_stage_result(
+        tmp_path,
+        snapshot,
+        stage=advisory_stage,
+        dispatch_id=dispatch_id,
+        attempt=1,
+        evidence_documents={"planning-review-verdict": verdict},
+        require_pass=False,
+    )
+    checkpoint = manager.checkpoint(str(snapshot["run_id"]), "managed-workflow")
+    relative, artifact_sha = _write_managed_terminal_artifact(
+        tmp_path,
+        snapshot,
+        stage=advisory_stage,
+        dispatch_id=dispatch_id,
+        dispatch_attempt=1,
+        status="failed",
+        output=output,
+        error=pipeline.MANAGED_ADVISORY_PLANNING_FAILURE,
+        evidence=references,
+        evidence_records=records,
+        workspace_checkpoint=checkpoint.to_dict(),
+    )
+    finished, messages = pipeline.finish_stage(
+        tmp_path,
+        stage=advisory_stage,
+        dispatch_id=dispatch_id,
+        attempt=1,
+        status="failed",
+        output_sha256=hashlib.sha256(output.encode()).hexdigest(),
+        output_path=relative,
+        output_artifact_sha256=artifact_sha,
+        workspace_checkpoint=checkpoint.to_dict(),
+        evidence=references,
+        evidence_records=records,
+        error=pipeline.MANAGED_ADVISORY_PLANNING_FAILURE,
+    )
+    assert finished, "\n".join(messages)
+
+    dependencies = managed["active_stage_dependencies"]["planning-merge"]
+    for dependency in dependencies:
+        current = _read_snap(tmp_path)
+        already_succeeded = any(
+            item.get("stage") == dependency and item.get("status") == "succeeded"
+            for item in current["stage_history"]
+        )
+        if dependency != advisory_stage and not already_succeeded:
+            _finish_managed_stage(tmp_path, manager, stage=dependency)
+
+    snapshot = _read_snap(tmp_path)
+    merge_route = managed["active_stage_routes"]["planning-merge"]["role"]
+    merge_capabilities = tuple(managed["active_stage_requirements"]["planning-merge"])
+    claimed, messages = pipeline.claim_stage(
+        tmp_path,
+        stage="planning-merge",
+        role=merge_route,
+        provider="claude",
+        dispatch_id="claude-planning-merge",
+        attempt=1,
+        required_capabilities=merge_capabilities,
+        attested_capabilities=merge_capabilities,
+    )
+
+    assert claimed, "\n".join(messages)
+    snapshot = _read_snap(tmp_path)
+    advisory_record = next(
+        item for item in snapshot["stage_history"] if item["stage"] == advisory_stage
+    )
+    assert pipeline._is_managed_advisory_planning_record(
+        ProjectFS(tmp_path), snapshot, advisory_record
+    )
+    completed, completion_error = pipeline.completed_stage_ids(tmp_path)
+    assert completion_error is None
+    assert advisory_stage in completed
+    assert "planning-merge" not in completed
+    stage_projection = {
+        item["stage"]: item["status"]
+        for item in pipeline._managed_stage_state_projection(
+            ProjectFS(tmp_path), snapshot
+        )
+    }
+    assert stage_projection[advisory_stage] == "advisory-fail"
+    assert stage_projection["planning-merge"] == "unsettled"
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert valid, "\n".join(validation_messages)
+
+    pass_output, _pass_references, pass_records = _managed_stage_result(
+        tmp_path,
+        snapshot,
+        stage=advisory_stage,
+        dispatch_id="claude-forged-advisory",
+        attempt=2,
+    )
+    forged_advisory = {
+        "stage": advisory_stage,
+        "status": "failed",
+        "error": pipeline.MANAGED_ADVISORY_PLANNING_FAILURE,
+        "dispatch_id": "claude-forged-advisory",
+        "dispatch_attempt": 2,
+        "output_sha256": hashlib.sha256(pass_output.encode()).hexdigest(),
+        "evidence_records": list(pass_records),
+        "findings": [],
+        "finding_counts": _findings(),
+    }
+    assert not pipeline._is_managed_advisory_planning_record(
+        ProjectFS(tmp_path), snapshot, forged_advisory
+    )
+
+    conflicted = json.loads(json.dumps(snapshot))
+    conflicted["stage_history"].append(dict(advisory_record))
+    snapshot_path = tmp_path / detect_state_layout(tmp_path).pipeline_snapshot
+    snapshot_path.write_text(json.dumps(conflicted, indent=2) + "\n", encoding="utf-8")
+    valid, validation_messages = pipeline.validate(tmp_path, strict=True)
+    assert not valid
+    assert "already settled" in "\n".join(validation_messages)
+    completed, completion_error = pipeline.completed_stage_ids(tmp_path)
+    assert completed == set()
+    assert completion_error is not None and "conflicting terminal records" in (
+        completion_error
+    )
 
 
 def test_managed_closeout_requires_the_exact_gate_and_risk_ledgers(tmp_path, payload):

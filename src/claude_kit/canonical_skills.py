@@ -952,6 +952,7 @@ def codex_reference_target(
             "workflow": ".ckit/state/",
             "stack-catalog": ".ckit/config/stack-catalog.snapshot.yaml",
             "init-options": ".ckit/config/init-options.json",
+            "maker-checker-config": ".ckit/config/init-options.json",
             "deploy-config": ".ckit/config/deploy.yaml",
             "configuration": ".ckit/config/",
         }.get(component_id, f".ckit/state/{component_id}")

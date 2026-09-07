@@ -17,9 +17,10 @@ from claude_kit.components import Capability, SymbolicRef
 _ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 _MAX_PUBLIC_STOP_BYTES = 4_096
 _MAX_MESSAGE_BYTES = 65_536
+_REQUESTED_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)(\b[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|CREDENTIAL|API[_-]?KEY|PRIVATE[_-]?KEY)"
-    r"[A-Z0-9_]*\b\s*[:=]\s*)([^\s,;]+)"
+    r"[A-Z0-9_]*\b\s*[:=]\s*[\"']?)([^\s,;\"']+)"
 )
 _SECRET_VALUE_RE = re.compile(
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|"
@@ -27,15 +28,32 @@ _SECRET_VALUE_RE = re.compile(
     r"gh[psuor]_[0-9A-Za-z]{20,}|(?i:Bearer\s+)[0-9A-Za-z._~+/=-]{12,}"
 )
 _URL_CREDENTIAL_RE = re.compile(r"(://[^\s/:@]+:)[^\s/@]+(@)")
+_PEM_PRIVATE_KEY_BLOCK_RE = re.compile(
+    r"-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----.*?"
+    r"(?:-----END \1-----|\Z)",
+    re.DOTALL,
+)
+_PEM_PRIVATE_KEY_END_RE = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY-----")
+
+
+def redact_sensitive_text(text: str) -> tuple[str, int]:
+    """Redact common credential shapes, including complete multiline PEM keys."""
+
+    projected, pem_count = _PEM_PRIVATE_KEY_BLOCK_RE.subn("[REDACTED]", text)
+    if _PEM_PRIVATE_KEY_END_RE.search(projected) is not None:
+        # A stray footer means the corresponding key body has no trustworthy
+        # delimiter. Withhold the whole bounded field rather than guessing.
+        return "[REDACTED]", pem_count + 1
+    projected, assignment_count = _SECRET_ASSIGNMENT_RE.subn(r"\1[REDACTED]", projected)
+    projected, value_count = _SECRET_VALUE_RE.subn("[REDACTED]", projected)
+    projected, url_count = _URL_CREDENTIAL_RE.subn(r"\1[REDACTED]\2", projected)
+    return projected, pem_count + assignment_count + value_count + url_count
 
 
 def public_human_stop_text(value: object, *, fallback: str) -> str:
     """Redact and bound host-authored text before public persistence or output."""
 
-    text = str(value).strip()
-    text = _SECRET_ASSIGNMENT_RE.sub(r"\1[REDACTED]", text)
-    text = _SECRET_VALUE_RE.sub("[REDACTED]", text)
-    text = _URL_CREDENTIAL_RE.sub(r"\1[REDACTED]\2", text)
+    text, _redaction_count = redact_sensitive_text(str(value).strip())
     encoded = text.encode("utf-8")
     if len(encoded) > _MAX_PUBLIC_STOP_BYTES:
         suffix = b"...[truncated]"
@@ -105,6 +123,13 @@ class WaitMode(str, Enum):
     FIRST_COMPLETED = "first-completed"
 
 
+class ExecutionSlot(str, Enum):
+    """Semantic participant selected by a provider-neutral coordinator."""
+
+    MAKER = "maker"
+    REVIEWER = "reviewer"
+
+
 class HumanStopReason(str, Enum):
     """Portable reasons a worker may require a human decision."""
 
@@ -112,6 +137,7 @@ class HumanStopReason(str, Enum):
     SCOPE_EXPANSION = "scope-expansion"
     IRREVERSIBLE_OPERATION = "irreversible-operation"
     EXTERNAL_SIDE_EFFECT = "external-side-effect"
+    OPERATOR_ABORTED = "operator-aborted"
     RETRY_BUDGET_EXHAUSTED = "retry-budget-exhausted"
     CONFLICTING_EVIDENCE = "conflicting-evidence"
     UNSUPPORTED_REQUIRED_CAPABILITY = "unsupported-required-capability"
@@ -156,6 +182,26 @@ def _capabilities(values: Sequence[Capability]) -> tuple[Capability, ...]:
     return tuple(sorted(normalized, key=lambda item: item.value))
 
 
+def _execution_slot(value: object) -> Optional[ExecutionSlot]:
+    if value is None:
+        return None
+    try:
+        return value if isinstance(value, ExecutionSlot) else ExecutionSlot(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("execution_slot must be maker or reviewer when set") from exc
+
+
+def _requested_model(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _REQUESTED_MODEL_RE.fullmatch(value):
+        raise ValueError(
+            "requested_model must be 1-128 ASCII letters, digits, or ._:/@+- "
+            "and must start with a letter or digit"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class DispatchRequest:
     """Portable request for one independently owned unit of work."""
@@ -169,6 +215,8 @@ class DispatchRequest:
     context: str = ""
     required_capabilities: tuple[Capability, ...] = ()
     workspace: Optional[str] = None
+    execution_slot: Optional[ExecutionSlot] = None
+    requested_model: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "route", _identifier(self.route, "route"))
@@ -198,6 +246,10 @@ class DispatchRequest:
             object.__setattr__(
                 self, "workspace", _required_text(self.workspace, "workspace")
             )
+        object.__setattr__(self, "execution_slot", _execution_slot(self.execution_slot))
+        object.__setattr__(
+            self, "requested_model", _requested_model(self.requested_model)
+        )
 
 
 @dataclass(frozen=True)
@@ -210,6 +262,8 @@ class DispatchHandle:
     provider: Optional[str] = None
     required_capabilities: tuple[Capability, ...] = ()
     attested_capabilities: tuple[Capability, ...] = ()
+    execution_slot: Optional[ExecutionSlot] = None
+    requested_model: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _identifier(self.id, "dispatch id"))
@@ -233,6 +287,10 @@ class DispatchHandle:
             )
         object.__setattr__(self, "required_capabilities", required)
         object.__setattr__(self, "attested_capabilities", attested)
+        object.__setattr__(self, "execution_slot", _execution_slot(self.execution_slot))
+        object.__setattr__(
+            self, "requested_model", _requested_model(self.requested_model)
+        )
 
 
 @dataclass(frozen=True)

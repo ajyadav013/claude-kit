@@ -115,7 +115,7 @@ def test_legacy_manifest_defaults_to_claude_and_legacy_layout(payload):
     assert restored.runtime is Runtime.CLAUDE
     assert restored.state_layout == StateLayout.legacy_claude()
     assert restored.files[0].provider == "claude"
-    assert restored.to_dict()["schema_version"] == 2
+    assert restored.to_dict()["schema_version"] == 3
 
 
 def test_schema_v2_manifest_fails_closed_on_inconsistent_metadata(payload):

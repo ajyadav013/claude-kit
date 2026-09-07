@@ -62,6 +62,20 @@ A story breakdown (write it where the spec lives, or to `state://workflow` for t
 5. **Traceability** — every acceptance criterion in the spec maps to at least one story; flag any
    criterion with no story (a gap) and any story with no criterion (scope creep).
 
+For managed execution, return `architecture-plan` byte-for-byte as received and add a separate
+`story-breakdown` object with exactly these fields:
+
+- `stories`: non-empty objects with `story-id`, `goal`, `acceptance-criteria`, `surfaces`, `risk`,
+  `batchable`, and `verification`;
+- `dependencies`: exactly one `{story-id, blocked-by}` row per story;
+- `parallelizable`: exactly the story IDs whose `blocked-by` arrays are empty;
+- `sequencing`: every story ID exactly once in topological order;
+- `traceability`: one `{criterion, story-ids}` row for every carried acceptance criterion.
+
+The coordinator binds the approved architecture digest. Story decomposition may refine sequencing
+and ownership only; it must never change approved boundaries, dependencies, interfaces, or
+verification strategy.
+
 Each story is the source for exactly **one ticket**: after the coverage gate passes, the orchestrator
 opens one local ticket per story at Stage TK (`ticketing-and-traceability`), carrying the story's
 *why*, its spec/design links, and its file scope. When a task tracker is also configured, mirror the

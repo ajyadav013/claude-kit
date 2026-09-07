@@ -119,6 +119,7 @@ HUMAN_STOP_REASONS = frozenset(
         "scope-expansion",
         "irreversible-operation",
         "external-side-effect",
+        "operator-aborted",
         "retry-budget-exhausted",
         "conflicting-evidence",
         "unsupported-required-capability",
@@ -126,6 +127,10 @@ HUMAN_STOP_REASONS = frozenset(
 )
 STAGE_STATUSES = frozenset({"running", "succeeded", "failed", "cancelled"})
 TERMINAL_STAGE_STATUSES = STAGE_STATUSES - {"running"}
+#: Reserved coordinator disposition for a structurally valid planning-panel
+#: FAIL. Native dispatchers cannot mint this value: the workflow coordinator
+#: replaces a successful transport result with this terminal ledger marker.
+MANAGED_ADVISORY_PLANNING_FAILURE = "semantic-advisory-fail"
 PROGRAM_UNIT_STATUSES = frozenset({"running", "succeeded", "failed", "cancelled"})
 PROGRAM_EXECUTION_STATUSES = frozenset({"active", "completed", "aborted"})
 PROGRAM_WAVE_STATUSES = frozenset({"pending", "running", "completed"})
@@ -1227,6 +1232,94 @@ def _archive_terminal_snapshot(existing: dict[str, Any]) -> list[dict[str, Any]]
         }
     )
     return archives
+
+
+def _run_archive_problems(root: Path, raw_archives: object) -> list[str]:
+    """Validate non-recursive terminal snapshot envelopes retained by either run kind."""
+
+    if not isinstance(raw_archives, list):
+        return ["schema-v2 run_archives must be an array"]
+    problems: list[str] = []
+    for archive_index, archive in enumerate(raw_archives):
+        label = f"run_archives[{archive_index}]"
+        if not isinstance(archive, dict):
+            problems.append(f"{label} must be an object")
+            continue
+        for archive_field in (
+            "run_id",
+            "status",
+            "archived_at",
+            "snapshot_sha256",
+        ):
+            if not (
+                isinstance(archive.get(archive_field), str)
+                and archive[archive_field].strip()
+            ):
+                problems.append(f"{label} has no non-empty {archive_field!r}")
+        archived_snapshot = archive.get("snapshot")
+        if not isinstance(archived_snapshot, dict):
+            problems.append(f"{label} has no terminal snapshot object")
+            continue
+        if "run_archives" in archived_snapshot:
+            problems.append(
+                f"{label} snapshot must not recursively contain run_archives"
+            )
+        if archived_snapshot.get("status") not in {"completed", "aborted"}:
+            problems.append(f"{label} snapshot is not terminal")
+        if archive.get("run_id") != archived_snapshot.get("run_id"):
+            problems.append(f"{label} run_id differs from its snapshot")
+        if archive.get("status") != archived_snapshot.get("status"):
+            problems.append(f"{label} status differs from its snapshot")
+        if archive.get("snapshot_sha256") != _document_sha256(archived_snapshot):
+            problems.append(f"{label} terminal snapshot hash mismatch")
+
+        try:
+            from claude_kit import schemas
+
+            with ExitStack() as stack:
+                schema_errors = schemas.validate_doc(
+                    archived_snapshot, "pipeline-snapshot", stack
+                )
+        except (ModuleNotFoundError, OSError, ValueError) as exc:
+            problems.append(f"{label} snapshot schema could not be verified: {exc}")
+            schema_errors = []
+        problems.extend(
+            f"{label} snapshot schema invalid: {message}"
+            for message in schema_errors[:3]
+        )
+
+        from claude_kit.maker_checker import (
+            is_maker_checker_snapshot,
+            validate_maker_checker_snapshot,
+        )
+
+        if is_maker_checker_snapshot(archived_snapshot):
+            valid, validation_messages = validate_maker_checker_snapshot(
+                root,
+                archived_snapshot,
+                historical_terminal=True,
+            )
+            if not valid:
+                problems.extend(
+                    f"{label} {message.removeprefix('FAIL  ')}"
+                    for message in validation_messages
+                )
+        else:
+            if "snapshot_kind" in archived_snapshot:
+                problems.append(f"{label} has an unsupported snapshot_kind")
+            archived_version, archived_version_error = _snapshot_version(
+                archived_snapshot
+            )
+            if archived_version_error or archived_version != PIPELINE_SCHEMA_VERSION:
+                problems.append(
+                    f"{label} does not contain a supported schema-v2 snapshot"
+                )
+            archived_artifact_problem = _managed_archived_artifacts_problem(
+                root, archived_snapshot
+            )
+            if archived_artifact_problem:
+                problems.append(f"{label} {archived_artifact_problem}")
+    return problems
 
 
 def _findings_evidence_errors(
@@ -4248,6 +4341,26 @@ def resume(target: str | Path) -> tuple[bool, list[str]]:
     snap, err = _load_snapshot(target)
     if err:
         return False, [f"FAIL  {err}"]
+    from claude_kit.maker_checker import (
+        is_maker_checker_snapshot,
+        validate_maker_checker_snapshot,
+    )
+
+    if is_maker_checker_snapshot(snap):
+        if not isinstance(snap, dict) or snap.get("status") != "active":
+            return False, [
+                f"FAIL  maker-checker run {(snap or {}).get('run_id')!r} is terminal"
+            ]
+        ok, messages = validate_maker_checker_snapshot(
+            target, snap, verify_current_policy=True
+        )
+        if not ok:
+            return False, messages
+        return True, [
+            f"OK    maker-checker run {snap.get('run_id')} can resume at "
+            f"{snap.get('stage')}; use `ckit maker-checker run --resume "
+            f"{snap.get('run_id')}`"
+        ]
     run, identity, problem = _active_v2_run(target, snap)
     if problem or run is None or identity is None:
         return False, [f"FAIL  {problem or 'invalid run'}"]
@@ -4725,11 +4838,42 @@ def completed_stage_ids(target: str | Path) -> tuple[set[str], str | None]:
     raw = snap.get("stage_history", [])
     if not isinstance(raw, list) or any(not isinstance(item, dict) for item in raw):
         return set(), "stage_history must be an array of objects"
-    return {
-        str(item["stage"])
-        for item in raw
-        if item.get("status") == "succeeded" and isinstance(item.get("stage"), str)
-    }, None
+    completed: set[str] = set()
+    if isinstance(snap.get("managed_execution"), dict):
+        try:
+            fs = ProjectFS(Path(target).expanduser())
+            stages = {
+                str(item["stage"]) for item in raw if isinstance(item.get("stage"), str)
+            }
+            for stage in stages:
+                succeeded = [
+                    item
+                    for item in raw
+                    if item.get("stage") == stage and item.get("status") == "succeeded"
+                ]
+                advisory = [
+                    item
+                    for item in raw
+                    if item.get("stage") == stage
+                    and _is_managed_advisory_planning_record(fs, snap, item)
+                ]
+                if len(succeeded) == 1 and not advisory:
+                    completed.add(stage)
+                elif len(advisory) == 1 and not succeeded:
+                    completed.add(stage)
+                elif succeeded or advisory:
+                    return set(), (
+                        f"managed stage {stage!r} has conflicting terminal records"
+                    )
+        except (OSError, UnsafePathError, ValueError) as exc:
+            return set(), f"cannot authenticate completed managed stages: {exc}"
+    else:
+        completed.update(
+            str(item["stage"])
+            for item in raw
+            if item.get("status") == "succeeded" and isinstance(item.get("stage"), str)
+        )
+    return completed, None
 
 
 def workflow_condition_decisions(
@@ -6244,6 +6388,78 @@ def _managed_stage_evidence_problem(
     return None, findings, counts
 
 
+def _is_managed_advisory_planning_record(
+    fs: ProjectFS, run: Mapping[str, Any], record: Mapping[str, Any]
+) -> bool:
+    """Authenticate a coordinator-settled planning-panel FAIL observation."""
+
+    contract = run.get("managed_execution")
+    stage = record.get("stage")
+    if not isinstance(contract, dict) or not isinstance(stage, str):
+        return False
+    stage_map = contract.get("active_stage_evidence")
+    if (
+        record.get("status") != "failed"
+        or record.get("error") != MANAGED_ADVISORY_PLANNING_FAILURE
+        or not isinstance(stage_map, dict)
+        or stage_map.get(stage) != ["planning-review-verdict"]
+    ):
+        return False
+    dispatch_id = record.get("dispatch_id")
+    dispatch_attempt = record.get("dispatch_attempt")
+    output_sha256 = record.get("output_sha256")
+    if (
+        not isinstance(dispatch_id, str)
+        or not isinstance(dispatch_attempt, int)
+        or isinstance(dispatch_attempt, bool)
+        or not isinstance(output_sha256, str)
+    ):
+        return False
+    problem, findings, counts = _managed_stage_evidence_problem(
+        fs,
+        run,
+        stage=stage,
+        dispatch_id=dispatch_id,
+        dispatch_attempt=dispatch_attempt,
+        output_sha256=output_sha256,
+        records=record.get("evidence_records"),
+        require_pass=False,
+    )
+    evidence_records = record.get("evidence_records")
+    if (
+        problem is not None
+        or not isinstance(evidence_records, list)
+        or len(evidence_records) != 1
+        or not isinstance(evidence_records[0], dict)
+    ):
+        return False
+    artifact_path = evidence_records[0].get("artifact_path")
+    if not isinstance(artifact_path, str):
+        return False
+    try:
+        payload, _digest, _size = _read_managed_file_bounded(
+            fs,
+            artifact_path,
+            maximum_bytes=MAX_EVIDENCE_ENVELOPE_BYTES,
+        )
+        payload_document = json.loads(payload)
+    except (
+        FileNotFoundError,
+        OSError,
+        UnsafePathError,
+        UnicodeDecodeError,
+        ValueError,
+        json.JSONDecodeError,
+    ):
+        return False
+    return (
+        record.get("findings") == findings
+        and record.get("finding_counts") == counts
+        and isinstance(payload_document, dict)
+        and str(payload_document.get("status", "")).strip().lower() == "fail"
+    )
+
+
 def _write_private_content_addressed_json(
     fs: ProjectFS, relative: str, document: Mapping[str, Any]
 ) -> tuple[str, str]:
@@ -6426,7 +6642,13 @@ def _managed_gate_finding_projection(
     list[dict[str, Any]],
     str | None,
 ]:
-    """Aggregate findings over the owner's exact active dependency closure."""
+    """Project gate findings over the owner's exact active dependency closure.
+
+    Most gate owners aggregate every observation in that closure.  A planning
+    decision is different: its owner is the accountable adjudicator, so the
+    dependency records remain digest-bound contributors while only unresolved
+    findings in the owner's final decision become gate blockers.
+    """
 
     owner, _owner_findings, _owner_counts, owner_problem = _managed_owner_evidence(
         fs, run, gate
@@ -6452,6 +6674,12 @@ def _managed_gate_finding_projection(
     if not isinstance(owner_stage, str) or owner_stage not in active:
         return None, [], empty_counts, [], "managed gate owner is outside the graph"
     active_set = set(active)
+    owner_records = owner.get("evidence_records")
+    owner_is_planning_decision = isinstance(owner_records, list) and any(
+        isinstance(record, Mapping)
+        and record.get("validation_profile") == "planning-decision"
+        for record in owner_records
+    )
     closure = {owner_stage}
     pending = [owner_stage]
     while pending:
@@ -6511,7 +6739,19 @@ def _managed_gate_finding_projection(
                     "evidence_set": evidence_set,
                 }
             )
+            is_authoritative_owner_record = (
+                stage == owner_stage
+                and record.get("dispatch_id") == owner.get("dispatch_id")
+                and record.get("dispatch_attempt") == owner.get("dispatch_attempt")
+                and record.get("attempt") == owner.get("attempt")
+            )
             for finding in record_findings:
+                if owner_is_planning_decision and (
+                    not is_authoritative_owner_record
+                    or finding.get("disposition")
+                    not in {"open", "disputed", "human-required"}
+                ):
+                    continue
                 finding_id = str(finding["finding_id"])
                 prior = findings_by_id.get(finding_id)
                 if prior is None:
@@ -8368,9 +8608,29 @@ def claim_stage(
                     skipped_records = [
                         item for item in skips if item.get("stage") == dependency
                     ]
-                    if len(successful) == 1 and not skipped_records:
+                    advisory_failures = [
+                        item
+                        for item in history
+                        if item.get("stage") == dependency
+                        and _is_managed_advisory_planning_record(fs, run, item)
+                    ]
+                    if (
+                        len(successful) == 1
+                        and not advisory_failures
+                        and not skipped_records
+                    ):
                         continue
-                    if len(skipped_records) == 1 and not successful:
+                    if (
+                        len(advisory_failures) == 1
+                        and not successful
+                        and not skipped_records
+                    ):
+                        continue
+                    if (
+                        len(skipped_records) == 1
+                        and not successful
+                        and not advisory_failures
+                    ):
                         skip_problem = _managed_skip_attestation_problem(
                             run, skipped_records[0]
                         )
@@ -9556,7 +9816,9 @@ def _managed_archived_artifacts_problem(
     return None
 
 
-def _managed_stage_state_projection(run: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _managed_stage_state_projection(
+    fs: ProjectFS, run: Mapping[str, Any]
+) -> list[dict[str, Any]]:
     contract = cast(Mapping[str, Any], run.get("managed_execution") or {})
     active = contract.get("active_stages", [])
     history = run.get("stage_history", [])
@@ -9571,13 +9833,22 @@ def _managed_stage_state_projection(run: Mapping[str, Any]) -> list[dict[str, An
             and item.get("stage") == stage
             and item.get("status") == "succeeded"
         ]
+        advisory_failures = [
+            item
+            for item in history
+            if isinstance(history, list)
+            if isinstance(item, dict)
+            and item.get("stage") == stage
+            and _is_managed_advisory_planning_record(fs, run, item)
+        ]
         skipped = [
             item
             for item in skips
             if isinstance(skips, list)
             if isinstance(item, dict) and item.get("stage") == stage
         ]
-        if len(succeeded) == 1 and not skipped:
+        settled = succeeded or advisory_failures
+        if len(succeeded) == 1 and not advisory_failures and not skipped:
             projection.append(
                 {
                     "stage": stage,
@@ -9600,7 +9871,29 @@ def _managed_stage_state_projection(run: Mapping[str, Any]) -> list[dict[str, An
                     ).get("content_digest"),
                 }
             )
-        elif len(skipped) == 1 and not succeeded:
+        elif len(advisory_failures) == 1 and not succeeded and not skipped:
+            advisory = advisory_failures[0]
+            projection.append(
+                {
+                    "stage": stage,
+                    "status": "advisory-fail",
+                    "dispatch_id": advisory.get("dispatch_id"),
+                    "dispatch_attempt": advisory.get("dispatch_attempt"),
+                    "output_artifact_sha256": advisory.get("output_artifact_sha256"),
+                    "evidence_set_digest": hashlib.sha256(
+                        json.dumps(
+                            advisory.get("evidence_records", []),
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ).encode("utf-8")
+                    ).hexdigest(),
+                    "finding_counts": advisory.get("finding_counts"),
+                    "workspace_content_digest": (
+                        advisory.get("workspace_checkpoint") or {}
+                    ).get("content_digest"),
+                }
+            )
+        elif len(skipped) == 1 and not settled:
             projection.append(
                 {
                     "stage": stage,
@@ -9616,9 +9909,9 @@ def _managed_stage_state_projection(run: Mapping[str, Any]) -> list[dict[str, An
     return projection
 
 
-def _managed_completion_digest(run: Mapping[str, Any]) -> str:
+def _managed_completion_digest(fs: ProjectFS, run: Mapping[str, Any]) -> str:
     encoded = json.dumps(
-        _managed_stage_state_projection(run),
+        _managed_stage_state_projection(fs, run),
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
@@ -9627,7 +9920,10 @@ def _managed_completion_digest(run: Mapping[str, Any]) -> str:
 
 
 def _managed_completion_problem(
-    run: Mapping[str, Any], *, current: WorkspaceCheckpoint | None = None
+    fs: ProjectFS,
+    run: Mapping[str, Any],
+    *,
+    current: WorkspaceCheckpoint | None = None,
 ) -> str | None:
     contract = run.get("managed_execution")
     if contract is None:
@@ -9637,7 +9933,7 @@ def _managed_completion_problem(
     active = contract.get("active_stages")
     if not isinstance(active, list) or not active:
         return "managed workflow has no frozen active stage set"
-    projection = _managed_stage_state_projection(run)
+    projection = _managed_stage_state_projection(fs, run)
     unsettled = [
         str(item.get("stage")) for item in projection if item["status"] == "unsettled"
     ]
@@ -9652,7 +9948,7 @@ def _managed_completion_problem(
         return "managed completion belongs to a different workflow definition"
     if attestation.get("active_stages") != active:
         return "managed completion stage set differs from the frozen graph"
-    if attestation.get("stage_state_digest") != _managed_completion_digest(run):
+    if attestation.get("stage_state_digest") != _managed_completion_digest(fs, run):
         return "managed completion stage-state digest is invalid"
     raw_checkpoint = attestation.get("workspace_checkpoint")
     try:
@@ -9727,7 +10023,7 @@ def attest_managed_workflow_completion(
                     "FAIL  cannot attest workflow completion with unresolved gates: "
                     + ", ".join(unresolved)
                 ]
-            projection = _managed_stage_state_projection(run)
+            projection = _managed_stage_state_projection(fs, run)
             unsettled = [
                 str(item["stage"])
                 for item in projection
@@ -9742,7 +10038,7 @@ def attest_managed_workflow_completion(
                 "schema_version": 1,
                 "workflow_definition_digest": contract["workflow_definition_digest"],
                 "active_stages": list(active_stages),
-                "stage_state_digest": _managed_completion_digest(run),
+                "stage_state_digest": _managed_completion_digest(fs, run),
                 "workspace_checkpoint": current.to_dict(),
                 "attested_at": _utc_now(),
                 "repository_commit": identity["commit"],
@@ -9818,6 +10114,20 @@ def validate(
         if ok:
             msgs.append("OK    no pipeline snapshot — no run in progress")
         return ok, msgs
+
+    from claude_kit.maker_checker import (
+        is_maker_checker_snapshot,
+        validate_maker_checker_snapshot,
+    )
+
+    if is_maker_checker_snapshot(snap):
+        maker_ok, maker_messages = validate_maker_checker_snapshot(
+            root,
+            snap,
+            verify_current_policy=strict and snap.get("status") == "active",
+            historical_terminal=_historical_terminal,
+        )
+        return ok and maker_ok, [*msgs, *maker_messages]
 
     version, version_error = _snapshot_version(snap)
     if version_error:
@@ -10007,50 +10317,10 @@ def validate(
             )
         elif adoption not in (None, {}):
             fail("fresh run must not contain adoption metadata")
-        raw_archives = snap.get("run_archives", [])
-        if not isinstance(raw_archives, list):
-            fail("schema-v2 run_archives must be an array")
-            raw_archives = []
-        for archive_index, archive in enumerate(raw_archives):
-            label = f"run_archives[{archive_index}]"
-            if not isinstance(archive, dict):
-                fail(f"{label} must be an object")
-                continue
-            for archive_field in (
-                "run_id",
-                "status",
-                "archived_at",
-                "snapshot_sha256",
-            ):
-                if not (
-                    isinstance(archive.get(archive_field), str)
-                    and archive[archive_field].strip()
-                ):
-                    fail(f"{label} has no non-empty {archive_field!r}")
-            archived_snapshot = archive.get("snapshot")
-            if not isinstance(archived_snapshot, dict):
-                fail(f"{label} has no terminal snapshot object")
-                continue
-            if "run_archives" in archived_snapshot:
-                fail(f"{label} snapshot must not recursively contain run_archives")
-            archived_version, archived_version_error = _snapshot_version(
-                archived_snapshot
-            )
-            if archived_version_error or archived_version != PIPELINE_SCHEMA_VERSION:
-                fail(f"{label} does not contain a supported schema-v2 snapshot")
-            if archived_snapshot.get("status") not in {"completed", "aborted"}:
-                fail(f"{label} snapshot is not terminal")
-            if archive.get("run_id") != archived_snapshot.get("run_id"):
-                fail(f"{label} run_id differs from its snapshot")
-            if archive.get("status") != archived_snapshot.get("status"):
-                fail(f"{label} status differs from its snapshot")
-            if archive.get("snapshot_sha256") != _document_sha256(archived_snapshot):
-                fail(f"{label} terminal snapshot hash mismatch")
-            archived_artifact_problem = _managed_archived_artifacts_problem(
-                root, archived_snapshot
-            )
-            if archived_artifact_problem:
-                fail(f"{label} {archived_artifact_problem}")
+        for archive_problem in _run_archive_problems(
+            root, snap.get("run_archives", [])
+        ):
+            fail(archive_problem)
         root_identity, identity_error = _git_identity(root)
         if identity_error or root_identity is None:
             fail(identity_error or "cannot establish repository identity")
@@ -10178,6 +10448,13 @@ def validate(
         completed_stages: set[str] = set()
         running_stages: set[str] = set()
         unresolved_typed_failures: set[str] = set()
+        managed_fs = ProjectFS(root)
+        advisory_record_indexes = {
+            index
+            for index, record in enumerate(stage_records)
+            if isinstance(managed_contract, dict)
+            and _is_managed_advisory_planning_record(managed_fs, snap, record)
+        }
         for index, record in enumerate(stage_records):
             label = f"stage_history[{index}]"
             for field in (
@@ -10200,6 +10477,12 @@ def validate(
             status = record.get("status")
             if status not in STAGE_STATUSES:
                 fail(f"{label} has unsupported status {status!r}")
+            is_advisory_failure = index in advisory_record_indexes
+            if (
+                record.get("error") == MANAGED_ADVISORY_PLANNING_FAILURE
+                and not is_advisory_failure
+            ):
+                fail(f"{label} has an invalid managed planning advisory marker")
             if stage_name in unresolved_typed_failures:
                 fail(
                     f"{label} occurs after unresolved typed evidence failed for "
@@ -10335,6 +10618,14 @@ def validate(
                             and isinstance(item.get("completed_at"), str)
                             and str(item["completed_at"]) <= started_at
                         ]
+                        dependency_advisories = [
+                            item
+                            for prior_index, item in enumerate(stage_records[:index])
+                            if prior_index in advisory_record_indexes
+                            and item.get("stage") == dependency
+                            and isinstance(item.get("completed_at"), str)
+                            and str(item["completed_at"]) <= started_at
+                        ]
                         dependency_skips = [
                             item
                             for item in skip_records_for_dependencies
@@ -10342,17 +10633,22 @@ def validate(
                             and isinstance(item.get("attested_at"), str)
                             and str(item["attested_at"]) <= started_at
                         ]
-                        if (len(dependency_successes), len(dependency_skips)) not in {
-                            (1, 0),
-                            (0, 1),
+                        if (
+                            len(dependency_successes),
+                            len(dependency_advisories),
+                            len(dependency_skips),
+                        ) not in {
+                            (1, 0, 0),
+                            (0, 1, 0),
+                            (0, 0, 1),
                         }:
                             fail(
                                 f"{label} was claimed before dependency "
                                 f"{dependency!r} settled"
                             )
             if stage_name in completed_stages:
-                fail(f"{label} occurs after stage {stage_name!r} already succeeded")
-            if status == "succeeded":
+                fail(f"{label} occurs after stage {stage_name!r} already settled")
+            if status == "succeeded" or is_advisory_failure:
                 completed_stages.add(stage_name)
             if status == "running":
                 if stage_name in running_stages:
@@ -10451,7 +10747,7 @@ def validate(
                             fail(f"{label} finding index differs from typed evidence")
                         if record.get("finding_counts") != derived_counts:
                             fail(f"{label} finding counts differ from typed evidence")
-                        if status != "succeeded":
+                        if status != "succeeded" and not is_advisory_failure:
                             unresolved_typed_failures.add(stage_name)
                     elif (
                         typed_contract
@@ -10487,7 +10783,7 @@ def validate(
                 if stage_name in seen_skips:
                     fail(f"stage {stage_name!r} has duplicate skip attestations")
                 if stage_name in completed_stages:
-                    fail(f"stage {stage_name!r} is both succeeded and skipped")
+                    fail(f"stage {stage_name!r} is both settled and skipped")
                 seen_skips.add(stage_name)
 
         if snap.get("managed_execution") is not None:
@@ -10503,7 +10799,7 @@ def validate(
                     )
                 else:
                     completion_problem = _managed_completion_problem(
-                        snap, current=current_checkpoint
+                        ProjectFS(root), snap, current=current_checkpoint
                     )
                     if completion_problem:
                         fail(completion_problem)
@@ -11074,6 +11370,65 @@ def status(target: str | Path) -> tuple[bool, list[str]]:
         return False, [f"FAIL  {err}"]
     if snap is None:
         return True, ["no pipeline run in progress (no snapshot)"]
+
+    from claude_kit.maker_checker import is_maker_checker_snapshot
+
+    if is_maker_checker_snapshot(snap):
+        state = snap.get("maker_checker")
+        state = state if isinstance(state, dict) else {}
+        bindings = state.get("bindings")
+        bindings = bindings if isinstance(bindings, dict) else {}
+        maker_msgs = [
+            f"run:     {snap.get('run_id', '(none)')}   status: {snap.get('status', '?')}",
+            "type:    maker-checker",
+            f"task:    {snap.get('task', '(none)')}",
+            f"kind:    {snap.get('kind', '?')}",
+            f"stage:   {snap.get('stage', '(none)')}",
+            f"iteration: {state.get('iteration', '?')} / "
+            f"{(state.get('max_revisions', 0) + 1) if isinstance(state.get('max_revisions'), int) else '?'}",
+        ]
+        for slot in ("maker", "reviewer"):
+            binding = bindings.get(slot)
+            if isinstance(binding, dict):
+                maker_msgs.append(
+                    f"{slot}: {binding.get('provider', '?')} / "
+                    f"{binding.get('requested_model') or '(provider default)'}"
+                )
+        artifact = state.get("artifact")
+        if isinstance(artifact, dict):
+            maker_msgs.append(
+                f"artifact: {artifact.get('path', '?')} "
+                f"(sha256 {str(artifact.get('digest', ''))[:12]}…)"
+            )
+        human_stop = snap.get("human_stop")
+        if isinstance(human_stop, dict):
+            maker_msgs.append(
+                f"human stop: {human_stop.get('reason', '?')} — "
+                f"{human_stop.get('message', '?')}"
+            )
+        unsafe_dispatch = state.get("unsafe_dispatch")
+        if isinstance(unsafe_dispatch, dict):
+            maker_msgs.append(
+                "unsafe dispatch: "
+                f"{unsafe_dispatch.get('attempt_id', '?')} / "
+                f"{unsafe_dispatch.get('route', '?')} / host "
+                f"{unsafe_dispatch.get('dispatch_id', '?')}#"
+                f"{unsafe_dispatch.get('dispatch_attempt', '?')}"
+            )
+            maker_msgs.append(
+                "reconcile: ckit maker-checker confirm-terminated . "
+                f"--run-id {snap.get('run_id', '?')} "
+                f"--attempt-id {unsafe_dispatch.get('attempt_id', '?')} "
+                f"--route {unsafe_dispatch.get('route', '?')} "
+                f"--dispatch-id {unsafe_dispatch.get('dispatch_id', '?')} "
+                f"--dispatch-attempt {unsafe_dispatch.get('dispatch_attempt', '?')} "
+                "--evidence 'DESCRIBE VERIFIED TERMINATION'"
+            )
+        archives = snap.get("run_archives")
+        if isinstance(archives, list) and archives:
+            maker_msgs.append(f"archived terminal runs: {len(archives)}")
+        maker_msgs.append(f"next:    {snap.get('next', '(none)')}")
+        return True, maker_msgs
 
     version, version_error = _snapshot_version(snap)
     msgs: list[str] = []
@@ -12420,7 +12775,7 @@ def complete(target: str | Path) -> tuple[bool, list[str]]:
                         f"FAIL  {workspace_problem or 'managed workspace checkpoint missing'}"
                     ]
                 completion_problem = _managed_completion_problem(
-                    run, current=current_checkpoint
+                    ProjectFS(root), run, current=current_checkpoint
                 )
                 if completion_problem:
                     return False, [f"FAIL  {completion_problem}"]
@@ -12479,7 +12834,10 @@ def complete(target: str | Path) -> tuple[bool, list[str]]:
 
 
 def _abort_under_managed_lease(
-    target: str | Path, *, coordinator_token: str | None = None
+    target: str | Path,
+    *,
+    coordinator_token: str | None = None,
+    _project_lease_held: bool = False,
 ) -> tuple[bool, list[str]]:
     """Mark an explicit schema-v2 run aborted; abort is terminal."""
     msgs: list[str] = []
@@ -12490,6 +12848,28 @@ def _abort_under_managed_lease(
         return False, [f"FAIL  unsafe pipeline state path: {exc}"]
     if not snap_path.is_file():
         return True, ["OK    no pipeline run in progress — nothing to abort"]
+    preflight, preflight_error = _load_snapshot(target)
+    if preflight_error:
+        return False, [f"FAIL  {preflight_error}"]
+    from claude_kit.maker_checker import (
+        MakerCheckerError,
+        abort_maker_checker_run,
+        is_maker_checker_snapshot,
+    )
+
+    if is_maker_checker_snapshot(preflight):
+        assert isinstance(preflight, dict)
+        try:
+            result = abort_maker_checker_run(
+                target,
+                run_id=str(preflight.get("run_id")),
+                _managed_lease_held=True,
+            )
+        except MakerCheckerError as exc:
+            return False, [f"FAIL  {exc}"]
+        return True, [
+            f"OK    maker-checker run {result.run_id} marked aborted; terminal result persisted"
+        ]
     aborted_run_id: str | None = None
     try:
         with _pipeline_write_lock(fs, snap_path, msgs=msgs):
@@ -12498,6 +12878,10 @@ def _abort_under_managed_lease(
                 return False, [f"FAIL  {err}"]
             if snap is None:
                 return True, ["OK    no pipeline run in progress — nothing to abort"]
+            if is_maker_checker_snapshot(snap):
+                return False, [
+                    "FAIL  pipeline snapshot changed to maker-checker during abort; retry"
+                ]
             run, identity, problem = _active_v2_run(
                 target, snap, allow_pending_human_stop=True
             )
@@ -12527,7 +12911,11 @@ def _abort_under_managed_lease(
             try:
                 from claude_kit.worktrees import WorktreeManager
 
-                workers = WorktreeManager(target).abort_run(aborted_run_id)
+                workers = WorktreeManager(target).abort_run(
+                    aborted_run_id,
+                    _managed_lease_held=True,
+                    _project_lease_held=_project_lease_held,
+                )
             except (OSError, ValueError, RuntimeError) as exc:
                 msgs.append(
                     "WARN  pipeline is aborted but run-owned worktree state could not be "
@@ -12556,9 +12944,12 @@ def abort(
     )
 
     try:
-        with managed_execution_lease(Path(target).expanduser().resolve(strict=True)):
+        fs = ProjectFS(Path(target).expanduser())
+        with managed_execution_lease(fs.root), fs.mutation_lease():
             return _abort_under_managed_lease(
-                target, coordinator_token=coordinator_token
+                fs.root,
+                coordinator_token=coordinator_token,
+                _project_lease_held=True,
             )
     except ManagedExecutionLeaseHeld:
         return False, [

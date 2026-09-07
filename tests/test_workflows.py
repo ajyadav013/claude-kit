@@ -52,9 +52,29 @@ def test_real_workflow_loads_with_all_orchestration_dimensions(payload: Path) ->
     assert {mode.code for mode in workflow.modes.values()} == {"A", "B", "C", "D", "E"}
     assert workflow.modes["fast-track"].gate_policy is GatePolicy.SUBSET
     assert workflow.modes["fast-track"].gates == ("code-review", "build-green")
+    assert workflow.modes["fast-track"].triggers == (
+        "localized-single-boundary",
+        "low-risk",
+        "reversible",
+        "no-sensitive-or-public-contract-surface",
+    )
+    assert workflow.modes["fast-track"].stages[0] == "fast-track-classify"
+    assert "classify" not in workflow.modes["fast-track"].stages
     assert workflow.modes["fast-track"].stages[-2:] == (
         "fast-pull-request-prepare",
         "fast-pull-request",
+    )
+    fast_classify = workflow.stage_by_id["fast-track-classify"]
+    assert fast_classify.route == "classification"
+    assert fast_classify.evidence == ("fast-track-scope-record",)
+    assert workflow.stage_by_id["fast-implementation"].depends_on == (
+        "fast-track-classify",
+    )
+    assert workflow.evidence_requirements["scope-record"].required_fields == (
+        "mode",
+        "surfaces",
+        "constraints",
+        "risks",
     )
     assert workflow.modes["program"].program is not None
     program = workflow.modes["program"].program
@@ -63,13 +83,14 @@ def test_real_workflow_loads_with_all_orchestration_dimensions(payload: Path) ->
     assert program.irreversible_always
     assert [wave.order for wave in program.waves] == list(range(len(program.waves)))
     assert {
-        "planning-lanes",
+        "planning-review-panel",
         "implementation-lanes",
         "testing-lanes",
         "security-scanners",
     } == set(workflow.parallel_groups)
     assert workflow.retry_budgets["implementation"].max_defect_cycles == 2
-    assert workflow.retry_budgets["review"].max_feedback_iterations == 5
+    assert workflow.retry_budgets["planning"].max_feedback_iterations == 1
+    assert workflow.retry_budgets["review"].max_feedback_iterations == 2
     assert workflow.findings_policy.blocking_severities == (
         "critical",
         "high",
@@ -90,6 +111,135 @@ def test_real_workflow_loads_with_all_orchestration_dimensions(payload: Path) ->
         assert prepare.execution_kind is StageExecutionKind.NATIVE_ROLE
         assert prepare.action_kind is None
         assert prepare.route == "pull-request-prepare"
+
+
+def test_planning_review_panel_is_one_bounded_read_only_fanout(
+    payload: Path,
+) -> None:
+    workflow = load_workflow(payload)
+    stage_by_id = workflow.stage_by_id
+    panel = workflow.parallel_groups["planning-review-panel"]
+    reviewer_stage_ids = (
+        "frontend-review",
+        "backend-review",
+        "architecture-review",
+        "plan-critique",
+    )
+
+    assert panel.fork_after == "planning-gate"
+    assert panel.join_before == "planning-merge"
+    assert panel.concurrency == "read-only-fanout"
+    assert all(len(lane.stages) == 1 for lane in panel.lanes)
+    assert (
+        tuple(stage_id for lane in panel.lanes for stage_id in lane.stages)
+        == reviewer_stage_ids
+    )
+
+    for stage_id in reviewer_stage_ids:
+        stage = stage_by_id[stage_id]
+        assert stage.phase == "planning"
+        assert stage.depends_on == ("planning-gate",)
+        assert stage.parallel_group == panel.id
+        assert stage.evidence == ("planning-review-verdict",)
+
+    removed_serial_stage_ids = {
+        "frontend-architecture",
+        "frontend-management-review",
+        "backend-architecture",
+        "backend-management-review",
+    }
+    assert removed_serial_stage_ids.isdisjoint(stage_by_id)
+
+    planning_management_stages = tuple(
+        stage.id
+        for stage in workflow.stages
+        if stage.phase == "planning" and stage.route == "management-review"
+    )
+    assert planning_management_stages == ("planning-merge",)
+    planning_merge = stage_by_id["planning-merge"]
+    assert planning_merge.evidence == ("architecture-plan", "planning-decision")
+    assert workflow.gates["em-approved"].evidence == (
+        "architecture-plan",
+        "planning-decision",
+    )
+    assert "planning-gate" in planning_merge.depends_on
+    assert stage_by_id["story-planning"].evidence == (
+        "architecture-plan",
+        "story-breakdown",
+    )
+    effective_merge_dependencies = set(planning_merge.depends_on)
+    effective_merge_dependencies.update(lane.stages[-1] for lane in panel.lanes)
+    assert effective_merge_dependencies == {"planning-gate"} | set(reviewer_stage_ids)
+
+    enabled_mode_codes = {
+        mode.code
+        for mode in workflow.modes.values()
+        if panel.id in mode.parallel_groups
+    }
+    assert enabled_mode_codes == {"A", "B", "C"}
+    program_mode = workflow.modes["program"]
+    assert program_mode.parallel_groups == ()
+    assert "program manifest" in program_mode.description
+
+
+def test_planning_devils_advocate_is_never_dispatched_twice(payload: Path) -> None:
+    quality_gates = (
+        payload / "canonical" / "rules" / "core" / "quality-gates.md"
+    ).read_text(encoding="utf-8")
+    sdlc = (payload / "canonical" / "skills" / "core" / "sdlc.md").read_text(
+        encoding="utf-8"
+    )
+    devils_advocate = (
+        payload / "canonical" / "agents" / "core" / "devils-advocate.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Do not dispatch a second post-unanimity adversarial pass" in quality_gates
+    assert "planning panel's conditional Devil's Advocate" in sdlc
+    assert "never dispatch it again after the panel" in sdlc
+    assert "never run a second adversarial" in devils_advocate
+
+
+def test_full_stack_planning_topology_has_at_most_six_batches_after_classify(
+    payload: Path,
+) -> None:
+    workflow = load_workflow(payload)
+    full_stack = next(mode for mode in workflow.modes.values() if mode.code == "B")
+    selected_stage_ids = (
+        set(workflow.stage_by_id) if full_stack.all_stages else set(full_stack.stages)
+    )
+    planning_stage_ids = {
+        stage.id
+        for stage in workflow.stages
+        if stage.id in selected_stage_ids and stage.phase == "planning"
+    }
+    implicit_dependencies: dict[str, set[str]] = {}
+    for group_id in full_stack.parallel_groups:
+        group = workflow.parallel_groups[group_id]
+        implicit_dependencies.setdefault(group.join_before, set()).update(
+            lane.stages[-1] for lane in group.lanes
+        )
+
+    batch_by_stage: dict[str, int] = {"classify": 0}
+    visiting: set[str] = set()
+
+    def batch_for(stage_id: str) -> int:
+        if stage_id in batch_by_stage:
+            return batch_by_stage[stage_id]
+        assert stage_id in planning_stage_ids
+        assert stage_id not in visiting
+        visiting.add(stage_id)
+        stage = workflow.stage_by_id[stage_id]
+        dependencies = set(stage.depends_on)
+        dependencies.update(implicit_dependencies.get(stage_id, set()))
+        assert dependencies.issubset(planning_stage_ids | {"classify"})
+        batch = 1 + max((batch_for(item) for item in dependencies), default=0)
+        visiting.remove(stage_id)
+        batch_by_stage[stage_id] = batch
+        return batch
+
+    planning_batches = max(batch_for(stage_id) for stage_id in planning_stage_ids)
+
+    assert planning_batches <= 6, batch_by_stage
 
 
 @pytest.mark.parametrize("profile", ["lean", "standard", "enterprise"])

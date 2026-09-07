@@ -83,6 +83,55 @@ part of the design. If one of these is a blocker for you, that's useful signal �
 - See [runtime support](runtime-support.md) for every Native / Adapted / Degraded / Unsupported label
   and the promotion gates.
 
+## Maker–checker is bounded orchestration, not arbitrary model brokerage
+
+- A pair can use only the concrete Claude Code and/or Codex providers installed for that project.
+  It does not accept arbitrary API endpoints, credentials, prompts, tools, or a third provider in
+  project configuration. A cross-provider pair requires a `both` scaffold; any Codex role inherits
+  the Codex Preview status above.
+- A run sends its task, artifact context, and a bounded coordinator projection of Git-tracked UTF-8
+  source to the configured providers. Control/generated/sensitive paths, nested or case-variant
+  instruction files, symlinks, and non-text files are withheld; secret-shaped values inside
+  included text are heuristically redacted. Redaction is not a proof that every secret was found,
+  so treat the projection as sensitive and do not choose a cross-provider pair when this data flow
+  violates the project's privacy or residency policy. Configuration inspection, validation,
+  doctor, and probe send neither the task nor projection to a model. The coordinator's separate
+  all-path mutation checkpoint remains local; it never sends a digest derived from withheld bytes
+  to a provider.
+- `ckit maker-checker probe` is intentionally non-inferential. It checks the stored policy,
+  executable path, and compatible `--version`; it does not prove authentication, model existence,
+  entitlement, quota, supported hardening flags, or a successful provider call. An exact ID or host
+  may therefore configure and probe successfully but fail when the native role launches.
+- The maker and reviewer are passive semantic read/search roles, but the built-in native processes
+  receive the projection instead of local tools. Claude uses the audited safe-mode, empty-tool,
+  disabled-slash-command path; Codex keeps its exact-pinned passive lockdown. Eligible non-ignored
+  untracked text, Git ambiguity, races, decode errors, or projection bounds fail before launch. For
+  code, the maker emits a bounded unified diff and the trusted coordinator applies it only in a
+  run-owned worktree after rejecting protected paths, binary/rename/delete/mode metadata, symlinks,
+  and other unsafe shapes. The main checkout is unchanged and the worktree is never auto-merged.
+- The built-in deterministic evidence is artifact non-emptiness plus `git diff --check` for code.
+  It does not run project tests, lint, type checks, builds, render checks, accessibility checks, or
+  link validation. A reviewer PASS means the current artifact satisfied the frozen bounded contract
+  and supplied evidence; it is not release or merge evidence.
+- `auto` refuses an ambiguous task instead of guessing the artifact kind. The same provider/model
+  may fill both roles, but the CLI warns about reduced independence. Unchanged revisions, disputed
+  findings, stale digests, malformed output, timeouts, unsafe scope, and exhausted revision budgets
+  are human stops rather than implicit success.
+- Maker–checker and `/sdlc` cannot run concurrently because they deliberately share one pipeline
+  snapshot. Resume requires the exact active run ID and frozen task/kind, and refuses artifact or
+  worktree drift. Reconfiguring or disabling the pair does not rewrite or terminate an active run;
+  resume keeps its frozen bindings despite later catalog changes, while `ckit pipeline abort .`
+  records an explicit terminal operator-aborted result. Completed and human-stop runs do not resume.
+- If the coordinator loses authoritative ownership of a partially started, cancelled, or retried
+  native worker, it cannot prove termination automatically. Resume, abort, provider removal, and a
+  replacement dispatch remain blocked until an operator independently verifies the exact host
+  dispatch is terminated and records the matching identities/evidence with `ckit maker-checker
+  confirm-terminated`. The confirmation command records proof; it does not kill or inspect a host
+  process.
+- The static plugins expose the explicit skill but cannot create or configure the shared `.ckit`
+  state needed to run it. Use the project scaffolder first. Details and examples are in the
+  [maker–checker guide](maker-checker.md).
+
 ## Learning capture reads session content (when enabled)
 
 - With `capture_mode` enabled (**off by default since 0.76.0** — it turns on only when you choose a

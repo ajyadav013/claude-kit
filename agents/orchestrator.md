@@ -108,29 +108,15 @@ Human PRD
   ├──────────────────────────────────────────────────────────────┘
   │
   ▼
-┌─────── FORK POINT 1 (if full-stack) ────────────────────────┐
-│                                                              │
-│  LANE A — FRONTEND                  LANE B — BACKEND         │
-│                                                              │
-│  [3a-FE] Senior Frontend Dev        [3a-BE] Senior Backend   │
-│    reviews spec + design spec         reviews spec           │
-│    ↕ revision loop (max 3)            ↕ revision loop (max 3)│
-│                                                              │
-│  [3b-FE] Technical Architect        [3b-BE] Technical        │
-│    reviews frontend architecture      Architect reviews       │
-│    ↕ revision loop (max 3)            backend architecture    │
-│                                       ↕ revision loop (max 3)│
-│                                                              │
-│  [3c-FE] EM Review                  [3c-BE] EM Review        │
-│    ↕ revision loop (max 3)            ↕ revision loop (max 3)│
-│                                                              │
-└─────── JOIN POINT 1 ─── wait for both ──────────────────────┘
+┌─────── FORK POINT 1 — FROZEN, BLIND, READ-ONLY ─────────────┐
+│  [3a-FE] Senior Frontend Reviewer (when frontend applies)    │
+│  [3a-BE] Senior Backend Reviewer  (when backend applies)     │
+│  [3b]    Technical Architect                                 │
+│  [PC]    Devil's Advocate (standard+; risk/uncertainty only) │
+└─────── JOIN POINT 1 ─── wait once, de-duplicate ─────────────┘
   │
   ▼
-[MR1] Merge Reviewer ──── verifies spec consistency across lanes
-  │
-  ▼
-[PC]  Devil's Advocate ── plan critique on spec + dev docs before approval is final (standard+)
+[3c]  EM Reviewer ─────── one consolidated decision; at most one revision/recheck
   │
   ▼
 [SP]  Story Planner ───── decomposes spec into ordered stories + verifies every
@@ -148,8 +134,8 @@ Human PRD
 │                                                              │
 │  [4b-FE] SDLC Code Reviewer        [4b-BE] SDLC Code        │
 │    reviews frontend code              Reviewer reviews        │
-│    ↕ fix loop (max 5)                 backend code            │
-│                                       ↕ fix loop (max 5)     │
+│    ↕ targeted fixes (max 2)           backend code            │
+│                                       ↕ targeted fixes (max 2)│
 │                                                              │
 │  [4c-FE] Unit Tests                 [4c-BE] Unit Tests       │
 │    project build + test runner        project lint + tests    │
@@ -202,27 +188,30 @@ Done
 ### Single-Stack Simplified (backend-only or frontend-only)
 ```
 Spec-Doc Writer → [UI Designer if UI]
-  → Senior Dev → Technical Architect → EM
+  → applicable Senior Reviewer + Technical Architect + conditional Devil's Advocate (parallel)
+  → one EM consolidation/decision
   → Story Planner (coverage gate)
   → Developer → orchestrator VALIDATE (re-run checks + scope diff) → SDLC Code Reviewer → Unit Tests
   → Tester (full) → Senior Tester (full)
   → PR Raiser
 ```
-No fork/join needed. No merge reviewer needed. Single tester + single senior tester in `full` mode.
+The read-only planning panel still fans out when multiple roles apply. No implementation-lane join
+is needed. Single tester + single senior tester run in `full` mode.
 
-### Fast-Track (Mode D) — bug fixes, small changes (< 5 files)
+### Fast-Track (Mode D) — localized low-risk changes
 ```
 Developer → orchestrator VALIDATE → SDLC Code Reviewer → Tester (full) → PR Raiser
 ```
 Skips: spec, design, senior dev review, tech architect, EM, merge reviewer, senior tester.
-Use when: bug fix, typo, single-component change, config update, docs-only change.
+Use when the behavior is unambiguous, the change is reversible and confined to one boundary, and
+no sensitive or public-contract surface is touched. File count is a hint, not authorization.
 
 ---
 
 ## Execution Modes
 
 ### Mode A: Single-Stack (backend-only or frontend-only)
-Sequential pipeline — each stage runs one at a time.
+Full lifecycle with a parallel read-only planning panel; implementation remains one sequential lane.
 
 ### Mode B: Full-Stack (backend + frontend)
 Parallel pipeline — fork into backend and frontend lanes after spec/design are complete, join before integration testing.
@@ -230,8 +219,11 @@ Parallel pipeline — fork into backend and frontend lanes after spec/design are
 ### Mode C: Multi-Feature Decomposition
 If the PRD contains **multiple independent features**, decompose into separate pipelines that run in parallel, each following Mode A or B. Join all at PR stage.
 
-### Mode D: Fast-Track (bug fixes, small changes)
-Minimal pipeline for changes touching < 5 files or bug fixes. Skips spec, design, review chain. Goes straight to: Developer → orchestrator VALIDATE → Code Reviewer → Tester → PR Raiser.
+### Mode D: Fast-Track (localized low-risk changes)
+Minimal pipeline for a reversible, unambiguous, single-boundary low-risk change with no sensitive or
+public-contract surface. Skips the planning panel and goes straight to: Developer → orchestrator
+VALIDATE → Code Reviewer → Tester → PR Raiser. Select it whenever all predicates hold; do not add
+personas merely for comfort.
 
 ### Mode E: Program / Wave Mode (migrations, repo-wide refactors, irreversible steps)
 For **program-scale** work — many files across multiple subsystems (> ~20 files or > 2 independent
@@ -277,7 +269,8 @@ wave substrate".
 - Parse the incoming PRD or unstructured requirements.
 - Resolve ambiguities with the human before proceeding.
 - **Classify work type**: `backend-only`, `frontend-only`, or `full-stack`.
-- **Classify scope**: `fast-track` (< 5 files, bug fix), `single-feature`, `multi-feature`, or
+- **Classify scope**: `fast-track` (localized, reversible, unambiguous, low-risk, no sensitive/public
+  contract surface), `single-feature`, `multi-feature`, or
   `program-scale` (> ~20 files / multiple subsystems, or any irreversible step — see
   `.claude/rules/wave-orchestration.md`; use the `.claude/agents/risk-classifier.md` agent when in doubt).
 - Choose execution mode: **D** (fast-track), **A** (single-stack), **B** (full-stack parallel), **C** (multi-feature), or **E** (program/wave).
@@ -298,66 +291,40 @@ wave substrate".
 
 ---
 
-### FORK POINT 1: Review Phase (Mode B only)
+### FORK POINT 1: Blind Planning Review Panel (full SDLC modes)
 
-For full-stack work, **spawn these lanes in parallel**:
+After the spec, developer documentation, and optional design spec pass their completeness gate,
+record their paths and one content digest as **planning generation 1**. Announce and spawn every
+applicable reviewer below at the same time. Each role is read-only, sees the same frozen generation,
+and sees no other reviewer's findings:
 
-#### Lane A (Frontend):
+- `.claude/agents/senior-frontend-reviewer.md` when a frontend surface exists.
+- `.claude/agents/senior-backend-reviewer.md` when a backend surface exists.
+- `.claude/agents/technical-architect.md` for cross-system interfaces, boundaries, and non-functional invariants.
+- `.claude/agents/devils-advocate.md` in standard/enterprise when risk or uncertainty is present.
 
-**[3a-FE] Senior Frontend Dev Review:**
-- **Spawn**: `.claude/agents/senior-frontend-dev.md` to review the spec + design spec.
-- **Feedback loop**: Senior FE Dev ↔ `.claude/agents/spec-doc-writer.md` / `.claude/agents/ui-designer.md`. Max **3 iterations**.
-- **Gate**: `APPROVED` signal.
+Every reviewer returns `PASS | FAIL` and the stable finding fields required by
+`.claude/rules/quality-gates.md` §3. It may block only on an evidenced Critical/High/Medium defect. Preferences,
+stylistic alternatives, speculative future improvements, and scope additions are advisory; collect
+them for an ADR or backlog without reopening the plan.
 
-**[3b-FE] Technical Architect Review:**
-- **Spawn**: `.claude/agents/technical-architect.md` to review frontend architecture.
-- **Feedback loop**: Tech Architect ↔ `.claude/agents/spec-doc-writer.md`. Max **3 iterations**.
-- **Gate**: `ARCHITECTURE APPROVED` signal.
+### JOIN POINT 1: One Consolidation and Decision
 
-**[3c-FE] EM Review:**
-- **Spawn**: `.claude/agents/em-reviewer.md` to review the frontend portion.
-- **Feedback loop**: Max **3 iterations**.
-- **Gate**: `APPROVED` signal.
-
-#### Lane B (Backend) — runs in parallel with Lane A:
-
-**[3a-BE] Senior Backend Dev Review:**
-- **Spawn**: `.claude/agents/senior-backend-dev.md` to review the backend spec.
-- **Feedback loop**: Senior BE Dev ↔ `.claude/agents/spec-doc-writer.md`. Max **3 iterations**.
-- **Gate**: `APPROVED` signal.
-
-**[3b-BE] Technical Architect Review:**
-- **Spawn**: `.claude/agents/technical-architect.md` to review backend architecture.
-- **Feedback loop**: Max **3 iterations**.
-- **Gate**: `ARCHITECTURE APPROVED` signal.
-
-**[3c-BE] EM Review:**
-- **Spawn**: `.claude/agents/em-reviewer.md` to review the backend portion.
-- **Feedback loop**: Max **3 iterations**.
-- **Gate**: `APPROVED` signal.
-
-### JOIN POINT 1: All Reviews Complete
-- **Wait** for BOTH lanes to have all three approvals (Senior Dev + Tech Architect + EM).
-- **Spawn**: `.claude/agents/merge-reviewer.md` to verify cross-lane spec consistency (API contracts, data models, shared state).
-- **Gate**: `VERIFIED` signal from merge-reviewer.
-
----
-
-### Stage PC: Plan Critique (standard+, before approval is final)
-
-Before treating the review chain's approval as final, run an adversarial pass on the **plan itself**:
-
-- **Spawn**: `.claude/agents/devils-advocate.md` with the spec + developer documentation (and the review-chain verdicts).
-- It argues the plan is wrong — weakest/most-volatile requirement, untestable acceptance criterion,
-  hidden dependency, missing requirement, unjustified scope, the step most likely to fail.
-- It also returns a **premortem** and a **merits-and-costs balance sheet** — record both with the gate
-  evidence, so the plan's accepted trade-offs are legible when the work is reviewed later.
-- **Gate**: a **CONFIRMED** verdict lets the Story Planner proceed; so does **CONFIRMED-WITH-COSTS**,
-  whose named costs you write to `.claude/CONTINUITY.md` (each with its accepting role and revisit trigger)
-  before proceeding. An **UPHELD** verdict (any Critical/High/Medium) routes back to the
-  **spec-doc-writer** and the spec gate stays open.
-- **Profile**: standard and enterprise only — `.claude/agents/devils-advocate.md` isn't installed in **lean**, where the
-  spec-doc-writer's own self-critique (its RARV cycle) is the safeguard. Skip with a noted reason in lean.
+- **Wait** for every applicable panel member; let successful siblings finish when one fails.
+- **Spawn once**: `.claude/agents/em-reviewer.md` with the frozen generation and all verdicts.
+- The EM de-duplicates findings by violated criterion/invariant plus evidence, applies the authority
+  table in `.claude/rules/quality-gates.md`, and issues one consolidated `PASS | FAIL` decision. There is no
+  vote and no reviewer-to-reviewer reply chain.
+- On FAIL, route one consolidated register to `.claude/agents/spec-doc-writer.md` / `.claude/agents/ui-designer.md`.
+  Allow at most one revised generation. Recheck only the reviewers whose finding IDs or owned clauses
+  changed. Continue only when the blocker set strictly shrinks with no new/renamed/reopened blocker or
+  severity escalation.
+- On no progress, dispute, new blocker, escalation, or exhausted generation budget, persist the
+  artifact + finding register and checkpoint to the human. Do not spend another cycle seeking
+  persona agreement.
+- **Gate**: EM `PASS` with zero Critical/High/Medium, or a typed human resolution where allowed.
+  Devil's Advocate costs that do not block retain an owner and reopen trigger in
+  `.claude/CONTINUITY.md`.
 
 ### Stage SP: Story Breakdown & Coverage Gate (after the spec is approved + consistent)
 
@@ -596,7 +563,12 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
 ### Stage 7: Pipeline Complete
 - Report PR URL to the human.
 - Run `ckit pipeline complete`; this must succeed before reporting the pipeline complete.
-- Summarize: specs, dev docs, design, reviews (senior dev + tech architect + EM per lane), code reviewed, merge verified, testing validated + verified, Devil's Advocate (if unanimous), DevOps + Observability (where applicable), Acceptance (enterprise), PR raised. State each gate as **PASSED / NOT APPLICABLE / ACCEPTED RISK / FAILED**, list open findings by severity, surface every accepted-risk owner/ticket/revisit trigger, and state **PR-or-ABORTED**. The schema-v2 snapshot's `final_summary` is the generated evidence bundle.
+- Summarize: specs, dev docs, design, the blind planning panel + sole EM decision, code reviewed,
+  merge verified, testing validated + verified, Devil's Advocate (where applicable), DevOps +
+  Observability (where applicable), Acceptance (enterprise), PR raised. State each gate as
+  **PASSED / NOT APPLICABLE / ACCEPTED RISK / FAILED**, list open findings by severity, surface every
+  accepted-risk owner/ticket/revisit trigger, and state **PR-or-ABORTED**. The schema-v2 snapshot's
+  `final_summary` is the generated evidence bundle.
 - **Tear down this run's worktrees.** Once the PR is raised (or the run is abandoned), remove the per-lane worktrees this run created via the delegation runtime's isolated-worktree mode — they auto-clean when unchanged; for merged lanes confirm removal with `git worktree remove`. **Only** remove worktrees this run created — never the user's other worktrees or the primary checkout. If a run must be cancelled mid-pipeline before this stage, use `/abort`.
 
 ---
@@ -606,14 +578,18 @@ For backend-only or frontend-only tasks, spawn a single tester in `full` mode �
 If any tester or senior tester (across any testing lane) finds issues:
 
 1. **Collect all defects** from all testing lanes (API, UI, integration).
-2. **Classify each defect**: backend-only, frontend-only, or integration.
-3. **Route to the correct implementation lane**:
-   - Backend defect → re-run backend lane only (Senior BE Dev → Tech Architect → EM → Developer → Code Reviewer → Unit Tests)
-   - Frontend defect → re-run frontend lane only
-   - Integration defect → re-run both lanes in parallel, then merge-reviewer
-4. After the fix lane(s) complete, **re-run merge-reviewer** to verify consistency.
-5. **Re-run only the affected testing lanes** — not all 3. E.g., if only API defects were found, re-run only the API tester + API senior tester lanes.
-6. **Re-run the test coverage merge-reviewer** to confirm complete coverage.
+2. **Classify each defect**: backend-only, frontend-only, integration, or planning-contract defect.
+3. **Invalidate only what changed**:
+   - Backend/frontend code or test defect → affected Developer → Code Reviewer → Unit Tests.
+   - Integration defect → affected Developer lanes, then Merge Reviewer, then affected tests.
+   - Planning-contract defect → reopen only the writer and the planning reviewers who own the
+     changed requirement/interface/invariant; do not automatically replay the whole panel.
+4. **Re-run only affected testing lanes** — not all lanes. E.g., an API-only fix re-runs API tests
+   and the coverage join, while unchanged UI evidence remains valid.
+5. **Reuse deterministic evidence only when its exact fingerprint is unchanged**: command, working
+   directory, relevant source/test/config/lockfile digests, toolchain, and environment identity.
+   Otherwise invalidate it. External/E2E evidence also needs the same target identity and a valid TTL.
+6. **Re-run the test coverage join** against the preserved and refreshed evidence.
 7. Maximum **2 defect loop cycles**. After that, escalate to human.
 
 ---
@@ -621,7 +597,8 @@ If any tester or senior tester (across any testing lane) finds issues:
 ## Parallelism Rules
 
 ### What CAN run in parallel:
-- Lane A (Frontend review chain) ↔ Lane B (Backend review chain)
+- Frontend feasibility ↔ Backend feasibility ↔ Technical Architect ↔ conditional Devil's Advocate
+  on the same frozen planning generation (read-only fan-out)
 - Lane A (Frontend implementation) ↔ Lane B (Backend implementation)
 - API Tester ↔ UI Tester ↔ Integration Tester (+ E2E Tester when its lane is active)
 - API Senior Tester ↔ UI Senior Tester ↔ Integration Senior Tester (3 parallel verification agents)
@@ -629,7 +606,7 @@ If any tester or senior tester (across any testing lane) finds issues:
 
 ### What MUST stay sequential (within a lane):
 - Spec-Doc Writer → (UI Designer if UI) — single source of truth
-- Senior Dev → Technical Architect → EM (within the same lane — each builds on the previous)
+- Planning generation freeze → blind specialist panel → one EM consolidation/decision → Story Planner
 - Developer → SDLC Code Reviewer → Unit Tests (within the same lane)
 - Merge Reviewer → after both parallel implementation lanes join
 - All Testers complete → then All Senior Testers start → then Merge Reviewer verifies test coverage
@@ -650,10 +627,12 @@ model tiers (e.g. `Fork 1: 2 lanes × 3 reviewers — 6 balanced-tier agents`) i
 
 When forking, launch ALL agents in the parallel lanes simultaneously:
 ```
-# Fork Point 1:
-spawn senior-frontend-dev (Lane A)  ← starts immediately
-spawn senior-backend-dev (Lane B)   ← starts immediately
-# Wait for both lanes to complete their full review chain before proceeding
+# Fork Point 1 (only applicable roles):
+spawn senior-frontend-reviewer  ← starts immediately
+spawn senior-backend-reviewer   ← starts immediately
+spawn technical-architect       ← starts immediately
+spawn devils-advocate           ← starts immediately when risk/uncertainty is present
+# Wait once, then send the combined register to one EM adjudicator
 ```
 
 ### Join behavior:
@@ -746,11 +725,11 @@ PIPELINE: Stage 0 - Mode B (full-stack parallel) selected
 PIPELINE: Stage 1-2 - Spec-Doc Writer (in progress)
 PIPELINE: [DESIGN] UI Designer (draft + self-review)
 PIPELINE: [DESIGN] Approved ✓
-PIPELINE: [FORK 1] Lane A: Sr FE Dev Review (in progress) | Lane B: Sr BE Dev Review (in progress)
-PIPELINE: [FORK 1] Lane A: Tech Architect (iteration 1/3) | Lane B: Sr BE Dev Review (iteration 2/3)
-PIPELINE: [FORK 1] Lane A: EM Review (in progress) | Lane B: Tech Architect (in progress)
-PIPELINE: [FORK 1] Lane A: DONE ✓ | Lane B: EM Review (in progress)
-PIPELINE: [JOIN 1] Merge Reviewer (verifying spec consistency)
+PIPELINE: [FREEZE 1] Planning generation 8c1… bound to all reviewers
+PIPELINE: [FORK 1] FE feasibility | BE feasibility | Architecture | Adversarial (parallel)
+PIPELINE: [JOIN 1] Panel complete — 5 raw findings → 3 unique findings
+PIPELINE: [DECIDE 1] EM Reviewer — one consolidated PASS/FAIL decision
+PIPELINE: [RECHECK 1] Only assigned prior IDs on generation 2 (if one revision is needed)
 PIPELINE: [SP] Story Planner — acceptance-criterion coverage verified ✓
 PIPELINE: [FORK 2] Lane A: FE Developer (in progress) | Lane B: BE Developer (in progress)
 PIPELINE: [FORK 2] Lane A: FE Code Review (iteration 2/5) | Lane B: BE Unit Tests (running)
@@ -772,7 +751,10 @@ PIPELINE: DEFECT LOOP (cycle 1/2) - Backend lane re-entered, re-test API lane on
 ## Communication Pattern
 
 - **Hub-and-spoke**: Every agent reports completion back to you.
-- **Peer-to-peer within lanes**: Senior Dev / Tech Architect ↔ Spec-Doc Writer, Code Reviewer ↔ Developer (within same lane).
+- **Planning panel is blind**: planning reviewers return only to you; they never negotiate, vote,
+  or start role-to-role reply chains. The EM receives the complete panel once and owns adjudication.
+- **Implementation feedback is bounded**: Code Reviewer findings return through you to the owning
+  Developer lane with stable IDs and the configured retry budget.
 - **Design**: `.claude/agents/ui-designer.md` drafts + self-reviews in one pass (before fork).
 - **Cross-lane via merge-reviewer only**: Backend and frontend lanes NEVER communicate directly.
 - **Sequential after join**: Tester → Senior Tester (senior tester only starts after tester completes).
@@ -785,13 +767,11 @@ PIPELINE: DEFECT LOOP (cycle 1/2) - Backend lane re-entered, re-test API lane on
 |-------|-------|------|-----------|
 | 1-2 | `.claude/agents/spec-doc-writer.md` | Writes spec + developer documentation | No — single |
 | D | `.claude/agents/ui-designer.md` | Drafts + self-reviews design spec (if UI) | No — single |
-| 3a-FE | `.claude/agents/senior-frontend-dev.md` | Reviews frontend spec | Yes — Lane A |
-| 3a-BE | `.claude/agents/senior-backend-dev.md` | Reviews backend spec | Yes — Lane B |
-| 3b-FE | `.claude/agents/technical-architect.md` | Reviews frontend architecture | Yes — Lane A |
-| 3b-BE | `.claude/agents/technical-architect.md` | Reviews backend architecture | Yes — Lane B |
-| 3c-FE | `.claude/agents/em-reviewer.md` | EM review of frontend | Yes — Lane A |
-| 3c-BE | `.claude/agents/em-reviewer.md` | EM review of backend | Yes — Lane B |
-| JOIN | `.claude/agents/merge-reviewer.md` | Verifies spec consistency | No — gate |
+| 3a-FE | `.claude/agents/senior-frontend-reviewer.md` | Frontend feasibility on frozen plan | Yes — blind panel |
+| 3a-BE | `.claude/agents/senior-backend-reviewer.md` | Backend feasibility on frozen plan | Yes — blind panel |
+| 3b | `.claude/agents/technical-architect.md` | Cross-system architecture on frozen plan | Yes — blind panel |
+| PC | `.claude/agents/devils-advocate.md` | Conditional adversarial plan challenge | Yes — blind panel |
+| 3c/JOIN | `.claude/agents/em-reviewer.md` | De-duplicates and adjudicates one panel result | No — gate |
 | SP | `.claude/agents/story-planner.md` | Decomposes spec → ordered stories + acceptance-criterion coverage gate | No — gate |
 | 4a-FE | `.claude/agents/developer.md` (FE mode) | Frontend implementation | Yes — Lane A |
 | 4a-BE | `.claude/agents/developer.md` (BE mode) | Backend implementation | Yes — Lane B |
@@ -809,7 +789,6 @@ PIPELINE: DEFECT LOOP (cycle 1/2) - Backend lane re-entered, re-test API lane on
 | 5b-UI | `.claude/agents/senior-tester.md` (ui mode) | Verifies UI tester | Yes — Test Lane 2 |
 | 5b-INT | `.claude/agents/senior-tester.md` (integration mode) | Verifies integration tester | Yes — Test Lane 3 |
 | JOIN | `.claude/agents/merge-reviewer.md` | Verifies test coverage completeness | No — gate |
-| PC | `.claude/agents/devils-advocate.md` | Plan critique on the spec + dev docs before approval (standard+) | No — gate (standard+) |
 | 3b+ | `.claude/agents/devils-advocate.md` | Anti-sycophancy pass on a unanimous test-coverage PASS | No — gate (conditional) |
 | 5.4 | `.claude/agents/security-reviewer.md` | Security stage coordinator + gate (Security Clear) | No — sequential |
 | 5.4 | `.claude/agents/secret-scanner.md` / `.claude/agents/dependency-scanner.md` / `.claude/agents/owasp-reviewer.md` / `.claude/agents/policy-validator.md` | Four sub-scanners | Yes — parallel |
@@ -829,8 +808,8 @@ Medium exception with structured `accept-risk`. Never hand-edit the ledger:
 
 | Gate token | Stage(s) | PASS signal | Profiles |
 |------------|----------|-------------|----------|
-| `spec-complete` | 1-2 (+ D, PC) | Spec + dev docs with numbered acceptance criteria; DA `CONFIRMED` on the plan (standard+) | standard+ |
-| `em-approved` | 3a→3c per lane (+ MR1) | EM `APPROVED` in every lane; MR1 `VERIFIED` (Mode B) | standard+ |
+| `spec-complete` | 1-2 (+ D) | Frozen spec + dev docs with numbered acceptance criteria | standard+ |
+| `em-approved` | 3a/3b/PC → 3c | One EM `PASS` over the de-duplicated blind-panel register | standard+ |
 | `code-review` | 4b per lane | `APPROVED` from `.claude/agents/sdlc-code-reviewer.md` | all |
 | `build-green` | 4c per lane | Build + lint + unit tests pass | all |
 | `contract-clear` | MR2 (JOIN 2) | Merge-reviewer's API backward-compat check: zero Critical/High/Medium | standard+ |
@@ -880,14 +859,19 @@ silently, and never marked PASS. Every stage that *is* active is mandatory.
 1. **NEVER write code yourself.** You are a coordinator only.
 2. **NEVER skip stages.** Every stage must complete before the next within its lane.
 3. **NEVER skip join points.** ALL parallel lanes must complete before crossing a join.
-4. **NEVER skip the merge reviewer at join points.** Cross-lane consistency must be verified.
+4. **NEVER skip the merge reviewer at implementation/test join points.** Cross-lane consistency must be verified.
 5. **NEVER skip design flow for UI work.** The `.claude/agents/ui-designer.md` design spec (draft + self-review) is mandatory (CLAUDE.md §3).
-6. **NEVER skip the Technical Architect.** Architecture review follows Senior Dev review in every lane.
+6. **NEVER skip the applicable planning panel.** Full modes include Technical Architect review;
+   frontend/backend reviewers activate only for their affected surfaces, and adversarial review is
+   profile/risk conditional.
 7. **NEVER mark work complete without tester validation** (CLAUDE.md §10).
 8. **NEVER mark testing complete without senior tester verification** (CLAUDE.md §10).
 9. **NEVER allow code without documentation** (CLAUDE.md §9).
-10. **NEVER let parallel lanes communicate directly.** Cross-lane coordination goes through you or the merge-reviewer.
-11. **Respect iteration limits.** 3 for design review, 3 for senior dev, 3 for tech architect, 3 for EM, 5 for code review, 2 for defect loops.
+10. **NEVER let planning reviewers or parallel implementation lanes communicate directly.** Panel
+    results go through you to the EM; cross-lane implementation coordination goes through you or
+    the merge-reviewer.
+11. **Respect iteration limits.** Planning gets one blind panel plus at most one consolidated
+    revision/targeted recheck; code review gets 2 targeted revisions; defect loops get 2 cycles.
 12. **Route correctly.** Backend issues → backend lane. Frontend issues → frontend lane.
 13. **Escalate clearly.** Provide: what failed, which lane, how many attempts, unresolved issues.
 14. **Verify outputs exist.** Check that expected files are created before marking a stage complete.

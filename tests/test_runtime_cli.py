@@ -26,6 +26,11 @@ from claude_kit.workflow_executor import (
 
 runner = CliRunner()
 
+_ROOT_MANAGED_EXECUTION_LOCK = ".claude-kit-managed-execution.lock"
+_NEUTRAL_MANAGED_EXECUTION_LOCK = ".ckit/state/managed-execution.lock"
+_LEGACY_MANAGED_EXECUTION_LOCK = ".claude/state/managed-execution.lock"
+_MANAGED_EXECUTION_LOCK_MAGIC = b"claude-kit-managed-execution-lock:v1\n"
+
 
 def _tree_snapshot(root):
     """Return an exact-enough byte/type inventory for lifecycle rollback tests."""
@@ -37,6 +42,31 @@ def _tree_snapshot(root):
         )
         for path in sorted(root.rglob("*"))
     }
+
+
+def _assert_only_legacy_transition_leases_added(root, before):
+    """Require exact rollback apart from persistent cross-version lease anchors."""
+
+    expected = {
+        **before,
+        ".ckit": ("directory", b""),
+        ".ckit/state": ("directory", b""),
+        _ROOT_MANAGED_EXECUTION_LOCK: (
+            "file",
+            _MANAGED_EXECUTION_LOCK_MAGIC,
+        ),
+        _NEUTRAL_MANAGED_EXECUTION_LOCK: ("file", b""),
+        _LEGACY_MANAGED_EXECUTION_LOCK: ("file", b""),
+    }
+    assert _tree_snapshot(root) == expected
+    for relative in (
+        _ROOT_MANAGED_EXECUTION_LOCK,
+        _NEUTRAL_MANAGED_EXECUTION_LOCK,
+        _LEGACY_MANAGED_EXECUTION_LOCK,
+    ):
+        info = (root / relative).stat()
+        assert info.st_mode & 0o777 == 0o600
+        assert info.st_nlink == 1
 
 
 @pytest.mark.parametrize("runtime", ["claude", "codex", "both"])
@@ -501,9 +531,12 @@ def test_legacy_claude_to_codex_requires_confirmed_backed_up_transition(
     assert "recoverable backup" in result.output
     assert "ckit migrate-state <path>" in result.output
     assert "--confirm-runtime-removal" in result.output
-    assert _tree_snapshot(target) == before
+    if dry_run:
+        assert _tree_snapshot(target) == before
+    else:
+        _assert_only_legacy_transition_leases_added(target, before)
     assert (target / ".claude").is_dir()
-    assert not (target / ".ckit").exists()
+    assert (target / ".ckit").exists() is (not dry_run)
     assert not (target / ".codex").exists()
     assert not list(target.glob(".ckit.bak-*"))
 
@@ -587,8 +620,7 @@ def test_init_migration_and_runtime_install_roll_back_as_one_operation(tmp_path)
     assert result.exit_code == 1, result.output
     assert "duplicate MCP definitions" in result.output
     assert "legacy mutable state migrated" not in result.output
-    assert not (target / ".ckit").exists()
-    assert _tree_snapshot(target) == before
+    _assert_only_legacy_transition_leases_added(target, before)
 
 
 def test_init_does_not_migrate_state_when_runtime_projection_is_incompatible(
@@ -649,6 +681,7 @@ def test_interrupted_migrate_install_retry_recovers_before_routing(
     continuity = target / StateLayout.legacy_claude().continuity
     expected = "# Irreplaceable legacy continuity\n\nKEEP-ME\n"
     continuity.write_text(expected, encoding="utf-8")
+    before = _tree_snapshot(target)
     selection = catalog.defaults(payload)
     plan = catalog.resolve(payload, selection)
 
@@ -695,7 +728,7 @@ def test_interrupted_migrate_install_retry_recovers_before_routing(
     )
     assert refused.exit_code == 1, refused.output
     assert "--migrate-state" in refused.output
-    assert not (target / StateLayout.neutral().root).exists()
+    _assert_only_legacy_transition_leases_added(target, before)
     assert continuity.read_text() == expected
 
     retry = runner.invoke(

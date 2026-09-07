@@ -32,6 +32,10 @@ from pathlib import Path
 import yaml
 
 from claude_kit import __version__, catalog, scaffold
+from claude_kit.execution_lease import (
+    ManagedExecutionLeaseHeld,
+    managed_execution_lease,
+)
 from claude_kit.models import (
     FileRecord,
     InitOptions,
@@ -42,14 +46,14 @@ from claude_kit.models import (
 )
 from claude_kit.runtime_scaffold import (
     RuntimeInstallError,
-    install_runtime,
+    _refresh_runtime_locked,
     preview_runtime_install,
-    transition_runtime,
 )
 from claude_kit.secure_fs import (
     ProjectFS,
     ProjectTransaction,
     UnsafePathError,
+    inspect_interrupted_transaction,
     normalize_relative_path,
     recover_interrupted_transaction,
 )
@@ -306,15 +310,28 @@ def _native_options(fs: ProjectFS) -> InitOptions:
 
 
 def _native_diff(fs: ProjectFS) -> tuple[bool, list[str]]:
-    """Validate and preview a native same-runtime refresh without mutation."""
+    """Preview a native refresh while the caller holds a shared project lease."""
 
     try:
         options = _native_options(fs)
         with ExitStack() as stack:
             src = scaffold.payload_dir(stack)
             plan = catalog.resolve(src, options.selection)
-            request = InstallRequest(options.selection, options.runtime)
+            request = InstallRequest(
+                options.selection,
+                options.runtime,
+                options.execution_policy,
+            )
             projection, desired = preview_runtime_install(src, fs.root, plan, request)
+
+        missing = [path for path in desired if not fs.exists(path)]
+        drifted = [
+            record.path
+            for record in options.files
+            if record.owner in {"kit", "overlay"}
+            and fs.is_file(record.path)
+            and hashlib.sha256(fs.read_bytes(record.path)).hexdigest() != record.sha256
+        ]
     except (
         FileNotFoundError,
         OSError,
@@ -324,14 +341,6 @@ def _native_diff(fs: ProjectFS) -> tuple[bool, list[str]]:
     ) as exc:
         return False, [f"FAIL  cannot preview native runtime upgrade: {exc}"]
 
-    missing = [path for path in desired if not fs.exists(path)]
-    drifted = [
-        record.path
-        for record in options.files
-        if record.owner in {"kit", "overlay"}
-        and fs.is_file(record.path)
-        and hashlib.sha256(fs.read_bytes(record.path)).hexdigest() != record.sha256
-    ]
     messages = [
         "OK    native upgrade preview validated for runtime(s): "
         + ", ".join(options.runtimes),
@@ -358,26 +367,19 @@ def _native_upgrade(
     runtime: str | Runtime | None,
     confirm_runtime_removal: bool,
 ) -> tuple[bool, list[str]]:
-    """Refresh or explicitly transition one native runtime installation."""
+    """Refresh native state while the caller owns both lifecycle leases."""
 
     try:
-        options = _native_options(fs)
-        selected = options.runtime if runtime is None else Runtime.parse(runtime)
         with ExitStack() as stack:
             source = scaffold.payload_dir(stack)
-            plan = catalog.resolve(source, options.selection)
-            request = InstallRequest(options.selection, selected)
-            if selected is options.runtime:
-                log = install_runtime(source, fs.root, plan, request, force=force)
-            else:
-                log = transition_runtime(
-                    source,
-                    fs.root,
-                    plan,
-                    request,
-                    force=force,
-                    confirm_removal=confirm_runtime_removal,
-                )
+            log, previous, selected = _refresh_runtime_locked(
+                source,
+                fs.root,
+                fs=fs,
+                runtime=runtime,
+                force=force,
+                confirm_removal=confirm_runtime_removal,
+            )
     except (
         FileNotFoundError,
         OSError,
@@ -389,7 +391,7 @@ def _native_upgrade(
     messages = list(log)
     messages.append(
         "OK    native runtime transition complete"
-        if selected is not options.runtime
+        if selected is not previous
         else "OK    native runtime upgrade complete"
     )
     return True, messages
@@ -397,24 +399,41 @@ def _native_upgrade(
 
 def diff(target: str | Path) -> tuple[bool, list[str]]:
     """Preview what an upgrade would change (no writes). Returns ``(ok, messages)``."""
+    result: _Comparison | str | None = None
     try:
         fs = ProjectFS(target)
-        if fs.is_file(StateLayout.neutral().manifest):
-            return _native_diff(fs)
+        if fs.root.exists():
+            with fs.mutation_lease(exclusive=False):
+                if inspect_interrupted_transaction(fs) is not None:
+                    return False, [
+                        "FAIL  upgrade preview requires interrupted transaction recovery"
+                    ]
+                if fs.is_file(StateLayout.neutral().manifest):
+                    return _native_diff(fs)
+                with ExitStack() as stack:
+                    src = scaffold.payload_dir(stack)
+                    result = _compare(src, fs.root)
+                    if isinstance(result, str):
+                        return _explain_error(result, target)
+                    return True, _format_preview(result)
     except (OSError, UnsafePathError) as exc:
         return False, [f"FAIL  {exc}"]
+    finally:
+        if isinstance(result, _Comparison):
+            _cleanup(result.ref_root)
+
     with ExitStack() as stack:
         src = scaffold.payload_dir(stack)
         try:
             result = _compare(src, target)
+            if isinstance(result, str):
+                return _explain_error(result, target)
+            return True, _format_preview(result)
         except UnsafePathError as exc:
             return False, [f"FAIL  {exc}"]
-        if isinstance(result, str):
-            return _explain_error(result, target)
-        try:
-            return True, _format_preview(result)
         finally:
-            _cleanup(result.ref_root)
+            if isinstance(result, _Comparison):
+                _cleanup(result.ref_root)
 
 
 def upgrade(
@@ -433,46 +452,68 @@ def upgrade(
     Returns:
         ``(ok, messages)``.
     """
+    # Refuse ordinary invalid targets before creating the persistent
+    # cross-generation coordination anchors. Classification and comparison are
+    # repeated under the lifecycle leases below, so this is only a no-mutation
+    # preflight rather than a trusted check/use boundary.
+    preliminary: _Comparison | str | None = None
     try:
-        native_fs = ProjectFS(target)
-        if native_fs.root.exists():
-            # A provider transition can be interrupted after writing the target
-            # manifest but before commit. Recover before that manifest decides
-            # whether this invocation is an upgrade or another transition.
-            recover_interrupted_transaction(native_fs, preserve_root=True)
-        if native_fs.is_file(StateLayout.neutral().manifest):
-            return _native_upgrade(
-                native_fs,
-                force=force,
-                runtime=runtime,
-                confirm_runtime_removal=confirm_runtime_removal,
-            )
+        preflight_fs = ProjectFS(target)
+        if not preflight_fs.root.exists():
+            return _explain_error("not-installed", target)
+        if preflight_fs.is_file(StateLayout.neutral().manifest):
+            _native_options(preflight_fs)
+        else:
+            if runtime is not None:
+                return False, [
+                    "FAIL  runtime transitions require neutral .ckit state; run "
+                    "`ckit migrate-state` or `ckit init --runtime <runtime> "
+                    "--migrate-state` first"
+                ]
+            with ExitStack() as stack:
+                src = scaffold.payload_dir(stack)
+                preliminary = _compare(src, preflight_fs.root)
+                if isinstance(preliminary, str):
+                    return _explain_error(preliminary, target)
+    except (OSError, RuntimeInstallError, UnsafePathError) as exc:
+        return False, [f"FAIL  {exc}"]
+    finally:
+        if isinstance(preliminary, _Comparison):
+            _cleanup(preliminary.ref_root)
+
+    result: _Comparison | str | None = None
+    try:
+        fs = ProjectFS(target)
+        with managed_execution_lease(fs.root), fs.mutation_lease(exclusive=True):
+            recover_interrupted_transaction(fs, preserve_root=True)
+            if fs.is_file(StateLayout.neutral().manifest):
+                return _native_upgrade(
+                    fs,
+                    force=force,
+                    runtime=runtime,
+                    confirm_runtime_removal=confirm_runtime_removal,
+                )
+            if runtime is not None:
+                return False, [
+                    "FAIL  runtime transitions require neutral .ckit state; run "
+                    "`ckit migrate-state` or `ckit init --runtime <runtime> "
+                    "--migrate-state` first"
+                ]
+            with ExitStack() as stack:
+                src = scaffold.payload_dir(stack)
+                result = _compare(src, fs.root)
+                if isinstance(result, str):
+                    return _explain_error(result, target)
+                return _apply(result, force=force, journal=True, fs=fs)
+    except ManagedExecutionLeaseHeld as exc:
+        return False, [f"FAIL  managed workflow coordinator is running: {exc}"]
     except (OSError, UnsafePathError) as exc:
         return False, [f"FAIL  {exc}"]
+    finally:
+        if isinstance(result, _Comparison):
+            _cleanup(result.ref_root)
 
-    if runtime is not None:
-        return False, [
-            "FAIL  runtime transitions require neutral .ckit state; run "
-            "`ckit migrate-state` or `ckit init --runtime <runtime> --migrate-state` first"
-        ]
-
-    with ExitStack() as stack:
-        src = scaffold.payload_dir(stack)
-        result: _Comparison | str | None = None
-        try:
-            try:
-                fs = ProjectFS(target)
-                with fs.mutation_lease(exclusive=True):
-                    recover_interrupted_transaction(fs, preserve_root=True)
-                    result = _compare(src, fs.root)
-                    if isinstance(result, str):
-                        return _explain_error(result, target)
-                    return _apply(result, force=force, journal=True, fs=fs)
-            except UnsafePathError as exc:
-                return False, [f"FAIL  {exc}"]
-        finally:
-            if isinstance(result, _Comparison):
-                _cleanup(result.ref_root)
+    return False, ["FAIL  upgrade target classification was not stable"]
 
 
 def merge_install(

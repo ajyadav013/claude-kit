@@ -76,10 +76,19 @@ gate_definitions:
 profiles:
   lean:
     label: "Lean — fast track, minimal gates"
-    agents: [orchestrator, risk-classifier, developer, sdlc-code-reviewer, tester, pr-raiser]
+    agents:
+      - orchestrator
+      - risk-classifier
+      - developer
+      - sdlc-code-reviewer
+      - tester
+      - pr-raiser
+      - maker-checker-maker
+      - maker-checker-reviewer
     skills:
       - sdlc
       - execute
+      - maker-checker
       - incremental-implementation
       - test-driven-development
       - debugging-and-error-recovery
@@ -101,6 +110,8 @@ profiles:
       - ui-designer
       - technical-architect
       - em-reviewer
+      - senior-backend-reviewer
+      - senior-frontend-reviewer
       - senior-backend-dev
       - senior-frontend-dev
       - merge-reviewer

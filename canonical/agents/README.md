@@ -6,7 +6,7 @@ and a provider-independent instruction body.
 
 Layout:
 
-- `core/<id>.md` — the 29 stack-neutral engineering roles.
+- `core/<id>.md` — the 31 stack-neutral engineering roles.
 - `stacks/<stack-dir>/<id>.md` — stack overlays selected through the existing catalog.
 - `org/<id>.md` — organization-scope personas selected through the org catalog.
 

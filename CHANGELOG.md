@@ -4,6 +4,44 @@ All notable changes to claude-kit are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [0.84.0] — 2026-09-06
+
+**Bounded SDLC convergence.** This release shortens the planning path while preserving typed,
+content-addressed evidence and one authoritative shared control plane.
+
+### Changed
+
+- **Bounded planning convergence:** full SDLC modes now freeze one planning generation, fan out the
+  applicable read-only frontend/backend feasibility, architecture, and adversarial reviews in
+  parallel, then use one EM adjudication. The four former serial per-lane architecture/management
+  stages are gone. Generated native guidance permits at most one consolidated revision/recheck;
+  the managed Preview executor does not autonomously cycle on an EM failure and checkpoints for a
+  human instead. Managed Modes A--C require standard or enterprise rather than collapsing multiple
+  panel seats onto one fallback identity; lean is supported by typed Mode D fast-track and Mode E's
+  separately frozen program-manifest contract.
+- **Typed planning findings:** managed planning reviews bind a stable artifact digest, authority
+  domain, criterion/invariant, evidence, correction, and owner. Preferences remain advisory;
+  repeated, renamed, new, reopened, disputed, or escalated blockers checkpoint to a human instead
+  of restarting persona debate. Adjudicated choices persist selected/rejected alternatives,
+  strongest dissent, evidence, and a concrete reopen trigger; planning reviewers return only to the
+  coordinator and cannot start private role-to-role reply chains.
+- **Risk-gated routing and bounded defect recovery:** managed Mode D requires typed evidence for a
+  reversible, unambiguous, single-boundary low-risk surface instead of a crude file-count
+  threshold. Generated native guidance routes ordinary code/test defects only through affected
+  implementation and verification stages, and permits deterministic evidence reuse only under an
+  exact content/toolchain/environment fingerprint.
+- **ECC audit:** reviewed `affaan-m/ECC` at pinned commit
+  `e04ea0b9cc8248686edf5ac751cadff550e162b8`; clean-room adopted the bounded parallel-review and
+  semantic no-progress ideas while rejecting a wholesale dependency, second ledger, and its
+  sequential multi-workflow controller.
+
+### Not adopted (deliberately)
+
+- ECC's provider-specific agent bundle, second orchestration surface, mandatory all-role council,
+  unbounded recursive debate, and sequential multi-workflow controller remain outside the kit.
+  Existing provider-neutral projection, one `.ckit` ledger, risk-based role activation, and
+  authoritative Python gates remain the ownership boundaries.
+
 ## [0.83.0] — 2026-08-20
 
 **Trust-boundary hardening.** This release makes pipeline transitions explicit, confines project

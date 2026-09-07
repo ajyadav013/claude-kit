@@ -73,7 +73,7 @@ flowchart TB
     SEL --> RESOLVE["catalog.resolve()"]
     CAT --> RESOLVE
     RESOLVE --> PLAN["ResolvedPlan<br/>agents · skills · hooks · ordered gates<br/>gate definitions + digest<br/>overlay_rules · overlay_agents · mcp_servers · context<br/>· org (OrgPlan, only when scope == organization)"]
-    PLAN --> REQUEST["InstallRequest(plan.selection, runtime)"]
+    PLAN --> REQUEST["InstallRequest(plan.selection, runtime, execution_policy)"]
     REQUEST --> COMP["ProjectionCompiler"]
     COMP --> CP["ClaudeRenderer<br/>CLAUDE.md · .claude/* · optional .mcp.json"]
     COMP --> XP["CodexRenderer<br/>AGENTS.md · .agents/skills · .codex/*"]
@@ -87,8 +87,10 @@ flowchart TB
 - **Overlays** (rules + DB agents) are copied only for the selected stacks from
   `templates/stacks/<dir>/`.
 - **`.ckit/config/init-options.json`** records selected runtimes, neutral state layout, renderer and
-  compatibility versions, plus every installed file's checksum, provider, component ID, and owner.
-  It powers `validate`, `diff`, safe upgrades, and explicit runtime transitions.
+  compatibility versions, the optional maker/reviewer execution policy, plus every installed file's
+  checksum, provider, component ID, and owner. It powers `validate`, `diff`, safe upgrades, and
+  explicit runtime transitions. Execution policy is installation metadata; it does not enter
+  `Selection` or change `catalog.resolve()`.
 
 Adding a framework/database/profile/MCP server is a **catalog edit + a `templates/stacks/` folder** —
 never a change to `resolve()`.
@@ -151,15 +153,15 @@ flowchart TD
     REQ["sdlc request"] --> CLS{"Classify:<br/>bug · feature · fast-track"}
 
     CLS -->|"feature"| SPEC["1. Spec & Dev Docs<br/>spec-doc-writer (+ ui-designer if UI)"]
-    SPEC --> EM{{"Gate: EM approved<br/>em-reviewer"}}
-
-    EM -->|"pass"| PC{{"Gate: Plan critique<br/>standard+ · devils-advocate on the spec"}}
-    PC -->|"CONFIRMED"| STORY["2. Story breakdown + coverage gate<br/>story-planner: every acceptance criterion → a story"]
+    SPEC --> FREEZE["Freeze one planning generation"]
+    FREEZE --> PANEL["Blind read-only panel (parallel)<br/>senior FE · senior BE · architect · conditional DA"]
+    PANEL --> EM{{"Gate: one EM decision<br/>deduplicated findings · max one revision"}}
+    EM -->|"pass"| STORY["2. Story breakdown + coverage gate<br/>story-planner: every acceptance criterion → a story"]
     STORY --> FORK["Fork independent work streams"]
     subgraph LANES["Parallel lanes (canonical example: backend + frontend)"]
         direction LR
-        L1["Senior Dev → Tech Architect → Developer → Code Reviewer"]
-        L2["Senior Dev → Tech Architect → Developer → Code Reviewer"]
+        L1["Frontend Developer → Code Reviewer"]
+        L2["Backend Developer → Code Reviewer"]
     end
     FORK --> LANES
     LANES --> MR1{{"Gate: Merge Reviewer<br/>cross-lane consistency"}}
@@ -173,11 +175,10 @@ flowchart TD
     OPS -->|"pass"| PR["PR Raiser → Pull Request"]
     PR --> HUMAN(["Human review + deploy"])
 
-    CLS -->|"fast-track (< 5 files)"| FT["Developer → Code Reviewer → Tester → PR"]
+    CLS -->|"fast-track: localized + reversible + low-risk"| FT["Developer → Code Reviewer → Tester → PR"]
     FT --> HUMAN
 
-    EM -->|"fail"| SPEC
-    PC -->|"UPHELD"| SPEC
+    EM -->|"one consolidated revision"| SPEC
     TCG -->|"fail"| LANES
     SEC -->|"fail"| LANES
 ```
@@ -203,18 +204,54 @@ hash and do not gain those semantic guarantees.
 In standard+, the Devil's Advocate also critiques the **plan** before approval is final, so a flawed
 spec is caught on paper rather than after implementation.
 
+### Explicit maker–checker loop
+
+`/maker-checker` in Claude Code and `$maker-checker` in Codex are explicit-only projections of one
+canonical skill. The skill is a thin entrypoint: the provider-neutral Python coordinator owns the
+contract, model routing, iteration budget, artifacts, typed review semantics, and human stops.
+
+```mermaid
+flowchart LR
+    CFG[".ckit config<br/>maker + reviewer bindings"] --> FREEZE["Freeze task contract<br/>policy + binding digests"]
+    FREEZE --> MAKER["maker-checker-maker<br/>passive response channel"]
+    MAKER --> CHECKS["trusted coordinator<br/>validate artifact + checks"]
+    CHECKS --> REVIEW["maker-checker-reviewer<br/>fresh · read-only · nondelegating"]
+    REVIEW -->|"PASS for current digest"| RESULT["return maker artifact"]
+    REVIEW -->|"FAIL + budget"| REVISION["new maker attempt<br/>structured findings"]
+    REVISION --> CHECKS
+    REVIEW -->|"unresolved / exhausted"| STOP["typed human stop"]
+```
+
+Both role definitions expose only semantic file read/search capabilities. The built-in native
+invocations are tool-denied; the coordinator supplies their input as a bounded, filtered, and
+heuristically redacted projection of Git-tracked UTF-8 text. For documents, the trusted coordinator
+writes the bounded response into the shared artifact tree. For code, the maker returns a unified
+diff; the coordinator rejects protected paths and unsupported patch metadata, applies it in a
+run-owned worktree, and runs `git diff --check`. The reviewer never writes or repairs the artifact,
+and PASS cannot authorize merge or another external effect. See
+[Configurable maker–checker](maker-checker.md) for the exact configuration and safety contract.
+
+The loop uses a `snapshot_kind: maker-checker` schema-v2 variant in the one shared
+`.ckit/state/pipeline-snapshot.json`; it does not create a provider-local or second pipeline ledger.
+An exact `--resume RUN_ID` reuses the frozen task, contract, providers, resolved model requests, and
+revision budget. The validator binds every durable attempt and artifact hash to that snapshot and
+rejects evidence or worktree drift before dispatch. Configuration changes apply only to later runs;
+catalog changes cannot rebind an active run; and abort, rather than disable, records its terminal
+operator-aborted result. Terminal predecessors are archived non-recursively when either snapshot
+kind later claims the shared slot.
+
 ---
 
 ## 4. Component map
 
 ```mermaid
 flowchart TB
-    subgraph AGENTS["canonical/agents — 29 core roles + selected overlays"]
+    subgraph AGENTS["canonical/agents — 33 core roles + selected overlays"]
         direction TB
         ORC["orchestrator (controller)"]
         PLAN["spec-doc-writer · story-planner · ui-designer"]
-        REV["senior-backend-dev · senior-frontend-dev<br/>technical-architect · em-reviewer · merge-reviewer"]
-        BUILD["developer · sdlc-code-reviewer"]
+        REV["senior-backend-reviewer · senior-frontend-reviewer<br/>technical-architect · em-reviewer · merge-reviewer"]
+        BUILD["developer · senior-backend-dev · senior-frontend-dev · sdlc-code-reviewer<br/>maker-checker-maker · maker-checker-reviewer"]
         TST["unit-tester · e2e-tester · tester · senior-tester · auditor"]
         SECG["security-reviewer · secret-scanner · dependency-scanner<br/>owasp-reviewer · policy-validator · risk-classifier"]
         SHIP["devops-engineer · observability-engineer · pr-raiser · incident-responder"]
@@ -284,10 +321,10 @@ claude-kit/
 │   └── marketplace.json       # Codex marketplace; source is providers/codex/claude-kit
 ├── providers/codex/claude-kit/     # generated, first-class Codex plugin package root
 │   ├── .codex-plugin/plugin.json
-│   ├── skills/                # 126 Codex-valid skills + manual-only policy sidecars
+│   ├── skills/                # 127 Codex-valid skills + manual-only policy sidecars
 │   └── hooks/                 # native hook JSON + adapted self-contained scripts
 ├── canonical/                 # provider-neutral agents · skills · commands · rules · templates
-├── agents/                    # generated Claude-compatible 29-agent surface
+├── agents/                    # generated Claude-compatible 33-agent surface
 ├── skills/                    # generated compatibility skills incl. sdlc
 ├── commands/                  # generated Claude /claude-kit:* wrappers
 ├── hooks/

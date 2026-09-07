@@ -131,8 +131,8 @@ def test_complete_reviewed_skill_and_command_inventory() -> None:
     skills = discover_canonical_skills(ROOT)
     commands = discover_canonical_commands(ROOT)
 
-    assert len(skills) == 131
-    assert sum(record.kind is SkillSourceKind.CORE for record in skills) == 122
+    assert len(skills) == 132
+    assert sum(record.kind is SkillSourceKind.CORE for record in skills) == 123
     assert sum(record.kind is SkillSourceKind.ORG for record in skills) == 9
     assert len(commands) == 4
     assert {record.spec.id for record in commands} == {
@@ -429,11 +429,11 @@ def test_invocation_input_pause_and_references_are_semantic() -> None:
 
     assert (
         sum(record.spec.invocation is InvocationMode.EXPLICIT for record in skills)
-        == 16
+        == 17
     )
     assert (
         sum(record.request_input.mode is not RequestMode.NONE for record in skills)
-        == 20
+        == 21
     )
     paused = {record.spec.id: record for record in skills if record.pause_for_human}
     assert set(paused) == {"idea-refine", "refresh-docs"}
@@ -453,6 +453,48 @@ def test_invocation_input_pause_and_references_are_semantic() -> None:
         assert "$ARGUMENTS" not in text
         assert ".claude" not in text.lower()
         assert "AskUserQuestion" not in text
+
+
+def test_maker_checker_is_an_explicit_managed_cli_entrypoint() -> None:
+    records = {record.spec.id: record for record in discover_canonical_skills(ROOT)}
+    record = records["maker-checker"]
+
+    assert record.kind is SkillSourceKind.CORE
+    assert record.spec.invocation is InvocationMode.EXPLICIT
+    assert record.request_input.mode is RequestMode.REQUIRED
+    assert record.spec.capabilities == frozenset({Capability.SHELL})
+    assert tuple(reference.uri for reference in record.spec.references) == (
+        "skill://maker-checker",
+        "state://maker-checker-config",
+    )
+
+    source = record.canonical_path.read_text(encoding="utf-8")
+    assert "{{kit:cli}} maker-checker run" in source
+    assert "auto|code|design|specification" in source
+    assert "--task '<task>'" in source
+    assert "{{request}}" in source
+    assert "fresh" in source.lower()
+    assert "read-only" in source.lower()
+    assert "bounded" in source.lower()
+    assert not provider_leakage(source, known_skill_ids=frozenset(records))
+
+    generator = _generator()
+    claude = generator.render_claude_skill(record)
+    codex = generator.render_codex_skill(record, plugin_context=True)
+    claude_metadata, _ = _frontmatter(claude)
+    codex_metadata, _ = _frontmatter(codex)
+    policy = yaml.safe_load(generator.render_codex_policy(record))
+
+    assert claude_metadata["name"] == "maker-checker"
+    assert claude_metadata["disable-model-invocation"] is True
+    assert "/maker-checker <task>" in claude
+    assert "claude-kit maker-checker run" in claude
+    assert ".ckit/config/init-options.json" in claude
+    assert codex_metadata["name"] == "maker-checker"
+    assert "$maker-checker <task>" in codex
+    assert "ckit maker-checker run" in codex
+    assert ".ckit/config/init-options.json" in codex
+    assert policy["policy"] == {"allow_implicit_invocation": False}
 
 
 def test_codex_documents_use_only_supported_discovery_frontmatter() -> None:
@@ -698,14 +740,14 @@ def test_generator_is_current_and_owns_every_skill_command_payload() -> None:
     legacy_outputs = {
         path for path in outputs if not path.is_relative_to(codex_plugin_root)
     }
-    assert len(legacy_outputs) == 682  # 139 skills/commands + 543 assets
+    assert len(legacy_outputs) == 683  # 140 skills/commands + 543 assets
 
     codex_root = codex_plugin_root / "skills"
     codex_skills = sorted(codex_root.glob("*/SKILL.md"))
     codex_sidecars = sorted(codex_root.glob("*/agents/openai.yaml"))
     codex_references = sorted(codex_root.glob("*/references/*.md"))
-    assert len(codex_skills) == 126  # 122 public skills + four command adapters
-    assert len(codex_sidecars) == 20  # 16 explicit skills + four adapters
+    assert len(codex_skills) == 127  # 123 public skills + four command adapters
+    assert len(codex_sidecars) == 21  # 17 explicit skills + four adapters
     assert len(codex_references) == 537  # 527 direct + ten projected shared refs
     assert not (codex_root / "_references").exists()
     assert not {
